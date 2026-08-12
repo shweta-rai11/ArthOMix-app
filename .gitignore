@@ -1,0 +1,11 @@
+# nested repo, pushed separately to its own GitHub repository
+Research_Q2_TRANSCRIPTOMICS_sexstratified_COPY/
+
+# OS / editor
+.DS_Store
+*~
+.Rproj.user/
+.Rhistory
+.RData
+renv/library/
+renv/staging/
