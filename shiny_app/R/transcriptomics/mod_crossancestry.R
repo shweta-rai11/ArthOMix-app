@@ -109,7 +109,7 @@ mod_crossancestry_ui <- function(id) {
         ),
         box(
           width = NULL, title = "Ancestry GWAS", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Stahl (European replication) and BioBank Japan (East Asian transfer) are sex-combined (Section 2.12.1), so this choice applies to both the Female and Male tabs, not per sex."),
+          p(class = "submodule-desc", "Applies to both Female and Male tabs (sex-combined GWAS)."),
           radioButtons(
             ns("data_source"), NULL,
             choiceNames = list(

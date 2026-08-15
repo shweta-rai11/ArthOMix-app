@@ -89,6 +89,15 @@ pp_collapse_probes_to_genes <- function(expr, annot, method = c("median", "maxme
   apply(ex, 2, function(col_vals) tapply(col_vals, sym, agg_fn, na.rm = TRUE))
 }
 
+## ---------------------------------------------------------------------------
+## The "Data Exploration" tab's own helpers, UI, and server logic now live
+## entirely in R/mod_preprocessing_explore.R (mod_data_exploration_ui() /
+## mod_data_exploration_server()) - a standalone EDA module with its own raw-
+## data upload, independent of the shared `dataset` reactiveValues this file
+## uses everywhere else. See mod_preprocessing_ui()/mod_preprocessing_server()
+## below for where it's mounted (nested module, id "eda").
+## ---------------------------------------------------------------------------
+
 ## Display names for this tab only. mod_dataset.R's own dropdown and
 ## Overview and Datasets keep showing the raw GEO accession (full
 ## traceability lives there); this tab is a working cohort picker for
@@ -554,57 +563,53 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
 ## UI
 ## ---------------------------------------------------------------------------
 
-## Step title for the workflow-stepper nav (number + icon + label + a short
-## sub-label), matching the visual reference. `value` is set explicitly on
-## each tabPanel() below so this richer title markup doesn't change the tab's
-## selectable value - anything elsewhere that does
+## Plain icon + label tab title - same convention as this tabset's own
+## "Data Exploration" tab (below) and the outer Dataset/Sub-modules/
+## Differential Expression tabs (tx_menu, ui.R), so this inner tabset reads
+## as one more ordinary tab bar rather than a separate numbered stepper.
+## `value` is set explicitly on each tabPanel() below so this title markup
+## doesn't change the tab's selectable value - anything elsewhere that does
 ## updateTabsetPanel(session, ns("tabs"), selected = "Merge datasets") still
 ## works exactly as before.
-pp_step_title <- function(number, ic, label, sublabel) {
-  tagList(
-    span(class = "step-number", as.character(number)),
-    icon(ic),
-    span(class = "step-text",
-         span(class = "step-label", label),
-         span(class = "step-sublabel", sublabel))
-  )
+pp_tab_title <- function(ic, label) {
+  tagList(icon(ic), " ", label)
 }
 
 mod_preprocessing_ui <- function(id) {
   ns <- NS(id)
-  fluidRow(
-    column(
-      8,
-      div(
-        class = "workflow-stepper-wrap",
-        tabsetPanel(
-          id = ns("tabs"), type = "tabs",
-          header = tagList(
-            tags$hr()
-          ),
-          tabPanel(
-            value = "Preprocessing", title = pp_step_title(1, "broom", "Preprocessing", "Clean & filter data"),
-            br(), uiOutput(ns("preprocessing_tab_ui"))
-          ),
-          tabPanel(
-            value = "Merge datasets", title = pp_step_title(2, "code-merge", "Merge Datasets", "Combine datasets"),
-            br(), uiOutput(ns("merge_tab_ui"))
-          ),
-          tabPanel(
-            value = "Batch correction", title = pp_step_title(3, "wand-magic-sparkles", "Batch Correction", "Correct batch effects"),
-            br(), uiOutput(ns("batch_tab_ui"))
-          )
-        )
-      )
-    ),
-    column(
-      4,
-      div(
-        class = "pipeline-rail",
-        arthochat_shortcut_ui(
-          "Not sure whether to quantile-normalise, which ComBat prior to use, or how to read a PCA batch-effect plot?",
-          compact = TRUE
-        )
+  ## No ArthOChat rail on this tab (see feedback memory: ArthOChat removed
+  ## from Preprocessing & Batch Correction). The pipeline-rail column used
+  ## to hold nothing but the "Ask ArthOChat" shortcut, so with it gone the
+  ## tabset now simply spans the full row width for every subtab -
+  ## Preprocessing/Merge datasets/Batch correction/Explore alike - instead
+  ## of the old 8/4 split.
+  div(
+    ## "tx-menu-wrap": the same class the outer Dataset/Sub-modules/
+    ## Differential Expression tabset (ui.R's tx_menu) uses, so this
+    ## inner tabset gets the identical plain underline-tab look
+    ## (www/custom.css .tx-menu-wrap .nav-tabs) instead of a bespoke
+    ## numbered-stepper treatment.
+    class = "tx-menu-wrap",
+    tabsetPanel(
+      id = ns("tabs"), type = "tabs",
+      header = tagList(
+        tags$hr()
+      ),
+      tabPanel(
+        value = "Preprocessing", title = pp_tab_title("broom", "Preprocessing"),
+        br(), uiOutput(ns("preprocessing_tab_ui"))
+      ),
+      tabPanel(
+        value = "Merge datasets", title = pp_tab_title("code-merge", "Merge Datasets"),
+        br(), uiOutput(ns("merge_tab_ui"))
+      ),
+      tabPanel(
+        value = "Batch correction", title = pp_tab_title("wand-magic-sparkles", "Batch Correction"),
+        br(), uiOutput(ns("batch_tab_ui"))
+      ),
+      tabPanel(
+        value = "Explore", title = tagList(icon("magnifying-glass-chart"), " Data Exploration"),
+        br(), mod_data_exploration_ui(ns("eda"))
       )
     )
   )
@@ -1239,10 +1244,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       tagList(
         selectInput(ns("color_by"), "Color PCA by", choices = cols,
                     selected = if ("group" %in% cols) "group" else cols[1], selectize = FALSE),
-        fluidRow(
-          column(6, selectInput(ns("pc_x"), "X axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 1, selectize = FALSE)),
-          column(6, selectInput(ns("pc_y"), "Y axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 2, selectize = FALSE))
-        ),
+        selectInput(ns("pc_x"), "X axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 1, selectize = FALSE),
+        selectInput(ns("pc_y"), "Y axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 2, selectize = FALSE),
         checkboxInput(ns("show_ellipse"), "Show group confidence ellipses", value = TRUE),
         checkboxInput(ns("show_labels"), "Label points with sample ID", value = FALSE),
         selectInput(ns("batch_col"), "Batch column to correct for",
@@ -1936,8 +1939,9 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     ## Settings, clipping every plot and table to a quarter of the page.
     ## Pipeline summary is removed from this tab entirely so its space goes
     ## to Results - it is not shown elsewhere either (it was already pulled
-    ## out of the shared rail in mod_preprocessing_ui in an earlier change);
-    ## ArthOChat in that rail is untouched throughout.
+    ## out of the shared rail in mod_preprocessing_ui in an earlier change).
+    ## The rail itself (and its ArthOChat shortcut) was later removed from
+    ## this whole module; this tab has never used it since.
     batch_content <- tagList(
       fluidRow(
         column(
@@ -1959,5 +1963,33 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         batch_content
       )
     })
+
+    ## batch_tab_ui is a uiOutput directly inside a tabPanel (same shape as
+    ## mod_wgcna.R's stepN_ui) and, being a plain renderUI() with no reactive
+    ## dependency of its own, only ever fires once - the first time that tab
+    ## becomes visible. Left at Shiny's default (suspendWhenHidden = TRUE),
+    ## that first fire can be missed: merging on the Merge Datasets tab, then
+    ## switching straight to Batch Correction, showed nothing until you left
+    ## the tab and came back (or revisited Merge Datasets) to re-trigger it.
+    ## Its nested uiOutputs (settings_ui/ref_batch_ui/results_top_ui/
+    ## results_rest_ui) are only ever inserted into the DOM once batch_tab_ui
+    ## has rendered, so they inherit the same risk and get the same fix -
+    ## mirroring mod_wgcna.R's "every step's uiOutput must render as soon as
+    ## this module mounts" comment for its own step tabs.
+    for (bc_out in c("batch_tab_ui", "settings_ui", "ref_batch_ui", "results_top_ui", "results_rest_ui")) {
+      outputOptions(output, bc_out, suspendWhenHidden = FALSE)
+    }
+
+    ## =====================================================================
+    ## Data Exploration tab
+    ## ---------------------------------------------------------------------
+    ## A standalone EDA module (R/mod_preprocessing_explore.R) with its own
+    ## raw-data upload - deliberately independent of the Preprocessing/Merge/
+    ## Batch correction steps above and of the shared `dataset`
+    ## reactiveValues every other tab in this app reads from. Nested Shiny
+    ## module, id "eda" (matches mod_preprocessing_ui()'s mod_data_exploration_ui(ns("eda"))).
+    ## =====================================================================
+
+    mod_data_exploration_server("eda")
   })
 }

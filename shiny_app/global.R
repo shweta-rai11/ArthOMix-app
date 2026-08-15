@@ -8,6 +8,22 @@
 ## own upload path, etc.), not just one.
 options(shiny.maxRequestSize = 200 * 1024^2)
 
+## Background execution for genuinely slow, blocking operations - currently
+## only the Methylomics Dataset tab's preloaded ~2.1GB live beta matrix read
+## (mod_methyl_dataset.R). Shiny is single-threaded per R process by
+## default, so without this, that one readRDS() call froze the *entire*
+## app - every tab, every open browser session - for however long the read
+## took (often 30s-2min+). shiny::ExtendedTask (>=1.8) is the supported way
+## to run such a call in the background while keeping even the session that
+## triggered it fully responsive; it needs a `future` plan set once,
+## process-wide. Guarded by requireNamespace() since `future`/`promises`
+## aren't otherwise required by this app - if either is missing, the
+## affected loads simply fall back to blocking (see mod_methyl_dataset.R).
+ARTHOMIX_ASYNC_AVAILABLE <- requireNamespace("future", quietly = TRUE) && requireNamespace("promises", quietly = TRUE)
+if (ARTHOMIX_ASYNC_AVAILABLE) {
+  future::plan(future::multisession, workers = 2)
+}
+
 library(shiny)
 library(shinydashboard)
 library(shinythemes)
@@ -267,6 +283,144 @@ get_collapsed_genes <- function(gse_id) {
     }
   }
   .arthomix_cache[[key]]
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics: preloaded default analysis (GSE42861, Liu et al. 2013)
+## ---------------------------------------------------------------------------
+## The methylomics counterpart to DATA_ROOT/load_default_dataset() above -
+## Research_Q3_METHYLOMICS_sexstratified_COPY/methylomics/, a nested project
+## (own .gitignore entry, not tracked by this repo) with one script0N_*/
+## stage per analysis step, each with its own tables/figures and a
+## METHODS_*.md documenting exactly what was run. Unlike the transcriptomics
+## DATA_ROOT, this one is optional - the app must still run (Methylomics
+## upload-only) if a user hasn't copied this folder in, so nothing here
+## calls stop() the way DATA_ROOT's missing-folder check does.
+##
+## Only the already-computed result tables are read here, not the ~2.1GB
+## QC'd beta matrix those tables were derived from (data/processed/, on the
+## source machine only, excluded when this folder was copied in - see its
+## own .gitignore comment) - every table below already carries genome-wide
+## results for all 412,492 retained probes, so interactive FDR/delta-beta
+## filtering works directly off them with no need to hold the full matrix
+## in memory.
+METH_DATA_ROOT <- normalizePath(file.path("..", "Research_Q3_METHYLOMICS_sexstratified_COPY", "methylomics"), mustWork = FALSE)
+METH_DATA_AVAILABLE <- dir.exists(METH_DATA_ROOT)
+
+METH_QC_PHENO_CSV      <- file.path(METH_DATA_ROOT, "script01_dataload_QC", "tables", "sample_metadata_qc.csv")
+METH_QC_PCA_SEXCHECK_CSV <- file.path(METH_DATA_ROOT, "script01_dataload_QC", "tables", "qc_pca_sexcheck.csv")
+METH_DMP_PLAIN_DIR  <- file.path(METH_DATA_ROOT, "script03_dmp_sexstratified", "tables")
+METH_DMP_SVA_DIR    <- file.path(METH_DATA_ROOT, "script03_dmp_sva_sexstratified", "tables")
+METH_DMR_DIR        <- file.path(METH_DATA_ROOT, "script04_dmr_sexstratified", "tables")
+
+## Sequential probe-filtering cascade (METHODS_load_qc.md Table 2.X.3) -
+## the actual logged counts from the completed run, not recomputed here
+## (recomputing it needs the ~2.1GB QC'd beta matrix, excluded when this
+## folder was copied in - see METH_DATA_ROOT's own comment above).
+METH_QC_PROBE_CASCADE <- data.frame(
+  step = c("Raw (post-parse)", "cg-prefix only", "MASK_general removal", "Multi-hit removal", "Sex-chromosome removal", "Missingness > 5% removal"),
+  retained = c(485577L, 482421L, 422520L, 422520L, 412492L, 412492L),
+  removed  = c(NA_integer_, 3156L, 59901L, 0L, 10028L, 0L)
+)
+
+## Reads one sex-stratum's DMP results for one pipeline stage ("plain" - the
+## unadjusted model, which found zero genome-wide-significant CpGs due to
+## residual inflation - or "sva", the surrogate-variable-adjusted follow-up
+## that resolves it; see METHODS_dmp_sexstratified.md /
+## METHODS_dmp_sva_sexstratified.md). Returns NULL rather than erroring if
+## METH_DATA_AVAILABLE is FALSE, so mod_methyl_dmp.R can show an empty
+## state instead of crashing when this folder hasn't been copied in.
+load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male")) {
+  stage <- match.arg(stage); sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  dir <- if (stage == "plain") METH_DMP_PLAIN_DIR else METH_DMP_SVA_DIR
+  path <- file.path(dir, sprintf("dmp_%s_full.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Reads one sex-stratum's precomputed DMR (region-level) results
+## (script04_dmr_sexstratified/tables/dmr_{sex}_full.csv) - DMRcate region
+## calls (lambda=1000, C=2) on the SVA-adjusted, bacon-corrected per-CpG
+## statistics from load_default_dmp("sva", sex), with an explicit
+## Benjamini-Hochberg region-level FDR (dmr_fdr, on the Stouffer statistic)
+## already computed; see METHODS_dmr_sexstratified.md. Returns NULL rather
+## than erroring if METH_DATA_AVAILABLE is FALSE, mirroring load_default_dmp().
+load_default_dmr <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_DMR_DIR, sprintf("dmr_%s_full.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## The QC-derived sample metadata (690 rows incl. header - 689 GSE42861
+## samples) - group counts, sex, PCA outlier flags, chrY sex-check - for
+## the dataset-context panel above the DMP results, not full QC replication.
+load_default_meth_pheno <- function() {
+  if (!METH_DATA_AVAILABLE || !file.exists(METH_QC_PHENO_CSV)) return(NULL)
+  as.data.frame(data.table::fread(METH_QC_PHENO_CSV, showProgress = FALSE))
+}
+
+## Per-sample PCA coordinates, MAD-outlier flag, and chrY-based sex-check
+## result (script01_dataload_QC/tables/qc_pca_sexcheck.csv) - the QC
+## module's default-analysis view reads this directly rather than the
+## summary already merged into load_default_meth_pheno(), since this one
+## additionally retains the k-means cluster assignment and predicted sex.
+load_default_meth_qc_sexcheck <- function() {
+  if (!METH_DATA_AVAILABLE || !file.exists(METH_QC_PCA_SEXCHECK_CSV)) return(NULL)
+  as.data.frame(data.table::fread(METH_QC_PCA_SEXCHECK_CSV, showProgress = FALSE))
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics: the actual preloaded beta matrix (live QC, not just reproduced
+## tables)
+## ---------------------------------------------------------------------------
+## METH_DATA_ROOT above only carries the completed pipeline's OUTPUT tables -
+## the ~2.1GB QC'd beta matrix that produced them was deliberately excluded
+## when that folder was copied in. It still exists at its original location
+## on the source machine (outside this repo's directory tree entirely, not
+## just excluded via .gitignore within it - unlike METH_DATA_ROOT/DATA_ROOT,
+## which are both a sibling of shiny_app/ and so reachable by a single "..",
+## this one has no such relative relationship to shiny_app/'s location).
+## Read directly from where it already lives instead of duplicating a
+## multi-gigabyte file into this repo, same idea as RAW_DIR above. Optional,
+## like METH_DATA_ROOT - the app must still run (upload-only Methylomics QC)
+## on a machine that only has the METH_DATA_ROOT results copy; set the
+## METH_RAW_DATA_ROOT environment variable to point at this folder on any
+## other machine.
+METH_RAW_DATA_ROOT <- normalizePath(
+  Sys.getenv("METH_RAW_DATA_ROOT", "/Users/swetarai/ArthOMix/methylomics/data/processed"),
+  mustWork = FALSE
+)
+METH_BETA_RAW_RDS  <- file.path(METH_RAW_DATA_ROOT, "beta_raw.rds")
+METH_PHENO_RDS     <- file.path(METH_RAW_DATA_ROOT, "pheno.rds")
+METH_RAW_DATA_AVAILABLE <- file.exists(METH_BETA_RAW_RDS) && file.exists(METH_PHENO_RDS)
+
+## Reads the real preloaded beta matrix + its phenotype table, once per
+## running process (cached in .arthomix_cache, same two-tier idea as
+## get_raw_eset() above - this file is large enough that re-reading it on
+## every "Load preloaded dataset" click would make the Dataset tab feel
+## broken). Adds a `sample` column (= pheno$gsm) to the phenotype table so
+## methyl_sheet_sample_ids() in qc.R resolves samples by ID rather than by
+## row-order coincidence, and orders the matrix's columns to match the
+## phenotype table exactly (both are keyed on GSM accession).
+load_default_meth_matrix <- function() {
+  key <- "meth_default_matrix"
+  if (!is.null(.arthomix_cache[[key]])) return(.arthomix_cache[[key]])
+  if (!METH_RAW_DATA_AVAILABLE) return(NULL)
+
+  beta  <- readRDS(METH_BETA_RAW_RDS)
+  pheno <- readRDS(METH_PHENO_RDS)
+  pheno$sample <- as.character(pheno$gsm)
+
+  common <- intersect(colnames(beta), pheno$sample)
+  beta  <- beta[, common, drop = FALSE]
+  pheno <- pheno[match(common, pheno$sample), , drop = FALSE]
+
+  result <- list(beta = beta, pheno = pheno)
+  .arthomix_cache[[key]] <- result
+  result
 }
 
 GEO_SOURCES <- list(
@@ -919,6 +1073,70 @@ compute_sample_qc <- function(expr, mad_k = 3, top_n_cor = 2000) {
   )
 }
 
+## ---------------------------------------------------------------------------
+## THE NORMALISATION IMPLEMENTATION - audited 2026-08-12 (see Data
+## Exploration & Normalisation tab in mod_preprocessing.R for the user-
+## facing side of this audit). Summary, so this stays easy to find later:
+##
+##   Where raw data is loaded:    mod_dataset.R (Dataset tab: preloaded /
+##                                 GEO fetch / upload) and mod_preprocessing.R
+##                                 ("Preprocessing" tab, per-source). Either
+##                                 way, the result is a genes(or probes) x
+##                                 samples numeric matrix (`expr`) kept
+##                                 strictly separate from the sample-level
+##                                 metadata data.frame (`meta`) - phenotype/
+##                                 clinical columns are never columns of
+##                                 `expr`, so they can't accidentally be
+##                                 normalised as if they were expression
+##                                 values.
+##   Where preprocessing starts:  mod_preprocessing.R's per-source filters
+##                                 (missing-value tolerance, expression
+##                                 pattern exclusion, log2 decision) run
+##                                 BEFORE datasets are merged; a second,
+##                                 merged-matrix filter (expression/variance
+##                                 percentile) runs in the "Batch correction"
+##                                 tab, immediately before normalisation.
+##                                 Order is explicit and enforced by data
+##                                 flow, not just convention: Filter -> (log2
+##                                 Transform, applied per-source pre-merge) ->
+##                                 Normalise -> Batch-correct.
+##   Normalisation function:      this file, below - needs_quantile_norm()
+##                                 decides IF; the actual transform is either
+##                                 `limma::normalizeBetweenArrays(..., method
+##                                 = "quantile")` (microarray/log-scale data)
+##                                 or `edgeR::calcNormFactors(..., method =
+##                                 "TMM")` + `edgeR::cpm(..., log = TRUE)`
+##                                 (raw RNA-seq counts) - see the `norm_method`
+##                                 branch in mod_preprocessing.R's `result`
+##                                 reactive (Batch correction tab).
+##   Data it receives/returns:    a numeric expression matrix in, the same
+##                                 shape out (never touches `meta`).
+##   Correctness verdict:         both methods are appropriate for their
+##                                 respective data type and were NOT
+##                                 rewritten - quantile normalisation for
+##                                 microarray/already-log-scale data, TMM for
+##                                 raw counts, in the right order relative to
+##                                 filtering. The auto-detect heuristic
+##                                 (needs_quantile_norm(), below) already
+##                                 guards against silently re-normalising
+##                                 data that looks already normalised.
+##   Gap found and addressed:     none of this was surfaced to the user
+##                                 BEFORE they picked a method - no raw-data
+##                                 preview, no visual "does this look already
+##                                 normalised" check, no missing/zero/
+##                                 infinite/duplicate-feature audit, and no
+##                                 record of exactly what was applied for
+##                                 reproducibility. That gap is what the new
+##                                 Data Exploration & Normalisation tab (and
+##                                 the small helpers just below) fills - it
+##                                 calls this same summarize_norm_diagnostics()/
+##                                 needs_quantile_norm() and the same
+##                                 limma::normalizeBetweenArrays()/edgeR TMM
+##                                 calls Batch Correction already uses, rather
+##                                 than reimplementing normalisation a second
+##                                 time.
+## ---------------------------------------------------------------------------
+
 ## Per-sample scale diagnostics, before/after normalisation. Same metrics
 ## and same "needs quantile normalisation" decision rule the thesis
 ## pipeline uses in scripts/00_shared/03_normalize_batch.R: normalise if
@@ -938,6 +1156,196 @@ summarize_norm_diagnostics <- function(m) {
 
 needs_quantile_norm <- function(diag) {
   diag$max_value > 100 || diag$median_sd > 0.5 || diag$iqr_sd > 0.5
+}
+
+## ---------------------------------------------------------------------------
+## Data Exploration & Normalisation tab helpers (mod_preprocessing.R) - raw-
+## data audit and data-type detection only. None of these apply a
+## normalisation themselves beyond what's delegated straight to the same
+## limma/edgeR calls Batch Correction already uses (see apply_chosen_norm()
+## below) - this section exists to decide WHETHER and WHICH, and to surface
+## raw-data quality issues, not to reimplement normalisation math.
+## ---------------------------------------------------------------------------
+
+## Raw-data health counts a scientist would want before deciding anything:
+## missingness, zeros (routine and expected in RNA-seq counts, worth a
+## second look in microarray/log data), non-finite values (never expected -
+## a sign of a broken upload, e.g. a ratio/fold-change column mistaken for
+## an expression matrix) and duplicated feature IDs (silently ambiguous for
+## any downstream row-name-keyed merge/lookup). None of this was checked
+## anywhere in the app before this tab.
+expr_raw_health <- function(expr) {
+  m <- as.matrix(expr)
+  vals <- as.numeric(m)
+  list(
+    n_features = nrow(m), n_samples = ncol(m),
+    n_missing = sum(is.na(vals)),
+    n_zero = sum(vals == 0, na.rm = TRUE),
+    n_infinite = sum(is.infinite(vals)),
+    n_duplicated_features = sum(duplicated(rownames(m)))
+  )
+}
+
+## Best-effort guess at what kind of expression data this is, from the
+## values alone (no filename/platform metadata to go on) - drives which
+## normalisation methods the Data Exploration & Normalisation tab offers.
+## Mirrors the distinction Batch Correction's own TMM-vs-quantile radio
+## already draws by hand, as a reusable, named function:
+##   "counts"              - non-negative, (near-)integer-valued, large
+##                            range - raw RNA-seq counts. TMM + log2-CPM is
+##                            appropriate; quantile-normalising counts
+##                            directly is not (it assumes a roughly
+##                            continuous, already-comparable distribution
+##                            shape, which raw count data doesn't have).
+##   "already_normalised"  - negative values present (only possible after a
+##                            log/z-score-like transform), or per-sample
+##                            medians/IQRs already agree
+##                            (needs_quantile_norm() is FALSE) - most likely
+##                            already log-transformed and/or normalised
+##                            upstream, e.g. a public series' already-
+##                            processed matrix.
+##   "expression"           - anything else: linear- or log-scale
+##                            expression that hasn't been shown to already
+##                            agree across samples - the normal case
+##                            quantile normalisation targets.
+detect_expr_data_type <- function(expr) {
+  m <- as.matrix(expr)
+  finite_vals <- m[is.finite(m)]
+  if (length(finite_vals) == 0) return("expression")
+  has_negative <- any(finite_vals < 0)
+  ## Threshold is 0.6, not ~1: real "raw counts" files are routinely
+  ## expected-count estimates from an EM-based quantifier (RSEM, Salmon,
+  ## kallisto), not literal integer read tallies - GSE89408's own bundled
+  ## counts file (scripts/00_shared/eda.R's source) is ~89% near-integer,
+  ## not 100%. Verified against a genuinely continuous synthetic matrix
+  ## (~0% near-integer) to confirm 0.6 keeps real microarray/log-scale data
+  ## out of this bucket while still catching expected-count RNA-seq data.
+  looks_like_counts <- !has_negative &&
+    mean(abs(finite_vals - round(finite_vals)) < 1e-6) > 0.6 &&
+    max(finite_vals) > 100
+  if (looks_like_counts) return("counts")
+  diag <- summarize_norm_diagnostics(m)
+  if (has_negative || !needs_quantile_norm(diag)) return("already_normalised")
+  "expression"
+}
+
+## Filter -> Transform, in that explicit order, kept as one small function
+## so the Data Exploration & Normalisation tab can't accidentally apply them
+## the other way round. Filtering first means a normalisation method that
+## estimates parameters from the data (quantile ranks, TMM size factors)
+## never sees near-empty features that would only distort those estimates;
+## log2 is applied last, evaluating the filter thresholds on the scale a
+## user actually set them on (e.g. "raw count >= 10"), not on already-
+## logged values. Missing values remaining after the row-level filter are
+## median-imputed, the same simple technique mod_pp_source_server() (the
+## per-dataset Preprocessing step) already uses - not a new one invented
+## here.
+filter_and_transform_expr <- function(expr, min_expr = 0, min_sample_frac = 0,
+                                        max_na_pct = 100, log2_transform = FALSE) {
+  m <- as.matrix(expr)
+  ## Infinite values are never a valid expression measurement; treat them as
+  ## missing so they fall through the same missing-value handling below
+  ## instead of silently winning every ">= min_expr" comparison, or
+  ## corrupting max()/quantile()-based diagnostics downstream. Nothing
+  ## upstream of this tab currently guards against this (see
+  ## expr_raw_health()'s n_infinite count, surfaced as its own warning) -
+  ## this is the one place that actually neutralises it before it reaches
+  ## filtering, transformation or normalisation.
+  m[is.infinite(m)] <- NA
+  keep_na <- (rowMeans(is.na(m)) * 100) <= max_na_pct
+  above <- m >= min_expr
+  above[is.na(above)] <- FALSE
+  keep_expr <- (rowMeans(above) * 100) >= min_sample_frac
+  m <- m[keep_na & keep_expr, , drop = FALSE]
+  if (anyNA(m)) {
+    row_med <- apply(m, 1, stats::median, na.rm = TRUE)
+    na_idx <- which(is.na(m), arr.ind = TRUE)
+    m[na_idx] <- row_med[na_idx[, 1]]
+  }
+  if (isTRUE(log2_transform)) {
+    m[m <= 0] <- NA
+    m <- log2(m)
+    m <- m[stats::complete.cases(m), , drop = FALSE]
+  }
+  m
+}
+
+## Normalise (or deliberately don't) - the SAME limma::normalizeBetweenArrays
+## / edgeR TMM calls Batch Correction's `result` reactive already uses, not
+## a reimplementation. method: "none" (used as filtered/transformed, no
+## further scaling - what "Do not normalise" in the tab maps to), "quantile"
+## (microarray/log-scale expression) or "tmm" (raw RNA-seq counts).
+apply_chosen_norm <- function(expr, method = c("none", "quantile", "tmm")) {
+  method <- match.arg(method)
+  m <- as.matrix(expr)
+  if (identical(method, "none")) {
+    return(list(expr = m, label = "None - used as filtered/transformed, no normalisation applied"))
+  }
+  if (identical(method, "tmm")) {
+    validate(need(all(m >= 0, na.rm = TRUE),
+                  "TMM normalisation expects raw, non-negative counts, but this data has negative values."))
+    counts <- round(m)
+    storage.mode(counts) <- "integer"
+    dge <- edgeR::calcNormFactors(edgeR::DGEList(counts = counts), method = "TMM")
+    return(list(expr = edgeR::cpm(dge, log = TRUE, prior.count = 1),
+                label = "TMM (edgeR::calcNormFactors) plus log2-CPM"))
+  }
+  mtx <- limma::normalizeBetweenArrays(m, method = "quantile")
+  rownames(mtx) <- rownames(m); colnames(mtx) <- colnames(m)
+  list(expr = mtx, label = "Quantile normalisation (limma::normalizeBetweenArrays)")
+}
+
+## Plain-language read of a before/after normalisation comparison - QC
+## evidence, not proof (a histogram looking better is not the same as
+## "correct"). Five fixed messages, matching what's actually measurable
+## from summarize_norm_diagnostics()/needs_quantile_norm() rather than
+## claiming more than the data shows.
+normalisation_assessment <- function(diag_before, diag_after, method) {
+  if (identical(method, "none")) return("No substantial transformation was applied.")
+  if (is.null(diag_after) || inherits(diag_after, "error")) {
+    return("Normalisation could not be performed because of invalid input values.")
+  }
+  before_ok <- !needs_quantile_norm(diag_before)
+  after_ok  <- !needs_quantile_norm(diag_after)
+  if (before_ok) {
+    "Data appear already normalised - this step had little additional effect."
+  } else if (after_ok) {
+    "Distributions are more comparable across samples."
+  } else {
+    "Large differences between sample distributions remain."
+  }
+}
+
+## Headline data-processing status for the Data Exploration & Normalisation
+## tab's status panel - a coarser, user-facing classification built ONLY on
+## top of detect_expr_data_type()/needs_quantile_norm() (never re-derives
+## its own detection rule, so this can't disagree with the value shown
+## elsewhere in that tab). Exactly three states, matched to what's actually
+## knowable from the matrix alone: "normalized" (already normalised-
+## looking - detect_expr_data_type()'s "already_normalised" bucket),
+## "not_normalized" (raw counts or expression that hasn't been shown to
+## already agree across samples), or "unknown" (fewer than 2 samples, or no
+## finite values at all - nothing to compare distributions across, so the
+## question doesn't apply and guessing would be dishonest).
+explore_data_status <- function(expr, dt) {
+  m <- as.matrix(expr)
+  finite_n <- sum(is.finite(m))
+  if (ncol(m) < 2 || finite_n == 0) {
+    return(list(
+      state = "unknown", label = "Unknown",
+      detail = "Fewer than two samples (or no finite expression values) are available, so between-sample normalization cannot be assessed."
+    ))
+  }
+  if (identical(dt, "already_normalised")) {
+    return(list(
+      state = "normalized", label = "Already normalized",
+      detail = "The active expression matrix has already undergone transformation/normalization. Additional normalization is not required unless explicitly selected below."
+    ))
+  }
+  list(
+    state = "not_normalized", label = "Not normalized",
+    detail = "The active expression matrix has not been normalized. A normalization method can be selected below before downstream analysis."
+  )
 }
 
 ## PCA on a genes-in-rows expression matrix, dropping zero-variance genes
@@ -1160,8 +1568,8 @@ MODULE_REGISTRY <- list(
   list(
     id = "methylomics", tab = "methylomics",
     title = "Methylomics",
-    tagline = "Differential methylation, epigenetic age, and comparison against the expression changes found in transcriptomics.",
-    icon = "circle-nodes", status = "planned", kind = "Single-omics"
+    tagline = "Upload a beta/M-value matrix or raw IDAT files, run probe- and sample-level quality control, and normalize (Noob, Functional normalization, SWAN, Dasen, BMIQ, PBC, or quantile). Differential methylation, DMR calling, and comparison against transcriptomics are still planned.",
+    icon = "circle-nodes", status = "available", kind = "Single-omics"
   ),
   list(
     id = "crossomics", tab = "crossomics",
@@ -1230,7 +1638,10 @@ arthochat_shortcut_ui <- function(hint = NULL, compact = FALSE) {
 ## ---------------------------------------------------------------------------
 ## Transcriptomics submodules
 ## Each submodule's config, UI wrapper and server wrapper live in their own
-## file: R/mod_<id>.R. They are assembled into TX_MODULES by
+## file: R/transcriptomics/mod_<id>.R (Methylomics' own submodules live the
+## same way under R/methylomics/ - see R/0_load_omics_modules.R for how
+## both subfolders get sourced, since shiny's own R/ autoloader doesn't
+## recurse into them). They are assembled into TX_MODULES by
 ## R/submodules_registry.R, which is sourced after all of them (see the
 ## sourcing note at the top of that file). Section numbers refer to
 ## results/METHODS_00_INDEX.md in the data folder.

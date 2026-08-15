@@ -45,28 +45,42 @@ mod_dge_ui <- function(id) {
         ),
         column(
           8,
-          box(
-            width = NULL, title = "Result", status = "primary", solidHeader = FALSE,
-            withSpinner(uiOutput(ns("summary_ui")), color = "#2563EB", type = 6),
-            withSpinner(plotOutput(ns("volcano"), height = 460), color = "#2563EB", type = 6),
-            div(class = "table-toolbar", downloadButton(ns("download_volcano_png"), "Download volcano plot (PNG, 7×6in @ 300dpi)", class = "btn-sm"))
+          ## Hidden until "Run differential expression" is clicked - same
+          ## `input['...'] > 0` conditionalPanel already used for this exact
+          ## purpose elsewhere in this app (see fs_sex_panel() in
+          ## mod_featureselection.R). action buttons start at click-count 0,
+          ## so nothing in this box renders until the first click.
+          conditionalPanel(
+            condition = sprintf("input['%s'] > 0", ns("run_btn")),
+            box(
+              width = NULL, title = "Result", status = "primary", solidHeader = FALSE,
+              withSpinner(uiOutput(ns("summary_ui")), color = "#2563EB", type = 6),
+              withSpinner(plotOutput(ns("volcano"), height = 460), color = "#2563EB", type = 6),
+              div(class = "table-toolbar", downloadButton(ns("download_volcano_png"), "Download volcano plot (PNG, 7×6in @ 300dpi)", class = "btn-sm"))
+            )
           )
         )
       ),
-      box(
-        width = 12, title = "Heatmap of top differentially expressed genes", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Per-gene z-scored expression, clustered by gene and sample, for the most significant genes in this contrast."),
-        fluidRow(
-          column(4, numericInput(ns("heatmap_n"), "Top significant genes to show", value = 30, min = 2, max = 200, step = 5)),
-          column(8, div(style = "padding-top: 25px;", downloadButton(ns("download_heatmap_png"), "Download heatmap (PNG, 300dpi)", class = "btn-sm")))
-        ),
-        withSpinner(plotOutput(ns("heatmap"), height = 520), color = "#2563EB", type = 6)
+      conditionalPanel(
+        condition = sprintf("input['%s'] > 0", ns("run_btn")),
+        box(
+          width = 12, title = "Heatmap of top differentially expressed genes", status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc", "Per-gene z-scored expression, clustered by gene and sample, for the most significant genes in this contrast."),
+          fluidRow(
+            column(4, numericInput(ns("heatmap_n"), "Top significant genes to show", value = 30, min = 2, max = 200, step = 5)),
+            column(8, div(style = "padding-top: 25px;", downloadButton(ns("download_heatmap_png"), "Download heatmap (PNG, 300dpi)", class = "btn-sm")))
+          ),
+          withSpinner(plotOutput(ns("heatmap"), height = 520), color = "#2563EB", type = 6)
+        )
       ),
-      box(
-        width = 12, title = "Result table", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Every tested gene, with an up/down/not-significant “direction” column. Use the column filter below the header to show only Up or only Down genes."),
-        div(class = "table-toolbar", downloadButton(ns("download_dge"), "Download CSV", class = "btn-sm")),
-        DT::dataTableOutput(ns("dge_table"))
+      conditionalPanel(
+        condition = sprintf("input['%s'] > 0", ns("run_btn")),
+        box(
+          width = 12, title = "Result table", status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc", "Every tested gene, with an up/down/not-significant “direction” column. Use the column filter below the header to show only Up or only Down genes."),
+          div(class = "table-toolbar", downloadButton(ns("download_dge"), "Download CSV", class = "btn-sm")),
+          DT::dataTableOutput(ns("dge_table"))
+        )
       ),
       uiOutput(ns("references_box_ui"))
   )

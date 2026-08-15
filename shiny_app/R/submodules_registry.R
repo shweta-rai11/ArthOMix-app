@@ -25,6 +25,32 @@ TX_MODULES <- list(
 
 TX_MODULES_BY_ID <- setNames(TX_MODULES, vapply(TX_MODULES, function(m) m$config$id, character(1)))
 
+## Methylomics sub-modules - same config/ui/server trio shape as TX_MODULES
+## above, added to as the Methylomics module grows past Dataset + Quality
+## Control (see ui.R's methylomicsUI(), which reuses build_submodule_grid()
+## against this list instead of TX_MODULES).
+##
+## Order follows the sex-stratified methylomics pipeline
+## (Research_Q3_METHYLOMICS_sexstratified_COPY/methylomics/script0N_*):
+## qc/normalization/dmp are built; celltype through diagnostic are
+## registry-only placeholder scaffolds (mod_methyl_<id>_ui() renders a
+## "not built yet" box) queued up to be built out one at a time.
+MX_MODULES <- list(
+  list(config = mod_methyl_qc_config,             ui = mod_methyl_qc_ui,             server = mod_methyl_qc_server),
+  list(config = mod_methyl_normalization_config,  ui = mod_methyl_normalization_ui,  server = mod_methyl_normalization_server),
+  list(config = mod_methyl_celltype_config,        ui = mod_methyl_celltype_ui,        server = mod_methyl_celltype_server),
+  list(config = mod_methyl_dmp_config,             ui = mod_methyl_dmp_ui,             server = mod_methyl_dmp_server),
+  list(config = mod_methyl_dmr_config,             ui = mod_methyl_dmr_ui,             server = mod_methyl_dmr_server),
+  list(config = mod_methyl_wgcna_config,           ui = mod_methyl_wgcna_ui,           server = mod_methyl_wgcna_server),
+  list(config = mod_methyl_candidates_config,      ui = mod_methyl_candidates_ui,      server = mod_methyl_candidates_server),
+  list(config = mod_methyl_featureselection_config, ui = mod_methyl_featureselection_ui, server = mod_methyl_featureselection_server),
+  list(config = mod_methyl_mr_config,              ui = mod_methyl_mr_ui,              server = mod_methyl_mr_server),
+  list(config = mod_methyl_coloc_config,           ui = mod_methyl_coloc_ui,           server = mod_methyl_coloc_server),
+  list(config = mod_methyl_diagnostic_config,      ui = mod_methyl_diagnostic_ui,      server = mod_methyl_diagnostic_server)
+)
+
+MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config$id, character(1)))
+
 ## ---------------------------------------------------------------------------
 ## AI assistant context
 ## ---------------------------------------------------------------------------

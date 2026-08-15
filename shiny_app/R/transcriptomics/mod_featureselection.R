@@ -274,7 +274,7 @@ fs_fit_sex <- function(X, y, params = list()) {
 mod_featureselection_config <- list(
   id = "featureselection", group = "Biomarker modeling",
   title = "Feature Selection",
-  description = "Sex-stratified (or pooled) feature selection using a LASSO, random forest and SVM-RFE consensus, with and without the MHC region, to build candidate biomarker panels.",
+  description = "LASSO, random forest and SVM-RFE consensus feature selection, by sex.",
   icon = "sliders"
 )
 
@@ -334,7 +334,7 @@ mod_featureselection_ui <- function(id) {
         ),
         box(
           width = NULL, title = "Candidate genes & samples", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Pick where the candidate gene panel comes from. Female and male fit separately by default; \"Run All\" instead pools every sample regardless of sex (or when sex isn't available) into one model - whichever source you choose."),
+          p(class = "submodule-desc", "Female and male fit separately by default; \"Run All\" pools every sample."),
           ## Run controls pinned at the top of the box (position: sticky, see
           ## .fs-run-bar in custom.css) rather than after every data-source/
           ## group setting below - previously they sat at the very end of a
@@ -349,8 +349,6 @@ mod_featureselection_ui <- function(id) {
                 actionButton(ns("run_male_btn"), "Run Male", icon = icon("play"), class = "btn-primary btn-sm"),
                 actionButton(ns("run_pooled_btn"), "Run All (pooled)", icon = icon("play"), class = "btn-primary btn-sm")
             ),
-            p(class = "submodule-desc", style = "font-size: 12.5px; margin: 6px 0 0 0;",
-              "Female, Male and pooled \"All\" each run independently, on their own button and their own schedule - whichever data source and settings are currently set below. \"Run All\" ignores the sex column entirely (works even without one) - use it to replicate a published method that didn't stratify by sex."),
             div(style = "margin-top: 6px;", uiOutput(ns("speed_hint_ui")))
           ),
           tags$hr(),
@@ -381,7 +379,7 @@ mod_featureselection_ui <- function(id) {
               condition = sprintf("input['%s'] == 'variable'", ns("gene_source")),
               numericInput(ns("n_genes"), "Number of most variable genes (per sex)", value = 50, min = 10, max = 150, step = 10),
               div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
-                  "Keep this modest - this project's own MR-prioritised panels were 25-40 genes. SVM-RFE's recursive elimination gets slow well above 100.")
+                  "Keep this modest - SVM-RFE gets slow above 100 genes.")
             ),
             conditionalPanel(
               condition = sprintf("input['%s'] == 'custom'", ns("gene_source")),
@@ -408,7 +406,7 @@ mod_featureselection_ui <- function(id) {
                          selected = "file", inline = TRUE),
             conditionalPanel(
               condition = sprintf("input['%s'] == 'file'", ns("deg_source_mode")),
-              p(class = "submodule-desc", "One delimited file (CSV) per button you plan to use, one row per gene, each with at least a \"gene\" column (an optional \"direction\" or \"adj.P.Val\" column restricts to significant genes only)."),
+              p(class = "submodule-desc", "One CSV per button, with a \"gene\" column. An optional \"direction\" or \"adj.P.Val\" column restricts to significant genes."),
               fileInput(ns("female_deg_file"), "Female DEG / candidate gene file", accept = c(".csv", ".tsv", ".txt")),
               fileInput(ns("male_deg_file"), "Male DEG / candidate gene file", accept = c(".csv", ".tsv", ".txt")),
               fileInput(ns("pooled_deg_file"), "Pooled (all-sample) DEG / candidate gene file - for \"Run All\"", accept = c(".csv", ".tsv", ".txt"))
@@ -621,14 +619,14 @@ mod_featureselection_server <- function(id, dataset, results) {
       live <- results$candidates[[sex_label]]$genes
       if (!is.null(live) && length(live) >= 2) {
         return(list(genes = live, is_live = TRUE,
-                    note = sprintf("%d genes from this session's live Candidate Gene Identification %s panel (WGCNA module background ∩ %s DEGs).",
-                                   length(live), sex_label, sex_label)))
+                    note = sprintf("%d genes from this session's live %s candidate panel.",
+                                   length(live), sex_label)))
       }
       fname <- sprintf("FS_input_%s%s.csv", sex_label, if (isTRUE(input$mhc_exclude)) "_noMHC" else "")
       bundled <- read_table_safe(fname)
       if (!is.null(bundled) && nrow(bundled) >= 2 && "gene" %in% colnames(bundled)) {
         return(list(genes = unique(as.character(bundled$gene)), is_live = FALSE,
-                    note = sprintf("%d genes from this project's own bundled, MR-prioritised %s candidate list (%s) - run Candidate Gene Identification (WGCNA + sex-stratified Differential Expression) this session to use your own live candidates instead.",
+                    note = sprintf("%d genes from the bundled %s candidate list (%s).",
                                    nrow(bundled), sex_label, fname)))
       }
       list(genes = character(0), is_live = FALSE,
@@ -664,7 +662,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         n_input = length(sx$mr_genes), n_samples = length(sx$samples),
         n_ref = sum(grp == "HC", na.rm = TRUE), n_comp = sum(grp == "RA", na.rm = TRUE),
         fast_path = TRUE,
-        candidate_note = sprintf("%d genes from this project's own precomputed %s feature-selection run (%s) - served instantly, not recomputed. Customize any method's parameters, or switch to live Candidate Gene Identification output, to trigger a live run instead.",
+        candidate_note = sprintf("%d genes from the precomputed %s run (%s) - shown instantly. Change any parameter to run live instead.",
                                   length(sx$mr_genes), sex_label, fname)
       )
     }
@@ -751,11 +749,11 @@ mod_featureselection_server <- function(id, dataset, results) {
     }
     output$wgcna_module_pick_ui <- renderUI({
       wgcna_module_pick_ui_builder("wgcna_module_pick",
-        "Uses whichever gene set is currently loaded on the Dataset tab for expression values - make sure that's the same dataset WGCNA was run on.")
+        "Uses expression values from the Dataset tab - use the same dataset WGCNA was run on.")
     })
     output$wgcna_module_pick_expr_ui <- renderUI({
       wgcna_module_pick_ui_builder("wgcna_module_pick_expr",
-        "Genes are intersected with your own uploaded expression matrix above (Expression matrix / Sample metadata) - make sure that's the same dataset WGCNA was run on.")
+        "Genes are intersected with your uploaded expression matrix above.")
     })
 
     output$project_source_ui <- renderUI({
@@ -765,15 +763,15 @@ mod_featureselection_server <- function(id, dataset, results) {
       tagList(
         if (has_live) {
           div(class = "empty-note", icon("check"),
-              sprintf("Using this session's live candidates from Candidate Gene Identification: %d female / %d male genes.", length(f_live), length(m_live)))
+              sprintf("Using live candidates: %d female / %d male genes.", length(f_live), length(m_live)))
         } else {
           div(class = "empty-note", icon("circle-info"),
-              "No live candidates yet this session - run Candidate Gene Identification (WGCNA + sex-stratified Differential Expression) first to use your own. Until then, this falls back to this project's own bundled, MR-prioritised candidate lists as a worked example.")
+              "No live candidates yet - run Candidate Gene Identification first, or use the bundled example lists below.")
         },
         checkboxInput(ns("mhc_exclude"), "Exclude MHC region (chr6:25-34Mb) - sensitivity panel", value = FALSE),
         if (has_live) {
           div(class = "empty-note", style = "font-size: 12.5px;", icon("triangle-exclamation"),
-              "MHC exclusion above only applies to the bundled fallback lists (this project's precomputed MHC-free candidate sets) - it has no effect on live Candidate Gene Identification output.")
+              "MHC exclusion only applies to the bundled lists, not live candidates.")
         } else NULL
       )
     })
@@ -821,28 +819,28 @@ mod_featureselection_server <- function(id, dataset, results) {
       note <- function(icon_name, txt) div(class = "empty-note", style = "font-size: 12.5px;", icon(icon_name), txt)
 
       if (!identical(input$data_source, "project")) {
-        return(note("clock", "Uploaded data always runs live - 10-fold CV tuning for all three methods, both sexes. Anywhere from a few seconds to a couple of minutes depending on candidate gene count."))
+        return(note("clock", "Uploaded data always runs live - can take a few seconds to a couple of minutes."))
       }
       f_live <- results$candidates$female$genes
       m_live <- results$candidates$male$genes
       if (length(f_live) >= 2 && length(m_live) >= 2) {
         big <- max(length(f_live), length(m_live)) > FS_MAX_CANDIDATE_GENES
         return(note("clock", sprintf(
-          "Using your own live Candidate Gene Identification output (%d female / %d male genes) - this always runs live, even uncustomized.%s",
+          "Using live candidates (%d female / %d male genes) - always runs live.%s",
           length(f_live), length(m_live),
-          if (big) sprintf(" Above %d genes, each sex is automatically reduced to its %d most variable genes first (SVM-RFE doesn't scale past that) - noted in the Overlap tab once run.", FS_MAX_CANDIDATE_GENES, FS_MAX_CANDIDATE_GENES) else ""
+          if (big) sprintf(" Reduced to the top %d most variable genes per sex first.", FS_MAX_CANDIDATE_GENES) else ""
         )))
       }
       if (!isTRUE(grepl("^Example dataset:", dataset$source %||% ""))) {
-        return(note("clock", "The Dataset tab is no longer on this project's own example dataset, so the default pipeline runs live here too."))
+        return(note("clock", "A non-default dataset is loaded, so this runs live."))
       }
       if (fs_any_customized()) {
-        return(note("clock", "At least one tab's parameters are customized, so this run will be live (10-fold CV tuning for all three methods, both sexes) - can take a little while."))
+        return(note("clock", "Parameters are customized, so this run will be live - can take a little while."))
       }
       if (!(identical(input$ref_group, "HC") && identical(input$comp_group, "RA"))) {
-        return(note("clock", "This precomputed shortcut only covers the standard HC vs RA contrast - a different reference/comparison pick runs live instead."))
+        return(note("clock", "Only the standard HC vs RA contrast is precomputed - this pick runs live."))
       }
-      note("bolt", "Default pipeline, nothing customized: this will load this project's own precomputed result instantly.")
+      NULL
     })
 
     ## Reads every LASSO/Random Forest/SVM-RFE control's current value
@@ -899,7 +897,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       ## sources where only some contributed a sex column.
       if (!is.null(sex_value)) {
         validate(need("sex" %in% colnames(sem$meta) && length(unique(stats::na.omit(sem$meta$sex))) >= 2,
-                      "The currently loaded dataset has no usable \"sex\" column (need at least two distinct values) - load a dataset with sex information, switch to \"Upload my own expression data\" above, or use \"Run All (pooled)\" instead."))
+                      "No usable sex column in this dataset - load one with sex data, or use \"Run All (pooled)\" instead."))
       }
       adv_params <- fs_advanced_params()
       any_customized <- fs_any_customized()
@@ -958,7 +956,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       if (n_before_cap > FS_MAX_CANDIDATE_GENES) {
         v <- apply(expr_sub[genes, , drop = FALSE], 1, stats::var)
         genes <- names(sort(v, decreasing = TRUE))[seq_len(FS_MAX_CANDIDATE_GENES)]
-        cand$note <- sprintf("%s Reduced from %d to the %d most variable genes before fitting - SVM-RFE's per-round refitting doesn't scale past a few hundred candidate genes.",
+        cand$note <- sprintf("%s Reduced from %d to the %d most variable genes before fitting.",
                               cand$note, n_before_cap, FS_MAX_CANDIDATE_GENES)
       }
 
@@ -1033,7 +1031,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       mod_featureselection_params_box(
         ns, "lasso", "LASSO",
-        "Shown below are this project's own methodology defaults: alpha = 1 (pure LASSO), coefficients read at lambda.min, lambda tuned by 10-fold CV. Change any value and click \"Run Female\" or \"Run Male\" again to use different settings for that sex. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "Defaults: alpha = 1, lambda.min, 10-fold CV. Change and re-run to use different settings.",
         fluidRow(
           column(4, numericInput(ns("lasso_cv_folds"), "Cross-validation folds", value = 10, min = 3, max = 10, step = 1)),
           column(4, sliderInput(ns("lasso_alpha"), "Alpha (1 = LASSO, 0 = ridge)", min = 0, max = 1, value = 1, step = 0.05)),
@@ -1053,7 +1051,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       mod_featureselection_params_box(
         ns, "rf", "Random Forest",
-        "Shown below are this project's own methodology defaults: ntree = 1000, mtry tuned by 10-fold CV, genes kept where Mean Decrease in Gini exceeds the mean. Change any value and click \"Run Female\" or \"Run Male\" again to use different settings for that sex. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "Defaults: ntree = 1000, mtry tuned by CV, genes kept above mean Gini. Change and re-run to use different settings.",
         fluidRow(
           column(3, numericInput(ns("rf_cv_folds"), "Cross-validation folds", value = 10, min = 3, max = 10, step = 1)),
           column(3, numericInput(ns("rf_ntree"), "Number of trees", value = 1000, min = 100, max = 5000, step = 100)),
@@ -1084,7 +1082,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       mod_featureselection_params_box(
         ns, "svm", "SVM-RFE",
-        "Shown below are this project's own methodology defaults: linear kernel, cost tuned by 10-fold CV over the grid below, panel size = the top-k ranked genes minimising 10-fold CV error. Change any value and click \"Run Female\" or \"Run Male\" again to use different settings for that sex. Class weighting (Reference/Comparison group settings above) applies here too. Kernel is fixed to linear - SVM-RFE's per-round elimination rule only works for a linear decision boundary.",
+        "Defaults: linear kernel, cost tuned by CV, panel size = top-k minimising CV error. Change and re-run to use different settings.",
         fluidRow(
           column(3, numericInput(ns("svm_cv_folds"), "Cross-validation folds", value = 10, min = 3, max = 10, step = 1)),
           column(4,
@@ -1123,7 +1121,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       mod_featureselection_params_box(
         ns, "consensus", "Overlap",
-        "This project's own methodology intersects all three methods below as the primary panel. Untick any to intersect a smaller subset instead - e.g. tick just LASSO and SVM-RFE to replicate a two-method published protocol. Change and click \"Run Female\"/\"Run Male\"/\"Run All (pooled)\" again to apply.",
+        "All three methods are intersected by default. Untick any to use a smaller subset, then re-run.",
         checkboxGroupInput(ns("consensus_methods"), "Methods to intersect",
                             choices = c("LASSO" = "LASSO", "Random Forest" = "RandomForest", "SVM-RFE" = "SVM_RFE"),
                             selected = c("LASSO", "RandomForest", "SVM_RFE"), inline = TRUE)
@@ -1134,7 +1132,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       box(
         width = 12, title = "References", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Background reading for the methods this tab implements, and the papers this project's own methodology cites."),
+        p(class = "submodule-desc", "Background reading for the methods used on this tab."),
         tags$ul(
           class = "dge-ref-list",
           tags$li(strong("LASSO (glmnet): "), "Friedman J, Hastie T, Tibshirani R (2010). Regularization Paths for Generalized Linear Models via Coordinate Descent. ", tags$em("Journal of Statistical Software"), ", 33(1)."),
@@ -1142,7 +1140,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           tags$li(strong("SVM-RFE: "), "Guyon I, Weston J, Barnhill S, Vapnik V (2002). Gene Selection for Cancer Classification using Support Vector Machines. ", tags$em("Machine Learning"), ", 46, 389-422."),
           tags$li(strong("caret (hyperparameter tuning): "), "Kuhn M (2008). Building Predictive Models in R Using the caret Package. ", tags$em("Journal of Statistical Software"), ", 28(5).")
         ),
-        p(class = "submodule-desc", "None of the above are linked out - ", strong("ask ArthOChat"), " above for a live PubMed-verified citation for any of them, or for a plain-language walkthrough of any method on this page.")
+        p(class = "submodule-desc", strong("Ask ArthOChat"), " above for a plain-language walkthrough of any method on this page.")
       )
     })
 
@@ -1302,7 +1300,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       ## separate state to distinguish them by once the box always exists.
       not_yet_note <- function() {
         div(class = "empty-note", icon("circle-info"),
-            "No result to show yet. Click \"Run Female\", \"Run Male\" or \"Run All (pooled)\" in the left panel - or, if you already did, check the validation message near those buttons (e.g. sample size or contrast requirements).")
+            "No result yet. Click Run Female, Run Male, or Run All (pooled) on the left.")
       }
       sex_title <- tools::toTitleCase(sex_label)
 

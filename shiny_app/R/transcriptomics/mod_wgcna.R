@@ -167,14 +167,15 @@ load_precomputed_wgcna_result <- function() {
   )
 }
 
-## Step-title markup for the workflow-stepper nav - identical pattern to
-## mod_preprocessing.R's pp_step_title(), duplicated (not shared) so each
-## module file stays self-contained the way this codebase already keeps
-## mod_<id>.R files independent of one another. Labels are kept short (one
-## or two words) since this stepper has 6 items, not 3.
-wgcna_step_title <- function(number, ic, label, sublabel) {
+## Step-title markup for the workflow-stepper nav - same icon+label+sublabel
+## pattern as mod_preprocessing.R's pp_step_title(), duplicated (not shared)
+## so each module file stays self-contained the way this codebase already
+## keeps mod_<id>.R files independent of one another. No leading step number
+## here (unlike pp_step_title): with 6 tabs instead of 3, the number badge
+## just duplicated the Pipeline summary rail's own numbering next to it and
+## made each tab noticeably wider for no added information.
+wgcna_step_title <- function(ic, label, sublabel) {
   tagList(
-    span(class = "step-number", as.character(number)),
     icon(ic),
     span(class = "step-text",
          span(class = "step-label", label),
@@ -227,56 +228,70 @@ wgcna_layout_css <- function() {
     .wgcna-wrap .row > div[class*='col-'] > .box { flex: 1 1 auto; display: flex; flex-direction: column; margin-bottom: 0; }
     .wgcna-wrap .row > div[class*='col-'] > .box > .box-body { flex: 1 1 auto; }
 
-    /* The shared workflow-stepper tab bar was designed for Preprocessing's
-       3 steps; 6 steps in the same space only gave the ACTIVE tab a visible
-       border/box while the other 5 floated as bare text, reading as
-       unbalanced. Give every tab the same card treatment, tighten spacing
-       to fit 6 comfortably, and drop the connector dashes (tuned for 3
-       evenly-spaced items, not 6 narrower ones).
-       `min-width: 0` below is load-bearing, not decorative: flex items
-       default to `min-width: auto`, meaning a flex-shrink item still
-       refuses to shrink below its own content's natural width - adding the
-       border/padding above made that natural width bigger, so the row
-       overflowed past the box's right edge instead of shrinking to fit.
-       `min-width: 0` removes that floor, letting each tab shrink to the
-       row's available width instead of overflowing it. Text wraps onto a
-       second line at that narrower width (`white-space: normal`) rather
-       than being truncated with an ellipsis - full label/sublabel text
-       stays readable; the tab item just gets a little taller instead of
-       cutting words off. `align-items: flex-start` keeps the icon/number
-       lined up with the first line of text once it wraps, instead of
-       re-centering against the now-taller two-line block.
-       flex-wrap: wrap (the shared .workflow-stepper-wrap rule is nowrap,
-       tuned for 3 items) plus a real min-width floor on each li: below
-       roughly 3 tabs' worth of row width, shrinking all 6 to fit one row
-       stops being legible no matter how small the font gets - text sits
-       flush against the icon/number with no breathing room, reading as
-       overlapping even though nothing literally overlaps in the DOM.
-       Wrapping to 2 rows of 3 once that floor is hit keeps every tab at a
-       comfortable, constant width instead. */
-    .wgcna-wrap .nav-tabs { flex-wrap: wrap; }
+    /* .step-number/.step-label/.step-sublabel/.workflow-stepper-wrap are
+       never actually defined anywhere in www/custom.css (only referenced in
+       its header comment) - the tab bar was relying entirely on this
+       module's own overrides below, which in turn assumed `ul.nav-tabs`
+       and its `a` tags were already flex containers. They're not: Bootstrap
+       3's real `.nav-tabs` lays out `<li>` with plain `float: left`, so
+       every flex-only property that used to be set here - `flex-wrap`,
+       `flex: 1 1 30%`, `gap`, `align-items` - was silently doing nothing.
+       Six floated, auto-width, icon+two-line-label tabs is exactly what
+       reflows unpredictably as the active tab's own width/weight changes:
+       each switch could wrap to a different line, at a different width,
+       which is what read as the sub-tabs losing format on every click.
+       `display: flex` on both the list and each link below is what makes
+       the sizing/spacing rules that follow (previously dead weight) finally
+       apply, giving a fixed, predictable 3-per-row grid that no longer
+       reflows based on which tab happens to be active.
+       Active/inactive styling now matches the app's own established tab
+       look (.tx-menu-wrap .nav-tabs in www/custom.css - the Dataset /
+       WGCNA Co-expression Network / ... row above this page): a 2px
+       bottom-border underline in the primary color plus bold text for the
+       active tab, transparent border and secondary-ink text otherwise -
+       swapped in for the old bordered-box treatment so switching tabs reads
+       as the same tab system as the rest of the app, not a different one.
+       `outline: none` on the link removes the browser's default post-click
+       focus rectangle, which stacked visually on top of the old border and
+       looked like a formatting glitch particularly on the active tab. */
+    .wgcna-wrap .nav-tabs {
+      display: flex !important;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--color-border);
+    }
     .wgcna-wrap .nav-tabs > li:not(:last-child)::after { display: none; }
-    .wgcna-wrap .nav-tabs > li { min-width: 140px; flex: 1 1 30%; }
+    .wgcna-wrap .nav-tabs > li { min-width: 140px; flex: 1 1 30%; float: none; }
     .wgcna-wrap .nav-tabs > li > a {
-      border: 1px solid transparent !important;
-      border-radius: 8px !important;
+      display: flex !important;
+      align-items: center !important;
+      border: none !important;
+      background: transparent !important;
+      border-radius: 0 !important;
+      border-bottom: 2px solid transparent !important;
       padding: 7px 8px !important;
       gap: 6px !important;
       min-width: 0;
-      align-items: flex-start !important;
+      color: var(--color-ink-secondary);
+      outline: none;
     }
-    .wgcna-wrap .nav-tabs > li > a:hover { background: #F5F7FA !important; }
-    .wgcna-wrap .nav-tabs > li.active > a { border-color: var(--color-border) !important; }
-    .wgcna-wrap .step-number { width: 20px; height: 20px; font-size: 10.5px; flex-shrink: 0; margin-top: 1px; }
-    .wgcna-wrap .step-text { min-width: 0; }
+    .wgcna-wrap .nav-tabs > li > a:hover { color: var(--color-ink); background: transparent !important; }
+    .wgcna-wrap .nav-tabs > li.active > a,
+    .wgcna-wrap .nav-tabs > li.active > a:hover,
+    .wgcna-wrap .nav-tabs > li.active > a:focus {
+      color: var(--color-primary);
+      background: transparent !important;
+      border-bottom: 2px solid var(--color-primary) !important;
+    }
+    .wgcna-wrap .step-text { min-width: 0; display: flex; flex-direction: column; }
     /* overflow-wrap: normal (not break-word) - wrapping is only ever
        allowed at a real word boundary (a space, or the hyphen in
        Module-Trait), never mid-word, so a single word like Modules
        never gets split into two broken fragments. Smaller text below is
        what actually buys the room to keep whole words on one line. */
     .wgcna-wrap .step-label, .wgcna-wrap .step-sublabel { white-space: normal; overflow-wrap: normal; word-break: normal; }
-    .wgcna-wrap .step-label { font-size: 10.5px; line-height: 1.25; }
-    .wgcna-wrap .step-sublabel { font-size: 9px; line-height: 1.25; }
+    .wgcna-wrap .step-label { font-size: 10.5px; line-height: 1.25; color: inherit; }
+    .wgcna-wrap .nav-tabs > li.active .step-label { font-weight: 600; }
+    .wgcna-wrap .step-sublabel { font-size: 9px; line-height: 1.25; color: var(--color-ink-secondary); }
 
     /* ---------- Results section (boxless): consistent grid, equal margins,
        subtle dividers instead of box() cards - settings panels above each
@@ -356,27 +371,27 @@ mod_wgcna_ui <- function(id) {
             tags$hr(style = "margin: 10px 0;")
           ),
           tabPanel(
-            value = "Filter", title = wgcna_step_title(1, "filter", "Filter & QC", "Genes & samples"),
+            value = "Filter", title = wgcna_step_title("filter", "Filter & QC", "Genes & samples"),
             br(), uiOutput(ns("step1_ui"))
           ),
           tabPanel(
-            value = "Power", title = wgcna_step_title(2, "wave-square", "Soft Power", "Network power"),
+            value = "Power", title = wgcna_step_title("wave-square", "Soft Power", "Network power"),
             br(), uiOutput(ns("step2_ui"))
           ),
           tabPanel(
-            value = "Modules", title = wgcna_step_title(3, "diagram-project", "Modules", "Detect & cluster"),
+            value = "Modules", title = wgcna_step_title("diagram-project", "Modules", "Detect & cluster"),
             br(), uiOutput(ns("step3_ui"))
           ),
           tabPanel(
-            value = "Traits", title = wgcna_step_title(4, "table-cells", "Module-Trait", "Correlate traits"),
+            value = "Traits", title = wgcna_step_title("table-cells", "Module-Trait", "Correlate traits"),
             br(), uiOutput(ns("step4_ui"))
           ),
           tabPanel(
-            value = "Hubs", title = wgcna_step_title(5, "star", "Hub Genes", "Rank & export"),
+            value = "Hubs", title = wgcna_step_title("star", "Hub Genes", "Rank & export"),
             br(), uiOutput(ns("step5_ui"))
           ),
           tabPanel(
-            value = "Enrichment", title = wgcna_step_title(6, "flask", "Enrichment", "GO & KEGG"),
+            value = "Enrichment", title = wgcna_step_title("flask", "Enrichment", "GO & KEGG"),
             br(), uiOutput(ns("step6_ui"))
           )
         )
@@ -874,21 +889,31 @@ mod_wgcna_server <- function(id, dataset, results) {
           actionButton(ns("compute_power_btn"), "Compute power", icon = icon("play"), class = "btn-primary btn-sm"),
           div(style = "margin-top:8px;", uiOutput(ns("power_status_ui")))
         ),
-        wgcna_result("chart-line", "Power diagnostics",
-          wgcna_result_row(
-            column(4, div(class = "wgcna-result-subtitle", "Scale-free fit"),
-                   withSpinner(plotOutput(ns("sft_r2_plot"), height = 280), color = "#2c6fbb", type = 6)),
-            column(4, div(class = "wgcna-result-subtitle", "Mean connectivity"),
-                   withSpinner(plotOutput(ns("sft_k_plot"), height = 280), color = "#2c6fbb", type = 6)),
-            column(4, div(class = "wgcna-result-subtitle", "Exponential fit"),
-                   withSpinner(plotOutput(ns("sft_trunc_plot"), height = 280), color = "#2c6fbb", type = 6))
+        ## Same "not run yet" gate as Step 4/5 below, on the same signal
+        ## power_status_ui and wgcna_progress() already use
+        ## (sft_result() throws Shiny's silent eventReactive error until
+        ## "Compute power" is actually clicked) - so these result boxes
+        ## never render empty/placeholder plots before that click.
+        if (is.null(tryCatch(sft_result(), error = function(e) NULL))) {
+          div(class = "empty-note", icon("circle-info"),
+              "Not computed yet. Set your options above, then click \"Compute power\" to see the diagnostics below.")
+        } else tagList(
+          wgcna_result("chart-line", "Power diagnostics",
+            wgcna_result_row(
+              column(4, div(class = "wgcna-result-subtitle", "Scale-free fit"),
+                     withSpinner(plotOutput(ns("sft_r2_plot"), height = 280), color = "#2c6fbb", type = 6)),
+              column(4, div(class = "wgcna-result-subtitle", "Mean connectivity"),
+                     withSpinner(plotOutput(ns("sft_k_plot"), height = 280), color = "#2c6fbb", type = 6)),
+              column(4, div(class = "wgcna-result-subtitle", "Exponential fit"),
+                     withSpinner(plotOutput(ns("sft_trunc_plot"), height = 280), color = "#2c6fbb", type = 6))
+            )
+          ),
+          wgcna_result("magnifying-glass-chart", "Scale-free topology check (at the power in use)",
+            desc = "The actual degree-distribution diagnostic from the WGCNA paper: log10(p(k)) vs log10(k) should be roughly linear.",
+            withSpinner(plotOutput(ns("scale_free_check_plot"), height = 420), color = "#2c6fbb", type = 6),
+            uiOutput(ns("scale_free_check_annotation")),
+            div(class = "table-toolbar", downloadButton(ns("download_scale_free_png"), "Download figure (PNG)", class = "btn-sm"))
           )
-        ),
-        wgcna_result("magnifying-glass-chart", "Scale-free topology check (at the power in use)",
-          desc = "The actual degree-distribution diagnostic from the WGCNA paper: log10(p(k)) vs log10(k) should be roughly linear.",
-          withSpinner(plotOutput(ns("scale_free_check_plot"), height = 420), color = "#2c6fbb", type = 6),
-          uiOutput(ns("scale_free_check_annotation")),
-          div(class = "table-toolbar", downloadButton(ns("download_scale_free_png"), "Download figure (PNG)", class = "btn-sm"))
         )
       )
     })
@@ -1243,38 +1268,48 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
             "Can take several minutes to tens of minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster for quick exploration."),
           div(style = "margin-top:8px;", uiOutput(ns("module_run_status_ui")))
         ),
-        wgcna_result("diagram-project", "Gene dendrogram & modules",
-          withSpinner(plotOutput(ns("dendro_plot"), height = 400), color = "#2c6fbb", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("download_dendro_png"), "Download dendrogram (PNG)", class = "btn-sm"))
-        ),
-        ## Uploaded dataset only - the classic WGCNA network heatmap
-        ## ("interactions between genes in coexpression modules"), distinct
-        ## from the module-level "Eigengene network" plot below. Its own
-        ## opt-in button (not run automatically with the "Run" button above)
-        ## since recomputing the full TOM is comparably expensive to module
-        ## detection itself and not every user needs this panel.
-        if (uploaded) wgcna_result("table-cells", "Gene network heatmap (TOM)",
-          desc = "Topological overlap between genes, on a random subsample (full topological overlap at thousands of genes can't be rendered directly). Darker = higher shared connectivity; the color strip along each edge marks module membership.",
-          fluidRow(
-            column(4, numericInput(ns("tom_n_select"), "Genes to sample for this plot", value = 400, min = 50, max = 1000, step = 50)),
-            column(8, div(style = "margin-top:24px;",
-                          actionButton(ns("compute_tom_btn"), "Compute network heatmap", icon = icon("play"), class = "btn-primary btn-sm")))
+        ## Same "not run yet" gate as Step 2 above and Step 4/5 below, on the
+        ## same signal wgcna_progress() already uses (net_result() throws
+        ## Shiny's silent eventReactive error until "Run" is actually
+        ## clicked) - so none of this step's result boxes render empty
+        ## placeholder plots before that click.
+        if (is.null(tryCatch(net_result(), error = function(e) NULL))) {
+          div(class = "empty-note", icon("circle-info"),
+              "Not run yet. Set your module-detection options above, then click \"Run\" to see the results below.")
+        } else tagList(
+          wgcna_result("diagram-project", "Gene dendrogram & modules",
+            withSpinner(plotOutput(ns("dendro_plot"), height = 400), color = "#2c6fbb", type = 6),
+            div(class = "table-toolbar", downloadButton(ns("download_dendro_png"), "Download dendrogram (PNG)", class = "btn-sm"))
           ),
-          div(style = "margin-bottom:8px;", uiOutput(ns("tom_status_ui"))),
-          withSpinner(plotOutput(ns("tom_plot"), height = 420), color = "#2c6fbb", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("download_tom_png"), "Download figure (PNG)", class = "btn-sm"))
-        ),
-        wgcna_result_row(
-          column(6, div(class = "wgcna-result-subtitle", "Module sizes"),
-                 withSpinner(plotOutput(ns("module_size_plot"), height = 280), color = "#2c6fbb", type = 6)),
-          column(6, div(class = "wgcna-result-subtitle", "Eigengene network"),
-                 withSpinner(plotOutput(ns("eigengene_network_plot"), height = 420), color = "#2c6fbb", type = 6))
-        ),
-        wgcna_result("table-list", "Gene-module assignment",
-          div(class = "table-toolbar",
-              downloadButton(ns("download_modules"), "Download CSV", class = "btn-sm"),
-              downloadButton(ns("download_wgcna_rds"), "Full result (RDS)", class = "btn-sm")),
-          DT::dataTableOutput(ns("module_table"))
+          ## Uploaded dataset only - the classic WGCNA network heatmap
+          ## ("interactions between genes in coexpression modules"), distinct
+          ## from the module-level "Eigengene network" plot below. Its own
+          ## opt-in button (not run automatically with the "Run" button above)
+          ## since recomputing the full TOM is comparably expensive to module
+          ## detection itself and not every user needs this panel.
+          if (uploaded) wgcna_result("table-cells", "Gene network heatmap (TOM)",
+            desc = "Topological overlap between genes, on a random subsample (full topological overlap at thousands of genes can't be rendered directly). Darker = higher shared connectivity; the color strip along each edge marks module membership.",
+            fluidRow(
+              column(4, numericInput(ns("tom_n_select"), "Genes to sample for this plot", value = 400, min = 50, max = 1000, step = 50)),
+              column(8, div(style = "margin-top:24px;",
+                            actionButton(ns("compute_tom_btn"), "Compute network heatmap", icon = icon("play"), class = "btn-primary btn-sm")))
+            ),
+            div(style = "margin-bottom:8px;", uiOutput(ns("tom_status_ui"))),
+            withSpinner(plotOutput(ns("tom_plot"), height = 420), color = "#2c6fbb", type = 6),
+            div(class = "table-toolbar", downloadButton(ns("download_tom_png"), "Download figure (PNG)", class = "btn-sm"))
+          ),
+          wgcna_result_row(
+            column(6, div(class = "wgcna-result-subtitle", "Module sizes"),
+                   withSpinner(plotOutput(ns("module_size_plot"), height = 280), color = "#2c6fbb", type = 6)),
+            column(6, div(class = "wgcna-result-subtitle", "Eigengene network"),
+                   withSpinner(plotOutput(ns("eigengene_network_plot"), height = 420), color = "#2c6fbb", type = 6))
+          ),
+          wgcna_result("table-list", "Gene-module assignment",
+            div(class = "table-toolbar",
+                downloadButton(ns("download_modules"), "Download CSV", class = "btn-sm"),
+                downloadButton(ns("download_wgcna_rds"), "Full result (RDS)", class = "btn-sm")),
+            DT::dataTableOutput(ns("module_table"))
+          )
         )
       )
     })
@@ -1331,7 +1366,7 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
     ## an unchecked "other" group doesn't get silently folded into either
     ## remaining indicator. Numeric traits (e.g. age) pass through unchanged
     ## as a single column, exactly as before.
-    module_trait <- reactive({
+    module_trait <- eventReactive(input$run_traits_btn, {
       net <- net_result()
       validate(need(length(input$trait_cols) > 0, "Select at least one trait above."))
       traits <- data.frame(row.names = rownames(net$texpr))
@@ -1386,7 +1421,10 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
       rownames(cor_mat) <- sub("^ME", "", rownames(cor_mat))
       rownames(p_mat) <- sub("^ME", "", rownames(p_mat))
       list(cor = cor_mat, p = p_mat)
-    })
+    }, ignoreInit = TRUE)
+
+    wgcna_traits_has_run <- reactiveVal(FALSE)
+    observeEvent(input$run_traits_btn, wgcna_traits_has_run(TRUE), ignoreInit = TRUE)
 
     observeEvent(module_trait(), {
       mt <- module_trait()
@@ -1462,15 +1500,21 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
           width = 12, title = tagList(icon("table-cells"), " Traits"), status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Any metadata column with at least two values can be used as a trait, not just group and sex."),
           uiOutput(ns("trait_picker_ui")),
-          uiOutput(ns("trait_level_filters_ui"))
+          uiOutput(ns("trait_level_filters_ui")),
+          actionButton(ns("run_traits_btn"), "Compute module-trait correlations", icon = icon("play"), class = "btn-primary btn-sm")
         ),
-        wgcna_result("table-cells", "Module-trait correlation",
-          desc = "Strongly red or blue cells mark modules whose overall expression tracks that trait.",
-          withSpinner(plotOutput(ns("mt_plot"), height = 360), color = "#2c6fbb", type = 6),
-          div(class = "table-toolbar",
-              downloadButton(ns("download_mt_png"), "Download heatmap (PNG)", class = "btn-sm"),
-              downloadButton(ns("download_mt_csv"), "Download table (CSV)", class = "btn-sm"))
-        )
+        if (!wgcna_traits_has_run()) {
+          div(class = "empty-note", icon("circle-info"),
+              "Not run yet. Pick traits above, then click \"Compute module-trait correlations\".")
+        } else {
+          wgcna_result("table-cells", "Module-trait correlation",
+            desc = "Strongly red or blue cells mark modules whose overall expression tracks that trait.",
+            withSpinner(plotOutput(ns("mt_plot"), height = 360), color = "#2c6fbb", type = 6),
+            div(class = "table-toolbar",
+                downloadButton(ns("download_mt_png"), "Download heatmap (PNG)", class = "btn-sm"),
+                downloadButton(ns("download_mt_csv"), "Download table (CSV)", class = "btn-sm"))
+          )
+        }
       )
     })
 
@@ -1516,7 +1560,7 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
                           choices = lv, selected = lv, inline = TRUE)
     })
 
-    hub_data <- reactive({
+    hub_data <- eventReactive(input$run_hubs_btn, {
       net <- net_result()
       req(input$hub_module, input$hub_trait)
       me_col <- paste0("ME", input$hub_module)
@@ -1566,7 +1610,10 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
       }
       df$abs_kME <- abs(df$kME); df$abs_GS <- abs(df$GS)
       df
-    })
+    }, ignoreInit = TRUE)
+
+    wgcna_hubs_has_run <- reactiveVal(FALSE)
+    observeEvent(input$run_hubs_btn, wgcna_hubs_has_run(TRUE), ignoreInit = TRUE)
 
     ## Root cause of the network figure's earlier draw failures: a gene with
     ## NA kME or GS (e.g. near-zero variance among the samples actually used
@@ -1854,37 +1901,43 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
           fluidRow(
             column(6, sliderInput(ns("kme_thr"), "Minimum |kME|", min = 0, max = 1, value = 0.8, step = 0.05)),
             column(6, sliderInput(ns("gs_thr"), "Minimum |GS|", min = 0, max = 1, value = 0.2, step = 0.05))
-          )
+          ),
+          actionButton(ns("run_hubs_btn"), "Compute hub genes", icon = icon("play"), class = "btn-primary btn-sm")
         ),
-        wgcna_result("star", "Hub gene diagnostics",
+        if (!wgcna_hubs_has_run()) {
+          div(class = "empty-note", icon("circle-info"),
+              "Not run yet. Pick a module and trait above, then click \"Compute hub genes\".")
+        } else tagList(
+          wgcna_result("star", "Hub gene diagnostics",
+            wgcna_result_row(
+              column(6, div(class = "wgcna-result-subtitle", "kME vs GS"),
+                     withSpinner(plotOutput(ns("kme_gs_plot"), height = 300), color = "#2c6fbb", type = 6)),
+              column(6, div(class = "wgcna-result-subtitle", "Hub genes"),
+                     div(class = "table-toolbar", downloadButton(ns("download_hubs"), "Download CSV", class = "btn-sm")),
+                     DT::dataTableOutput(ns("hub_table")))
+            )
+          ),
           wgcna_result_row(
-            column(6, div(class = "wgcna-result-subtitle", "kME vs GS"),
-                   withSpinner(plotOutput(ns("kme_gs_plot"), height = 300), color = "#2c6fbb", type = 6)),
-            column(6, div(class = "wgcna-result-subtitle", "Hub genes"),
-                   div(class = "table-toolbar", downloadButton(ns("download_hubs"), "Download CSV", class = "btn-sm")),
-                   DT::dataTableOutput(ns("hub_table")))
+            column(6, div(class = "wgcna-result-subtitle", "Intramodular connectivity"),
+                   withSpinner(plotOutput(ns("connectivity_plot"), height = 280), color = "#2c6fbb", type = 6)),
+            column(6, div(class = "wgcna-result-subtitle", "Eigengene vs trait"),
+                   withSpinner(plotOutput(ns("me_trait_plot"), height = 280), color = "#2c6fbb", type = 6))
+          ),
+          wgcna_result("share-nodes", "Network figure & export",
+            desc = "A co-expression network for the selected module - nodes colored by module, edges weighted by topological overlap. Adjust the slider to show fewer/more edges.",
+            uiOutput(ns("network_status_ui")),
+            sliderInput(ns("cyto_threshold"), "Minimum edge weight to include", min = 0, max = 0.5, value = 0.02, step = 0.01),
+            withSpinner(plotOutput(ns("network_plot"), height = 460), color = "#2c6fbb", type = 6),
+            div(class = "table-toolbar",
+                downloadButton(ns("download_network_png"), "Network figure (PNG)", class = "btn-primary btn-sm"),
+                downloadButton(ns("download_cyto_edges"), "Cytoscape edges (CSV)", class = "btn-sm"),
+                downloadButton(ns("download_cyto_nodes"), "Cytoscape nodes (CSV)", class = "btn-sm"),
+                uiOutput(ns("string_link_ui"), inline = TRUE))
+          ),
+          wgcna_result("image", "STRING-DB network image (live)",
+            desc = "A real image fetched live from the STRING protein-protein interaction database for the same genes - independent evidence (known/predicted interactions), not this dataset's own co-expression.",
+            withSpinner(uiOutput(ns("string_image_ui")), color = "#2c6fbb", type = 6)
           )
-        ),
-        wgcna_result_row(
-          column(6, div(class = "wgcna-result-subtitle", "Intramodular connectivity"),
-                 withSpinner(plotOutput(ns("connectivity_plot"), height = 280), color = "#2c6fbb", type = 6)),
-          column(6, div(class = "wgcna-result-subtitle", "Eigengene vs trait"),
-                 withSpinner(plotOutput(ns("me_trait_plot"), height = 280), color = "#2c6fbb", type = 6))
-        ),
-        wgcna_result("share-nodes", "Network figure & export",
-          desc = "A co-expression network for the selected module - nodes colored by module, edges weighted by topological overlap. Adjust the slider to show fewer/more edges.",
-          uiOutput(ns("network_status_ui")),
-          sliderInput(ns("cyto_threshold"), "Minimum edge weight to include", min = 0, max = 0.5, value = 0.02, step = 0.01),
-          withSpinner(plotOutput(ns("network_plot"), height = 460), color = "#2c6fbb", type = 6),
-          div(class = "table-toolbar",
-              downloadButton(ns("download_network_png"), "Network figure (PNG)", class = "btn-primary btn-sm"),
-              downloadButton(ns("download_cyto_edges"), "Cytoscape edges (CSV)", class = "btn-sm"),
-              downloadButton(ns("download_cyto_nodes"), "Cytoscape nodes (CSV)", class = "btn-sm"),
-              uiOutput(ns("string_link_ui"), inline = TRUE))
-        ),
-        wgcna_result("image", "STRING-DB network image (live)",
-          desc = "A real image fetched live from the STRING protein-protein interaction database for the same genes - independent evidence (known/predicted interactions), not this dataset's own co-expression.",
-          withSpinner(uiOutput(ns("string_image_ui")), color = "#2c6fbb", type = 6)
         )
       )
     })
@@ -2006,13 +2059,21 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
           p(class = "submodule-desc", "Tests whether a module (or its hub genes) is enriched for GO terms or KEGG pathways, against the genes analyzed in Step 1 as background."),
           uiOutput(ns("enrich_picker_ui"))
         ),
-        wgcna_result("chart-column", "Result",
-          withSpinner(uiOutput(ns("enrich_summary_ui")), color = "#2c6fbb", type = 6),
-          withSpinner(plotOutput(ns("enrich_bar_plot"), height = 380), color = "#2c6fbb", type = 6)
-        ),
-        wgcna_result("table-list", "Enriched terms",
-          div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
-          DT::dataTableOutput(ns("enrich_table"))
+        ## Same "not run yet" gate as every other step above, on the same
+        ## eventReactive-silent-error signal (module_enrich() throws until
+        ## "Run enrichment" is actually clicked).
+        if (is.null(tryCatch(module_enrich(), error = function(e) NULL))) {
+          div(class = "empty-note", icon("circle-info"),
+              "Not run yet. Pick a module above, then click \"Run enrichment\" to see the results below.")
+        } else tagList(
+          wgcna_result("chart-column", "Result",
+            withSpinner(uiOutput(ns("enrich_summary_ui")), color = "#2c6fbb", type = 6),
+            withSpinner(plotOutput(ns("enrich_bar_plot"), height = 380), color = "#2c6fbb", type = 6)
+          ),
+          wgcna_result("table-list", "Enriched terms",
+            div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
+            DT::dataTableOutput(ns("enrich_table"))
+          )
         )
       )
     })
@@ -2026,7 +2087,7 @@ net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
     wgcna_progress <- reactive({
       power_ok <- !is.null(tryCatch(sft_result(), error = function(e) NULL))
       modules_ok <- !is.null(tryCatch(net_result(), error = function(e) NULL))
-      traits_ok <- modules_ok && length(input$trait_cols %||% character(0)) > 0
+      traits_ok <- !is.null(tryCatch(module_trait(), error = function(e) NULL))
       hubs_ok <- !is.null(tryCatch(hub_filtered(), error = function(e) NULL))
       enrich_ok <- !is.null(tryCatch(module_enrich(), error = function(e) NULL))
       list(power_ok = power_ok, modules_ok = modules_ok, traits_ok = traits_ok, hubs_ok = hubs_ok, enrich_ok = enrich_ok)

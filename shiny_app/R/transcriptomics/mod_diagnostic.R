@@ -68,7 +68,7 @@
 mod_diagnostic_config <- list(
   id = "diagnostic", group = "Biomarker modeling",
   title = "Diagnostic Model",
-  description = "Sex-stratified logistic regression, elastic-net, random forest and SVM models, trained on a Train:Test split and evaluated on the held-out Test set.",
+  description = "Logistic regression, elastic net, random forest and SVM diagnostic models, by sex.",
   icon = "stethoscope"
 )
 
@@ -229,6 +229,58 @@ diag_roc_plot_pub <- function(roc_obj, color, title = NULL, ci = NULL) {
       axis.text = element_text(size = 11, color = "black"),
       panel.border = element_rect(color = "black", linewidth = 0.6, fill = NA)
     )
+}
+
+## Train + Test ROC curves overlaid on one set of axes, colored by a
+## "Dataset" legend (Train/Test) with stacked, matching-colored AUC (95% CI)
+## labels - the standard train-vs-test benchmark ROC figure convention, e.g.
+## Fig. 5-style plots comparing a model's full-fit training curve against its
+## held-out test-split curve on the same panel. A third, neutral-colored line
+## reports the model's own k-fold cross-validated AUC (mean ± SD) alongside
+## the two curves, so Train/Test/CV are all visible together rather than
+## spread across separate plots.
+diag_roc_plot_traintest <- function(train_roc, test_info, cv_mean = NA_real_, cv_sd = NA_real_, cv_n = NA_integer_,
+                                     color_train = ARTHOMIX_COLORS$yellow, color_test = ARTHOMIX_COLORS$blue, title = NULL) {
+  curve_df <- function(roc_obj, ds) {
+    co <- pROC::coords(roc_obj, "all", ret = c("specificity", "sensitivity"), transpose = FALSE)
+    df <- data.frame(fpr = 1 - co$specificity, tpr = co$sensitivity, Dataset = ds, stringsAsFactors = FALSE)
+    df[order(df$fpr, df$tpr), ]
+  }
+  train_ci <- diag_auc_ci(train_roc)
+  df <- curve_df(train_roc, "Train")
+  labels <- list(list(txt = sprintf("AUC: %.3f (95%% CI: %.3f, %.3f)", train_ci["auc"], train_ci["lo"], train_ci["hi"]), color = color_train))
+  if (isTRUE(test_info$available)) {
+    df <- rbind(df, curve_df(test_info$roc, "Test"))
+    labels <- c(labels, list(list(txt = sprintf("AUC: %.3f (95%% CI: %.3f, %.3f)", test_info$auc, test_info$ci_lo, test_info$ci_hi), color = color_test)))
+  }
+  if (is.finite(cv_mean)) {
+    labels <- c(labels, list(list(txt = sprintf("CV AUC: %.3f ± %.3f (%d-fold)", cv_mean, cv_sd, cv_n), color = "#4B5563")))
+  }
+  df$Dataset <- factor(df$Dataset, levels = c("Test", "Train"))
+  p <- ggplot(df, aes(x = fpr, y = tpr, color = Dataset)) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "#9CA3AF", linewidth = 0.6) +
+    geom_line(linewidth = 1.1) +
+    scale_color_manual(name = "Dataset", values = c(Train = color_train, Test = color_test), breaks = c("Test", "Train")) +
+    scale_x_continuous(name = "1 − Specificity (FPR)", limits = c(0, 1), breaks = seq(0, 1, 0.25), expand = c(0.01, 0.01)) +
+    scale_y_continuous(name = "Sensitivity (TPR)", limits = c(0, 1), breaks = seq(0, 1, 0.25), expand = c(0.01, 0.01)) +
+    coord_equal() +
+    labs(title = title) +
+    theme_bw(base_size = 13) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "#EEF0F3", linewidth = 0.4),
+      plot.title = element_text(face = "bold", size = 13),
+      axis.title = element_text(face = "bold", size = 12),
+      axis.text = element_text(size = 11, color = "black"),
+      panel.border = element_rect(color = "black", linewidth = 0.6, fill = NA),
+      legend.position = c(0.86, 0.22), legend.background = element_rect(fill = "white", color = "#E5E7EB")
+    )
+  y0 <- 0.24
+  for (lb in labels) {
+    p <- p + annotate("text", x = 0.04, y = y0, label = lb$txt, hjust = 0, vjust = 0, size = 3.4, color = lb$color, fontface = "bold")
+    y0 <- y0 - 0.075
+  }
+  p
 }
 
 ## Sensitivity/specificity/accuracy at a FIXED, already-locked threshold
@@ -570,6 +622,662 @@ DIAG_TECHNIQUES <- list(
   list(key = "svm", label = "SVM")
 )
 
+## =============================================================================
+## ADVANCED ML MODELING (new, entirely additive) - a second, independent
+## modeling environment layered on top of the four-model engine above,
+## gated behind the "Enable Advanced ML Modeling" checkbox (unchecked by
+## default - see mod_diagnostic_ui()'s sidebar box and the
+## conditionalPanel wrapping mod_diagnostic_adv_ml_ui() inside the Model
+## Training tab). Every symbol here is prefixed diag_adv_/DIAG_ADV_ and
+## nothing above this block is read or modified by it - the four-model
+## Chen et al. replication engine (diag_fit_sex() and everything it calls)
+## is completely untouched.
+##
+## Nested-CV design (see the module's own plan doc for the full rationale):
+##   - ONE fixed Train/Test split (reuses diag_split_train_test() above).
+##   - Unsupervised filters (variance/missingness/correlation) computed
+##     ONCE on Train - they never see the outcome label, so this cannot
+##     leak information about class membership into feature selection.
+##   - Supervised filters (univariate/fold-change/importance/LASSO/RFE),
+##     hyperparameter tuning, scaling and class-imbalance correction are
+##     ALL fit on the outer fold's training portion only, inside an outer
+##     k-fold loop over Train - the reported "CV performance" below is
+##     this outer loop's honest, held-out estimate. Test is scored exactly
+##     once, at the very end, by the one final pipeline fit on all of
+##     Train - never used to pick a model, filter, or hyperparameter.
+## =============================================================================
+
+## -----------------------------------------------------------------------
+## Custom caret modelInfo for XGBoost. caret's own built-in "xgbTree"
+## errors against xgboost's rewritten >=2.1 R API (confirmed live in this
+## environment: every resample fails with "ALTLIST classes must provide a
+## Set_elt method [class: XGBAltrepPointerClass, pkg: xgboost]") - caret
+## accepts a full modelInfo list in place of a method string, so this is
+## passed as method = DIAG_ADV_XGB_MODELINFO wherever XGBoost is used,
+## and every other piece of caret's machinery (trControl, tuneGrid,
+## predict(type="prob")) behaves identically to any other registry row.
+## -----------------------------------------------------------------------
+DIAG_ADV_XGB_MODELINFO <- list(
+  label = "XGBoost", library = "xgboost", type = "Classification",
+  parameters = data.frame(
+    parameter = c("nrounds", "max_depth", "eta", "min_child_weight", "subsample", "colsample_bytree", "gamma", "reg_lambda", "reg_alpha"),
+    class = rep("numeric", 9),
+    label = c("# Rounds", "Max Depth", "Learning Rate", "Min Child Weight", "Subsample", "Col Sample", "Gamma", "L2 Reg", "L1 Reg")
+  ),
+  grid = function(x, y, len = NULL, search = "grid") {
+    len <- max(1, len %||% 3)
+    if (identical(search, "random")) {
+      data.frame(
+        nrounds = sample(50:400, len, replace = TRUE), max_depth = sample(2:8, len, replace = TRUE),
+        eta = 10^stats::runif(len, -3, -0.5), min_child_weight = sample(1:8, len, replace = TRUE),
+        subsample = stats::runif(len, 0.6, 1), colsample_bytree = stats::runif(len, 0.6, 1),
+        gamma = stats::runif(len, 0, 3), reg_lambda = 10^stats::runif(len, -3, 1), reg_alpha = 10^stats::runif(len, -3, 1)
+      )
+    } else {
+      expand.grid(
+        nrounds = round(seq(50, 300, length.out = len)), max_depth = unique(round(seq(2, 6, length.out = min(len, 3)))),
+        eta = unique(signif(10^seq(-2.5, -0.7, length.out = min(len, 3)), 2)),
+        min_child_weight = 1, subsample = 0.8, colsample_bytree = 0.8, gamma = 0, reg_lambda = 1, reg_alpha = 0
+      )[seq_len(min(len^2, 20)), , drop = FALSE]
+    }
+  },
+  fit = function(x, y, wts = NULL, param, lev = NULL, last, classProbs, ...) {
+    x <- as.matrix(x)
+    ylab <- lev %||% levels(y)
+    yf <- factor(as.character(y), levels = ylab)  # xgboost's new API predicts P(second factor level)
+    extra <- list(...)
+    if (!is.null(wts)) extra$weights <- wts
+    args <- c(list(x = x, y = yf,
+                    nrounds = param$nrounds, max_depth = param$max_depth, learning_rate = param$eta,
+                    min_child_weight = param$min_child_weight, subsample = param$subsample,
+                    colsample_bytree = param$colsample_bytree, min_split_loss = param$gamma,
+                    reg_lambda = param$reg_lambda, reg_alpha = param$reg_alpha, verbosity = 0),
+                extra[!names(extra) %in% c("nrounds","max_depth","eta","min_child_weight","subsample","colsample_bytree","gamma","reg_lambda","reg_alpha")])
+    booster <- do.call(xgboost::xgboost, args)
+    ## xgb.Booster (xgboost>=2.1) is an ALTREP-backed external-pointer object -
+    ## `booster$obsLevels <- ylab` errors ("ALTLIST classes must provide a
+    ## Set_elt method"). Wrap it in a plain list instead of mutating it.
+    list(booster = booster, obsLevels = ylab)
+  },
+  predict = function(modelFit, newdata, submodels = NULL) {
+    p <- predict(modelFit$booster, as.matrix(newdata))
+    ifelse(p >= 0.5, modelFit$obsLevels[2], modelFit$obsLevels[1])
+  },
+  prob = function(modelFit, newdata, submodels = NULL) {
+    p <- predict(modelFit$booster, as.matrix(newdata))
+    stats::setNames(data.frame(neg = 1 - p, pos = p), modelFit$obsLevels)
+  },
+  sort = function(x) x[order(x$nrounds, x$max_depth), ],
+  levels = function(x) x$obsLevels,
+  predictors = function(x, ...) x$booster$feature_names,
+  varImp = function(object, ...) {
+    imp <- tryCatch(xgboost::xgb.importance(model = object$booster), error = function(e) NULL)
+    if (is.null(imp) || nrow(imp) == 0) return(NULL)
+    data.frame(Overall = imp$Gain, row.names = imp$Feature)
+  }
+)
+
+## -----------------------------------------------------------------------
+## Model registry - the pipeline engine below never has a per-model
+## if/switch; only this table does, so adding model #16 later is "append
+## one row." weight_mode/weight_arg records HOW class weighting reaches
+## each underlying fitter (verified live per-method, since caret's own
+## train(weights=) is silently ignored by several of these - see
+## diag_adv_weight_args()).
+## -----------------------------------------------------------------------
+DIAG_ADV_MODEL_REGISTRY <- list(
+  logistic    = list(key = "logistic", label = "Logistic Regression", group = "Linear", method = "glm",
+                      weight_mode = "native", weight_arg = "weights", supports_coef = TRUE, supports_importance = FALSE),
+  ridge       = list(key = "ridge", label = "Ridge Logistic Regression", group = "Linear", method = "glmnet",
+                      weight_mode = "native", weight_arg = "weights", pinned_grid = list(alpha = 0),
+                      supports_coef = TRUE, supports_importance = FALSE),
+  lasso       = list(key = "lasso", label = "LASSO Logistic Regression", group = "Linear", method = "glmnet",
+                      weight_mode = "native", weight_arg = "weights", pinned_grid = list(alpha = 1),
+                      supports_coef = TRUE, supports_importance = FALSE),
+  enet        = list(key = "enet", label = "Elastic Net Logistic Regression", group = "Linear", method = "glmnet",
+                      weight_mode = "native", weight_arg = "weights", supports_coef = TRUE, supports_importance = FALSE),
+  svm_linear  = list(key = "svm_linear", label = "SVM (Linear)", group = "SVM", method = "svmLinear",
+                      weight_mode = "extra_arg", weight_arg = "class.weights", supports_coef = FALSE, supports_importance = TRUE),
+  svm_rbf     = list(key = "svm_rbf", label = "SVM (RBF)", group = "SVM", method = "svmRadial",
+                      weight_mode = "extra_arg", weight_arg = "class.weights", supports_coef = FALSE, supports_importance = TRUE),
+  svm_poly    = list(key = "svm_poly", label = "SVM (Polynomial)", group = "SVM", method = "svmPoly",
+                      weight_mode = "extra_arg", weight_arg = "class.weights", supports_coef = FALSE, supports_importance = TRUE),
+  rf          = list(key = "rf", label = "Random Forest", group = "Trees", method = "rf",
+                      weight_mode = "extra_arg", weight_arg = "classwt", supports_coef = FALSE, supports_importance = TRUE),
+  extratrees  = list(key = "extratrees", label = "Extra Trees", group = "Trees", method = "ranger",
+                      weight_mode = "native", weight_arg = "weights", pinned_grid = list(splitrule = "extratrees"),
+                      extra_fixed = list(importance = "permutation"), supports_coef = FALSE, supports_importance = TRUE),
+  gbm         = list(key = "gbm", label = "Gradient Boosting", group = "Trees", method = "gbm",
+                      weight_mode = "native", weight_arg = "weights", extra_fixed = list(verbose = FALSE, bag.fraction = 1),
+                      supports_coef = FALSE, supports_importance = TRUE),
+  xgboost     = list(key = "xgboost", label = "XGBoost", group = "Trees", method = DIAG_ADV_XGB_MODELINFO,
+                      weight_mode = "native", weight_arg = "weights", supports_coef = FALSE, supports_importance = TRUE),
+  adaboost    = list(key = "adaboost", label = "AdaBoost", group = "Trees", method = "AdaBoost.M1",
+                      weight_mode = "unsupported", supports_coef = FALSE, supports_importance = TRUE),
+  naive_bayes = list(key = "naive_bayes", label = "Naive Bayes", group = "Other", method = "naive_bayes",
+                      weight_mode = "unsupported", supports_coef = FALSE, supports_importance = FALSE),
+  knn         = list(key = "knn", label = "k-Nearest Neighbors", group = "Other", method = "knn",
+                      weight_mode = "unsupported", supports_coef = FALSE, supports_importance = FALSE),
+  dtree       = list(key = "dtree", label = "Decision Tree", group = "Trees", method = "rpart",
+                      weight_mode = "native", weight_arg = "weights", supports_coef = FALSE, supports_importance = TRUE)
+)
+
+## LightGBM intentionally omitted - no CRAN package available in this R
+## environment. Bayesian hyperparameter search is likewise unavailable
+## (no rBayesianOptimization/ParBayesianOptimization/irace installed) -
+## the tuning-method picker below shows it as a disabled option rather
+## than silently leaving it out, per the module's own scope decisions.
+DIAG_ADV_TUNE_MODES <- c("Manual" = "manual", "Grid search" = "grid", "Random search" = "random", "Automatic (default)" = "automatic")
+
+DIAG_ADV_FILTER_METHODS <- c(
+  "No filtering" = "none", "Variance filter" = "variance", "Missingness filter" = "missingness",
+  "Correlation / redundancy filter" = "correlation", "Univariate statistical filter (P/FDR)" = "univariate",
+  "Fold-change / effect-size filter" = "foldchange", "Feature-importance-based filter" = "importance",
+  "LASSO-based selection" = "lasso", "Recursive feature elimination (RFE)" = "rfe"
+)
+DIAG_ADV_SUPERVISED_FILTERS <- c("univariate", "foldchange", "importance", "lasso", "rfe")
+
+diag_adv_weight_args <- function(reg, y, class_weight_cfg) {
+  if (identical(reg$weight_mode, "unsupported") || is.null(class_weight_cfg) || identical(class_weight_cfg$mode %||% "equal", "equal")) return(list())
+  lv <- levels(y)
+  wl <- if (identical(class_weight_cfg$mode, "balanced")) {
+    n <- table(y); w <- max(n) / n; stats::setNames(as.numeric(w[lv]), lv)
+  } else {
+    stats::setNames(c(1, class_weight_cfg$ratio %||% 1), lv)
+  }
+  if (identical(reg$weight_mode, "native")) {
+    list(weights = unname(wl[as.character(y)]))
+  } else {
+    args <- list(); args[[reg$weight_arg]] <- wl; args
+  }
+}
+
+## -----------------------------------------------------------------------
+## Scaling / class-imbalance correction - both fit on the fold-train
+## portion only wherever they're called manually (the fixed refit step
+## below); the INNER hyperparameter-tuning loop instead lets caret's own
+## trainControl(sampling=, preProcess=) apply both per-resample
+## internally (verified live: composes correctly, no NA metrics), which
+## is what keeps that loop leakage-free without duplicating the logic.
+## -----------------------------------------------------------------------
+diag_adv_fit_scaler <- function(X) {
+  mu <- colMeans(X); sg <- apply(X, 2, stats::sd); sg[is.na(sg) | sg == 0] <- 1
+  list(mu = mu, sg = sg)
+}
+diag_adv_apply_scaler <- function(X, scal) {
+  Z <- scale(X, center = scal$mu, scale = scal$sg)
+  attributes(Z)[c("scaled:center", "scaled:scale")] <- NULL
+  Z
+}
+## Scale-before-balance: SMOTE synthesizes points by nearest-neighbour
+## interpolation, which is scale-dependent - balancing on raw (unscaled)
+## gene expression would let high-variance genes dominate the neighbour
+## search. Up/down-sampling (plain row resampling) don't care about scale
+## either way, so this ordering only matters for the SMOTE path.
+diag_adv_balance <- function(X, y, method) {
+  if (is.null(method) || identical(method, "none")) return(list(X = X, y = y))
+  if (method == "up") {
+    d2 <- caret::upSample(x = X, y = y, yname = ".y")
+  } else if (method == "down") {
+    d2 <- caret::downSample(x = X, y = y, yname = ".y")
+  } else if (method == "smote") {
+    k <- min(5, min(table(y)) - 1)
+    if (k < 1) return(list(X = X, y = y))  # too few minority-class rows to synthesize from
+    sm <- smotefamily::SMOTE(X = as.data.frame(X), target = y, K = k)
+    d2 <- sm$data; names(d2)[ncol(d2)] <- ".y"
+  } else {
+    return(list(X = X, y = y))
+  }
+  list(X = as.matrix(d2[, setdiff(colnames(d2), ".y"), drop = FALSE]), y = factor(d2$.y, levels = levels(y)))
+}
+
+diag_adv_class_dist <- function(y) as.list(table(y))
+
+## -----------------------------------------------------------------------
+## Feature filtering. Unsupervised methods (variance/missingness/
+## correlation) never see y and are safe to compute once on the whole
+## Train set - the engine below only ever calls this with y = NULL for
+## those. Supervised methods (everything in DIAG_ADV_SUPERVISED_FILTERS)
+## are always called per outer fold, fold-train only.
+## -----------------------------------------------------------------------
+diag_adv_apply_filter <- function(X, y = NULL, cfg) {
+  method <- cfg$method %||% "none"
+  n <- ncol(X)
+  ranked <- colnames(X)
+  if (method == "none") {
+    ranked <- colnames(X)
+  } else if (method == "variance") {
+    v <- apply(X, 2, stats::var, na.rm = TRUE)
+    ranked <- names(sort(v, decreasing = TRUE))
+  } else if (method == "missingness") {
+    m <- colMeans(is.na(X))
+    keep <- names(m[m <= (cfg$na_max %||% 0.2)])
+    ranked <- keep[order(m[keep])]
+  } else if (method == "correlation") {
+    cm <- suppressWarnings(stats::cor(X, use = "pairwise.complete.obs"))
+    cm[is.na(cm)] <- 0
+    drop_idx <- caret::findCorrelation(cm, cutoff = cfg$cor_cutoff %||% 0.9)
+    ranked <- colnames(X)[setdiff(seq_len(n), drop_idx)]
+  } else if (method == "univariate") {
+    pvals <- vapply(colnames(X), function(g) tryCatch(stats::wilcox.test(X[, g] ~ y)$p.value, error = function(e) NA_real_), numeric(1))
+    padj <- stats::p.adjust(pvals, method = "BH")
+    keep <- if (isTRUE(cfg$use_fdr)) padj < (cfg$fdr_thr %||% 0.1) else pvals < (cfg$p_thr %||% 0.05)
+    keep[is.na(keep)] <- FALSE
+    ranked <- names(sort(pvals[keep]))
+  } else if (method == "foldchange") {
+    lv <- levels(y)
+    eff <- vapply(colnames(X), function(g) mean(X[y == lv[2], g], na.rm = TRUE) - mean(X[y == lv[1], g], na.rm = TRUE), numeric(1))
+    keep <- abs(eff) >= (cfg$logfc_thr %||% 0)
+    ranked <- names(sort(abs(eff[keep]), decreasing = TRUE))
+  } else if (method == "importance") {
+    rf <- randomForest::randomForest(X, y, ntree = 200, importance = TRUE)
+    imp <- randomForest::importance(rf)[, "MeanDecreaseGini"]
+    ranked <- names(sort(imp, decreasing = TRUE))
+  } else if (method == "lasso") {
+    nf <- max(2, min(5, min(table(y))))
+    cv <- glmnet::cv.glmnet(X, y, family = "binomial", alpha = 1, nfolds = nf)
+    co <- as.matrix(stats::coef(cv, s = "lambda.1se"))[-1, , drop = FALSE]
+    nz <- rownames(co)[co[, 1] != 0]
+    ranked <- if (length(nz) > 0) nz[order(-abs(co[nz, 1]))] else colnames(X)  # nothing survived -> don't return an empty panel
+  } else if (method == "rfe") {
+    target <- cfg$cap_n %||% max(5, round(n * 0.2))
+    cur <- colnames(X)
+    if (length(cur) > 150) {  # cap the starting pool so this stays tractable inside an outer-CV loop
+      v <- apply(X[, cur], 2, stats::var); cur <- names(sort(v, decreasing = TRUE))[seq_len(150)]
+    }
+    while (length(cur) > target) {
+      rf <- randomForest::randomForest(X[, cur, drop = FALSE], y, ntree = 150, importance = TRUE)
+      imp <- randomForest::importance(rf)[, "MeanDecreaseGini"]
+      keep_n <- max(target, ceiling(length(cur) * 0.8))
+      cur <- names(sort(imp, decreasing = TRUE))[seq_len(keep_n)]
+    }
+    ranked <- cur
+  }
+  if (!is.null(cfg$cap_n) && method != "rfe") ranked <- utils::head(ranked, cfg$cap_n)
+  if (length(ranked) < 2) ranked <- utils::head(colnames(X)[order(-apply(X, 2, stats::var))], max(2, cfg$cap_n %||% 2))
+  ranked
+}
+
+## -----------------------------------------------------------------------
+## Metrics - one call computes every metric required by the module spec
+## for a single threshold; ROC/PR objects are returned alongside so
+## plotting code downstream doesn't need to recompute them.
+## -----------------------------------------------------------------------
+diag_adv_metrics <- function(prob, obs, threshold, positive_level) {
+  lv <- levels(obs)
+  predf <- factor(ifelse(prob >= threshold, "pos", "neg"), levels = c("neg", "pos"))
+  obsf <- factor(ifelse(obs == positive_level, "pos", "neg"), levels = c("neg", "pos"))
+  cm <- caret::confusionMatrix(predf, obsf, positive = "pos", mode = "everything")
+  tp <- cm$table["pos", "pos"]; tn <- cm$table["neg", "neg"]; fp <- cm$table["pos", "neg"]; fn <- cm$table["neg", "pos"]
+  mcc_denom <- sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+  mcc <- if (mcc_denom == 0) NA_real_ else ((tp * tn) - (fp * fn)) / mcc_denom
+  roc_obj <- tryCatch(pROC::roc(obs, prob, levels = lv, direction = "<", quiet = TRUE), error = function(e) NULL)
+  auc <- if (is.null(roc_obj)) NA_real_ else as.numeric(pROC::auc(roc_obj))
+  pr <- tryCatch(PRROC::pr.curve(scores.class0 = prob[obs == positive_level], scores.class1 = prob[obs != positive_level], curve = TRUE), error = function(e) NULL)
+  pr_auc <- if (is.null(pr)) NA_real_ else pr$auc.integral
+  yb <- as.numeric(obs == positive_level)
+  pc <- pmin(pmax(prob, 1e-15), 1 - 1e-15)
+  logloss <- tryCatch(MLmetrics::LogLoss(y_pred = pc, y_true = yb), error = function(e) NA_real_)
+  brier <- mean((prob - yb)^2)
+  list(
+    Accuracy = unname(cm$overall["Accuracy"]), BalancedAccuracy = unname(cm$byClass["Balanced Accuracy"]),
+    Sensitivity = unname(cm$byClass["Sensitivity"]), Specificity = unname(cm$byClass["Specificity"]),
+    Precision = unname(cm$byClass["Precision"]), F1 = unname(cm$byClass["F1"]),
+    MCC = unname(mcc), Kappa = unname(cm$overall["Kappa"]),
+    ROC_AUC = auc, PR_AUC = pr_auc, LogLoss = logloss, Brier = brier,
+    n = length(obs), n_pos = sum(obs == positive_level), roc_obj = roc_obj, pr_obj = pr, cm = cm
+  )
+}
+
+## -----------------------------------------------------------------------
+## Tuning-grid builder. "Automatic"/"grid"/"random" all delegate to each
+## method's own caret::getModelInfo(method)$grid() - already sensible,
+## version-matched defaults for every stock method, no hand-maintained
+## ranges to keep in sync. "Manual" uses a single user-supplied row and
+## skips the inner tuning loop entirely (see diag_adv_run_model()).
+## -----------------------------------------------------------------------
+diag_adv_build_grid <- function(reg, X, y, tune_cfg) {
+  info <- if (is.character(reg$method)) caret::getModelInfo(reg$method, regex = FALSE)[[1]] else reg$method
+  mode <- tune_cfg$mode %||% "automatic"
+  if (mode == "manual" && !is.null(tune_cfg$manual_grid)) {
+    g <- tune_cfg$manual_grid
+    if (!is.null(reg$pinned_grid)) for (nm in names(reg$pinned_grid)) g[[nm]] <- reg$pinned_grid[[nm]]
+    return(g)
+  }
+  ## "Manual" with no grid supplied (e.g. a parameter-free model like plain
+  ## logistic regression) falls through to the automatic stock grid below.
+  len <- switch(mode, automatic = 3, grid = tune_cfg$tune_length %||% 5, random = tune_cfg$n_random %||% 10, 3)
+  search <- if (mode == "random") "random" else "grid"
+  g <- info$grid(x = X, y = y, len = len, search = search)
+  if (!is.null(reg$pinned_grid)) for (nm in names(reg$pinned_grid)) g[[nm]] <- reg$pinned_grid[[nm]]
+  ## Small-n safety: caret's stock grids assume moderate sample sizes.
+  ## gbm's default n.minobsinnode (10) errors outright ("data set is too
+  ## small") once an inner-CV fold drops well below ~30 rows - exactly the
+  ## regime this app's transcriptomics cohorts live in (confirmed live).
+  if (reg$key == "gbm" && "n.minobsinnode" %in% names(g)) g$n.minobsinnode <- pmin(g$n.minobsinnode, max(2, floor(nrow(X) * 0.1)))
+  if (reg$key == "knn" && "k" %in% names(g)) g$k <- pmin(g$k, max(1, min(table(y)) - 1))
+  ## adabag has no compiled backend - caret's stock len=3 grid is 27
+  ## combinations (mfinal up to 150), minutes of wall-clock even on tiny
+  ## data once nested inside outer CV (confirmed live). Cap it for
+  ## automatic/small runs; an explicit larger tune_length can ask for more.
+  if (reg$key == "adaboost") {
+    g$mfinal <- pmin(g$mfinal, 60)
+    if (mode == "automatic") g <- g[g$coeflearn == "Breiman" & g$maxdepth <= 2, , drop = FALSE]
+  }
+  g <- unique(g)
+  ## "manual" always needs exactly one row (it feeds trainControl(method="none")
+  ## directly, with no tuning search of its own) - the automatic-grid fallback
+  ## above is only reachable for parameter-free models where this is already
+  ## true, but guard it explicitly rather than relying on that.
+  if (mode == "manual") g <- g[1, , drop = FALSE]
+  g
+}
+
+diag_adv_fit_caret <- function(reg, X, y, trControl, tuneGrid, class_weight_cfg, metric = "ROC") {
+  wargs <- diag_adv_weight_args(reg, y, class_weight_cfg)
+  extra <- reg$extra_fixed %||% list()
+  args <- c(list(x = X, y = y, method = reg$method, trControl = trControl, tuneGrid = tuneGrid, metric = metric), wargs, extra)
+  do.call(caret::train, args)
+}
+diag_adv_predict_prob <- function(fit, newdata, positive_level) as.numeric(predict(fit, newdata = newdata, type = "prob")[[positive_level]])
+
+## -----------------------------------------------------------------------
+## One model, full nested-CV pipeline. Xtrain_raw/Xtest_raw are RAW
+## (unscaled) samples x features - Xtest_raw is only ever touched once,
+## at the very end. cfg fields: filter (list(method=, ...)), tune
+## (list(mode=, inner_method=, inner_k=, tune_length=, n_random=,
+## manual_grid=)), outer (list(k=)), imbalance (list(method=)),
+## class_weight (list(mode=, ratio=)), threshold.
+## -----------------------------------------------------------------------
+diag_adv_run_model <- function(Xtrain_raw, ytrain, Xtest_raw, ytest, model_key, cfg, progress = NULL) {
+  reg <- DIAG_ADV_MODEL_REGISTRY[[model_key]]
+  validate(need(!is.null(reg), sprintf("Unknown model \"%s\".", model_key)))
+  positive_level <- levels(ytrain)[2]
+
+  step <- function(msg) if (!is.null(progress)) progress(msg)
+
+  outer_k <- max(2, min(cfg$outer$k %||% 5, min(table(ytrain))))
+  outer_idx <- caret::createFolds(ytrain, k = outer_k, list = TRUE, returnTrain = TRUE)
+
+  outer_results <- lapply(names(outer_idx), function(fname) {
+    step(sprintf("%s: outer fold %s", reg$label, fname))
+    tr <- outer_idx[[fname]]; te <- setdiff(seq_along(ytrain), tr)
+    Xtr <- Xtrain_raw[tr, , drop = FALSE]; ytr <- ytrain[tr]
+    Xte <- Xtrain_raw[te, , drop = FALSE]; yte <- ytrain[te]
+
+    feats <- if (cfg$filter$method %in% DIAG_ADV_SUPERVISED_FILTERS) diag_adv_apply_filter(Xtr, ytr, cfg$filter) else colnames(Xtr)
+    Xtr <- Xtr[, feats, drop = FALSE]; Xte <- Xte[, feats, drop = FALSE]
+
+    inner_ctrl <- caret::trainControl(method = cfg$tune$inner_method %||% "cv", number = cfg$tune$inner_k %||% 5,
+                                       classProbs = TRUE, summaryFunction = caret::twoClassSummary,
+                                       sampling = if (identical(cfg$imbalance$method %||% "none", "none")) NULL else cfg$imbalance$method,
+                                       search = if (identical(cfg$tune$mode, "random")) "random" else "grid")
+    grid <- diag_adv_build_grid(reg, Xtr, ytr, cfg$tune)
+    if (identical(cfg$tune$mode, "manual")) {
+      best_params <- grid; inner_grid_results <- NULL
+    } else {
+      inner_fit <- diag_adv_fit_caret(reg, Xtr, ytr, inner_ctrl, grid, cfg$class_weight)
+      best_params <- inner_fit$bestTune; inner_grid_results <- inner_fit$results
+    }
+
+    scal <- diag_adv_fit_scaler(Xtr)
+    Xtr_s <- diag_adv_apply_scaler(Xtr, scal); Xte_s <- diag_adv_apply_scaler(Xte, scal)
+    bal <- diag_adv_balance(Xtr_s, ytr, cfg$imbalance$method)
+    fold_fit <- diag_adv_fit_caret(reg, bal$X, bal$y, caret::trainControl(method = "none", classProbs = TRUE), best_params, cfg$class_weight)
+    pred_te <- diag_adv_predict_prob(fold_fit, Xte_s, positive_level)
+
+    list(fold = fname, features = feats, best_params = best_params, inner_grid_results = inner_grid_results,
+         pred = pred_te, obs = yte, class_dist_before = diag_adv_class_dist(ytr), class_dist_after = diag_adv_class_dist(bal$y),
+         metrics = diag_adv_metrics(pred_te, yte, cfg$threshold %||% 0.5, positive_level))
+  })
+
+  ## Final pass: identical recipe once on the whole Train set.
+  step(sprintf("%s: final fit", reg$label))
+  if (cfg$filter$method %in% DIAG_ADV_SUPERVISED_FILTERS) {
+    feats_final <- diag_adv_apply_filter(Xtrain_raw, ytrain, cfg$filter)
+  } else {
+    feats_final <- diag_adv_apply_filter(Xtrain_raw, NULL, cfg$filter)
+  }
+  Xtr_final <- Xtrain_raw[, feats_final, drop = FALSE]
+  Xte_final <- Xtest_raw[, feats_final, drop = FALSE]
+
+  inner_ctrl_f <- caret::trainControl(method = cfg$tune$inner_method %||% "cv", number = cfg$tune$inner_k %||% 5,
+                                       classProbs = TRUE, summaryFunction = caret::twoClassSummary,
+                                       sampling = if (identical(cfg$imbalance$method %||% "none", "none")) NULL else cfg$imbalance$method,
+                                       search = if (identical(cfg$tune$mode, "random")) "random" else "grid")
+  grid_f <- diag_adv_build_grid(reg, Xtr_final, ytrain, cfg$tune)
+  if (identical(cfg$tune$mode, "manual")) {
+    best_params_f <- grid_f
+  } else {
+    inner_fit_f <- diag_adv_fit_caret(reg, Xtr_final, ytrain, inner_ctrl_f, grid_f, cfg$class_weight)
+    best_params_f <- inner_fit_f$bestTune
+  }
+  scal_f <- diag_adv_fit_scaler(Xtr_final)
+  Xtr_final_s <- diag_adv_apply_scaler(Xtr_final, scal_f); Xte_final_s <- diag_adv_apply_scaler(Xte_final, scal_f)
+  bal_f <- diag_adv_balance(Xtr_final_s, ytrain, cfg$imbalance$method)
+  final_fit <- diag_adv_fit_caret(reg, bal_f$X, bal_f$y, caret::trainControl(method = "none", classProbs = TRUE), best_params_f, cfg$class_weight)
+
+  pred_train <- diag_adv_predict_prob(final_fit, Xtr_final_s, positive_level)
+  pred_test <- diag_adv_predict_prob(final_fit, Xte_final_s, positive_level)
+
+  list(
+    model_key = model_key, label = reg$label, reg = reg,
+    outer = outer_results, features_final = feats_final, best_params_final = best_params_f,
+    final_fit = final_fit, scaler = scal_f,
+    class_dist_before = diag_adv_class_dist(ytrain), class_dist_after = diag_adv_class_dist(bal_f$y),
+    train_metrics = diag_adv_metrics(pred_train, ytrain, cfg$threshold %||% 0.5, positive_level),
+    test_metrics = diag_adv_metrics(pred_test, ytest, cfg$threshold %||% 0.5, positive_level),
+    pred_train = pred_train, pred_test = pred_test, obs_train = ytrain, obs_test = ytest,
+    n_train = length(ytrain), n_test = length(ytest), n_features_final = length(feats_final)
+  )
+}
+
+## Cross-model wrapper: one shared Train/Test split (reuses
+## diag_split_train_test(), the SAME helper the four-model engine above
+## uses), then diag_adv_run_model() once per selected model. Feature
+## filtering/tuning/imbalance handling are independent per model (a
+## filter chosen upstream applies identically to every model run this way).
+diag_adv_compare_models <- function(expr_sub, y_full, model_keys, cfg, manual_grid_fn = NULL, progress = NULL) {
+  split <- diag_split_train_test(y_full, cfg$test_frac %||% 0.3, seed = cfg$seed %||% 1234)
+  validate(need(length(split$train) >= 10 && length(split$test) >= 4,
+                "Not enough samples for a train/test split at this ratio - lower the test-set size or provide more samples."))
+  Xall <- t(expr_sub)
+  Xtrain_raw <- Xall[split$train, , drop = FALSE]; ytrain <- y_full[split$train]
+  Xtest_raw <- Xall[split$test, , drop = FALSE]; ytest <- y_full[split$test]
+  validate(need(length(unique(ytrain)) == 2 && all(table(ytrain) >= 3),
+                "The training split ended up with fewer than 3 samples in one group - lower the test-set size or provide more samples."))
+
+  ## Unsupervised prefilters (variance/missingness/correlation) computed
+  ## ONCE here, before the per-model loop - they never see ytrain, so
+  ## this cannot leak outcome information into feature selection.
+  if (!(cfg$filter$method %in% DIAG_ADV_SUPERVISED_FILTERS) && !identical(cfg$filter$method, "none")) {
+    keep0 <- diag_adv_apply_filter(Xtrain_raw, NULL, cfg$filter)
+    Xtrain_raw <- Xtrain_raw[, keep0, drop = FALSE]; Xtest_raw <- Xtest_raw[, keep0, drop = FALSE]
+  }
+
+  results <- stats::setNames(lapply(model_keys, function(mk) {
+    cfg_i <- cfg
+    if (identical(cfg$tune$mode, "manual") && !is.null(manual_grid_fn)) cfg_i$tune$manual_grid <- manual_grid_fn(mk)
+    diag_adv_run_model(Xtrain_raw, ytrain, Xtest_raw, ytest, mk, cfg_i, progress = progress)
+  }), model_keys)
+
+  list(results = results, split = split, ytrain = ytrain, ytest = ytest,
+       n_features_input = ncol(Xtrain_raw), cfg = cfg,
+       positive_level = levels(y_full)[2], reference_level = levels(y_full)[1])
+}
+
+## -----------------------------------------------------------------------
+## Overfitting diagnostics - plain-language flags, never silently hidden.
+## -----------------------------------------------------------------------
+diag_adv_overfitting_flags <- function(res, n_train) {
+  flags <- character(0)
+  cv_auc <- mean(vapply(res$outer, function(o) o$metrics$ROC_AUC, numeric(1)), na.rm = TRUE)
+  cv_sd <- stats::sd(vapply(res$outer, function(o) o$metrics$ROC_AUC, numeric(1)), na.rm = TRUE)
+  train_auc <- res$train_metrics$ROC_AUC; test_auc <- res$test_metrics$ROC_AUC
+  if (is.finite(train_auc) && is.finite(test_auc) && (train_auc - test_auc) > 0.15)
+    flags <- c(flags, sprintf("Large train-to-test AUC gap (%.3f -> %.3f): the model may be overfitting.", train_auc, test_auc))
+  if (is.finite(cv_auc) && is.finite(test_auc) && abs(cv_auc - test_auc) > 0.15)
+    flags <- c(flags, sprintf("CV AUC (%.3f) and Test AUC (%.3f) disagree substantially - CV performance may not generalize.", cv_auc, test_auc))
+  if (is.finite(cv_sd) && cv_sd > 0.12)
+    flags <- c(flags, sprintf("Unstable cross-validation performance (fold AUC SD = %.3f) - results are sensitive to which samples land in which fold.", cv_sd))
+  if (res$n_features_final > 0 && n_train > 0 && (res$n_features_final / n_train) > 0.2)
+    flags <- c(flags, sprintf("%d features selected from only %d training samples - a high feature-to-sample ratio increases overfitting risk.", res$n_features_final, n_train))
+  if (is.finite(train_auc) && train_auc > 0.995)
+    flags <- c(flags, "Training performance is suspiciously close to perfect - check for leakage or an overly complex model for this sample size.")
+  flags
+}
+
+## -----------------------------------------------------------------------
+## Interpretability
+## -----------------------------------------------------------------------
+diag_adv_coefficients <- function(res) {
+  reg <- res$reg
+  if (!isTRUE(reg$supports_coef)) return(NULL)
+  fit <- res$final_fit$finalModel
+  co <- if (identical(reg$method, "glm")) {
+    stats::coef(fit)
+  } else {
+    bp <- res$best_params_final
+    lam <- if ("lambda" %in% names(bp)) bp$lambda else fit$lambda[length(fit$lambda)]
+    as.matrix(stats::coef(fit, s = lam))[, 1]
+  }
+  df <- data.frame(feature = names(co), coefficient = as.numeric(co), stringsAsFactors = FALSE)
+  df <- df[df$feature != "(Intercept)", ]
+  df[order(-abs(df$coefficient)), ]
+}
+
+diag_adv_importance <- function(res) {
+  reg <- res$reg
+  if (!isTRUE(reg$supports_importance)) return(NULL)
+  imp <- tryCatch(caret::varImp(res$final_fit)$importance, error = function(e) NULL)
+  if (is.null(imp)) return(NULL)
+  df <- data.frame(feature = rownames(imp), importance = imp[[1]], stringsAsFactors = FALSE)
+  df[order(-df$importance), ]
+}
+
+## -----------------------------------------------------------------------
+## Calibration - reliability curve + Brier score off Test predictions
+## (leak-free by construction), Platt scaling fit on the OUTER-FOLD
+## OUT-OF-FOLD Train predictions (never in-sample) then applied to Test.
+## -----------------------------------------------------------------------
+diag_adv_calibration_curve <- function(prob, obs, positive_level, n_bins = 10) {
+  bins <- cut(prob, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
+  data.frame(
+    bin_mid = tapply(prob, bins, mean),
+    observed = tapply(obs == positive_level, bins, mean),
+    n = as.integer(table(bins))
+  ) |> stats::na.omit()
+}
+
+diag_adv_platt_calibrate <- function(res, positive_level) {
+  oof_pred <- unlist(lapply(res$outer, function(o) o$pred))
+  oof_obs <- unlist(lapply(res$outer, function(o) as.character(o$obs)))
+  df <- data.frame(p = oof_pred, y = as.numeric(oof_obs == positive_level))
+  fit <- tryCatch(stats::glm(y ~ p, data = df, family = stats::binomial), error = function(e) NULL)
+  if (is.null(fit)) return(NULL)
+  list(fit = fit, apply = function(p) as.numeric(predict(fit, newdata = data.frame(p = p), type = "response")))
+}
+
+## -----------------------------------------------------------------------
+## Threshold explorer - pure post-hoc recompute off already-stored
+## predictions, no refit; safe to be instant/reactive rather than
+## button-gated.
+## -----------------------------------------------------------------------
+diag_adv_threshold_table <- function(prob, obs, positive_level, thresholds = seq(0.05, 0.95, by = 0.05)) {
+  do.call(rbind, lapply(thresholds, function(th) {
+    m <- diag_adv_metrics(prob, obs, th, positive_level)
+    pred_pos <- sum(prob >= th)
+    ppv <- m$Precision
+    npv_denom <- sum(prob < th)
+    npv <- if (npv_denom > 0) sum(prob < th & obs != positive_level) / npv_denom else NA_real_
+    data.frame(threshold = th, sensitivity = m$Sensitivity, specificity = m$Specificity,
+               precision = m$Precision, f1 = m$F1, ppv = ppv, npv = npv,
+               n_predicted_positive = pred_pos, n_predicted_negative = length(prob) - pred_pos)
+  }))
+}
+
+## -----------------------------------------------------------------------
+## Pre-flight compute estimate - shown before "Compare Models" is
+## clickable, so a large model x fold x grid combination isn't a surprise.
+## -----------------------------------------------------------------------
+diag_adv_estimate_fits <- function(model_keys, outer_k, inner_k, tune_len) {
+  length(model_keys) * (outer_k + 1) * (inner_k * tune_len + 1)
+}
+
+## -----------------------------------------------------------------------
+## Manual hyperparameter UI - one small spec table drives both the input
+## widgets and the one-row tuneGrid built from them, per selected model.
+## Models with no entry here (currently just plain logistic regression)
+## have no tunable hyperparameters at all.
+## -----------------------------------------------------------------------
+DIAG_ADV_MANUAL_PARAM_SPECS <- list(
+  ridge = list(lambda = list(type = "numeric", default = 0.01, min = 0.0001, step = 0.001)),
+  lasso = list(lambda = list(type = "numeric", default = 0.01, min = 0.0001, step = 0.001)),
+  enet  = list(alpha = list(type = "numeric", default = 0.5, min = 0, max = 1, step = 0.05),
+               lambda = list(type = "numeric", default = 0.01, min = 0.0001, step = 0.001)),
+  svm_linear = list(C = list(type = "numeric", default = 1, min = 0.001, step = 0.1)),
+  svm_rbf = list(C = list(type = "numeric", default = 1, min = 0.001, step = 0.1),
+                 sigma = list(type = "numeric", default = 0.1, min = 0.0001, step = 0.01)),
+  svm_poly = list(C = list(type = "numeric", default = 1, min = 0.001, step = 0.1),
+                   degree = list(type = "integer", default = 2, min = 1, max = 5, step = 1),
+                   scale = list(type = "numeric", default = 1, min = 0.001, step = 0.1)),
+  rf = list(mtry = list(type = "integer", default = 5, min = 1, step = 1)),
+  extratrees = list(mtry = list(type = "integer", default = 5, min = 1, step = 1),
+                     min.node.size = list(type = "integer", default = 5, min = 1, step = 1)),
+  gbm = list(n.trees = list(type = "integer", default = 100, min = 10, step = 10),
+              interaction.depth = list(type = "integer", default = 2, min = 1, max = 10, step = 1),
+              shrinkage = list(type = "numeric", default = 0.1, min = 0.001, max = 1, step = 0.01),
+              n.minobsinnode = list(type = "integer", default = 5, min = 1, step = 1)),
+  xgboost = list(nrounds = list(type = "integer", default = 100, min = 10, step = 10),
+                  max_depth = list(type = "integer", default = 3, min = 1, max = 15, step = 1),
+                  eta = list(type = "numeric", default = 0.1, min = 0.001, max = 1, step = 0.01),
+                  min_child_weight = list(type = "integer", default = 1, min = 1, step = 1),
+                  subsample = list(type = "numeric", default = 0.8, min = 0.1, max = 1, step = 0.05),
+                  colsample_bytree = list(type = "numeric", default = 0.8, min = 0.1, max = 1, step = 0.05),
+                  gamma = list(type = "numeric", default = 0, min = 0, step = 0.1),
+                  reg_lambda = list(type = "numeric", default = 1, min = 0, step = 0.1),
+                  reg_alpha = list(type = "numeric", default = 0, min = 0, step = 0.1)),
+  adaboost = list(mfinal = list(type = "integer", default = 50, min = 5, max = 200, step = 5),
+                   maxdepth = list(type = "integer", default = 2, min = 1, max = 10, step = 1),
+                   coeflearn = list(type = "select", choices = c("Breiman", "Freund", "Zhu"), default = "Breiman")),
+  naive_bayes = list(laplace = list(type = "numeric", default = 0, min = 0, step = 0.5),
+                       usekernel = list(type = "select", choices = c("TRUE", "FALSE"), default = "TRUE"),
+                       adjust = list(type = "numeric", default = 1, min = 0.1, step = 0.1)),
+  knn = list(k = list(type = "integer", default = 5, min = 1, step = 1)),
+  dtree = list(cp = list(type = "numeric", default = 0.01, min = 0.0001, max = 1, step = 0.005))
+)
+
+diag_adv_manual_ui_one <- function(ns, model_key) {
+  specs <- DIAG_ADV_MANUAL_PARAM_SPECS[[model_key]]
+  lbl <- DIAG_ADV_MODEL_REGISTRY[[model_key]]$label
+  if (is.null(specs) || length(specs) == 0) {
+    return(div(class = "empty-note", style = "font-size:12.5px;", icon("circle-info"), sprintf("%s has no tunable hyperparameters.", lbl)))
+  }
+  tagList(
+    tags$strong(lbl, style = "font-size:13px;"),
+    fluidRow(lapply(names(specs), function(pname) {
+      sp <- specs[[pname]]; iid <- ns(paste0("adv_manual_", model_key, "_", pname))
+      column(3, if (identical(sp$type, "select")) {
+        selectInput(iid, pname, choices = sp$choices, selected = sp$default, selectize = FALSE)
+      } else {
+        numericInput(iid, pname, value = sp$default, min = sp$min %||% NA, max = sp$max %||% NA, step = sp$step %||% 1)
+      })
+    }))
+  )
+}
+
+diag_adv_manual_grid_one <- function(input, model_key) {
+  specs <- DIAG_ADV_MANUAL_PARAM_SPECS[[model_key]]
+  if (is.null(specs) || length(specs) == 0) return(NULL)  # no params -> diag_adv_build_grid() falls back to the automatic stock grid
+  vals <- stats::setNames(lapply(names(specs), function(pname) {
+    sp <- specs[[pname]]; iid <- paste0("adv_manual_", model_key, "_", pname)
+    v <- input[[iid]] %||% sp$default
+    if (identical(sp$type, "select") && identical(pname, "usekernel")) v <- as.logical(v)
+    v
+  }), names(specs))
+  as.data.frame(vals, stringsAsFactors = FALSE)
+}
+
 ## ---------------------------------------------------------------------------
 ## UI
 ## ---------------------------------------------------------------------------
@@ -584,7 +1292,7 @@ mod_diagnostic_training_panel <- function(ns, prefix, title, roc_height = 250) {
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
     withSpinner(uiOutput(ns(paste0(prefix, "_train_stats"))), color = "#2563EB", type = 6),
     fluidRow(
-      column(4, h5("ROC (training fit)"), withSpinner(plotOutput(ns(paste0(prefix, "_train_roc_plot")), height = roc_height), color = "#2563EB", type = 6)),
+      column(4, h5("ROC (Train vs Test)"), withSpinner(plotOutput(ns(paste0(prefix, "_train_roc_plot")), height = roc_height), color = "#2563EB", type = 6)),
       column(4, h5("Cross-validated AUC by fold"), withSpinner(plotOutput(ns(paste0(prefix, "_train_cv_plot")), height = roc_height), color = "#2563EB", type = 6)),
       column(4, h5("Hyperparameter tuning - explore the grid"), withSpinner(plotOutput(ns(paste0(prefix, "_train_tuning_plot")), height = roc_height), color = "#2563EB", type = 6))
     ),
@@ -675,7 +1383,7 @@ mod_diagnostic_training_sex_panel <- function(ns, sex_label) {
         tabPanel("Random Forest", br(), mod_diagnostic_training_panel(ns, paste0(sex_label, "_rf"), NULL)),
         tabPanel("SVM", br(), mod_diagnostic_training_panel(ns, paste0(sex_label, "_svm"), NULL))
       ),
-      mod_diagnostic_generoc_box_sex(ns, sex_label, "train", sprintf("Per-gene ROC/AUC - Training (%s)", sex_title)),
+      mod_diagnostic_generoc_box_sex(ns, sex_label, "train", sprintf("Per-gene ROC/AUC - Train vs Test (%s)", sex_title)),
       box(width = NULL, title = sprintf("Training comparison - %s", sex_title), status = "primary", solidHeader = FALSE,
           DT::dataTableOutput(ns(paste0(sex_label, "_train_compare_table")))),
       uiOutput(ns(paste0(sex_label, "_result_line")))
@@ -699,7 +1407,6 @@ mod_diagnostic_testing_sex_panel <- function(ns, sex_label) {
         tabPanel("Random Forest", br(), mod_diagnostic_testing_panel(ns, paste0(sex_label, "_rf"), NULL)),
         tabPanel("SVM", br(), mod_diagnostic_testing_panel(ns, paste0(sex_label, "_svm"), NULL))
       ),
-      mod_diagnostic_generoc_box_sex(ns, sex_label, "test", sprintf("Per-gene ROC/AUC - Test (%s)", sex_title)),
       box(width = NULL, title = sprintf("Testing comparison - %s", sex_title), status = "primary", solidHeader = FALSE,
           DT::dataTableOutput(ns(paste0(sex_label, "_test_compare_table"))))
     )
@@ -753,7 +1460,16 @@ mod_diagnostic_ui <- function(id) {
           ),
           tags$hr(),
           uiOutput(ns("contrast_controls")),
-          div(style = "margin-top:10px;", uiOutput(ns("saved_runs_ui")))
+          div(style = "margin-top:10px;", uiOutput(ns("saved_runs_ui"))),
+          tags$hr(),
+          ## Additive-only: unchecked by default, so nothing about the four
+          ## models/panels above changes unless a user explicitly opts in.
+          checkboxInput(ns("adv_ml_enable"), tagList(icon("flask"), " Enable Advanced ML Modeling"), value = FALSE),
+          conditionalPanel(
+            condition = sprintf("input['%s']", ns("adv_ml_enable")),
+            div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
+                "Unlocks 15 models, custom feature filtering, hyperparameter search, nested cross-validation, calibration and model comparison/export, on top of the four models above. Appears at the top of “Model Training”.")
+          )
         )
       ),
       column(
@@ -762,6 +1478,10 @@ mod_diagnostic_ui <- function(id) {
           id = ns("main_tabs"), type = "tabs",
           tabPanel(
             "Model Training", br(),
+            conditionalPanel(
+              condition = sprintf("input['%s']", ns("adv_ml_enable")),
+              uiOutput(ns("adv_ml_panel_ui"))
+            ),
             p(class = "submodule-desc", "Pick Female or Male, then Run - nothing below renders until then."),
             ## One params box, switched server-side to match whichever model
             ## pill was clicked most recently in EITHER sex's tab (params are
@@ -785,7 +1505,7 @@ mod_diagnostic_ui <- function(id) {
           ),
           tabPanel(
             "Model Testing (Internal)", br(),
-            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split. Pick Female, Male or Pooled, then Run."),
+            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split."),
             tabsetPanel(
               id = ns("test_sex_tabs"), type = "tabs",
               tabPanel("Female", br(), mod_diagnostic_testing_sex_panel(ns, "female")),
@@ -825,7 +1545,7 @@ mod_diagnostic_external_panel <- function(ns) {
   tagList(
     box(
       width = NULL, title = "External validation dataset", status = "primary", solidHeader = FALSE,
-      p(class = "submodule-desc", "Upload a genuinely separate cohort - not a train/test split of the currently loaded dataset, a different one entirely (e.g. the paper's own GSE77298-style external validation set) - to check whether the gene panel below holds up outside the data it was chosen on."),
+      p(class = "submodule-desc", "Upload a separate cohort to check whether the gene panel below holds up outside the training data."),
       fluidRow(
         column(6, fileInput(ns("ext_expr_file"), "Expression matrix", accept = c(".csv", ".rds", ".Rds"))),
         column(6, fileInput(ns("ext_meta_file"), "Sample metadata", accept = c(".csv", ".rds", ".Rds")))
@@ -883,7 +1603,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
         conditionalPanel(condition = sprintf("input['%s'] == 'manual'", ns("class_weight_mode")),
                           numericInput(ns("class_weight_ratio"), "Weight ratio (comparison : reference)", value = 1, min = 0.05, max = 20, step = 0.05)),
         div(class = "empty-note", style = "font-size: 12.5px; margin-top: -6px;", icon("circle-info"),
-            "Applied to all four models (Logistic Regression, Elastic Net, Random Forest, SVM) for both sexes.")
+            "Applied to all four models, both sexes.")
       )
     })
 
@@ -895,12 +1615,12 @@ mod_diagnostic_server <- function(id, dataset, results) {
       live <- results$featureselection[[sex_label]]$consensus_genes
       if (!is.null(live) && length(live) >= 2) {
         return(list(genes = live, is_live = TRUE,
-                    note = sprintf("%d genes from this session's live Feature Selection %s consensus panel (LASSO ∩ Random Forest ∩ SVM-RFE).", length(live), sex_label)))
+                    note = sprintf("%d genes from this session's live %s consensus panel.", length(live), sex_label)))
       }
       bundled <- read_table_safe(sprintf("FS_input_%s.csv", sex_label))
       if (!is.null(bundled) && nrow(bundled) >= 2 && "gene" %in% colnames(bundled)) {
         return(list(genes = unique(as.character(bundled$gene)), is_live = FALSE,
-                    note = sprintf("%d genes from this project's bundled %s panel (FS_input_%s.csv).", nrow(bundled), sex_label, sex_label)))
+                    note = sprintf("%d genes from the bundled %s panel.", nrow(bundled), sex_label)))
       }
       list(genes = character(0), is_live = FALSE, note = sprintf("No %s candidate genes available.", sex_label))
     }
@@ -929,7 +1649,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     ## wgcna_module_pick_ui_builder() - duplicated rather than shared across
     ## module files, per this codebase's existing per-module
     ## self-containment convention (see mod_wgcna.R's own note on
-    ## wgcna_step_title()).
+    ## wgcna_tab_title()).
     output$wgcna_module_pick_ui <- renderUI({
       mg <- results$wgcna$module_genes
       if (is.null(mg) || length(mg) == 0) {
@@ -942,7 +1662,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       tagList(
         selectInput(ns("wgcna_module_pick"), "Module", choices = choices, selectize = FALSE),
         div(class = "empty-note", icon("circle-info"),
-            "Uses whichever gene set is currently loaded on the Dataset tab for expression values - make sure that's the same dataset WGCNA was run on.")
+            "Uses expression values from the Dataset tab - use the same dataset WGCNA was run on.")
       )
     })
 
@@ -960,7 +1680,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
             sprintf("Live Feature Selection panel: %s genes.", paste(bits, collapse = " / ")))
       } else {
         div(class = "empty-note", icon("circle-info"),
-            "No live Feature Selection panel yet - using this project's bundled female/male panel (no bundled pooled panel exists, so Pooled here needs a live Feature Selection run first).")
+            "No live Feature Selection panel yet - using the bundled female/male panel. Pooled needs a live run first.")
       }
     })
 
@@ -1055,7 +1775,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     output$ext_status_ui <- renderUI({
       r <- tryCatch(ext_result(), error = function(e) NULL)
       if (is.null(r)) {
-        return(div(class = "empty-note", icon("circle-info"), "Not run yet. Upload both files, map the columns, pick reference/comparison groups, then click \"Run external validation\"."))
+        return(div(class = "empty-note", icon("circle-info"), "Not run yet. Upload files, map columns, then click Run."))
       }
       div(class = "empty-note", icon("check"),
           sprintf("%d panel genes present in the external dataset, %d samples (%d %s vs %d %s). %s",
@@ -1249,7 +1969,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     lr_params_box <- function() {
       mod_diagnostic_params_box(
         ns, "lr", "Logistic Regression",
-        "This IS this project's own methodology, same as elastic net (see 14_model_training_nested_cv.R / 16b_model_training_final_panel_noMHC.R / 16d_nested_cv_reconciliation.R): plain, unpenalized glm(y ~ ., family = binomial) on every gene in the panel - no regularisation, so nothing to tune except how many folds the cross-validated AUC below uses. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "Plain, unpenalized logistic regression on the full panel - nothing to tune except CV folds.",
         fluidRow(
           column(4, numericInput(ns("lr_cv_folds"), "Cross-validation folds", value = 5, min = 3, max = 10, step = 1))
         )
@@ -1259,7 +1979,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     enet_params_box <- function() {
       mod_diagnostic_params_box(
         ns, "enet", "Elastic Net",
-        "Alpha tuned by CV deviance; lambda.min used by default. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "Alpha tuned by CV deviance; lambda.min by default.",
         fluidRow(
           column(4, numericInput(ns("enet_cv_folds"), "Cross-validation folds", value = 5, min = 3, max = 10, step = 1)),
           column(4, textInput(ns("enet_alpha_grid"), "Alpha grid (0 = ridge … 1 = LASSO, comma-separated)", value = paste(DIAG_DEFAULT_PARAMS$enet_alpha_grid, collapse = ", "))),
@@ -1278,7 +1998,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     rf_params_box <- function() {
       mod_diagnostic_params_box(
         ns, "rf", "Random Forest",
-        "mtry tuned by CV; ntree fixed. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "mtry tuned by CV; ntree fixed.",
         fluidRow(
           column(4, numericInput(ns("rf_cv_folds"), "Cross-validation folds", value = 5, min = 3, max = 10, step = 1)),
           column(4, numericInput(ns("rf_ntree"), "Number of trees", value = 1000, min = 100, max = 5000, step = 100)),
@@ -1303,7 +2023,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     svm_params_box <- function() {
       mod_diagnostic_params_box(
         ns, "svm", "SVM",
-        "Cost tuned by CV; linear kernel by default. Class weighting (Reference/Comparison group settings above) applies here too.",
+        "Cost tuned by CV; linear kernel by default.",
         fluidRow(
           column(3, numericInput(ns("svm_cv_folds"), "Cross-validation folds", value = 5, min = 3, max = 10, step = 1)),
           column(3, radioButtons(ns("svm_kernel"), "Kernel", choices = c("Linear (default)" = "linear", "Radial" = "radial", "Polynomial" = "polynomial"), selected = "linear")),
@@ -1316,7 +2036,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
           )
         ),
         h5("Advanced", style = "margin-top: 6px;"),
-        p(class = "submodule-desc", "Gamma/degree only matter for Radial/Polynomial kernels above - both are ignored (no effect) while Kernel is set to Linear."),
+        p(class = "submodule-desc", "Gamma/degree only apply to Radial/Polynomial kernels."),
         fluidRow(
           column(3,
             radioButtons(ns("svm_gamma_mode"), "Gamma (kernel coefficient)", choices = c("Auto: 1 / number of genes (default)" = "auto", "Manual" = "manual"), selected = "auto"),
@@ -1532,9 +2252,9 @@ mod_diagnostic_server <- function(id, dataset, results) {
               div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;",
                   icon("triangle-exclamation"),
                   sprintf(
-                    "Likely overfitting: Train AUC (%.3f) far exceeds the %d-fold CV AUC (%.3f) - with %d candidate genes on %d samples%s, trust the CV-AUC, not the training AUC. Consider a smaller, pre-selected panel (e.g. a Feature Selection consensus set) instead of a whole WGCNA module.",
+                    "Likely overfitting: Train AUC (%.3f) far exceeds %d-fold CV AUC (%.3f) with %d genes on %d samples%s. Trust the CV-AUC.",
                     rr$full_auc, length(rr$cv_auc), cv_mean, r$n_input, r$n_samples,
-                    if (identical(rr$model_type, "lr")) " and no regularisation (plain logistic regression)" else ""
+                    if (identical(rr$model_type, "lr")) " and no regularisation" else ""
                   ))
             }
           )
@@ -1542,7 +2262,9 @@ mod_diagnostic_server <- function(id, dataset, results) {
         output[[paste0(prefix, "_train_roc_plot")]] <- renderPlot({
           r <- res(); req(r)
           rr <- r[[key]]
-          diag_roc_plot_pub(rr$roc_full, color = sex_color, title = sprintf("Training ROC — %s (%s)", label, tools::toTitleCase(sex_label)))
+          diag_roc_plot_traintest(rr$roc_full, rr$test,
+                                   cv_mean = mean(rr$cv_auc, na.rm = TRUE), cv_sd = stats::sd(rr$cv_auc, na.rm = TRUE), cv_n = length(rr$cv_auc),
+                                   title = sprintf("ROC — %s (%s)", label, tools::toTitleCase(sex_label)))
         })
         output[[paste0(prefix, "_train_cv_plot")]] <- renderPlot({
           r <- res(); req(r)
@@ -1675,9 +2397,12 @@ mod_diagnostic_server <- function(id, dataset, results) {
         DT::datatable(df, rownames = FALSE, width = "100%", options = list(pageLength = 5, dom = "t", scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact")
       })
 
-      ## Per-gene ROC/AUC - same rendering for Training (gene_roc_train) and
-      ## Testing (gene_roc_test), just a different field name.
-      register_generoc_outputs <- function(mode, field) {
+      ## Per-gene ROC/AUC - Train (gene_roc_train) and Test (gene_roc_test)
+      ## overlaid on the same per-gene panel, same "Dataset"-legend
+      ## convention as diag_roc_plot_traintest() above, so a gene's
+      ## training-fit and held-out-test discriminative power are compared
+      ## directly rather than across two separate boxes/tabs.
+      register_generoc_outputs <- function(mode) {
         plot_id <- paste0(sex_label, "_", mode, "_generoc_plot")
         table_id <- paste0(sex_label, "_", mode, "_generoc_table")
         download_id <- paste0(sex_label, "_", mode, "_generoc_download")
@@ -1689,49 +2414,61 @@ mod_diagnostic_server <- function(id, dataset, results) {
         ## session resumed from before this column existed) - NA rather than
         ## a hard error, so the AUC column still renders and only "hub"
         ## (which needs p) comes out empty instead of the whole table.
-        gene_auc_df <- function(gr) {
-          p <- if (!is.null(gr$p)) unname(gr$p) else rep(NA_real_, length(gr$genes))
-          df <- data.frame(gene = gr$genes, auc = round(unname(gr$auc), 3), p = signif(p, 3), stringsAsFactors = FALSE)
+        ## "hub" is decided on the TRAINING stats only (test-split AUC/p are
+        ## reported alongside for reference, but a hub-gene rule evaluated on
+        ## a small held-out split is noisy).
+        gene_auc_df <- function(gr_tr, gr_te) {
+          p_tr <- if (!is.null(gr_tr$p)) unname(gr_tr$p) else rep(NA_real_, length(gr_tr$genes))
+          df <- data.frame(gene = gr_tr$genes, train_auc = round(unname(gr_tr$auc), 3), train_p = signif(p_tr, 3), stringsAsFactors = FALSE)
+          idx <- match(df$gene, gr_te$genes)
+          p_te <- if (!is.null(gr_te$p)) unname(gr_te$p) else rep(NA_real_, length(gr_te$genes))
+          df$test_auc <- round(unname(gr_te$auc)[idx], 3)
+          df$test_p <- signif(p_te[idx], 3)
           auc_thr <- input[[auc_thr_id]] %||% 0.85
           p_thr <- input[[p_thr_id]] %||% 0.05
-          df$hub <- !is.na(df$auc) & !is.na(df$p) & df$auc >= auc_thr & df$p < p_thr
-          df[order(-df$auc), ]
+          df$hub <- !is.na(df$train_auc) & !is.na(df$train_p) & df$train_auc >= auc_thr & df$train_p < p_thr
+          df[order(-df$train_auc), ]
         }
 
         ## One small ROC panel PER GENE (not all genes overlaid on one axes,
         ## which becomes unreadable spaghetti past 3-4 genes and hid each
-        ## gene's own AUC entirely) - same FPR/TPR orientation and 1:1
-        ## aspect ratio as diag_roc_plot_pub()'s model-level ROC, with that
-        ## gene's own AUC printed inside its panel. Capped to the top genes
-        ## by AUC so a whole-module-sized panel doesn't render an
-        ## unreadable wall of facets - the full per-gene table/download
-        ## below always has every gene regardless of this cap.
+        ## gene's own AUC entirely) - Train + Test curves overlaid within
+        ## each gene's own panel. Capped to the top genes by training AUC so
+        ## a whole-module-sized panel doesn't render an unreadable wall of
+        ## facets - the full per-gene table/download below always has every
+        ## gene regardless of this cap.
         GENEROC_MAX_FACETS <- 24
         output[[plot_id]] <- renderPlot({
           r <- res(); req(r)
-          gr <- r[[field]]
-          auc_df <- gene_auc_df(gr)
+          gr_tr <- r$gene_roc_train; gr_te <- r$gene_roc_test
+          auc_df <- gene_auc_df(gr_tr, gr_te)
           req(nrow(auc_df) > 0)
           top_genes <- head(auc_df$gene, GENEROC_MAX_FACETS)
-          df <- do.call(rbind, lapply(top_genes, function(g) {
+          gene_curve <- function(gr, g, ds) {
             rc <- gr$rocs[[g]]
             if (is.null(rc)) return(NULL)
-            data.frame(gene = g, fpr = 1 - rc$specificities, tpr = rc$sensitivities, stringsAsFactors = FALSE)
-          }))
+            data.frame(gene = g, fpr = 1 - rc$specificities, tpr = rc$sensitivities, Dataset = ds, stringsAsFactors = FALSE)
+          }
+          df <- do.call(rbind, c(lapply(top_genes, function(g) gene_curve(gr_tr, g, "Train")),
+                                  lapply(top_genes, function(g) gene_curve(gr_te, g, "Test"))))
           req(nrow(df) > 0)
           df$gene <- factor(df$gene, levels = top_genes)
-          auc_lab <- auc_df[match(top_genes, auc_df$gene), c("gene", "auc")]
+          df$Dataset <- factor(df$Dataset, levels = c("Test", "Train"))
+          auc_lab <- auc_df[match(top_genes, auc_df$gene), c("gene", "train_auc", "test_auc")]
           auc_lab$gene <- factor(auc_lab$gene, levels = top_genes)
-          auc_lab$label <- sprintf("AUC = %.3f", auc_lab$auc)
+          auc_lab$label <- ifelse(!is.na(auc_lab$test_auc),
+                                   sprintf("Train AUC=%.3f\nTest AUC=%.3f", auc_lab$train_auc, auc_lab$test_auc),
+                                   sprintf("Train AUC=%.3f", auc_lab$train_auc))
           n_col <- min(4, length(top_genes))
           plot_title <- if (nrow(auc_df) > GENEROC_MAX_FACETS) {
-            sprintf("Top %d of %d genes by AUC - see the table below for the full panel", GENEROC_MAX_FACETS, nrow(auc_df))
+            sprintf("Top %d of %d genes by training AUC", GENEROC_MAX_FACETS, nrow(auc_df))
           } else NULL
-          ggplot(df, aes(x = fpr, y = tpr)) +
+          ggplot(df, aes(x = fpr, y = tpr, color = Dataset)) +
             geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "#9CA3AF", linewidth = 0.5) +
-            geom_line(color = sex_color, linewidth = 1) +
+            geom_line(linewidth = 1) +
+            scale_color_manual(name = "Dataset", values = c(Train = ARTHOMIX_COLORS$yellow, Test = ARTHOMIX_COLORS$blue), breaks = c("Test", "Train")) +
             geom_text(data = auc_lab, aes(x = 0.98, y = 0.04, label = label), inherit.aes = FALSE,
-                      hjust = 1, vjust = 0, size = 3.1, color = "#1F2937") +
+                      hjust = 1, vjust = 0, size = 2.7, color = "#1F2937", lineheight = 0.9) +
             facet_wrap(~gene, ncol = n_col) +
             scale_x_continuous(name = "1 − Specificity (FPR)", limits = c(0, 1), breaks = c(0, 0.5, 1), expand = c(0.02, 0.02)) +
             scale_y_continuous(name = "Sensitivity (TPR)", limits = c(0, 1), breaks = c(0, 0.5, 1), expand = c(0.02, 0.02)) +
@@ -1746,12 +2483,13 @@ mod_diagnostic_server <- function(id, dataset, results) {
               plot.title = element_text(size = 10.5, color = "#6B7280"),
               axis.title = element_text(face = "bold", size = 11),
               axis.text = element_text(size = 9, color = "black"),
-              panel.border = element_rect(color = "black", linewidth = 0.5, fill = NA)
+              panel.border = element_rect(color = "black", linewidth = 0.5, fill = NA),
+              legend.position = "bottom"
             )
         }, height = function() {
           r <- tryCatch(res(), error = function(e) NULL)
           if (is.null(r)) return(320)
-          n <- min(nrow(gene_auc_df(r[[field]])), GENEROC_MAX_FACETS)
+          n <- min(nrow(gene_auc_df(r$gene_roc_train, r$gene_roc_test)), GENEROC_MAX_FACETS)
           if (n <= 0) return(320)
           n_col <- min(4, n)
           n_row <- ceiling(n / n_col)
@@ -1759,32 +2497,487 @@ mod_diagnostic_server <- function(id, dataset, results) {
         })
         output[[table_id]] <- DT::renderDataTable({
           r <- res(); req(r)
-          DT::datatable(gene_auc_df(r[[field]]), rownames = FALSE, width = "100%",
+          DT::datatable(gene_auc_df(r$gene_roc_train, r$gene_roc_test), rownames = FALSE, width = "100%",
                         options = list(pageLength = 8, scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact") |>
             DT::formatStyle("hub", target = "row", backgroundColor = DT::styleEqual(c(TRUE, FALSE), c("#e6f4ea", "")))
         })
         output[[download_id]] <- downloadHandler(
-          filename = function() sprintf("%s_%s_gene_auc.csv", sex_label, mode),
-          content = function(file) write.csv(gene_auc_df(res()[[field]]), file, row.names = FALSE)
+          filename = function() sprintf("%s_gene_auc.csv", sex_label),
+          content = function(file) write.csv(gene_auc_df(res()$gene_roc_train, res()$gene_roc_test), file, row.names = FALSE)
         )
         ## Just the rows currently passing this box's own AUC/P thresholds -
         ## the direct candidate list to carry into the next pipeline step
         ## (e.g. back into Feature Selection, or reported as this run's own
         ## "hub genes"), without hand-filtering the full CSV yourself.
         output[[hub_download_id]] <- downloadHandler(
-          filename = function() sprintf("%s_%s_hub_genes.csv", sex_label, mode),
+          filename = function() sprintf("%s_hub_genes.csv", sex_label),
           content = function(file) {
-            df <- gene_auc_df(res()[[field]])
-            write.csv(df[df$hub, c("gene", "auc", "p")], file, row.names = FALSE)
+            df <- gene_auc_df(res()$gene_roc_train, res()$gene_roc_test)
+            write.csv(df[df$hub, c("gene", "train_auc", "train_p", "test_auc", "test_p")], file, row.names = FALSE)
           }
         )
       }
-      register_generoc_outputs("train", "gene_roc_train")
-      register_generoc_outputs("test", "gene_roc_test")
+      register_generoc_outputs("train")
     }
 
     register_sex_model_outputs("female", res_sex("female"))
     register_sex_model_outputs("male", res_sex("male"))
     register_sex_model_outputs("pooled", res_sex("pooled"))
+
+    ## =====================================================================
+    ## ADVANCED ML MODELING - server. Entirely self-contained: every
+    ## input/output id below is prefixed adv_, and the only things reused
+    ## from the four-model engine above are pure helpers/reactives that
+    ## were already there (sex_levels(), project_panel_genes(),
+    ## own_panel_genes(), wgcna_panel_genes(), diag_split_train_test()) -
+    ## nothing here writes to or reads from that engine's own reactives.
+    ## =====================================================================
+
+    output$adv_ml_panel_ui <- renderUI({
+      req(input$adv_ml_enable)
+      box(
+        width = NULL, title = "Advanced ML Modeling", status = "primary", solidHeader = FALSE,
+        p(class = "submodule-desc",
+          "A second, independent modeling environment: pick any combination of models, a feature-filtering strategy, a hyperparameter-tuning method and a validation strategy, then compare them side by side. Nothing below renders until “Compare Models” is clicked."),
+        fluidRow(
+          column(4, selectInput(ns("adv_sex_scope"), "Sample scope",
+                                 choices = c("Female" = "female", "Male" = "male", "Pooled (all)" = "pooled"), selected = "pooled", selectize = FALSE)),
+          column(4, selectInput(ns("adv_feature_universe"), "Feature universe",
+                                 choices = c("Same gene panel as the left panel" = "panel", "All genes in the loaded dataset" = "all"),
+                                 selected = "panel", selectize = FALSE)),
+          column(4, numericInput(ns("adv_seed"), "Random seed", value = 1234, min = 1, step = 1))
+        ),
+        uiOutput(ns("adv_candidate_note")),
+        tags$hr(),
+        h5("1. Feature filtering"),
+        div(class = "empty-note", style = "font-size: 12.5px;", icon("shield-halved"),
+            "Variance / missingness / correlation filters don't use the outcome label, so they're computed once on the training set. Every other filter is refit inside each cross-validation fold, on that fold's own training rows only - never on the full dataset."),
+        fluidRow(
+          column(4, selectInput(ns("adv_filter_method"), NULL, choices = DIAG_ADV_FILTER_METHODS, selected = "none", selectize = FALSE)),
+          column(8, uiOutput(ns("adv_filter_params_ui")))
+        ),
+        tags$hr(),
+        h5("2. Models"),
+        checkboxGroupInput(ns("adv_models"), NULL,
+                            choiceNames = unname(lapply(DIAG_ADV_MODEL_REGISTRY, function(m) m$label)),
+                            choiceValues = unname(lapply(DIAG_ADV_MODEL_REGISTRY, function(m) m$key)),
+                            selected = c("logistic", "enet", "rf", "svm_linear"), inline = TRUE),
+        div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"), "LightGBM isn't available in this R environment and isn't offered."),
+        tags$hr(),
+        h5("3. Hyperparameter tuning"),
+        fluidRow(
+          column(6, radioButtons(ns("adv_tune_mode"), NULL, choices = DIAG_ADV_TUNE_MODES, selected = "automatic")),
+          column(6,
+            conditionalPanel(condition = sprintf("input['%s'] == 'grid'", ns("adv_tune_mode")),
+                              numericInput(ns("adv_tune_length"), "Grid size per hyperparameter", value = 5, min = 2, max = 15, step = 1)),
+            conditionalPanel(condition = sprintf("input['%s'] == 'random'", ns("adv_tune_mode")),
+                              numericInput(ns("adv_n_random"), "Random search iterations", value = 10, min = 3, max = 50, step = 1)),
+            conditionalPanel(condition = sprintf("input['%s'] == 'manual'", ns("adv_tune_mode")),
+                              uiOutput(ns("adv_manual_params_ui")))
+          )
+        ),
+        div(class = "empty-note", style = "font-size: 12.5px;", icon("triangle-exclamation"),
+            "Bayesian optimization isn't available in this R environment (no supported package installed). Random search is the closest supported alternative."),
+        tags$hr(),
+        h5("4. Validation strategy"),
+        fluidRow(
+          column(3, numericInput(ns("adv_outer_k"), "Outer CV folds (performance estimate)", value = 5, min = 3, max = 10, step = 1)),
+          column(3, numericInput(ns("adv_inner_k"), "Inner CV folds (hyperparameter tuning)", value = 5, min = 3, max = 10, step = 1)),
+          column(3, sliderInput(ns("adv_test_frac_pct"), "Test-set size", min = 10, max = 50, value = 30, step = 5, post = "% test")),
+          column(3, sliderInput(ns("adv_threshold"), "Classification threshold", min = 0.05, max = 0.95, value = 0.5, step = 0.05))
+        ),
+        div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
+            "Nested cross-validation: hyperparameters are re-tuned inside every outer fold's own training rows only; the Test split is scored exactly once, by the final model, at the very end."),
+        tags$hr(),
+        h5("5. Class imbalance"),
+        fluidRow(
+          column(4, radioButtons(ns("adv_imbalance_method"), "Resampling (training folds only)",
+                                  choices = c("None" = "none", "Oversample (up)" = "up", "Undersample (down)" = "down", "SMOTE" = "smote"), selected = "none")),
+          column(4, radioButtons(ns("adv_class_weight_mode"), "Class weighting",
+                                  choices = c("Equal (default)" = "equal", "Balanced (auto inverse-frequency)" = "balanced", "Manual ratio" = "manual"), selected = "equal")),
+          column(4, conditionalPanel(condition = sprintf("input['%s'] == 'manual'", ns("adv_class_weight_mode")),
+                                      numericInput(ns("adv_class_weight_ratio"), "Weight ratio (comparison : reference)", value = 1, min = 0.05, max = 20, step = 0.05)))
+        ),
+        uiOutput(ns("adv_class_dist_ui")),
+        tags$hr(),
+        uiOutput(ns("adv_estimate_ui")),
+        actionButton(ns("adv_compare_btn"), "Compare Models", icon = icon("play"), class = "btn-primary"),
+        conditionalPanel(
+          condition = sprintf("input['%s'] > 0", ns("adv_compare_btn")),
+          tags$hr(),
+          withSpinner(uiOutput(ns("adv_results_ui")), color = "#2563EB", type = 6)
+        )
+      )
+    })
+
+    output$adv_filter_params_ui <- renderUI({
+      m <- input$adv_filter_method %||% "none"
+      switch(m,
+        variance = numericInput(ns("adv_filter_cap_n"), "Keep top N by variance", value = 50, min = 2, max = 5000, step = 1),
+        missingness = numericInput(ns("adv_filter_na_max"), "Max missingness fraction", value = 0.2, min = 0, max = 1, step = 0.05),
+        correlation = numericInput(ns("adv_filter_cor_cutoff"), "Correlation cutoff (drop one of any pair above this)", value = 0.9, min = 0.5, max = 0.99, step = 0.01),
+        univariate = tagList(
+          radioButtons(ns("adv_filter_use_fdr"), "Threshold on", choices = c("Raw P-value" = "raw", "FDR (BH-adjusted)" = "fdr"), selected = "raw", inline = TRUE),
+          conditionalPanel(condition = sprintf("input['%s'] == 'raw'", ns("adv_filter_use_fdr")), numericInput(ns("adv_filter_p_thr"), "P <", value = 0.05, min = 0.0001, max = 1, step = 0.005)),
+          conditionalPanel(condition = sprintf("input['%s'] == 'fdr'", ns("adv_filter_use_fdr")), numericInput(ns("adv_filter_fdr_thr"), "FDR <", value = 0.1, min = 0.0001, max = 1, step = 0.005)),
+          numericInput(ns("adv_filter_cap_n"), "Also cap at top N (0 = no cap)", value = 0, min = 0, max = 5000, step = 1)
+        ),
+        foldchange = tagList(
+          numericInput(ns("adv_filter_logfc_thr"), "Minimum |effect size| (mean difference, z-scored data)", value = 0.5, min = 0, step = 0.05),
+          numericInput(ns("adv_filter_cap_n"), "Also cap at top N (0 = no cap)", value = 0, min = 0, max = 5000, step = 1)
+        ),
+        importance = numericInput(ns("adv_filter_cap_n"), "Keep top N by importance", value = 50, min = 2, max = 5000, step = 1),
+        lasso = div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"), "Keeps genes with a nonzero LASSO coefficient at lambda.1se."),
+        rfe = numericInput(ns("adv_filter_cap_n"), "Target feature count", value = 20, min = 2, max = 500, step = 1),
+        div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"), "All candidate genes are used, unfiltered.")
+      )
+    })
+
+    output$adv_manual_params_ui <- renderUI({
+      req(length(input$adv_models) > 0)
+      tagList(lapply(input$adv_models, function(mk) diag_adv_manual_ui_one(ns, mk)))
+    })
+
+    ## Candidate feature universe - reuses the SAME panel-source helpers
+    ## (project_panel_genes()/own_panel_genes()/wgcna_panel_genes()) the
+    ## four-model engine above already defines, plus a new "all genes" path.
+    adv_candidate_genes <- function(sex_label) {
+      if (identical(input$adv_feature_universe, "all")) {
+        return(list(genes = rownames(dataset$expr), note = sprintf("All %d genes in the currently loaded dataset.", nrow(dataset$expr))))
+      }
+      switch(input$panel_source,
+        project = project_panel_genes(sex_label),
+        wgcna = wgcna_panel_genes(sex_label),
+        own_panel_genes(sex_label)
+      )
+    }
+
+    output$adv_candidate_note <- renderUI({
+      cand <- tryCatch(adv_candidate_genes(input$adv_sex_scope %||% "pooled"), error = function(e) NULL)
+      if (is.null(cand)) return(NULL)
+      n_present <- length(intersect(cand$genes, rownames(dataset$expr)))
+      div(class = "empty-note", icon("dna"), sprintf("%s %d present in the loaded expression matrix.", cand$note, n_present))
+    })
+
+    output$adv_estimate_ui <- renderUI({
+      req(length(input$adv_models) > 0)
+      n_fits <- diag_adv_estimate_fits(input$adv_models, input$adv_outer_k %||% 5, input$adv_inner_k %||% 5,
+                                        if (identical(input$adv_tune_mode, "random")) (input$adv_n_random %||% 10) else (input$adv_tune_length %||% 5))
+      div(class = "empty-note", icon("gauge-high"),
+          sprintf("Estimated ~%s individual model fits for this configuration (%d model(s) selected).", format(n_fits, big.mark = ","), length(input$adv_models)))
+    })
+
+    output$adv_class_dist_ui <- renderUI({
+      d <- tryCatch(adv_build_data(), error = function(e) NULL)
+      if (is.null(d)) return(NULL)
+      tb <- table(d$y)
+      div(class = "empty-note", icon("scale-balanced"),
+          sprintf("Current class distribution: %s.", paste(sprintf("%s = %d", names(tb), as.integer(tb)), collapse = ", ")))
+    })
+
+    ## -------------------------------------------------------------------
+    ## Data assembly - same contrast (input$ref_group/comp_group) and sex-
+    ## detection convention (sex_levels()) as the four-model engine above,
+    ## but its own sample-scope selector so it isn't tied to whichever
+    ## sex's Run button was last clicked up there.
+    ## -------------------------------------------------------------------
+    adv_build_data <- function() {
+      sex_label <- input$adv_sex_scope %||% "pooled"
+      sex_value <- if (identical(sex_label, "pooled")) NULL else sex_levels()[[sex_label]]
+      req(input$ref_group, input$comp_group)
+      validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
+      meta <- dataset$meta
+      sex_ok <- if (is.null(sex_value)) rep(TRUE, nrow(meta)) else (!is.na(meta$sex) & as.character(meta$sex) == sex_value)
+      meta <- meta[sex_ok & !is.na(meta$group) & as.character(meta$group) %in% c(input$ref_group, input$comp_group), , drop = FALSE]
+      common <- intersect(colnames(dataset$expr), meta$sample)
+      validate(need(length(common) >= 10, sprintf("Fewer than 10 %s samples match this contrast.", sex_label)))
+      meta <- meta[match(common, meta$sample), , drop = FALSE]
+      y <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
+      validate(need(all(table(y) >= 6), sprintf("Each group needs at least 6 %s samples for the Advanced ML pipeline.", sex_label)))
+
+      cand <- adv_candidate_genes(sex_label)
+      genes <- intersect(cand$genes, rownames(dataset$expr))
+      validate(need(length(genes) >= 2, "Fewer than 2 candidate genes from the chosen feature universe are present in the currently loaded expression matrix."))
+      list(expr_sub = dataset$expr[genes, common, drop = FALSE], y = y)
+    }
+
+    adv_filter_cfg <- reactive({
+      m <- input$adv_filter_method %||% "none"
+      cap <- input$adv_filter_cap_n
+      cap <- if (!is.null(cap) && is.finite(cap) && cap > 0) cap else NULL
+      switch(m,
+        variance = list(method = "variance", cap_n = input$adv_filter_cap_n %||% 50),
+        missingness = list(method = "missingness", na_max = input$adv_filter_na_max %||% 0.2),
+        correlation = list(method = "correlation", cor_cutoff = input$adv_filter_cor_cutoff %||% 0.9),
+        univariate = list(method = "univariate", use_fdr = identical(input$adv_filter_use_fdr, "fdr"),
+                           p_thr = input$adv_filter_p_thr %||% 0.05, fdr_thr = input$adv_filter_fdr_thr %||% 0.1, cap_n = cap),
+        foldchange = list(method = "foldchange", logfc_thr = input$adv_filter_logfc_thr %||% 0, cap_n = cap),
+        importance = list(method = "importance", cap_n = input$adv_filter_cap_n %||% 50),
+        lasso = list(method = "lasso"),
+        rfe = list(method = "rfe", cap_n = input$adv_filter_cap_n %||% 20),
+        list(method = "none")
+      )
+    })
+
+    adv_cfg <- reactive({
+      list(
+        test_frac = (input$adv_test_frac_pct %||% 30) / 100, seed = input$adv_seed %||% 1234,
+        filter = adv_filter_cfg(),
+        tune = list(mode = input$adv_tune_mode %||% "automatic", inner_method = "cv", inner_k = input$adv_inner_k %||% 5,
+                    tune_length = input$adv_tune_length %||% 5, n_random = input$adv_n_random %||% 10, manual_grid = NULL),
+        outer = list(k = input$adv_outer_k %||% 5),
+        imbalance = list(method = input$adv_imbalance_method %||% "none"),
+        class_weight = list(mode = input$adv_class_weight_mode %||% "equal", ratio = input$adv_class_weight_ratio %||% 1),
+        threshold = input$adv_threshold %||% 0.5
+      )
+    })
+
+    adv_compare_trigger <- reactiveVal(0)
+    observeEvent(input$adv_compare_btn, { adv_compare_trigger(isolate(adv_compare_trigger()) + 1) }, ignoreInit = TRUE)
+
+    adv_result <- eventReactive(adv_compare_trigger(), {
+      validate(need(length(input$adv_models) >= 1, "Pick at least one model to run."))
+      d <- adv_build_data()
+      cfg <- adv_cfg()
+      n_models <- length(input$adv_models)
+      shiny::withProgress(message = "Running Advanced ML comparison...", value = 0, {
+        diag_adv_compare_models(
+          d$expr_sub, d$y, input$adv_models, cfg,
+          manual_grid_fn = function(mk) diag_adv_manual_grid_one(input, mk),
+          progress = function(msg) shiny::incProgress(1 / (n_models * ((cfg$outer$k %||% 5) + 2)), detail = msg)
+        )
+      })
+    }, ignoreInit = TRUE)
+
+    ## ---------------------------------------------------------------
+    ## Results - comparison table + a select-driven per-model deep dive.
+    ## Nothing here renders before adv_result() has actually fired
+    ## (guarded by tryCatch(..., error=NULL) + is.null(), the same
+    ## idiom ext_results_ui already uses above).
+    ## ---------------------------------------------------------------
+    adv_comparison_df <- function(r) {
+      do.call(rbind, lapply(r$results, function(res) {
+        cv_auc <- vapply(res$outer, function(o) o$metrics$ROC_AUC, numeric(1))
+        flags <- diag_adv_overfitting_flags(res, res$n_train)
+        data.frame(
+          Model = res$label, Features = res$n_features_final,
+          CV_AUC = round(mean(cv_auc, na.rm = TRUE), 3), CV_AUC_SD = round(stats::sd(cv_auc, na.rm = TRUE), 3),
+          Test_AUC = round(res$test_metrics$ROC_AUC, 3), Train_AUC = round(res$train_metrics$ROC_AUC, 3),
+          Accuracy = round(res$test_metrics$Accuracy, 3), Balanced_Accuracy = round(res$test_metrics$BalancedAccuracy, 3),
+          Sensitivity = round(res$test_metrics$Sensitivity, 3), Specificity = round(res$test_metrics$Specificity, 3),
+          Precision = round(res$test_metrics$Precision, 3), F1 = round(res$test_metrics$F1, 3),
+          MCC = round(res$test_metrics$MCC, 3), Kappa = round(res$test_metrics$Kappa, 3),
+          PR_AUC = round(res$test_metrics$PR_AUC, 3), LogLoss = round(res$test_metrics$LogLoss, 3), Brier = round(res$test_metrics$Brier, 3),
+          Overfitting_flags = length(flags), stringsAsFactors = FALSE
+        )
+      }))
+    }
+
+    output$adv_results_ui <- renderUI({
+      req(adv_compare_trigger() > 0)
+      r <- adv_result()  ## let validate()/error conditions surface normally - never silently hide a failed run
+      tagList(
+        box(
+          width = NULL, title = "Model comparison", status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc",
+            "Sortable by any column (click a header) - deliberately not auto-ranked by accuracy alone. “Overfitting flags” counts the plain-language warnings shown in each model's own detail tab below."),
+          div(class = "table-toolbar", downloadButton(ns("adv_comparison_download"), "Comparison table (CSV)", class = "btn-sm"),
+              downloadButton(ns("adv_config_download"), "Analysis configuration (RDS)", class = "btn-sm")),
+          DT::dataTableOutput(ns("adv_comparison_table"))
+        ),
+        box(
+          width = NULL, title = "Model detail", status = "primary", solidHeader = FALSE,
+          selectInput(ns("adv_drill_model"), "Model", choices = stats::setNames(names(r$results), vapply(r$results, function(x) x$label, character(1))), selectize = FALSE),
+          uiOutput(ns("adv_drill_ui"))
+        )
+      )
+    })
+
+    output$adv_comparison_table <- DT::renderDataTable({
+      r <- adv_result(); req(r)
+      DT::datatable(adv_comparison_df(r), rownames = FALSE, width = "100%",
+                    options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+    })
+    output$adv_comparison_download <- downloadHandler(
+      filename = function() "advanced_ml_model_comparison.csv",
+      content = function(file) write.csv(adv_comparison_df(adv_result()), file, row.names = FALSE)
+    )
+    output$adv_config_download <- downloadHandler(
+      filename = function() "advanced_ml_config.rds",
+      content = function(file) {
+        r <- adv_result()
+        saveRDS(list(cfg = r$cfg, models = names(r$results), n_features_input = r$n_features_input,
+                     positive_level = r$positive_level, reference_level = r$reference_level,
+                     best_hyperparameters = stats::setNames(lapply(r$results, function(x) x$best_params_final), names(r$results)),
+                     features_retained = stats::setNames(lapply(r$results, function(x) x$features_final), names(r$results))),
+                file)
+      }
+    )
+
+    output$adv_drill_ui <- renderUI({
+      r <- adv_result(); req(r, input$adv_drill_model)
+      res <- r$results[[input$adv_drill_model]]
+      req(res)
+      cv_auc <- vapply(res$outer, function(o) o$metrics$ROC_AUC, numeric(1))
+      flags <- diag_adv_overfitting_flags(res, res$n_train)
+      tagList(
+        fluidRow(
+          column(3, valueBox(sprintf("%.3f", mean(cv_auc, na.rm = TRUE)), sprintf("CV AUC (± %.3f, %d folds)", stats::sd(cv_auc, na.rm = TRUE), length(cv_auc)), width = NULL, color = "light-blue")),
+          column(3, valueBox(sprintf("%.3f", res$test_metrics$ROC_AUC), "Test AUC (held-out, scored once)", width = NULL, color = "light-blue")),
+          column(3, valueBox(sprintf("%.3f", res$train_metrics$ROC_AUC), "Train AUC (in-sample, expected optimistic)", width = NULL, color = "light-blue")),
+          column(3, valueBox(res$n_features_final, sprintf("Features retained of %d candidates (%d train / %d test)", r$n_features_input, res$n_train, res$n_test), width = NULL, color = "light-blue"))
+        ),
+        if (length(flags) > 0) {
+          div(class = "empty-note", style = "border-left: 3px solid #DC2626; padding-left: 8px;",
+              tags$strong(icon("triangle-exclamation"), " Overfitting / robustness warnings:"),
+              tags$ul(lapply(flags, tags$li)))
+        } else {
+          div(class = "empty-note", icon("check"), "No overfitting warnings triggered for this model at its current settings.")
+        },
+        fluidRow(
+          column(4, h5("ROC (Train / Test / CV)"), plotOutput(ns("adv_drill_roc"), height = 260)),
+          column(4, h5("Precision-Recall (Test)"), plotOutput(ns("adv_drill_pr"), height = 260)),
+          column(4, h5("Calibration (Test)"), plotOutput(ns("adv_drill_calibration"), height = 260))
+        ),
+        fluidRow(
+          column(6, h5("Confusion matrix (Test)"), plotOutput(ns("adv_drill_cm"), height = 260)),
+          column(6, h5("Predicted-probability distribution (Test)"), plotOutput(ns("adv_drill_probdist"), height = 260))
+        ),
+        tags$hr(),
+        h5("Threshold explorer"),
+        p(class = "submodule-desc", "Recomputed instantly from the Test predictions already above - no refit. 0.5 is a default, not an assumption of optimality."),
+        sliderInput(ns("adv_drill_threshold"), NULL, min = 0.05, max = 0.95, value = 0.5, step = 0.01, width = "100%"),
+        tableOutput(ns("adv_drill_threshold_table")),
+        tags$hr(),
+        fluidRow(
+          column(6,
+            h5(if (isTRUE(res$reg$supports_coef)) "Coefficients" else "Feature importance"),
+            div(class = "table-toolbar", downloadButton(ns("adv_drill_importance_download"), "Download (CSV)", class = "btn-sm")),
+            DT::dataTableOutput(ns("adv_drill_importance_table"))
+          ),
+          column(6,
+            h5("Features retained (final model)"),
+            div(class = "table-toolbar",
+                downloadButton(ns("adv_drill_features_download"), "Retained features (CSV)", class = "btn-sm"),
+                downloadButton(ns("adv_drill_predictions_download"), "Predictions & probabilities (CSV)", class = "btn-sm"),
+                downloadButton(ns("adv_drill_model_download"), "Trained model (.rds)", class = "btn-sm")),
+            DT::dataTableOutput(ns("adv_drill_features_table"))
+          )
+        )
+      )
+    })
+
+    adv_drill_res <- reactive({
+      r <- adv_result(); req(r, input$adv_drill_model)
+      r$results[[input$adv_drill_model]]
+    })
+
+    output$adv_drill_roc <- renderPlot({
+      res <- adv_drill_res(); req(res)
+      r <- adv_result()
+      cv_auc <- vapply(res$outer, function(o) o$metrics$ROC_AUC, numeric(1))
+      test_ci <- diag_auc_ci(res$test_metrics$roc_obj)
+      diag_roc_plot_traintest(
+        res$train_metrics$roc_obj,
+        list(available = TRUE, roc = res$test_metrics$roc_obj, auc = unname(test_ci["auc"]), ci_lo = unname(test_ci["lo"]), ci_hi = unname(test_ci["hi"])),
+        cv_mean = mean(cv_auc, na.rm = TRUE), cv_sd = stats::sd(cv_auc, na.rm = TRUE), cv_n = length(cv_auc),
+        title = res$label
+      )
+    })
+
+    output$adv_drill_pr <- renderPlot({
+      res <- adv_drill_res(); req(res, res$test_metrics$pr_obj)
+      df <- as.data.frame(res$test_metrics$pr_obj$curve); colnames(df) <- c("recall", "precision", "threshold")
+      ggplot(df, aes(x = recall, y = precision)) +
+        geom_line(color = ARTHOMIX_COLORS$blue, linewidth = 1.1) +
+        annotate("text", x = 0.02, y = 0.05, hjust = 0, vjust = 0, size = 3.6, fontface = "bold",
+                 label = sprintf("PR-AUC = %.3f", res$test_metrics$PR_AUC)) +
+        scale_x_continuous(limits = c(0, 1)) + scale_y_continuous(limits = c(0, 1)) +
+        labs(x = "Recall (Sensitivity)", y = "Precision") + theme_arthomix(base_size = 12)
+    })
+
+    output$adv_drill_calibration <- renderPlot({
+      res <- adv_drill_res(); req(res)
+      r <- adv_result()
+      cal <- diag_adv_calibration_curve(res$pred_test, res$obs_test, r$positive_level)
+      req(nrow(cal) > 0)
+      ggplot(cal, aes(x = bin_mid, y = observed)) +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "#9CA3AF") +
+        geom_point(aes(size = n), color = ARTHOMIX_COLORS$blue) + geom_line(color = ARTHOMIX_COLORS$blue) +
+        annotate("text", x = 0.02, y = 0.95, hjust = 0, vjust = 1, size = 3.4, fontface = "bold",
+                 label = sprintf("Brier = %.3f", res$test_metrics$Brier)) +
+        scale_x_continuous(limits = c(0, 1), name = "Mean predicted probability") +
+        scale_y_continuous(limits = c(0, 1), name = "Observed frequency") +
+        labs(size = "n") + theme_arthomix(base_size = 12)
+    })
+
+    output$adv_drill_cm <- renderPlot({
+      res <- adv_drill_res(); req(res)
+      tb <- as.data.frame(res$test_metrics$cm$table)
+      ggplot(tb, aes(x = Reference, y = Prediction, fill = Freq)) +
+        geom_tile(color = "white") + geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+        scale_fill_gradient(low = "#EFF6FF", high = ARTHOMIX_COLORS$blue, guide = "none") +
+        theme_arthomix(base_size = 12) + theme(panel.grid = element_blank())
+    })
+
+    output$adv_drill_probdist <- renderPlot({
+      res <- adv_drill_res(); req(res)
+      df <- data.frame(prob = res$pred_test, group = as.character(res$obs_test))
+      ggplot(df, aes(x = prob, fill = group)) +
+        geom_histogram(alpha = 0.65, position = "identity", bins = 20, color = "white") +
+        scale_fill_manual(values = arthomix_pair(factor(df$group)), name = NULL) +
+        labs(x = "Predicted probability", y = "Count") + theme_arthomix(base_size = 12)
+    })
+
+    output$adv_drill_threshold_table <- renderTable({
+      res <- adv_drill_res(); req(res, input$adv_drill_threshold)
+      r <- adv_result()
+      m <- diag_adv_metrics(res$pred_test, res$obs_test, input$adv_drill_threshold, r$positive_level)
+      npv_denom <- sum(res$pred_test < input$adv_drill_threshold)
+      npv <- if (npv_denom > 0) sum(res$pred_test < input$adv_drill_threshold & res$obs_test != r$positive_level) / npv_denom else NA_real_
+      data.frame(
+        Sensitivity = round(m$Sensitivity, 3), Specificity = round(m$Specificity, 3), Precision_PPV = round(m$Precision, 3),
+        NPV = round(npv, 3), F1 = round(m$F1, 3),
+        Predicted_positive = sum(res$pred_test >= input$adv_drill_threshold), Predicted_negative = sum(res$pred_test < input$adv_drill_threshold)
+      )
+    }, striped = TRUE, bordered = TRUE, width = "100%")
+
+    adv_drill_importance_df <- reactive({
+      res <- adv_drill_res(); req(res)
+      df <- if (isTRUE(res$reg$supports_coef)) diag_adv_coefficients(res) else diag_adv_importance(res)
+      if (is.null(df)) data.frame(note = "Not available for this model type.") else df
+    })
+    output$adv_drill_importance_table <- DT::renderDataTable({
+      DT::datatable(adv_drill_importance_df(), rownames = FALSE, width = "100%",
+                    options = list(pageLength = 8, scrollX = TRUE), class = "stripe hover compact")
+    })
+    output$adv_drill_importance_download <- downloadHandler(
+      filename = function() sprintf("%s_coefficients_importance.csv", adv_drill_res()$model_key),
+      content = function(file) write.csv(adv_drill_importance_df(), file, row.names = FALSE)
+    )
+
+    output$adv_drill_features_table <- DT::renderDataTable({
+      res <- adv_drill_res(); req(res)
+      DT::datatable(data.frame(feature = res$features_final), rownames = FALSE, width = "100%",
+                    options = list(pageLength = 8, scrollX = TRUE), class = "stripe hover compact")
+    })
+    output$adv_drill_features_download <- downloadHandler(
+      filename = function() sprintf("%s_retained_features.csv", adv_drill_res()$model_key),
+      content = function(file) write.csv(data.frame(feature = adv_drill_res()$features_final), file, row.names = FALSE)
+    )
+    output$adv_drill_predictions_download <- downloadHandler(
+      filename = function() sprintf("%s_predictions.csv", adv_drill_res()$model_key),
+      content = function(file) {
+        res <- adv_drill_res()
+        write.csv(rbind(
+          data.frame(split = "train", observed = as.character(res$obs_train), predicted_probability = res$pred_train),
+          data.frame(split = "test", observed = as.character(res$obs_test), predicted_probability = res$pred_test)
+        ), file, row.names = FALSE)
+      }
+    )
+    output$adv_drill_model_download <- downloadHandler(
+      filename = function() sprintf("%s_trained_model.rds", adv_drill_res()$model_key),
+      content = function(file) saveRDS(adv_drill_res()$final_fit, file)
+    )
   })
 }

@@ -56,24 +56,38 @@ mod_coloc_ui <- function(id) {
             sliderInput(ns("case_frac"), "Assumed case fraction in the GWAS", value = 0.33, min = 0.05, max = 0.5, step = 0.01),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
           ),
-          box(
-            width = NULL, title = "Result", status = "primary", solidHeader = FALSE,
-            withSpinner(uiOutput(ns("summary_ui")), color = "#2c6fbb", type = 6),
-            withSpinner(plotOutput(ns("pp_plot"), height = 260), color = "#2c6fbb", type = 6)
+          ## Hidden (client-side, via conditionalPanel) until "Run
+          ## colocalisation" is clicked at least once - same pattern
+          ## mod_diagnostic.R's training/testing panels use, so the boxes
+          ## stay in the DOM (spinners keep working) but are invisible
+          ## pre-run instead of showing an empty "Not run yet" box.
+          conditionalPanel(
+            condition = sprintf("input['%s'] > 0", ns("run_btn")),
+            box(
+              width = NULL, title = "Result", status = "primary", solidHeader = FALSE,
+              withSpinner(uiOutput(ns("summary_ui")), color = "#2c6fbb", type = 6),
+              withSpinner(plotOutput(ns("pp_plot"), height = 260), color = "#2c6fbb", type = 6)
+            )
           )
         ),
         column(
           8,
-          box(
-            width = NULL, title = "Regional association", status = "primary", solidHeader = FALSE,
-            withSpinner(plotOutput(ns("region_plot"), height = 460), color = "#2c6fbb", type = 6)
+          conditionalPanel(
+            condition = sprintf("input['%s'] > 0", ns("run_btn")),
+            box(
+              width = NULL, title = "Regional association", status = "primary", solidHeader = FALSE,
+              withSpinner(plotOutput(ns("region_plot"), height = 460), color = "#2c6fbb", type = 6)
+            )
           )
         )
       ),
-      box(
-        width = 12, title = "SNP-level results", status = "primary", solidHeader = FALSE,
-        div(class = "table-toolbar", downloadButton(ns("download_coloc"), "Download CSV", class = "btn-sm")),
-        DT::dataTableOutput(ns("snp_table"))
+      conditionalPanel(
+        condition = sprintf("input['%s'] > 0", ns("run_btn")),
+        box(
+          width = 12, title = "SNP-level results", status = "primary", solidHeader = FALSE,
+          div(class = "table-toolbar", downloadButton(ns("download_coloc"), "Download CSV", class = "btn-sm")),
+          DT::dataTableOutput(ns("snp_table"))
+        )
       )
   )
 }

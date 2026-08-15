@@ -41,13 +41,10 @@ function(input, output, session) {
   })
 
   ## ---- Home page -> jump into the app -------------------------------------
-  observeEvent(input$home_open_transcriptomics, {
-    updateTabsetPanel(session, "sidebar_tabs", selected = "transcriptomics")
-  }, ignoreInit = TRUE)
-  observeEvent(input$home_cta_open_transcriptomics, {
-    updateTabsetPanel(session, "sidebar_tabs", selected = "transcriptomics")
-  }, ignoreInit = TRUE)
   observeEvent(input$home_browse_modules, {
+    updateTabsetPanel(session, "sidebar_tabs", selected = "modules")
+  }, ignoreInit = TRUE)
+  observeEvent(input$home_cta_browse_modules, {
     updateTabsetPanel(session, "sidebar_tabs", selected = "modules")
   }, ignoreInit = TRUE)
   ## Home page's own "Omics modules" grid (homeUI() in ui.R, moduleCardUI()
@@ -77,6 +74,25 @@ function(input, output, session) {
 
   ## ---- Dataset tab ---------------------------------------------------------
   mod_dataset_server("tx_dataset", dataset)
+
+  ## ---- Methylomics: shared dataset + computed-results store, separate from
+  ## the transcriptomics `dataset`/`results` above - no default/preloaded
+  ## methylation dataset exists, so every field starts NULL until the
+  ## Methylomics Dataset tab (mod_methyl_dataset.R) loads something.
+  methyl_dataset <- reactiveValues(
+    beta = NULL, input_scale = NULL, array_type = NULL, sample_sheet = NULL,
+    rg_set = NULL, mset = NULL, detp = NULL, beadcount = NULL, source = NULL,
+    ## TRUE once "Load preloaded dataset" is clicked on the Dataset tab -
+    ## every sub-module checks this first to decide whether to show the
+    ## default GSE42861 analysis reproduction or the live upload-driven
+    ## tool. Deliberately independent of `beta` (still NULL in preloaded
+    ## mode - see METH_DATA_ROOT's comment in global.R for why the ~2.1GB
+    ## QC'd matrix isn't bundled).
+    preloaded = FALSE
+  )
+  methyl_results <- reactiveValues()
+  mod_methyl_dataset_server("mx_dataset", methyl_dataset)
+  lapply(MX_MODULES, function(m) m$server(paste0("mx_", m$config$id), methyl_dataset, methyl_results))
 
   ## ---- ArthOChat: one shared assistant session for the whole app, its own
   ## top-level tab (see ui.R) rather than nested inside a sub-module ---------
@@ -130,6 +146,51 @@ function(input, output, session) {
     })
   }, ignoreNULL = FALSE)
 
+  ## ---- Methylomics Sub-modules tab: card Add/Remove toggles, count, and
+  ## live filter - identical wiring to the Transcriptomics block above,
+  ## against MX_MODULES/"mx_menu"/methyl_dataset+methyl_results instead of
+  ## TX_MODULES/"tx_menu"/dataset+results, and the "mx_" id_prefix
+  ## submoduleCardUI() was given (see ui.R) so DOM/input ids never collide
+  ## with the Transcriptomics cards mounted in the same page.
+  mx_added <- reactiveValues(ids = character(0))
+
+  lapply(MX_MODULES, function(m) {
+    hid <- m$config$id
+    toggle_input <- paste0("mx_sm_toggle_", hid)
+
+    observeEvent(input[[toggle_input]], {
+      if (hid %in% mx_added$ids) {
+        removeTab(session = session, inputId = "mx_menu", target = m$config$title)
+        mx_added$ids <- setdiff(mx_added$ids, hid)
+        shinyjs::removeClass(id = paste0("mx_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("mx_smstate_", hid), html = "Add")
+      } else {
+        insertTab(
+          session = session, inputId = "mx_menu",
+          tabPanel(m$config$title, br(), m$ui(paste0("mx_", hid))),
+          target = "Sub-modules", position = "before", select = TRUE
+        )
+        mx_added$ids <- union(mx_added$ids, hid)
+        shinyjs::addClass(id = paste0("mx_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("mx_smstate_", hid), html = "Added")
+      }
+    }, ignoreInit = TRUE)
+  })
+
+  output$mx_sm_active_count <- renderUI({
+    n <- length(mx_added$ids)
+    span(class = "sm-count-badge", sprintf("%d of %d sub-modules added", n, length(MX_MODULES)))
+  })
+
+  observeEvent(input$mx_sm_search, {
+    q <- tolower(trimws(input$mx_sm_search %||% ""))
+    lapply(MX_MODULES, function(m) {
+      hid <- m$config$id
+      match <- q == "" || grepl(q, tolower(m$config$title), fixed = TRUE)
+      shinyjs::toggle(id = paste0("mx_smcard_wrap_", hid), condition = match)
+    })
+  }, ignoreNULL = FALSE)
+
   ## ===========================================================================
   ## App-shell navigation (header search, left sidebar, theme toggle, page
   ## subtitle) - additive UI glue only. Every call below is either a plain
@@ -178,6 +239,42 @@ function(input, output, session) {
     updateTabsetPanel(session, "tx_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
 
+  ## Methylomics sidebar nav - same jump-or-fall-back-to-picker pattern as
+  ## jump_to_submodule() above, against MX_MODULES/"mx_menu"/mx_added$ids.
+  jump_to_mx_submodule <- function(mod_id, sm_filter = NULL) {
+    cfg <- MX_MODULES_BY_ID[[mod_id]]$config
+    if (mod_id %in% mx_added$ids) {
+      updateTabsetPanel(session, "mx_menu", selected = cfg$title)
+    } else {
+      updateTabsetPanel(session, "mx_menu", selected = "Sub-modules")
+      updateTextInput(session, "mx_sm_search", value = sm_filter %||% cfg$title)
+    }
+  }
+
+  observeEvent(input$sidebar_nav_methylomics_dataset, {
+    updateTabsetPanel(session, "mx_menu", selected = "Dataset")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_methylomics_qc, {
+    jump_to_mx_submodule("qc", sm_filter = "Quality Control")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_methylomics_normalization, {
+    jump_to_mx_submodule("normalization", sm_filter = "Normalization")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_methylomics_dmp, {
+    jump_to_mx_submodule("dmp", sm_filter = "Differential Methylation")
+  }, ignoreInit = TRUE)
+  ## Cell-Type Deconvolution has no dedicated sidebar entry of its own (it's
+  ## still an unbuilt stub, only reachable via the Sub-modules grid) - this
+  ## lets Quality Control's Cell Composition tab link out to it with the
+  ## same jump-or-fall-back-to-picker mechanism as every sidebar link above,
+  ## via a plain (non-namespaced) actionLink placed inside that tab's UI.
+  observeEvent(input$sidebar_nav_methylomics_celltype, {
+    jump_to_mx_submodule("celltype", sm_filter = "Cell-Type Deconvolution")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_methylomics_submodules, {
+    updateTabsetPanel(session, "mx_menu", selected = "Sub-modules")
+  }, ignoreInit = TRUE)
+
   ## Header search: "Enter" in the search box (see R/ui_shell.R::app_header())
   ## sets this input; matched first against top-level modules, then against
   ## Transcriptomics sub-module titles, via the same jump helpers above.
@@ -202,6 +299,13 @@ function(input, output, session) {
       return()
     }
 
+    mx_hit <- Find(function(m) grepl(q, tolower(m$config$title), fixed = TRUE), MX_MODULES)
+    if (!is.null(mx_hit)) {
+      updateTabsetPanel(session, "sidebar_tabs", selected = "methylomics")
+      jump_to_mx_submodule(mx_hit$config$id, sm_filter = mx_hit$config$title)
+      return()
+    }
+
     showNotification(sprintf('No module or sub-module matched "%s".', input$header_search_submit), type = "warning")
   }, ignoreInit = TRUE)
 
@@ -218,6 +322,17 @@ function(input, output, session) {
     sel <- input$tx_menu %||% "Dataset"
     txt <- switch(sel,
       "Dataset" = "Load and manage the working dataset",
+      "Sub-modules" = "Add or remove pipeline analyses",
+      sel
+    )
+    p(txt)
+  })
+
+  ## Methylomics page subtitle - mirrors tx_page_subtitle above, against mx_menu.
+  output$mx_page_subtitle <- renderUI({
+    sel <- input$mx_menu %||% "Dataset"
+    txt <- switch(sel,
+      "Dataset" = "Load a methylation dataset",
       "Sub-modules" = "Add or remove pipeline analyses",
       sel
     )

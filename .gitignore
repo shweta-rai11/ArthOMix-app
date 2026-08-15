@@ -1,6 +1,10 @@
 # nested repo, pushed separately to its own GitHub repository
 Research_Q2_TRANSCRIPTOMICS_sexstratified_COPY/
 
+# copied in from /Users/swetarai/ArthOMix/methylomics/ (raw/processed data
+# excluded - 24G, too large to duplicate; left at its original location)
+Research_Q3_METHYLOMICS_sexstratified_COPY/
+
 # OS / editor
 .DS_Store
 *~

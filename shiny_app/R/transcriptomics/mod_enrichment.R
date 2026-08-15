@@ -207,47 +207,10 @@ mod_enrichment_ui <- function(id) {
         ),
         column(
           8,
-          box(
-            width = NULL, title = tagList(icon("chart-column"), "Result"), status = "primary", solidHeader = FALSE,
-            withSpinner(uiOutput(ns("summary_ui")), color = "#2c6fbb", type = 6),
-            withSpinner(plotOutput(ns("bar_plot"), height = 420), color = "#2c6fbb", type = 6)
-          )
+          uiOutput(ns("result_box_ui"))
         )
       ),
-      box(
-        width = 12, title = tagList(icon("table"), "Enriched terms"), status = "primary", solidHeader = FALSE,
-        div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
-        DT::dataTableOutput(ns("enrich_table"))
-      ),
-      fluidRow(
-        column(
-          7,
-          box(
-            width = NULL, title = tagList(icon("id-card"), "Gene cards"), status = "primary", solidHeader = FALSE,
-            p(class = "card-subtitle", "Live lookup from MyGene.info — the same fields GeneCards.org leads with."),
-            withSpinner(uiOutput(ns("gene_cards_ui")), color = "#2c6fbb", type = 6)
-          )
-        ),
-        column(
-          5,
-          box(
-            width = NULL, title = tagList(icon("circle-nodes"), "Protein interaction network"), status = "primary", solidHeader = FALSE,
-            p(class = "card-subtitle", "Live network from STRING (string-db.org), confidence ≥ 0.15."),
-            div(class = "figure-card", withSpinner(imageOutput(ns("string_network"), height = 300), color = "#2c6fbb", type = 6))
-          )
-        )
-      ),
-      box(
-        width = 12, title = tagList(icon("share-nodes"), "Hub genes"), status = "primary", solidHeader = FALSE,
-        p(class = "card-subtitle",
-          "Two independent hub definitions, neither a substitute for the other. ",
-          strong("STRING degree"), " counts, live, how many ", em("other genes in this list"),
-          " each gene interacts with (PPI confidence ≥ 0.15) — it only sees the genes you entered. ",
-          strong("WGCNA hub"), " is this project's own precomputed co-expression network across the full ",
-          "15,763-gene training cohort: a gene with intramodular connectivity (kME) above the module average ",
-          "in the RA disease-associated module — a property of the gene in the whole transcriptome, independent of your list."),
-        withSpinner(DT::dataTableOutput(ns("hub_table_ui")), color = "#2c6fbb", type = 6)
-      )
+      uiOutput(ns("below_result_ui"))
     )
   )
 }
@@ -433,6 +396,64 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
 
     enrich_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, enrich_has_run(TRUE), ignoreInit = TRUE)
+
+    ## Results stay entirely out of the DOM (not just visually empty) until
+    ## "Run enrichment" is clicked once - two dynamic boxes standing in for
+    ## everything that used to be static UI below the gene-list column.
+    output$result_box_ui <- renderUI({
+      if (!enrich_has_run()) {
+        return(box(
+          width = NULL, title = tagList(icon("chart-column"), "Result"), status = "primary", solidHeader = FALSE,
+          div(class = "empty-note", icon("circle-info"),
+              "Not run yet. Enter a gene list on the left, then click \"Run enrichment\".")
+        ))
+      }
+      box(
+        width = NULL, title = tagList(icon("chart-column"), "Result"), status = "primary", solidHeader = FALSE,
+        withSpinner(uiOutput(ns("summary_ui")), color = "#2c6fbb", type = 6),
+        withSpinner(plotOutput(ns("bar_plot"), height = 420), color = "#2c6fbb", type = 6)
+      )
+    })
+
+    output$below_result_ui <- renderUI({
+      req(enrich_has_run())
+      tagList(
+        box(
+          width = 12, title = tagList(icon("table"), "Enriched terms"), status = "primary", solidHeader = FALSE,
+          div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
+          DT::dataTableOutput(ns("enrich_table"))
+        ),
+        fluidRow(
+          column(
+            7,
+            box(
+              width = NULL, title = tagList(icon("id-card"), "Gene cards"), status = "primary", solidHeader = FALSE,
+              p(class = "card-subtitle", "Live lookup from MyGene.info — the same fields GeneCards.org leads with."),
+              withSpinner(uiOutput(ns("gene_cards_ui")), color = "#2c6fbb", type = 6)
+            )
+          ),
+          column(
+            5,
+            box(
+              width = NULL, title = tagList(icon("circle-nodes"), "Protein interaction network"), status = "primary", solidHeader = FALSE,
+              p(class = "card-subtitle", "Live network from STRING (string-db.org), confidence ≥ 0.15."),
+              div(class = "figure-card", withSpinner(imageOutput(ns("string_network"), height = 300), color = "#2c6fbb", type = 6))
+            )
+          )
+        ),
+        box(
+          width = 12, title = tagList(icon("share-nodes"), "Hub genes"), status = "primary", solidHeader = FALSE,
+          p(class = "card-subtitle",
+            "Two independent hub definitions, neither a substitute for the other. ",
+            strong("STRING degree"), " counts, live, how many ", em("other genes in this list"),
+            " each gene interacts with (PPI confidence ≥ 0.15) — it only sees the genes you entered. ",
+            strong("WGCNA hub"), " is this project's own precomputed co-expression network across the full ",
+            "15,763-gene training cohort: a gene with intramodular connectivity (kME) above the module average ",
+            "in the RA disease-associated module — a property of the gene in the whole transcriptome, independent of your list."),
+          withSpinner(DT::dataTableOutput(ns("hub_table_ui")), color = "#2c6fbb", type = 6)
+        )
+      )
+    })
 
     output$summary_ui <- renderUI({
       if (!enrich_has_run()) {
