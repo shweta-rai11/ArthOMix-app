@@ -1,0 +1,35 @@
+# Getting Started
+
+## Running the app
+
+[Describe how a user launches ArthOMix Explorer in your actual deployment — e.g. a hosted URL, or running locally with:]
+
+```r
+# From the repository root
+shiny::runApp("shiny_app")
+```
+
+### Requirements
+
+[List the R version and key packages the app depends on. Pull this from shiny_app/global.R's library()/require() calls once finalized, e.g.:]
+
+- R (version ≥ [x.y])
+- shiny, shinydashboard / shinydashboardPlus, DT, plotly
+- [omics-specific packages: minfi/limma/WGCNA/etc.]
+
+## Loading data
+
+Every module reads from one shared, in-session dataset. There are two ways to populate it:
+
+1. **Use the preloaded example dataset** — every module works immediately against a built-in example so you can explore the app before bringing your own data. This is the default on first launch.
+2. **Upload your own data** — from the **Dataset** tab within Transcriptomics (Chapter \@ref(transcriptomics-dataset)) or Methylomics (Chapter \@ref(methylomics-dataset)), depending on which track you're working in.
+
+```{r gs-fig-dataset-badge, echo=FALSE, fig.cap="[Screenshot of the header's active-dataset badge, showing which dataset every module is currently reading from]"}
+# knitr::include_graphics("Figures/f2-1.png")
+```
+
+[Describe the accepted upload formats and any required columns/structure — e.g. expression matrix + sample metadata CSV for Transcriptomics, IDAT files or a beta-value matrix for Methylomics.]
+
+## A typical session
+
+[Optional: a short numbered walkthrough of the intended end-to-end path through the app for a first-time user, e.g.: 1) load data, 2) preprocess, 3) run differential analysis, 4) explore a network module, 5) ask ArthOChat about the results. Link each step to its chapter.]

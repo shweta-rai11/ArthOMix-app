@@ -22,7 +22,7 @@
 
 mod_methyl_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
-  description = "Upload a methylation dataset - either a beta/M-value matrix or raw IDAT files - for every Methylomics sub-module below to read from."
+  description = "Upload a methylation dataset, either a beta/M-value matrix or raw IDAT files, for every Methylomics sub-module below to read from."
 )
 
 mod_methyl_dataset_ui <- function(id) {
@@ -66,11 +66,11 @@ mod_methyl_dataset_ui <- function(id) {
           condition = sprintf("input['%s'] == 'matrix'", ns("upload_mode")),
           box(
             width = NULL, title = "2. Upload a beta/M-value matrix", status = "primary", solidHeader = FALSE,
-            p(strong("Methylation matrix"), " — CSV/TSV. Probes (CpGs) in rows, samples in columns; first column the probe ID."),
+            p(strong("Methylation matrix"), ": CSV/TSV. Probes (CpGs) in rows, samples in columns; first column the probe ID."),
             radioButtons(ns("input_scale"), "Input scale", inline = TRUE,
                          choices = c("Beta values (0-1)" = "beta", "M-values" = "m"), selected = "beta"),
             fileInput(ns("matrix_file"), "Methylation matrix", accept = c(".csv", ".tsv", ".txt")),
-            p(strong("Sample sheet / phenotype metadata"), " — CSV/TSV, one row per sample (optional but needed for group-aware analyses later)."),
+            p(strong("Sample sheet / phenotype metadata"), ": CSV/TSV, one row per sample (optional but needed for group-aware analyses later)."),
             fileInput(ns("sheet_file"), "Sample sheet / phenotype metadata (optional)", accept = c(".csv", ".tsv", ".txt")),
             uiOutput(ns("matrix_preview_ui")),
             actionButton(ns("load_matrix_btn"), "Load dataset", icon = icon("upload"), class = "btn-primary btn-sm")
@@ -80,10 +80,10 @@ mod_methyl_dataset_ui <- function(id) {
           condition = sprintf("input['%s'] == 'idat'", ns("upload_mode")),
           box(
             width = NULL, title = "2. Upload raw IDAT files", status = "primary", solidHeader = FALSE,
-            p(strong("IDAT files"), " — select every ", code("_Grn.idat"), " and ", code("_Red.idat"),
+            p(strong("IDAT files"), ": select every ", code("_Grn.idat"), " and ", code("_Red.idat"),
               " file for the samples to load, all at once. Enables detection p-value, bead count, bisulfite conversion, and raw-intensity sex-check QC that a matrix upload can't provide."),
             fileInput(ns("idat_files"), "IDAT files", multiple = TRUE, accept = c(".idat", ".idat.gz")),
-            p(strong("Sample sheet"), " — CSV/TSV, one row per sample (optional; used for group-aware analyses later)."),
+            p(strong("Sample sheet"), ": CSV/TSV, one row per sample (optional; used for group-aware analyses later)."),
             fileInput(ns("idat_sheet_file"), "Sample sheet (optional)", accept = c(".csv", ".tsv", ".txt")),
             uiOutput(ns("idat_preview_ui")),
             actionButton(ns("load_idat_btn"), "Load dataset", icon = icon("upload"), class = "btn-primary btn-sm")
@@ -161,6 +161,21 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
           ## fetch at all in this deployment - both are already fast, so no
           ## need to go through the background task.
           finish_preloaded_load(preloaded_matrix_cache())
+        } else if (!is.null(.arthomix_cache[["meth_default_matrix"]])) {
+          ## Another session in this same running app process already loaded
+          ## the live matrix. load_default_meth_matrix() itself caches at the
+          ## process level (see global.R), but the background path below
+          ## can't see that cache - each future_promise() call runs in its
+          ## own worker process, which starts with no knowledge of what the
+          ## main process has already read, so without this check every
+          ## session's first click would re-read the same ~2.1GB file from
+          ## disk in a brand-new process. Calling it here, synchronously, in
+          ## the main process hits that cache directly instead - instant, no
+          ## new worker spawned, no repeat read.
+          live <- load_default_meth_matrix()
+          preloaded_matrix_cache(live)
+          preloaded_matrix_fetched(TRUE)
+          finish_preloaded_load(live)
         } else {
           output$load_message <- renderUI(div(class = "empty-note", icon("spinner", class = "fa-spin"),
             "Loading the preloaded dataset's ~2.1GB live methylation matrix in the background - the rest of the app (including this tab) stays usable while this runs. This can take a minute or more; you'll see a confirmation here when it's done."))
@@ -182,6 +197,12 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
             paste("Could not load the preloaded dataset's live matrix:", conditionMessage(live))))
           return()
         }
+        ## Populate the process-level cache here, in the main process -
+        ## load_default_meth_matrix()'s own caching only took effect inside
+        ## the worker process that just ran it, which is invisible to the
+        ## main process and to every other session's own background-load
+        ## attempt otherwise (see the observeEvent above).
+        .arthomix_cache[["meth_default_matrix"]] <- live
         preloaded_matrix_cache(live)
         preloaded_matrix_fetched(TRUE)
         finish_preloaded_load(live)

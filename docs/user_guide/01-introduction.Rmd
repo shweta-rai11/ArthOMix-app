@@ -1,0 +1,36 @@
+# Introduction
+
+[One paragraph: the biological problem ArthOMix Explorer was built to address — e.g. sex-stratified multi-omics analysis of a specific disease/tissue — and how the app fits into that workflow (interactive companion to the underlying analysis scripts, not a replacement for them).]
+
+## Key features
+
+- **No-code analysis.** Every step — from data upload through statistical modeling — is driven by point-and-click controls; no script editing is required.
+- **Two omics tracks.** A **Transcriptomics** track (gene expression) and a **Methylomics** track (DNA methylation array data), each with its own dataset loader and a parallel set of analysis modules: preprocessing/normalization, differential analysis, co-expression/co-methylation networks, candidate gene/CpG identification, Mendelian randomization, colocalization, feature selection, diagnostic modeling, and validation/interpretation modules.
+- **Preloaded example dataset.** Every module works out of the box against a built-in example dataset, so a new user can explore the full workflow before uploading their own data.
+- **ArthOChat AI assistant.** A built-in chat assistant (see Chapter \@ref(arthochat)) that has context on the currently loaded dataset and any results already computed in the session, and can answer questions about what a module found.
+- **Cross-Omics and Multi-Omics (coming soon).** Placeholder tabs for future work combining the two tracks (see Chapter \@ref(cross-multi-omics)).
+
+## Main interface
+
+The app opens on a top-level **navbar** with six tabs:
+
+| Tab | Purpose |
+|---|---|
+| **Home** | Landing page / app overview. |
+| **Modules** | A grid landing page listing every analysis module across both omics tracks. |
+| **Transcriptomics** | The gene-expression analysis track (Chapters \@ref(transcriptomics-dataset)–\@ref(transcriptomics-nomogram)). |
+| **Methylomics** | The DNA-methylation analysis track (Chapters \@ref(methylomics-dataset)–\@ref(methylomics-biomarkercard)). |
+| **Cross-Omics (soon)** | Placeholder for future cross-track analysis. |
+| **Multi-Omics (soon)** | Placeholder for future integrated analysis. |
+
+```{r intro-fig-home, echo=FALSE, fig.cap="[Screenshot of the Home tab]"}
+# knitr::include_graphics("Figures/f1-1.png")
+```
+
+Within **Transcriptomics** and **Methylomics**, a left-hand sidebar lists every module in that track, grouped under headings such as *Data*, *Network*, *Genetics*, *Biomarker modeling*, *Validation*, and *Interpretation*. A header bar — present on every page — shows the header search box, the name of the dataset every module is currently reading from, and the **Ask ArthOChat** button.
+
+```{r intro-fig-sidebar, echo=FALSE, fig.cap="[Screenshot of a track's left sidebar with the module groups expanded]"}
+# knitr::include_graphics("Figures/f1-2.png")
+```
+
+[Add a short paragraph on the "active dataset" badge in the header: what it shows, and why it matters when switching between the preloaded example and an uploaded dataset.]

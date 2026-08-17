@@ -575,20 +575,21 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
 .navbar-default .navbar-brand, .navbar-default .navbar-header { display: none; }
 
 /* "(soon)" modules - subdued but still readable, same black/blue-on-hover
-   treatment, just muted at rest to signal they're not clickable yet. */
-.navbar-default .navbar-nav > li > a[data-value="methylomics"],
+   treatment, just muted at rest to signal they're not clickable yet.
+   Methylomics used to be a placeholder here too, but it's a fully built
+   module now, so it's no longer grouped with the genuinely-unbuilt
+   crossomics/multiomics tabs and just uses the base black/active-blue
+   styling every other live tab gets. */
 .navbar-default .navbar-nav > li > a[data-value="crossomics"],
 .navbar-default .navbar-nav > li > a[data-value="multiomics"] {
   color: var(--color-ink-secondary) !important;
   font-style: italic;
 }
-.navbar-default .navbar-nav > li > a[data-value="methylomics"]:hover,
 .navbar-default .navbar-nav > li > a[data-value="crossomics"]:hover,
 .navbar-default .navbar-nav > li > a[data-value="multiomics"]:hover {
   color: var(--color-primary) !important;
   background: var(--color-surface-blue) !important;
 }
-.navbar-default .navbar-nav > li.active > a[data-value="methylomics"],
 .navbar-default .navbar-nav > li.active > a[data-value="crossomics"],
 .navbar-default .navbar-nav > li.active > a[data-value="multiomics"] {
   color: var(--color-primary) !important;

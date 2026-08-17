@@ -35,7 +35,7 @@
 
 mod_methyl_normalization_config <- list(
   id = "normalization", title = "Normalization", icon = "wave-square", group = "Data",
-  description = "Automatic data diagnostics and normalization-status detection, methylation-specific filters, and Noob, Functional normalization, SWAN, Dasen, Stratified quantile normalization (IDAT only), BMIQ and PBC (450K/EPIC beta values), Noob+BMIQ / Noob+SWAN sequential workflows, and plain quantile normalization (any input) - with method comparison and before/after QC."
+  description = "Detects normalization status and applies methylation-specific filters. Runs Noob, Functional normalization, SWAN, Dasen, BMIQ, PBC, and quantile normalization, with method comparison and before/after QC."
 )
 
 METHYL_NORM_METHODS_IDAT <- c(

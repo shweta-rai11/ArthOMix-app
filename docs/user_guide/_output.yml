@@ -1,0 +1,22 @@
+bookdown::gitbook:
+  css: style.css
+  config:
+    toc:
+      collapse: section
+      scroll_highlight: yes
+      before: |
+        <li><strong>ArthOMix Explorer</strong></li>
+      after: |
+        <li><a href="https://github.com/rstudio/bookdown" target="_blank">Published with bookdown</a></li>
+    edit: null
+    download: ["pdf"]
+    sharing:
+      facebook: no
+      twitter: no
+      all: no
+  split_by: chapter
+  split_bib: no
+bookdown::pdf_book:
+  keep_tex: yes
+  latex_engine: xelatex
+  citation_package: natbib

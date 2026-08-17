@@ -9,14 +9,20 @@
 ## user's own upload from the Dataset tab - `dataset` is the same shared
 ## reactiveValues either way, so this always reflects whatever's actually
 ## loaded), this session's analysis results, how to use a particular
-## sub-module, or the underlying biology/methodology. Three tools ground it
+## sub-module, or the underlying biology/methodology. Four tools ground it
 ## in real sources instead of memory: project_methods() (global.R) surfaces
-## this project's own written methodology and curated references per module;
-## pubmed_search() (global.R) does a live PubMed lookup for anything broader;
-## gwas_catalog_search() (global.R) looks up candidate OpenGWAS exposure/
-## outcome datasets for a trait - e.g. "which GWAS should I use for RA in the
-## Mendelian Randomization tab's upload mode" - degrading to an instructional
-## message if no OPENGWAS_JWT token is configured.
+## this project's own written methodology and curated references per
+## transcriptomics sub-module; project_methods_methylomics() (global.R) does
+## the same against the methylomics pipeline's own per-stage write-ups (both
+## the Methylomics and Transcriptomics sidebars open this one shared drawer -
+## see arthochat_shortcut_ui() - rather than Methylomics having its own
+## separate scoped session, so this tool is what keeps methylomics
+## methodology questions grounded here); pubmed_search() (global.R) does a
+## live PubMed lookup for anything broader; gwas_catalog_search() (global.R)
+## looks up candidate OpenGWAS exposure/outcome datasets for a trait - e.g.
+## "which GWAS should I use for RA in the Mendelian Randomization tab's
+## upload mode" - degrading to an instructional message if no OPENGWAS_JWT
+## token is configured.
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
@@ -34,16 +40,22 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "a result that isn't in the context, tell them which sub-module to run and",
   "what to set.",
   "",
-  "You have three research tools:",
+  "You have four research tools:",
   "",
   "- project_methods(module): looks up THIS project's own written methodology",
-  "  for a specific sub-module (e.g. \"WGCNA\", \"Mendelian randomisation\",",
-  "  \"feature selection\", or a section number like \"2.6\") plus its curated",
-  "  reference list. This is the authoritative source for \"how does this",
-  "  project do X\" and \"how do I perform or interpret module Y\" - use it",
-  "  first whenever the question is about a specific analysis/sub-module, even",
-  "  if the user doesn't name the module explicitly (infer it from what they're",
-  "  asking about).",
+  "  for a specific transcriptomics sub-module (e.g. \"WGCNA\", \"Mendelian",
+  "  randomisation\", \"feature selection\", or a section number like \"2.6\")",
+  "  plus its curated reference list. This is the authoritative source for",
+  "  \"how does this project do X\" and \"how do I perform or interpret module",
+  "  Y\" - use it first whenever the question is about a specific",
+  "  transcriptomics analysis/sub-module, even if the user doesn't name the",
+  "  module explicitly (infer it from what they're asking about).",
+  "- project_methods_methylomics(module): the same idea, but for the",
+  "  Methylomics module's own pipeline (e.g. \"DMP\", \"DMR\", \"WGCNA",
+  "  methylomics\", \"cell-type deconvolution\", \"feature selection\",",
+  "  \"Mendelian randomization\", \"diagnostic classifier\"). Use this instead",
+  "  of project_methods whenever the question is clearly about methylation",
+  "  data/analysis rather than gene expression.",
   "- pubmed_search(query): a live, broader PubMed search for scientific claims",
   "  project_methods doesn't cover, or when the user wants more/newer external",
   "  literature.",
@@ -143,6 +155,20 @@ mod_arthochat_server <- function(id, dataset, results = NULL) {
           ),
           arguments = list(
             module = ellmer::type_string("The sub-module name or topic to look up, e.g. \"WGCNA\" or \"2.6\".")
+          )
+        ))
+        cl$register_tool(ellmer::tool(
+          project_methods_methylomics,
+          paste(
+            "Look up the Methylomics module's own methodology write-up and",
+            "curated reference list for a specific analysis sub-module - e.g.",
+            "\"DMP\", \"DMR\", \"WGCNA methylomics\", \"cell-type deconvolution\",",
+            "\"feature selection\", \"Mendelian randomization\", or \"diagnostic",
+            "classifier\". Use this (not project_methods) whenever the question",
+            "is about methylation data or the Methylomics module specifically."
+          ),
+          arguments = list(
+            module = ellmer::type_string("The Methylomics sub-module name or topic to look up, e.g. \"DMR\" or \"cell-type deconvolution\".")
           )
         ))
         cl$register_tool(ellmer::tool(

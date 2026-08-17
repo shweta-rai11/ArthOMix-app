@@ -39,7 +39,7 @@
 
 mod_methyl_dmr_config <- list(
   id = "dmr", title = "Differentially Methylated Regions (DMRs)", icon = "map-location-dot", group = "Data",
-  description = "Region-level methylation differences (DMRcate, lambda=1000/C=2): the default sex-stratified analysis on the preloaded whole-blood dataset reproduced from its own results, plus a fully configurable live DMR engine (All-Samples/Female/Male, seeding-p/lambda/C/min-CpGs/FDR/Δβ/region-size/covariates) for your own uploaded dataset or the preloaded dataset's live matrix, when available."
+  description = "Finds region-level methylation differences using DMRcate. Uses the bundled whole-blood analysis by default, or a live, configurable run on your own dataset."
 )
 
 ## Two subtabs, purely a UI reorganization - "SVA" and "DMR" wrap the exact

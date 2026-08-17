@@ -20,7 +20,8 @@ TX_MODULES <- list(
   list(config = mod_crossancestry_config,   ui = mod_crossancestry_ui,   server = mod_crossancestry_server),
   list(config = mod_enrichment_config,      ui = mod_enrichment_ui,      server = mod_enrichment_server),
   list(config = mod_deconvolution_config,   ui = mod_deconvolution_ui,   server = mod_deconvolution_server),
-  list(config = mod_nomogram_config,        ui = mod_nomogram_ui,        server = mod_nomogram_server)
+  list(config = mod_nomogram_config,        ui = mod_nomogram_ui,        server = mod_nomogram_server),
+  list(config = mod_biomarkercard_config,   ui = mod_biomarkercard_ui,   server = mod_biomarkercard_server)
 )
 
 TX_MODULES_BY_ID <- setNames(TX_MODULES, vapply(TX_MODULES, function(m) m$config$id, character(1)))
@@ -46,7 +47,8 @@ MX_MODULES <- list(
   list(config = mod_methyl_featureselection_config, ui = mod_methyl_featureselection_ui, server = mod_methyl_featureselection_server),
   list(config = mod_methyl_mr_config,              ui = mod_methyl_mr_ui,              server = mod_methyl_mr_server),
   list(config = mod_methyl_coloc_config,           ui = mod_methyl_coloc_ui,           server = mod_methyl_coloc_server),
-  list(config = mod_methyl_diagnostic_config,      ui = mod_methyl_diagnostic_ui,      server = mod_methyl_diagnostic_server)
+  list(config = mod_methyl_diagnostic_config,      ui = mod_methyl_diagnostic_ui,      server = mod_methyl_diagnostic_server),
+  list(config = mod_methyl_biomarkercard_config,   ui = mod_methyl_biomarkercard_ui,   server = mod_methyl_biomarkercard_server)
 )
 
 MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config$id, character(1)))

@@ -41,7 +41,7 @@
 
 mod_methyl_dmp_config <- list(
   id = "dmp", title = "Differential Methylation (DMPs)", icon = "chart-scatter", group = "Data",
-  description = "Differentially methylated positions: the default sex-stratified analysis on the preloaded whole-blood dataset (limma + bacon-correction, plain and SVA-adjusted stages) reproduced from its own results, plus a fully configurable live limma DMP engine (All-Samples/Female/Male, group/FDR/delta-beta/covariates) for your own uploaded dataset or the preloaded dataset's live matrix, when available."
+  description = "Finds differentially methylated positions using limma with bacon correction. Uses the bundled whole-blood analysis by default, or a live, configurable run on your own dataset."
 )
 
 ## Two subtabs, purely a UI reorganization - "SVA" and "DMP" wrap the exact

@@ -78,13 +78,17 @@ app_header <- function() {
 ## used only client-side (see the JS above) to highlight whichever item's
 ## destination tab is currently showing. `nav_items` is a list of
 ## list(id=, label=, icon=, match=) - `match` is the exact visible tab title
-## the item navigates to. No ArthOChat card here - the header's persistent
-## "Ask ArthOChat" button already covers every page; a second, contextual
-## card lives inside the Preprocessing step's own content instead (see
-## mod_preprocessing.R), rather than duplicating it here on every page.
+## the item navigates to. `extra_sidebar_content` is an optional tag/tagList
+## rendered after the Quick Links block - NULL (the default) renders exactly
+## as before for any caller that omits it. Both Methylomics and
+## Transcriptomics pass arthochat_shortcut_ui(..., compact = TRUE) (global.R)
+## here - the same compact "Open ArthOChat" card already used throughout the
+## transcriptomics sub-modules (e.g. mod_dge.R) - rather than either
+## duplicating a full chat widget per module or leaving the sidebar-level
+## slot empty.
 ## ---------------------------------------------------------------------------
 
-omics_sidebar <- function(module_id, module_label, nav_items) {
+omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_content = NULL) {
   tags$div(
     class = "omics-sidebar",
     tags$div(class = "omics-sidebar-heading", toupper(module_label)),
@@ -108,7 +112,8 @@ omics_sidebar <- function(module_id, module_label, nav_items) {
       tags$a(href = "#", icon("graduation-cap"), "Tutorials"),
       tags$a(href = "#", icon("code"), "API Reference"),
       tags$a(href = "#", icon("clipboard-list"), "Release Notes")
-    )
+    ),
+    extra_sidebar_content
   )
 }
 

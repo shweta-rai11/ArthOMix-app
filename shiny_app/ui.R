@@ -1341,7 +1341,8 @@ TRANSCRIPTOMICS_SIDEBAR_NAV <- list(
 transcriptomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
-      "transcriptomics", "Transcriptomics", TRANSCRIPTOMICS_SIDEBAR_NAV
+      "transcriptomics", "Transcriptomics", TRANSCRIPTOMICS_SIDEBAR_NAV,
+      extra_sidebar_content = arthochat_shortcut_ui("Questions about this dataset or analysis? Ask ArthOChat.", compact = TRUE)
     ))),
     column(
       9,
@@ -1404,10 +1405,17 @@ METHYLOMICS_SIDEBAR_NAV <- list(
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
 )
 
+## Short, concise module description (replaces the earlier long,
+## AI-generated paragraph) - shown once under the "Methylomics" heading,
+## same style as the Modules landing page's tagline for this module
+## (MODULE_REGISTRY, global.R).
+METHYLOMICS_DESCRIPTION <- "Analyze DNA methylation data to identify differentially methylated sites and regions, discover methylation patterns, perform feature selection and network analysis, and generate biologically relevant insights."
+
 methylomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
-      "methylomics", "Methylomics", METHYLOMICS_SIDEBAR_NAV
+      "methylomics", "Methylomics", METHYLOMICS_SIDEBAR_NAV,
+      extra_sidebar_content = arthochat_shortcut_ui("Questions about DMPs, DMRs, WGCNA, or this dataset? Ask ArthOChat.", compact = TRUE)
     ))),
     column(
       9,
@@ -1415,6 +1423,7 @@ methylomicsUI <- function() {
         class = "page-header page-header-tight",
         div(class = "page-header-pattern"),
         h2(icon("circle-nodes"), " Methylomics"),
+        p(class = "sm-group-blurb", METHYLOMICS_DESCRIPTION),
         uiOutput("mx_page_subtitle")
       ),
       div(

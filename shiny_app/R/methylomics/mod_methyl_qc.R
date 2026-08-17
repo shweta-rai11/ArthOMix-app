@@ -39,7 +39,7 @@
 ## method's output - see methyl_apply_manual_exclude() in qc.R.
 mod_methyl_qc_config <- list(
   id = "qc", title = "Quality Control", icon = "magnifying-glass-chart", group = "Data",
-  description = "Probe- and sample-level QC: detection p-value/bead count filtering (IDAT only), SNP/cross-reactive/non-CpG/sex-chromosome probe removal, missingness/variance/mean-range filters, sample call rate, bisulfite conversion, PCA/hierarchical/correlation/distance-based outlier detection, a methylation-based sex check, and batch QC (ComBat/RUVm) - organized as an Overview/Sample QC/Probe QC/Sex QC/Batch QC/Outlier QC/Visualizations/Reports dashboard where every method is run independently, on its own button - nothing executes automatically when a dataset loads."
+  description = "Probe and sample QC: filtering, missingness, call rate, bisulfite conversion, outlier detection, sex check, and batch QC. Each method runs on its own button, in its own tab."
 )
 
 mod_methyl_qc_ui <- function(id) {

@@ -1,0 +1,32 @@
+---
+title: "ArthOMix Explorer User Guide"
+author: "[Your name / lab]"
+date: "`r Sys.Date()`"
+site: bookdown::bookdown_site
+documentclass: book
+bibliography: [references.bib]
+biblio-style: apalike
+link-citations: yes
+description: "A user manual for the ArthOMix Explorer Shiny application, covering the Transcriptomics and Methylomics analysis modules."
+---
+
+# Preface {-}
+
+This is a _user manual_ written using Bookdown, which provides a detailed guide for **ArthOMix Explorer**.
+
+ArthOMix Explorer is an R Shiny application for interactive, no-code analysis of transcriptomic and methylomic data, built around a sex-stratified analysis workflow (dataset loading → preprocessing → differential analysis → network/feature analysis → biomarker modeling → genetics/interpretation). The application handles gene expression (RNA-seq/microarray) and DNA methylation (Illumina array) data through a shared set of interaction patterns, so once a user has learned one module the rest follow the same conventions.
+
+[One short paragraph: who this guide is for (e.g. wet-lab collaborators without a coding background), and what "no-code" means in this app — every analysis is driven by point-and-click controls, never a script the user has to edit.]
+
+```{r cover-image, echo=FALSE, out.width="80%", fig.align="center"}
+# Replace with a real screenshot of the Home tab once available, e.g.:
+# knitr::include_graphics("Figures/f0-cover.png")
+```
+
+## How to use this guide {-}
+
+Each chapter covers one module of the app and follows the same structure: **Purpose** (what question it answers), **Getting there** (where to click), **Inputs**, a **Walkthrough** of every sub-tab with an annotated screenshot, **Outputs**, and **Notes and troubleshooting**.
+
+## Reporting problems {-}
+
+[Where should users file a bug or ask a question about this app? e.g. a GitHub Issues link, or an internal contact.]

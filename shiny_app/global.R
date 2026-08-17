@@ -423,6 +423,241 @@ load_default_meth_matrix <- function() {
   result
 }
 
+## ---------------------------------------------------------------------------
+## Methylomics WGCNA: dedicated cache + optional published-reference loaders
+## ---------------------------------------------------------------------------
+## get_or_compute_wgcna_blocks() above hardcodes WGCNA_CACHE_DIR, a
+## transcriptomics-scoped path (DATA_ROOT/data/cache/wgcna) resolved as a
+## free variable, with no cache_dir parameter - reusing it as-is for
+## methylomics would write co-methylation network results into the
+## transcriptomics cache folder. This is a parallel, methylomics-scoped
+## copy (not a modification of the function above), rooted under
+## METH_RAW_DATA_ROOT when that folder exists, else falling back next to
+## shiny_app/ itself so caching still works on an upload-only deployment.
+METH_WGCNA_CACHE_DIR <- file.path(
+  if (dir.exists(METH_RAW_DATA_ROOT)) METH_RAW_DATA_ROOT else normalizePath(".", mustWork = FALSE),
+  "cache", "wgcna_methyl"
+)
+dir.create(METH_WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE)
+
+get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn) {
+  cache_key <- paste0("methwgcna_", digest::digest(key_parts, algo = "xxhash64"))
+  if (!is.null(.arthomix_cache[[cache_key]])) return(.arthomix_cache[[cache_key]])
+  disk_path <- file.path(METH_WGCNA_CACHE_DIR, paste0(cache_key, ".rds"))
+  result <- if (file.exists(disk_path)) {
+    readRDS(disk_path)
+  } else {
+    result <- compute_fn()
+    ## Best-effort: a read-only data folder shouldn't break the
+    ## already-computed in-memory result for this session.
+    tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
+    result
+  }
+  .arthomix_cache[[cache_key]] <- result
+  result
+}
+
+## script05_wgcna_sexstratified/ (Research_Q3_METHYLOMICS_sexstratified_COPY)
+## - the published, sex-stratified co-methylation network analysis this
+## module's Methylomics WGCNA "Compare with published results" panel reads
+## from. Table-only, same graceful-degradation contract as load_default_dmp()/
+## load_default_dmr() above (returns NULL rather than erroring when
+## METH_DATA_AVAILABLE is FALSE or a specific file isn't present) - this is
+## reference display only, never the live compute path.
+METH_WGCNA_DIR <- file.path(METH_DATA_ROOT, "script05_wgcna_sexstratified", "tables")
+
+## Per-sex module-eigengene-vs-RA-status correlation/p/FDR table
+## (module_trait_{sex}[_merged10].csv) from the published run.
+load_default_wgcna_module_trait <- function(sex = c("female", "male"), merged = FALSE) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_WGCNA_DIR, sprintf("module_trait_%s%s.csv", sex, if (merged) "_merged10" else ""))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Per-sex CpG-to-module assignment table (module_assignment_{sex}[_merged10].csv)
+## from the published run.
+load_default_wgcna_module_assignment <- function(sex = c("female", "male"), merged = FALSE) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_WGCNA_DIR, sprintf("module_assignment_%s%s.csv", sex, if (merged) "_merged10" else ""))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Per-sex DMP/DMR biomarker panel (script04_dmr_sexstratified/tables/
+## biomarker_panel_{sex}.csv) - reuses the already-defined METH_DMR_DIR
+## above. This is what the published WGCNA script's own enrichment step
+## (Fisher's exact test of each significant module's CpGs against this
+## panel) tests against; the Functional Enrichment stage below reuses it
+## rather than inventing a separate GO/KEGG path.
+load_default_dmr_biomarker_panel <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_DMR_DIR, sprintf("biomarker_panel_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics Mendelian Randomization (script08_mendelian_randomization) -
+## same table-only, graceful-degradation contract as load_default_dmp()/
+## load_default_dmr() above. mod_methyl_mr.R's "Preloaded Data" route reads
+## these directly as its computational source of truth (cis-mQTL/GoDMC
+## instruments, already clumped r2<0.001/10000kb, already harmonised
+## action=2, against the Ishigaki et al. 2022 RA GWAS) rather than
+## re-deriving instrument selection/clumping/harmonisation live - see
+## METHODS_mendelian_randomization.md for the full pipeline this reproduces.
+## script08d_mr_coloc.R (colocalization) is a separate analysis belonging to
+## mod_methyl_coloc.R, not read here.
+## ---------------------------------------------------------------------------
+METH_MR_DIR <- file.path(METH_DATA_ROOT, "script08_mendelian_randomization", "tables")
+
+## Per-sex MR estimates (one row per CpG x method actually run under
+## script08b/c's tiered hierarchy: n=1 Wald ratio, n=2 IVW-only, n>=3 the
+## full IVW+Egger+weighted-median+mode+simple-mode set).
+load_default_mr_estimates <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_MR_DIR, sprintf("mr_estimates_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## The single shared harmonised exposure/outcome dataset (one row per
+## harmonised SNP x CpG x outcome triple, both sexes' candidate CpGs
+## together) - already clumped and already harmonise_data(action=2)'d, so
+## sensitivity analyses / single-SNP estimates / plots can be recomputed
+## live from this directly with TwoSampleMR's own functions without
+## re-running GoDMC extraction, clumping, or harmonisation.
+load_default_mr_harmonised <- function() {
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_MR_DIR, "mr_harmonised_all_cpgs.csv")
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Per-sex Steiger directionality flags (SNP, exposure=CpG, steiger_dir,
+## steiger_pval), already computed once upstream in 08_mr_instrument_prep.R.
+load_default_mr_steiger <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_MR_DIR, sprintf("mr_steiger_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Per-CpG instrument count after LD clumping (cpg, n_snp) - both sexes'
+## candidate CpGs together; the "before clumping -> after clumping" summary
+## mod_methyl_mr.R's LD Clumping tab shows for the Preloaded route reads
+## this recorded count rather than re-calling ieugwasr::ld_clump() live.
+load_default_mr_instrument_counts <- function() {
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_MR_DIR, "instrument_counts.csv")
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## Precomputed coloc.abf() summary (script08d_mr_coloc.R) - PP.H0-H4 +
+## verdict per CpG carried into MR that had >=10 GoDMC candidate SNPs in
+## its cis window. mod_methyl_coloc.R's Preloaded route reads this
+## directly - no per-SNP GoDMC/RA-GWAS region data is bundled with this
+## deployment (see that script's own header comment), so coloc.abf()
+## itself cannot be re-run live for these CpGs, only looked up.
+load_default_meth_coloc_results <- function() {
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_MR_DIR, "coloc_results.csv")
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics Diagnostic Classifier (script09_diagnostic_classifier) -
+## table-only reference loaders + the two small panel-CpG-only RDS objects
+## the module trains/evaluates on live.
+## ---------------------------------------------------------------------------
+## script09's own panel CpGs come from script07's majority-vote ensemble
+## (n_votes >= 2 of LASSO/Boruta/SVM-RFE) - reused here as-is rather than
+## re-deriving it, same table-only, graceful-degradation contract as
+## load_default_dmp()/load_default_dmr() above.
+METH_DIAGNOSTIC_VOTES_DIR <- file.path(METH_DATA_ROOT, "script07_ml_feature_selection", "tables")
+METH_DIAGNOSTIC_DIR       <- file.path(METH_DATA_ROOT, "script09_diagnostic_classifier", "tables")
+
+load_default_diagnostic_ensemble_votes <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_DIAGNOSTIC_VOTES_DIR, sprintf("ensemble_votes_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## The published run's own combined-panel and per-probe AUC tables
+## (train/internal-test/external-test, with DeLong CIs) - for an optional
+## "compare with published results" panel, same idea as mod_methyl_wgcna.R's.
+## Never the live compute path.
+load_default_diagnostic_panel_auc <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_DIAGNOSTIC_DIR, sprintf("diagnostic_panel_auc_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+load_default_diagnostic_perprobe_auc <- function(sex = c("female", "male")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) return(NULL)
+  path <- file.path(METH_DIAGNOSTIC_DIR, sprintf("diagnostic_perprobe_auc_%s.csv", sex))
+  if (!file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics Diagnostic Classifier: the actual train/test panel data (live
+## fit, not just reproduced tables)
+## ---------------------------------------------------------------------------
+## Unlike METH_BETA_RAW_RDS/METH_PHENO_RDS above (the main pipeline's ~2.1GB
+## QC'd matrix, at every retained probe), these two objects are the small
+## panel-CpG-only (21 CpGs total) inputs script09 itself trains/evaluates on:
+##  - gse42861_internal_panel_celltype_adjusted.rds: GSE42861 reprocessed
+##    from raw IDATs through minfi::preprocessNoob() (to be comparable with
+##    the external cohort below, since the main pipeline's own normalization
+##    is NOT what script09 uses) and granulocyte-adjusted
+##    (lm(M ~ Neutro + Eosino) per CpG). All 689 samples, both sexes; script09
+##    itself takes a stratified 75/25 train/internal-test split of this per
+##    sex-stratum (set.seed(42), caret::createDataPartition(y, p = 0.75)) -
+##    reproduced identically in mod_methyl_diagnostic.R's dxm_get_active_data().
+##  - gse111942_external_panel.rds: an independent external cohort, Noob-
+##    processed the same way, subset to the panel CpGs. All 43 samples are
+##    female, so external validation exists only for the female stratum.
+## Both live at METH_RAW_DATA_ROOT alongside METH_BETA_RAW_RDS/METH_PHENO_RDS,
+## same optional/graceful contract as METH_RAW_DATA_AVAILABLE above - a
+## deployment without this folder still runs (Upload-only Diagnostic
+## Classifier).
+METH_DIAG_INTERNAL_RDS <- file.path(METH_RAW_DATA_ROOT, "gse42861_internal_panel_celltype_adjusted.rds")
+METH_DIAG_EXTERNAL_RDS <- file.path(METH_RAW_DATA_ROOT, "gse111942_external_panel.rds")
+METH_DIAG_DATA_AVAILABLE <- file.exists(METH_DIAG_INTERNAL_RDS) && file.exists(METH_DIAG_EXTERNAL_RDS)
+
+## Reads both objects once per running process (same two-tier idea as
+## load_default_meth_matrix() above, in-memory cache only since these files
+## are already small - 131KB/7.6KB - so there's no separate disk-cache tier
+## to add). Returns NULL rather than erroring when METH_DIAG_DATA_AVAILABLE
+## is FALSE, mirroring every other load_default_*() in this file.
+load_default_diagnostic_train_test <- function() {
+  key <- "diag_train_test"
+  if (!is.null(.arthomix_cache[[key]])) return(.arthomix_cache[[key]])
+  if (!METH_DIAG_DATA_AVAILABLE) return(NULL)
+
+  internal <- readRDS(METH_DIAG_INTERNAL_RDS)
+  external <- readRDS(METH_DIAG_EXTERNAL_RDS)
+  internal$pheno <- as.data.frame(internal$pheno)
+  external$pheno <- as.data.frame(external$pheno)
+
+  result <- list(internal = internal, external = external)
+  .arthomix_cache[[key]] <- result
+  result
+}
+
 GEO_SOURCES <- list(
   list(gse = "GSE93272",  role = "Training (whole blood)",   used_in = "Merged into the example cohort"),
   list(gse = "GSE110169", role = "Training (whole blood)",   used_in = "Merged into the example cohort"),
@@ -529,11 +764,20 @@ load_individual_dataset <- function(gse_id) {
 ## AI research assistant runs against a local Ollama server instead of the
 ## Anthropic API - no API key, no per-token billing. Set OLLAMA_BASE_URL to
 ## point at a non-default Ollama host; otherwise localhost:11434 is assumed.
-## qwen3, not qwen2.5-coder: verified directly against Ollama's /api/chat that
+## Not qwen2.5-coder: verified directly against Ollama's /api/chat that
 ## qwen2.5-coder returns tool calls as free-text JSON it invents (never
 ## populates the structured `tool_calls` field), so PubMed lookups would
-## silently never fire. qwen3 uses real structured tool calls.
-ARTHOMIX_OLLAMA_MODEL <- "qwen3:8b"
+## silently never fire.
+## qwen2.5:1.5b (current default, chosen for speed/size over qwen3:8b) DOES
+## populate real structured tool_calls - verified directly - but is
+## noticeably less consistent about choosing to call a tool at all: a
+## casually-phrased question ("search PubMed for X") got a plain chat reply
+## asking for clarification instead of a tool call, while a more directive
+## prompt matching this app's actual system prompt ("search before
+## answering") correctly triggered pubmed_search. Worth re-testing this way
+## against /api/chat before changing the model again - small models vary a
+## lot here.
+ARTHOMIX_OLLAMA_MODEL <- "qwen2.5:1.5b"
 ollama_base_url <- function() Sys.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 ## Reachability + model-pulled check in one request: /api/tags lists every
@@ -757,6 +1001,82 @@ project_methods <- function(module) {
     if (!is.null(refs)) .truncate_with_note(refs, 3000) else "(No dedicated reference list for this section - use pubmed_search for supporting literature.)"
   )
   paste(parts, collapse = "\n")
+}
+
+## ---------------------------------------------------------------------------
+## Methylomics methodology lookup tool (registered on the shared ArthOChat
+## drawer - see R/transcriptomics/mod_arthochat.R - so methylomics
+## methodology questions stay grounded even though the Methylomics sidebar
+## only links to that one shared drawer, rather than running its own
+## separate scoped chat session)
+## ---------------------------------------------------------------------------
+## Mirrors project_methods() above, but against the methylomics pipeline's
+## own per-stage write-ups (METH_DATA_ROOT/script0N_*/METHODS_*.md - see
+## METH_DATA_ROOT's own comment) instead of the transcriptomics thesis
+## chapter. `files` is relative to METH_DATA_ROOT and may be more than one
+## path (e.g. DMPs has a plain and an SVA-adjusted write-up); modules with no
+## dedicated script (e.g. colocalisation) are simply left out, so
+## project_methods_methylomics() falls through to its "no module matched"
+## branch and the assistant relies on pubmed_search instead.
+METH_METHODS_TOPICS <- list(
+  list(id = "qc",             title = "Quality Control",
+       files = "script01_dataload_QC/METHODS_load_qc.md",
+       aliases = c("qc", "quality control", "detection p-value", "bead count", "sex check", "probe filtering")),
+  list(id = "normalization",  title = "Normalization",
+       files = "script01_dataload_QC/METHODS_load_qc.md",
+       aliases = c("normalization", "normalisation", "dasen", "bmiq", "noob", "funnorm", "swan", "pbc", "quantile normalisation")),
+  list(id = "celltype",       title = "Cell-Type Deconvolution",
+       files = "script02_celltype/METHODS_celltype.md",
+       aliases = c("celltype", "cell type", "cell composition", "houseman", "deconvolution")),
+  list(id = "dmp",            title = "Differentially Methylated Positions (DMPs)",
+       files = c("script03_dmp_sexstratified/METHODS_dmp_sexstratified.md", "script03_dmp_sva_sexstratified/METHODS_dmp_sva_sexstratified.md"),
+       aliases = c("dmp", "differentially methylated position", "differential methylation", "sva", "delta beta")),
+  list(id = "dmr",            title = "Differentially Methylated Regions (DMRs)",
+       files = "script04_dmr_sexstratified/METHODS_dmr_sexstratified.md",
+       aliases = c("dmr", "differentially methylated region", "dmrcate", "comb-p", "bumphunter")),
+  list(id = "wgcna",          title = "WGCNA (Co-Methylation Network)",
+       files = "script05_wgcna_sexstratified/METHODS_wgcna_sexstratified.md",
+       aliases = c("wgcna", "co-methylation", "comethylation", "module eigengene", "soft threshold", "network")),
+  list(id = "candidates",     title = "Candidate CpGs (Module-DMR Overlap)",
+       files = "script06_module_dmr_venn/METHODS_module_dmr_venn.md",
+       aliases = c("candidate cpg", "candidate cpgs", "module-dmr", "venn", "overlap")),
+  list(id = "featureselection", title = "ML Feature Selection",
+       files = "script07_ml_feature_selection/METHODS_ml_feature_selection.md",
+       aliases = c("feature selection", "lasso", "random forest", "svm-rfe", "svm rfe", "elastic net", "boruta")),
+  list(id = "mr",             title = "Mendelian Randomization",
+       files = "script08_mendelian_randomization/METHODS_mendelian_randomization.md",
+       aliases = c("mr", "mendelian randomisation", "mendelian randomization", "mqtl", "instrumental variable", "causal inference")),
+  list(id = "diagnostic",     title = "Diagnostic Classifier",
+       files = "script09_diagnostic_classifier/METHODS_diagnostic_classifier.md",
+       aliases = c("diagnostic model", "diagnostic classifier", "classifier", "auc", "roc", "panel"))
+)
+
+project_methods_methylomics <- function(module) {
+  q <- tolower(trimws(module %||% ""))
+  hit <- Find(function(t) {
+    q == tolower(t$id) ||
+      grepl(q, tolower(t$title), fixed = TRUE) || grepl(tolower(t$title), q, fixed = TRUE) ||
+      any(vapply(t$aliases, function(a) grepl(a, q, fixed = TRUE) || grepl(q, a, fixed = TRUE), logical(1)))
+  }, METH_METHODS_TOPICS)
+
+  if (is.null(hit)) {
+    return(paste0(
+      "No Methylomics module matched \"", module, "\". Available topics: ",
+      paste(vapply(METH_METHODS_TOPICS, function(t) t$title, character(1)), collapse = "; ")
+    ))
+  }
+
+  paths <- file.path(METH_DATA_ROOT, hit$files)
+  bodies <- Filter(Negate(is.null), lapply(paths, function(p) {
+    if (!file.exists(p)) return(NULL)
+    paste(readLines(p, warn = FALSE), collapse = "\n")
+  }))
+
+  header <- sprintf("## %s - this project's own methodology", hit$title)
+  if (length(bodies) == 0) {
+    return(paste(header, "(No write-up available for this stage in this deployment.)", sep = "\n"))
+  }
+  paste(header, "", .truncate_with_note(paste(bodies, collapse = "\n\n---\n\n"), 4000), sep = "\n")
 }
 
 read_table_safe <- function(filename, dir = TABLES_DIR) {
@@ -1568,7 +1888,7 @@ MODULE_REGISTRY <- list(
   list(
     id = "methylomics", tab = "methylomics",
     title = "Methylomics",
-    tagline = "Upload a beta/M-value matrix or raw IDAT files, run probe- and sample-level quality control, and normalize (Noob, Functional normalization, SWAN, Dasen, BMIQ, PBC, or quantile). Differential methylation, DMR calling, and comparison against transcriptomics are still planned.",
+    tagline = "Analyze DNA methylation data to identify differentially methylated sites and regions, discover methylation patterns, perform feature selection and network analysis, and generate biologically relevant insights.",
     icon = "circle-nodes", status = "available", kind = "Single-omics"
   ),
   list(
