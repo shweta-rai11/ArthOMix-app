@@ -1,20 +1,22 @@
 ## R/crossomics/mod_cross_biomarker_conv.R
-## Submodule: Biomarker Convergence - a live, reconfigurable reimplementation
-## of cross_Omics_Sexstratified_COPY/scripts/01_cross_omics_eqtl_mqtl_biomarkers.R
-## (see crossomics_biomarkerconv_helpers.R for the join logic itself). Lets
-## the join that script already ran once (eQTL-MR gene panel x mQTL-MR CpG
-## panel x raw DEG/DMP/DMR tables, per sex) be reconfigured live - different
-## FDR/effect-size thresholds, a different vote cutoff - rather than only
-## browsing its already-computed output, which the Dataset tab already does.
+## Submodule: Biomarker Convergence - loads the pipeline's own already-joined
+## eQTL-MR x mQTL-MR x DEG x DMP x DMR table (cross_Omics_Sexstratified_COPY/
+## results/cross_omics_eQTL_mQTL_{sex}.csv - see crossomics_biomarkerconv_
+## helpers.R) and lets the significance thresholds that decide "which rows
+## count as evidence" be reconfigured instantly, by relabeling the table's
+## own retained raw p/FDR/effect-size values. No join is re-run, no
+## statistics are recomputed, and no file outside cross_Omics_Sexstratified_
+## COPY is ever read - this module integrates already-computed
+## Transcriptomics/Methylomics potential-biomarker evidence, it does not
+## reproduce the analyses that produced it.
 ##
-## No new statistics are computed here - only joining and threshold-based
-## labeling of already-computed per-layer results (spec/report language
-## throughout: "evidence present in N of 3 layers", never "confirmed
-## biomarker").
+## Language throughout: "evidence present in N of 3 layers", never
+## "confirmed biomarker" - joining/relabeling never upgrades association
+## evidence into a causal or diagnostic claim.
 
 mod_cross_biomarker_conv_config <- list(
   id = "biomarkerconv", title = "Biomarker Convergence", icon = "diagram-project", group = "Data",
-  description = "Joins the eQTL-MR gene panel, mQTL-MR CpG panel, and raw DEG/DMP/DMR tables into one sex-stratified biomarker/annotation table, live and reconfigurable."
+  description = "Integrates the pipeline's own precomputed eQTL-MR, mQTL-MR, DEG, DMP, and DMR evidence into one sex-stratified table, with instantly reconfigurable significance filters."
 )
 
 mod_cross_biomarker_conv_ui <- function(id) {
@@ -26,18 +28,17 @@ mod_cross_biomarker_conv_ui <- function(id) {
         width = NULL, title = "1. Cohort", status = "primary", solidHeader = FALSE,
         radioButtons(ns("sex"), "Sex", choices = c("Female" = "female", "Male" = "male"), selected = "female", inline = TRUE),
         p(class = "empty-note", icon("circle-info"),
-          "Reads this project's own precomputed eQTL-MR gene panel, mQTL-MR CpG panel, and raw DEG/DMP/DMR tables directly - independent of whatever is currently loaded on the Transcriptomics/Methylomics tabs or the Expression x Methylation sub-module."),
-        actionButton(ns("run_join"), "Run Join", icon = icon("play"), class = "btn-primary btn-sm", width = "100%")
+          "Loads this project's own precomputed, already-joined eQTL-MR x mQTL-MR x DEG x DMP x DMR table directly - the join itself was already run by the pipeline; nothing is re-computed here."),
+        actionButton(ns("load_table"), "Load Table", icon = icon("database"), class = "btn-primary btn-sm", width = "100%")
       ),
       box(
-        width = NULL, title = "2. Reconfigure Thresholds", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
-        numericInput(ns("vote_threshold"), "mQTL candidate CpG: min ensemble votes", value = 2, min = 1, max = 3, step = 1),
+        width = NULL, title = "2. Integration Filters", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
+        numericInput(ns("deg_fdr"), "DEG significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
         numericInput(ns("dmp_genomewide_fdr"), "DMP genome-wide-significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
-        numericInput(ns("dmp_suggestive_p"), "DMP suggestive: raw P <", value = 1e-4, min = 0, max = 1, step = 1e-5),
-        radioButtons(ns("mqtl_sig_basis"), "mQTL-MR significance basis", choices = c("Nominal P (matches original script)" = "nominal_p", "BH-FDR (recomputed over this run)" = "fdr"), selected = "nominal_p"),
+        radioButtons(ns("mqtl_sig_basis"), "mQTL-MR significance basis", choices = c("Nominal P (matches original script)" = "nominal_p", "BH-FDR (recomputed over this table)" = "fdr"), selected = "nominal_p"),
         numericInput(ns("mqtl_sig_cutoff"), "mQTL-MR significance cutoff", value = 0.05, min = 0, max = 1, step = 0.01),
         numericInput(ns("dmr_fdr"), "DMR significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
-        p(class = "submodule-desc", "Defaults match the original pipeline script's own hardcoded values. Changing these only relabels which rows count as significant - it never re-runs the upstream eQTL-MR/mQTL-MR/DEG/DMP/DMR analyses themselves.")
+        p(class = "submodule-desc", "Defaults match the pipeline's own thresholds. These only relabel which rows count as significant, from values already in the loaded table - changing them updates every tab instantly, no reload needed.")
       ),
       box(
         width = NULL, title = "Analysis Settings / Reproducibility", status = "primary", solidHeader = FALSE,
@@ -61,37 +62,41 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    bc <- reactiveValues(df = NULL, params = NULL, sex = NULL, run_at = NULL, provenance = NULL)
+    raw <- reactiveValues(df = NULL, sex = NULL, loaded_at = NULL)
     active_filter <- reactiveVal("All")
 
-    observeEvent(input$run_join, {
-      params <- list(
-        vote_threshold = input$vote_threshold, dmp_genomewide_fdr = input$dmp_genomewide_fdr,
-        dmp_suggestive_p = input$dmp_suggestive_p, mqtl_sig_basis = input$mqtl_sig_basis,
-        mqtl_sig_cutoff = input$mqtl_sig_cutoff, dmr_fdr = input$dmr_fdr
-      )
-      res <- cx_bc_build_join(input$sex, params)
+    observeEvent(input$load_table, {
+      res <- cx_bc_load_precomputed(input$sex)
       if (!res$ok) { showNotification(res$error, type = "error"); return() }
-      bc$df <- res$df
-      bc$params <- res$params
-      bc$sex <- input$sex
-      bc$run_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-      bc$provenance <- cx_bc_build_provenance(input$sex, res$params, bc$run_at)
+      raw$df <- res$df
+      raw$sex <- input$sex
+      raw$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       active_filter("All")
-      if (!is.null(cross_results)) {
-        cross_results$biomarkerconv <- list(df = res$df, sex = input$sex, params = res$params, run_at = bc$run_at)
-      }
-      showNotification(sprintf("Join complete - %s genes (%s).", format(nrow(res$df), big.mark = ","), toupper(input$sex)), type = "message")
+      showNotification(sprintf("Loaded %s genes (%s).", format(nrow(res$df), big.mark = ","), toupper(input$sex)), type = "message")
+    })
+
+    ## Relabeling is cheap (a handful of vectorized comparisons over <100
+    ## rows), so it's reactive - every filter change updates immediately,
+    ## unlike the pipeline's own analyses which are never re-run here.
+    bc_df <- reactive({
+      req(raw$df)
+      cx_bc_relabel(raw$df, list(
+        deg_fdr = input$deg_fdr, dmp_genomewide_fdr = input$dmp_genomewide_fdr,
+        mqtl_sig_basis = input$mqtl_sig_basis, mqtl_sig_cutoff = input$mqtl_sig_cutoff,
+        dmr_fdr = input$dmr_fdr
+      ))
     })
 
     output$provenance_ui <- renderUI({
-      if (is.null(bc$provenance)) return(div(class = "empty-note", icon("circle-info"), "Run the join to see its parameters here."))
-      tags$ul(style = "padding-left: 18px; font-size: 0.85em;", lapply(bc$provenance, tags$li))
+      if (is.null(raw$df)) return(div(class = "empty-note", icon("circle-info"), "Load the table to see its provenance here."))
+      params <- list(deg_fdr = input$deg_fdr, dmp_genomewide_fdr = input$dmp_genomewide_fdr,
+                      mqtl_sig_basis = input$mqtl_sig_basis, mqtl_sig_cutoff = input$mqtl_sig_cutoff, dmr_fdr = input$dmr_fdr)
+      tags$ul(style = "padding-left: 18px; font-size: 0.85em;", lapply(cx_bc_build_provenance(raw$sex, params, raw$loaded_at), tags$li))
     })
 
     output$summary_cards <- renderUI({
-      if (is.null(bc$df)) return(cx_empty_state())
-      df <- bc$df
+      df <- tryCatch(bc_df(), error = function(e) NULL)
+      if (is.null(df)) return(cx_empty_state())
       card <- function(label, value, key, color = "blue") {
         div(class = "card", style = "flex: 1 1 150px; cursor:pointer; text-align:center; padding:10px;",
             onclick = sprintf("Shiny.setInputValue('%s', '%s', {priority: 'event'})", ns("card_click"), key),
@@ -114,8 +119,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
 
     filtered_df <- reactive({
-      req(bc$df)
-      df <- bc$df
+      df <- bc_df()
       switch(active_filter(),
         "eqtl" = df[df$in_eQTL_MR_panel %in% TRUE, , drop = FALSE],
         "mqtl" = df[df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE],
@@ -127,13 +131,14 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
 
     output$results_table_ui <- renderUI({
-      if (is.null(bc$df)) return(cx_empty_state())
+      df <- tryCatch(bc_df(), error = function(e) NULL)
+      if (is.null(df)) return(cx_empty_state())
       display_cols <- c("gene", "in_eQTL_MR_panel", "eQTL_MR_OR", "eQTL_MR_FDR", "eQTL_MHC_region",
                          "in_mQTL_MR_panel", "mQTL_candidate_cpg", "mQTL_MR_pval", "mQTL_MR_significant",
                          "DEG_logFC", "DEG_adjP", "DEG_direction", "DEG_significant",
-                         "DMP_top_cpg", "DMP_dbeta", "DMP_fdr_bacon", "DMP_genomewide_significant", "DMP_suggestive",
-                         "dmr_id", "DMR_meandiff", "DMR_fdr", "DMR_significant", "n_evidence_layers")
-      display_cols <- intersect(display_cols, colnames(bc$df))
+                         "DMP_top_cpg", "DMP_dbeta", "DMP_fdr_bacon", "DMP_direction", "DMP_genomewide_significant", "DMP_suggestive_only",
+                         "DMR_id", "DMR_meandiff", "DMR_fdr", "DMR_direction", "DMR_significant", "n_evidence_layers")
+      display_cols <- intersect(display_cols, colnames(df))
       tagList(
         fluidRow(
           column(6, selectInput(ns("filter_pick"), "Quick filter", choices = c("All genes" = "All", "In eQTL-MR panel" = "eqtl", "In mQTL-MR panel" = "mqtl", "DEG significant" = "deg", "Methylation significant" = "meth", "Evidence in all applicable layers" = "layers3"), selected = "All")),
@@ -157,15 +162,15 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
 
     output$overlap_ui <- renderUI({
-      if (is.null(bc$df)) return(cx_empty_state())
+      if (is.null(raw$df)) return(cx_empty_state())
       tagList(
         p(class = "submodule-desc", "How many genes have evidence in each combination of layers - eQTL-MR panel membership, DEG significance, and methylation significance (DMP genome-wide or DMR)."),
         plotOutput(ns("overlap_plot"), height = "420px")
       )
     })
     output$overlap_plot <- renderPlot({
-      df <- bc$df
-      validate(need(!is.null(df), "Run the join first."))
+      df <- tryCatch(bc_df(), error = function(e) NULL)
+      validate(need(!is.null(df), "Load the table first."))
       sets <- list(`eQTL-MR panel` = df$gene[df$in_eQTL_MR_panel %in% TRUE],
                    `DEG significant` = df$gene[df$DEG_significant %in% TRUE],
                    `Methylation significant` = df$gene[df$methylation_significant %in% TRUE])
@@ -175,16 +180,25 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
 
     output$downloads_ui <- renderUI({
-      if (is.null(bc$df)) return(cx_empty_state())
+      if (is.null(raw$df)) return(cx_empty_state())
       tagList(
         downloadButton(ns("dl_table_csv"), "Results (CSV)", class = "btn-sm"),
         downloadButton(ns("dl_table_xlsx"), "Results (XLSX)", class = "btn-sm")
       )
     })
-    output$dl_table_csv <- downloadHandler(function() paste0("biomarker_convergence_", bc$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(bc$df, file, row.names = FALSE))
-    output$dl_table_xlsx <- downloadHandler(function() paste0("biomarker_convergence_", bc$sex, "_", Sys.Date(), ".xlsx"), function(file) {
-      if (!requireNamespace("openxlsx", quietly = TRUE)) { utils::write.csv(bc$df, file, row.names = FALSE); return() }
-      openxlsx::write.xlsx(bc$df, file)
+    output$dl_table_csv <- downloadHandler(function() paste0("biomarker_convergence_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(bc_df(), file, row.names = FALSE))
+    output$dl_table_xlsx <- downloadHandler(function() paste0("biomarker_convergence_", raw$sex, "_", Sys.Date(), ".xlsx"), function(file) {
+      if (!requireNamespace("openxlsx", quietly = TRUE)) { utils::write.csv(bc_df(), file, row.names = FALSE); return() }
+      openxlsx::write.xlsx(bc_df(), file)
+    })
+
+    ## Published for other Cross-Omics sub-modules (Cross-Omics MR's Tier
+    ## classification) and ArthOChat to read - kept live/reactive to filter
+    ## changes, not just the initial load.
+    observe({
+      df <- tryCatch(bc_df(), error = function(e) NULL)
+      if (is.null(df) || is.null(cross_results)) return()
+      cross_results$biomarkerconv <- list(df = df, sex = raw$sex, run_at = raw$loaded_at)
     })
   })
 }
