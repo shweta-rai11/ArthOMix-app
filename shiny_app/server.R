@@ -94,9 +94,30 @@ function(input, output, session) {
   mod_methyl_dataset_server("mx_dataset", methyl_dataset)
   lapply(MX_MODULES, function(m) m$server(paste0("mx_", m$config$id), methyl_dataset, methyl_results))
 
+  ## ---- Cross-Omics: shared dataset + computed-results store, separate
+  ## from `dataset`/`methyl_dataset` above - starts NULL until the
+  ## Cross-Omics Dataset tab (mod_cross_dataset.R) loads one of the
+  ## pipeline's own precomputed convergence/MR tables.
+  cross_dataset <- reactiveValues(table_label = NULL, df = NULL, source = NULL)
+  cross_results <- reactiveValues()
+  mod_cross_dataset_server("cx_dataset", cross_dataset)
+  ## The "integration" sub-module additionally receives the already-in-scope
+  ## `dataset`/`results`/`methyl_dataset`/`methyl_results` handles (read-only)
+  ## so its "Load from Transcriptomics/Methylomics" buttons can reuse results
+  ## already generated in those tabs, without those modules being edited or
+  ## their own tabs being affected. The other Cross-Omics sub-modules keep
+  ## their original (id, cross_dataset, cross_results) call signature.
+  lapply(CX_MODULES, function(m) {
+    if (identical(m$config$id, "integration")) {
+      m$server(paste0("cx_", m$config$id), cross_dataset, cross_results, dataset, results, methyl_dataset, methyl_results)
+    } else {
+      m$server(paste0("cx_", m$config$id), cross_dataset, cross_results)
+    }
+  })
+
   ## ---- ArthOChat: one shared assistant session for the whole app, its own
   ## top-level tab (see ui.R) rather than nested inside a sub-module ---------
-  mod_arthochat_server("arthochat", dataset, results)
+  mod_arthochat_server("arthochat", dataset, results, cross_results)
 
   ## ---- Instantiate every submodule server once; visibility is controlled --
   ## by insertTab()/removeTab() below, not by when the server is created.
@@ -191,6 +212,49 @@ function(input, output, session) {
     })
   }, ignoreNULL = FALSE)
 
+  ## ---- Cross-Omics Sub-modules tab: card Add/Remove toggles, count, and
+  ## live filter - identical wiring to the Transcriptomics/Methylomics
+  ## blocks above, against CX_MODULES/"cx_menu"/cross_dataset+cross_results
+  ## and the "cx_" id_prefix submoduleCardUI() was given (see ui.R).
+  cx_added <- reactiveValues(ids = character(0))
+
+  lapply(CX_MODULES, function(m) {
+    hid <- m$config$id
+    toggle_input <- paste0("cx_sm_toggle_", hid)
+
+    observeEvent(input[[toggle_input]], {
+      if (hid %in% cx_added$ids) {
+        removeTab(session = session, inputId = "cx_menu", target = m$config$title)
+        cx_added$ids <- setdiff(cx_added$ids, hid)
+        shinyjs::removeClass(id = paste0("cx_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("cx_smstate_", hid), html = "Add")
+      } else {
+        insertTab(
+          session = session, inputId = "cx_menu",
+          tabPanel(m$config$title, br(), m$ui(paste0("cx_", hid))),
+          target = "Sub-modules", position = "before", select = TRUE
+        )
+        cx_added$ids <- union(cx_added$ids, hid)
+        shinyjs::addClass(id = paste0("cx_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("cx_smstate_", hid), html = "Added")
+      }
+    }, ignoreInit = TRUE)
+  })
+
+  output$cx_sm_active_count <- renderUI({
+    n <- length(cx_added$ids)
+    span(class = "sm-count-badge", sprintf("%d of %d sub-modules added", n, length(CX_MODULES)))
+  })
+
+  observeEvent(input$cx_sm_search, {
+    q <- tolower(trimws(input$cx_sm_search %||% ""))
+    lapply(CX_MODULES, function(m) {
+      hid <- m$config$id
+      match <- q == "" || grepl(q, tolower(m$config$title), fixed = TRUE)
+      shinyjs::toggle(id = paste0("cx_smcard_wrap_", hid), condition = match)
+    })
+  }, ignoreNULL = FALSE)
+
   ## ===========================================================================
   ## App-shell navigation (header search, left sidebar, theme toggle, page
   ## subtitle) - additive UI glue only. Every call below is either a plain
@@ -275,6 +339,25 @@ function(input, output, session) {
     updateTabsetPanel(session, "mx_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
 
+  ## Cross-Omics sidebar nav - same jump-or-fall-back-to-picker pattern as
+  ## jump_to_mx_submodule() above, against CX_MODULES/"cx_menu"/cx_added$ids.
+  jump_to_cx_submodule <- function(mod_id, sm_filter = NULL) {
+    cfg <- CX_MODULES_BY_ID[[mod_id]]$config
+    if (mod_id %in% cx_added$ids) {
+      updateTabsetPanel(session, "cx_menu", selected = cfg$title)
+    } else {
+      updateTabsetPanel(session, "cx_menu", selected = "Sub-modules")
+      updateTextInput(session, "cx_sm_search", value = sm_filter %||% cfg$title)
+    }
+  }
+
+  observeEvent(input$sidebar_nav_crossomics_dataset, {
+    updateTabsetPanel(session, "cx_menu", selected = "Dataset")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_crossomics_submodules, {
+    updateTabsetPanel(session, "cx_menu", selected = "Sub-modules")
+  }, ignoreInit = TRUE)
+
   ## Header search: "Enter" in the search box (see R/ui_shell.R::app_header())
   ## sets this input; matched first against top-level modules, then against
   ## Transcriptomics sub-module titles, via the same jump helpers above.
@@ -306,6 +389,13 @@ function(input, output, session) {
       return()
     }
 
+    cx_hit <- Find(function(m) grepl(q, tolower(m$config$title), fixed = TRUE), CX_MODULES)
+    if (!is.null(cx_hit)) {
+      updateTabsetPanel(session, "sidebar_tabs", selected = "crossomics")
+      jump_to_cx_submodule(cx_hit$config$id, sm_filter = cx_hit$config$title)
+      return()
+    }
+
     showNotification(sprintf('No module or sub-module matched "%s".', input$header_search_submit), type = "warning")
   }, ignoreInit = TRUE)
 
@@ -333,6 +423,17 @@ function(input, output, session) {
     sel <- input$mx_menu %||% "Dataset"
     txt <- switch(sel,
       "Dataset" = "Load a methylation dataset",
+      "Sub-modules" = "Add or remove pipeline analyses",
+      sel
+    )
+    p(txt)
+  })
+
+  ## Cross-Omics page subtitle - mirrors mx_page_subtitle above, against cx_menu.
+  output$cx_page_subtitle <- renderUI({
+    sel <- input$cx_menu %||% "Dataset"
+    txt <- switch(sel,
+      "Dataset" = "Browse the pipeline's biomarker-convergence tables",
       "Sub-modules" = "Add or remove pipeline analyses",
       sel
     )

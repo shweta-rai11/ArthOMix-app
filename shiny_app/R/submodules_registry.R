@@ -53,6 +53,24 @@ MX_MODULES <- list(
 
 MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config$id, character(1)))
 
+## Cross-Omics sub-modules - same config/ui/server trio shape as TX_MODULES/
+## MX_MODULES above (see ui.R's crossomicsUI(), which reuses
+## build_submodule_grid() against this list instead of TX_MODULES/MX_MODULES).
+##
+## Order follows the cross-omics pipeline's own two scripts
+## (Research_Q4_cross_Omics_sexstratified_COPY/cross_Omics_Sexstratified_COPY/
+## scripts/01_*, 02_*): both are registry-only placeholder scaffolds
+## (mod_cross_<id>_ui() renders a "not built yet" box) queued up to be built
+## out one at a time, same convention MX_MODULES used while Methylomics was
+## still partway built.
+CX_MODULES <- list(
+  list(config = mod_cross_integration_config,    ui = mod_cross_integration_ui,    server = mod_cross_integration_server),
+  list(config = mod_cross_biomarker_conv_config, ui = mod_cross_biomarker_conv_ui, server = mod_cross_biomarker_conv_server),
+  list(config = mod_cross_mr_stage_config,       ui = mod_cross_mr_stage_ui,       server = mod_cross_mr_stage_server)
+)
+
+CX_MODULES_BY_ID <- setNames(CX_MODULES, vapply(CX_MODULES, function(m) m$config$id, character(1)))
+
 ## ---------------------------------------------------------------------------
 ## AI assistant context
 ## ---------------------------------------------------------------------------
@@ -69,7 +87,12 @@ MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config
 ## the other way around. Defining it here instead keeps it in the same
 ## environment as the TX_MODULES it depends on.
 
-build_assistant_context <- function(dataset, results) {
+## `cross_results` is optional (defaults to NULL, so every existing call site
+## keeps producing byte-identical output) - only mod_arthochat_server()'s
+## Cross-Omics-aware call site passes it, appending a section grounded in
+## cross_results$integration (set by mod_cross_integration_server() once an
+## "Expression x Methylation" integration has actually been run).
+build_assistant_context <- function(dataset, results, cross_results = NULL) {
   meta <- dataset$meta
   grp_tbl <- table(meta$group)
   lines <- c(
@@ -98,6 +121,28 @@ build_assistant_context <- function(dataset, results) {
       }, character(1))
       lines <- c(lines, sprintf("### %s", title), kv)
     }
+  }
+
+  cx <- cross_results$integration
+  lines <- c(lines, "", "## Cross-Omics: Expression x Methylation integration")
+  if (is.null(cx)) {
+    lines <- c(lines, "(not yet run in this session)")
+  } else {
+    s <- cx$summary
+    counts <- s$counts
+    lines <- c(
+      lines,
+      sprintf("- Dataset: %s", cx$params$input_mode %||% "(unknown)"),
+      sprintf("- Genes analyzed: %s", format(s$n_genes, big.mark = ",")),
+      sprintf("- Significant DEGs: %s, Significant DMGs: %s, Significant in both: %s",
+              format(s$n_deg, big.mark = ","), format(s$n_dmg, big.mark = ","), format(s$n_integrated, big.mark = ",")),
+      sprintf("- Hyper + Down (potential methylation-associated repression): %s", counts[["Hyper + Down"]] %||% 0),
+      sprintf("- Hypo + Up (potential methylation-associated activation): %s", counts[["Hypo + Up"]] %||% 0),
+      sprintf("- Hyper + Up (concordant-direction/noncanonical): %s", counts[["Hyper + Up"]] %||% 0),
+      sprintf("- Hypo + Down (concordant-direction/noncanonical): %s", counts[["Hypo + Down"]] %||% 0),
+      sprintf("- Sample matching: %s", cx$params$sample_matching %||% "Not available"),
+      "- These are statistical associations, not established causal relationships - never state that methylation \"causes\" an expression change."
+    )
   }
   paste(lines, collapse = "\n")
 }

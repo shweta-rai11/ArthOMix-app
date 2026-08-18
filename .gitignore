@@ -5,6 +5,12 @@ Research_Q2_TRANSCRIPTOMICS_sexstratified_COPY/
 # excluded - 24G, too large to duplicate; left at its original location)
 Research_Q3_METHYLOMICS_sexstratified_COPY/
 
+# 24GB scratch copy containing nested project checkouts (including the
+# Q2 and Q3 copies above, and one whose own .git remote points back at
+# this repo); the real cross-omics pipeline inside it is referenced by
+# path only, not tracked here
+Research_Q4_cross_Omics_sexstratified_COPY/
+
 # OS / editor
 .DS_Store
 *~

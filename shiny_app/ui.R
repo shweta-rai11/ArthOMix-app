@@ -4,8 +4,9 @@
 ## opens directly on Modules (pick an omics layer) -> Transcriptomics. Inside
 ## Transcriptomics: a Dataset tab (what's currently loaded), a Sub-modules
 ## tab (the grouped analysis picker), and one tab per analysis the user has
-## added. Methylomics, Cross-Omics and Multi-Omics are placeholders for
-## later work. ArthOChat is its own top-level tab, after Multi-Omics - one
+## added. Methylomics and Cross-Omics reuse the same Dataset + Sub-modules
+## layout; Multi-Omics is still a placeholder for later work. ArthOChat is
+## its own top-level tab, after Multi-Omics - one
 ## shared assistant for the whole app (sees whatever dataset/results are
 ## current, in every module), not a chat instance duplicated per sub-module.
 
@@ -1053,7 +1054,7 @@ homeUI <- function() {
         ),
         div(
           class = "home-hero-meta-row",
-          home_meta_chip("layer-group", "Omics coverage", "Transcriptomics • Methylomics • Multi-omics"),
+          home_meta_chip("layer-group", "Omics coverage", "Transcriptomics • Methylomics • Cross-Omics • Multi-omics"),
           home_meta_chip("sliders", "Analysis design", "Sex-stratified • Sex-specific • Sex-pooled"),
           home_meta_chip("file-csv", "Accepted data", "Expression/methylation matrix (CSV, RDS), sample metadata (CSV)")
         )
@@ -1142,7 +1143,7 @@ homeUI <- function() {
       ),
       home_faq_item(
         "What types of omics data can ArthOMix analyze?",
-        "Transcriptomics is live today, spanning preprocessing, network analysis, causal analysis, biomarker modeling, validation and interpretation. Methylomics is live for upload and quality control, with more sub-modules to come. Cross-Omics and Multi-Omics extend the same workflow to additional layers."
+        "Transcriptomics is live today, spanning preprocessing, network analysis, causal analysis, biomarker modeling, validation and interpretation. Methylomics is live for upload and quality control, with more sub-modules to come. Cross-Omics now has a live Dataset tab browsing its biomarker-convergence tables, with its two analysis stages still to come; Multi-Omics extends the same workflow to the remaining layer."
       ),
       home_faq_item(
         "Can I load my own cohort?",
@@ -1162,7 +1163,7 @@ homeUI <- function() {
       ),
       home_faq_item(
         "When will methylomics and multi-omics modules be available?",
-        "Transcriptomics is live end to end today. Methylomics is live for upload and quality control (more sub-modules coming). Cross-Omics is next, followed by full Multi-Omics integration - see the Modules tab for status."
+        "Transcriptomics is live end to end today. Methylomics is live for upload and quality control (more sub-modules coming). Cross-Omics's Dataset tab is live now, with its two analysis stages coming next, followed by full Multi-Omics integration - see the Modules tab for status."
       )
     ),
     div(
@@ -1241,7 +1242,7 @@ modulesLandingUI <- function() {
     div(
       class = "page-header",
       h2("Modules"),
-      p("Each card is one omics layer. Transcriptomics and Methylomics are running so far. Open one to load a dataset and add sub-modules; the rest are reserved for later.")
+      p("Each card is one omics layer. Transcriptomics, Methylomics, and Cross-Omics are running so far. Open one to load a dataset and add sub-modules; the rest are reserved for later.")
     ),
     h4(class = "module-group-title", "Single-omics modules"),
     div(class = "module-grid", lapply(single, moduleCardUI)),
@@ -1451,6 +1452,69 @@ methylomicsUI <- function() {
 }
 
 ## ---------------------------------------------------------------------------
+## Cross-Omics module: Dataset tab, Sub-modules tab - same "Dataset +
+## Sub-modules" layout as Transcriptomics/Methylomics above (build_submodule_
+## grid(), omics_sidebar(), the "tx-menu-wrap"/"sm-*"/"card" classes are all
+## presentational and already generic - see their own comments), reused
+## as-is rather than duplicated or restyled.
+## ---------------------------------------------------------------------------
+
+## Order follows the cross-omics pipeline's own two scripts (01_*, 02_*, see
+## submodules_registry.R's own comment on CX_MODULES); groups with no module
+## yet registered are simply skipped by build_submodule_grid()'s intersect().
+CX_SUBMODULE_GROUP_ORDER <- c("Data", "Genetics")
+CX_SUBMODULE_GROUP_BLURB <- c(
+  "Data" = "Join the eQTL-MR/mQTL-MR/DEG/DMP tables into one biomarker-convergence view.",
+  "Genetics" = "Bridge the two causal panels with a follow-up cross-omics MR stage."
+)
+
+CROSSOMICS_SIDEBAR_NAV <- list(
+  list(id = "dataset", label = "Dataset", icon = "database", match = "Dataset"),
+  list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
+)
+
+CROSSOMICS_DESCRIPTION <- "Line up the Transcriptomics and Methylomics pipelines' own causal biomarker panels - eQTL-MR genes, mQTL-MR CpGs - against each other and against the raw DEG/DMP tables they were drawn from."
+
+crossomicsUI <- function() {
+  fluidRow(
+    column(3, div(class = "omics-sidebar-col", omics_sidebar(
+      "crossomics", "Cross-Omics", CROSSOMICS_SIDEBAR_NAV,
+      extra_sidebar_content = arthochat_shortcut_ui("Questions about how the two panels converge? Ask ArthOChat.", compact = TRUE)
+    ))),
+    column(
+      9,
+      div(
+        class = "page-header page-header-tight",
+        div(class = "page-header-pattern"),
+        h2(icon("arrows-left-right"), " Cross-Omics"),
+        p(class = "sm-group-blurb", CROSSOMICS_DESCRIPTION),
+        uiOutput("cx_page_subtitle")
+      ),
+      div(
+        class = "tx-menu-wrap",
+        tabsetPanel(
+          id = "cx_menu", type = "tabs",
+          tabPanel("Dataset", br(), mod_cross_dataset_ui("cx_dataset")),
+          tabPanel(
+            "Sub-modules", br(),
+            div(
+              class = "sm-toolbar",
+              div(class = "sm-toolbar-count", uiOutput("cx_sm_active_count")),
+              div(
+                class = "sm-toolbar-search",
+                tags$span(icon("magnifying-glass")),
+                textInput("cx_sm_search", NULL, placeholder = "Filter sub-modules by name...", width = "260px")
+              )
+            ),
+            build_submodule_grid(CX_MODULES, CX_SUBMODULE_GROUP_ORDER, CX_SUBMODULE_GROUP_BLURB, id_prefix = "cx_")
+          )
+        )
+      )
+    )
+  )
+}
+
+## ---------------------------------------------------------------------------
 ## Placeholder modules
 ## ---------------------------------------------------------------------------
 
@@ -1512,10 +1576,7 @@ addCssDepsOnly(
       tabPanel(tagList(icon("table-cells-large"), "Modules"), value = "modules", modulesLandingUI()),
       tabPanel(tagList(icon("dna"), "Transcriptomics"), value = "transcriptomics", transcriptomicsUI()),
       tabPanel(tagList(icon("circle-nodes"), "Methylomics"), value = "methylomics", methylomicsUI()),
-      tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics (soon)"), value = "crossomics", comingSoonUI(
-        "Cross-Omics",
-        "Paired comparison between two omics layers, for example correlating methylation and expression at matched genes, will be added once methylomics is available."
-      )),
+      tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
       tabPanel(tagList(icon("layer-group"), "Multi-Omics (soon)"), value = "multiomics", comingSoonUI(
         "Multi-Omics",
         "Joint integration across all available omics layers into a single biomarker or disease model will be added last, once each single-omics module is complete."

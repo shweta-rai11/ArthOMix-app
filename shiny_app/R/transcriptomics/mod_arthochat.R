@@ -82,8 +82,12 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   sep = "\n"
 )
 
-build_arthochat_system_prompt <- function(dataset, results) {
-  paste(ARTHOCHAT_SYSTEM_PROMPT, "", build_assistant_context(dataset, results), sep = "\n")
+## `cross_results` is optional (NULL by default) so every pre-existing caller
+## keeps producing byte-identical output - only the drawer's own call site
+## below passes it, so ArthOChat can also answer Cross-Omics questions once
+## an "Expression x Methylation" integration has been run.
+build_arthochat_system_prompt <- function(dataset, results, cross_results = NULL) {
+  paste(ARTHOCHAT_SYSTEM_PROMPT, "", build_assistant_context(dataset, results, cross_results), sep = "\n")
 }
 
 ## No page-header h2 here - the drawer's own header (see ui.R) already
@@ -115,7 +119,7 @@ mod_arthochat_ui <- function(id) {
   )
 }
 
-mod_arthochat_server <- function(id, dataset, results = NULL) {
+mod_arthochat_server <- function(id, dataset, results = NULL, cross_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     if (!ollama_available()) return(invisible(NULL))
@@ -125,7 +129,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL) {
       if (is.null(client)) {
         cl <- ellmer::chat_ollama(
           model = ARTHOMIX_OLLAMA_MODEL,
-          system_prompt = build_arthochat_system_prompt(dataset, results),
+          system_prompt = build_arthochat_system_prompt(dataset, results, cross_results),
           ## qwen3's hybrid reasoning mode is ~15x slower for little benefit on
           ## this task (see mod_assistant.R) - keep it off for a responsive chat.
           api_args = list(think = FALSE)
@@ -201,7 +205,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL) {
       n_turns(n_turns() + 1L)
 
       cl <- get_client()
-      cl$set_system_prompt(build_arthochat_system_prompt(dataset, results))
+      cl$set_system_prompt(build_arthochat_system_prompt(dataset, results, cross_results))
 
       stream <- cl$stream_async(input$chat_user_input)
       shinychat::chat_append("chat", stream)

@@ -424,6 +424,56 @@ load_default_meth_matrix <- function() {
 }
 
 ## ---------------------------------------------------------------------------
+## Cross-Omics: precomputed biomarker-convergence tables
+## ---------------------------------------------------------------------------
+## Research_Q4_cross_Omics_sexstratified_COPY/cross_Omics_Sexstratified_COPY/,
+## a nested project (own .gitignore entry, not tracked by this repo) that
+## joins the completed Transcriptomics eQTL-MR/DEG results with the
+## completed Methylomics mQTL-MR/DMP results (scripts/01_cross_omics_eqtl_
+## mqtl_biomarkers.R) and runs a follow-up cross-omics MR stage (scripts/
+## 02_mr_stage_cross_omics.R). Only the already-computed result tables are
+## read here - same graceful-degradation contract as METH_DATA_ROOT above
+## (returns NULL rather than erroring when CX_DATA_AVAILABLE is FALSE),
+## since Cross-Omics is meant to work even on a deployment that hasn't
+## copied this folder in.
+CX_DATA_ROOT <- normalizePath(file.path("..", "Research_Q4_cross_Omics_sexstratified_COPY", "cross_Omics_Sexstratified_COPY"), mustWork = FALSE)
+CX_DATA_AVAILABLE <- dir.exists(CX_DATA_ROOT)
+CX_RESULTS_DIR <- file.path(CX_DATA_ROOT, "results")
+
+## Named registry of every table the Dataset tab lets a user browse - label
+## -> path, in display order. Kept as one list rather than one
+## load_default_cx_<x>() function per table (unlike load_default_dmp()/
+## load_default_dmr() above), since every one of these is a flat CSV read
+## with no stage/sex argument branching - a single generic loader below
+## covers all of them.
+CX_TABLE_REGISTRY <- list(
+  ## Stage 1 (01_cross_omics_eqtl_mqtl_biomarkers.R) - joins the eQTL-MR
+  ## gene panel, mQTL-MR CpG panel, and raw DEG/DMP tables into one
+  ## biomarker/annotation table per sex, plus a combined and a Tier-1
+  ## (highest-confidence) subset.
+  "Master convergence table (all layers, both sexes)" = file.path(CX_RESULTS_DIR, "MASTER_cross_omics_all_layers.csv"),
+  "Tier 1 verified biomarkers" = file.path(CX_RESULTS_DIR, "TIER1_MASTER_verified.csv"),
+  "eQTL x mQTL combined" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_combined.csv"),
+  "eQTL x mQTL - female" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_female.csv"),
+  "eQTL x mQTL - male" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_male.csv"),
+  ## Stage 2 (02_mr_stage_cross_omics.R) - a follow-up single-instrument
+  ## mQTL-MR analysis for the eQTL-MR-significant genes, since the eQTL-MR
+  ## gene panel and mQTL-MR CpG panel share zero genes by original design.
+  "Cross-omics MR - per-gene summary" = file.path(CX_RESULTS_DIR, "mr_stage_cross_omics_per_gene_summary.csv"),
+  "Cross-omics MR - credible genes (full)" = file.path(CX_RESULTS_DIR, "mr_stage_cross_omics_credible_genes_full.csv"),
+  "Cross-omics MR - eQTL-significant genes' mQTL instruments" = file.path(CX_RESULTS_DIR, "mr_stage_eqtl_significant_genes_mqtl_mr.csv")
+)
+
+## Reads one of the tables above by its display label. Returns NULL rather
+## than erroring if CX_DATA_AVAILABLE is FALSE or the specific file isn't
+## present, mirroring load_default_dmp()/load_default_dmr() above.
+load_default_cx_table <- function(label) {
+  path <- CX_TABLE_REGISTRY[[label]]
+  if (is.null(path) || !CX_DATA_AVAILABLE || !file.exists(path)) return(NULL)
+  as.data.frame(data.table::fread(path, showProgress = FALSE))
+}
+
+## ---------------------------------------------------------------------------
 ## Methylomics WGCNA: dedicated cache + optional published-reference loaders
 ## ---------------------------------------------------------------------------
 ## get_or_compute_wgcna_blocks() above hardcodes WGCNA_CACHE_DIR, a
@@ -1894,8 +1944,8 @@ MODULE_REGISTRY <- list(
   list(
     id = "crossomics", tab = "crossomics",
     title = "Cross-Omics",
-    tagline = "Line up two omics layers gene by gene, e.g. does methylation at a promoter track with expression of that gene.",
-    icon = "arrows-left-right", status = "planned", kind = "Multi-omics"
+    tagline = "Browse the biomarker-convergence tables joining Transcriptomics' eQTL-MR genes and Methylomics' mQTL-MR CpGs; live convergence and cross-omics MR sub-modules are coming next.",
+    icon = "arrows-left-right", status = "available", kind = "Multi-omics"
   ),
   list(
     id = "multiomics", tab = "multiomics",
