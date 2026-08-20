@@ -150,10 +150,14 @@ CX_REGION_FINE_VOCAB <- c("TSS200", "TSS1500", "5'UTR", "1stExon", "Body", "3'UT
 
 cx_region_fine <- function(region_raw) {
   r <- as.character(region_raw)
-  vapply(strsplit(r, "[;,]"), function(x) {
-    if (length(x) == 0 || is.na(x[1]) || !nzchar(trimws(x[1]))) return(NA_character_)
-    trimws(x[1])
-  }, character(1))
+  ## trimws() has real per-call overhead (argument matching, regex setup) -
+  ## calling it once per element inside vapply (as this used to) cost ~16s
+  ## on a 319k-row methylation table alone. Extract the first token per
+  ## element with vapply (cheap - no trimws inside the loop), then trimws()
+  ## ONCE, vectorized, over the whole result.
+  first <- vapply(strsplit(r, "[;,]"), function(x) if (length(x) == 0) NA_character_ else x[1], character(1))
+  first <- trimws(first)
+  ifelse(is.na(first) | !nzchar(first), NA_character_, first)
 }
 
 CX_ISLAND_VOCAB <- c("Island", "N_Shore", "S_Shore", "N_Shelf", "S_Shelf", "OpenSea")
@@ -647,16 +651,17 @@ cx_load_default_methylation <- function(sex = c("female", "male", "all"), array_
   ar <- cx_get_region_annotation(array_type)
   if (!isTRUE(ar$ok)) return(list(ok = FALSE, df = NULL, error = ar$reason))
   a <- ar$anno
-  hit <- dmp$cpg %in% rownames(a)
+  ## One match() against the ~485k-row annotation table's rownames, reused
+  ## for every column - rowname-based data.frame indexing (a[ids, "col"])
+  ## re-runs its own match() internally on every call, so doing this
+  ## separately per column (as this used to) cost ~15-20s on the male DMP
+  ## table alone; a single match() + integer indexing is a few seconds.
+  idx <- match(dmp$cpg, rownames(a))
   df <- data.frame(
-    cpg = dmp$cpg, gene = NA_character_, chr = NA_character_, pos = NA_real_, region_raw = NA_character_,
-    island_context = NA_character_, dbeta = dmp$dbeta, pvalue = dmp$p_bacon, fdr = dmp$fdr_bacon, stringsAsFactors = FALSE
+    cpg = dmp$cpg, gene = a$gene[idx], chr = a$chr[idx], pos = a$pos[idx],
+    region_raw = a$region_raw[idx], island_context = a$island_context[idx],
+    dbeta = dmp$dbeta, pvalue = dmp$p_bacon, fdr = dmp$fdr_bacon, stringsAsFactors = FALSE
   )
-  df$gene[hit] <- a[df$cpg[hit], "gene"]
-  df$chr[hit] <- a[df$cpg[hit], "chr"]
-  df$pos[hit] <- a[df$cpg[hit], "pos"]
-  df$region_raw[hit] <- a[df$cpg[hit], "region_raw"]
-  df$island_context[hit] <- a[df$cpg[hit], "island_context"]
   df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
   if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No CpGs in the preloaded methylation table could be annotated to a gene symbol."))
   mapping <- c(cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
