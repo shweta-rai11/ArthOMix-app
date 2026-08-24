@@ -474,6 +474,84 @@ load_default_cx_table <- function(label) {
 }
 
 ## ---------------------------------------------------------------------------
+## Multi-Omics: paths into Research_05_multiomics_sexstratified - a fully
+## executed, independently audited (see its own AUDIT.md) DIABLO/SNF
+## multi-omics pipeline over an independent RA anti-TNF cohort (Tao et al.
+## 2021), producing real per-cell integration performance, patient
+## clustering, gene<->CpG concordance, and pathway enrichment tables. Same
+## fail-soft, "returns NULL/nothing to browse rather than erroring" contract
+## as CX_DATA_ROOT/CX_DATA_AVAILABLE above, since this module must work even
+## on a deployment that hasn't copied this folder in.
+## ---------------------------------------------------------------------------
+MULTI_DATA_ROOT <- normalizePath(file.path("..", "Research_05_multiomics_sexstratified"), mustWork = FALSE)
+MULTI_DATA_AVAILABLE <- dir.exists(MULTI_DATA_ROOT)
+MULTI_RESULTS_ROOT <- file.path(MULTI_DATA_ROOT, "results")
+MULTI_RESULTS_DIR <- file.path(MULTI_RESULTS_ROOT, "tables")
+MULTI_METADATA_DIR <- file.path(MULTI_DATA_ROOT, "metadata")
+MULTI_SUMMARY_DIR <- file.path(MULTI_DATA_ROOT, "analyses", "07_cross_analysis_summary", "results", "tables")
+MULTI_ADA_DIR <- file.path(MULTI_DATA_ROOT, "analyses", "01_female_male_adalimumab", "results", "tables")
+MULTI_ETN_DIR <- file.path(MULTI_DATA_ROOT, "analyses", "02_female_male_etanercept", "results", "tables")
+
+## Named registry of every table the Multi-Omics Dataset tab lets a user
+## browse, and every sub-module reads a specific entry from by label (see
+## multiomics_helpers.R::multi_read_registry_table()) - label -> path, one
+## flat list rather than per-table loader functions, same convention
+## CX_TABLE_REGISTRY (above) uses, since every one of these is a flat CSV
+## read with no stage/sex argument branching needed at this level (per-cell
+## filtering happens downstream, in multiomics_helpers.R).
+MULTI_TABLE_REGISTRY <- list(
+  "Patient sample matching (all 80 patients)" = file.path(MULTI_METADATA_DIR, "patient_sample_matching_table.csv"),
+  "RNA-seq QC summary" = file.path(MULTI_RESULTS_DIR, "RNAseq_QC_summary.csv"),
+  "Methylation QC summary" = file.path(MULTI_RESULTS_DIR, "Methylation_QC_summary.csv"),
+  "Benchmark vs. published (leakage-safe nested CV, Models A/B/C)" = file.path(MULTI_RESULTS_DIR, "Table8_benchmark_vs_published.csv"),
+  "DIABLO performance — drug x sex (response)" = file.path(MULTI_RESULTS_DIR, "Table29_diablo_drugsex_performance.csv"),
+  "DIABLO scores — drug x sex (response)" = file.path(MULTI_RESULTS_DIR, "Table29b_diablo_drugsex_scores.csv"),
+  "DIABLO panel — drug x sex (response)" = file.path(MULTI_RESULTS_DIR, "Table30_diablo_drugsex_panel.csv"),
+  "DIABLO performance — response (drug-pooled)" = file.path(MULTI_RESULTS_DIR, "Table34_diablo_response_sexstratified_performance.csv"),
+  "DIABLO scores — response (drug-pooled)" = file.path(MULTI_RESULTS_DIR, "Table34b_diablo_response_sexstratified_scores.csv"),
+  "DIABLO panel — response (drug-pooled)" = file.path(MULTI_RESULTS_DIR, "Table35_diablo_response_sexstratified_panel.csv"),
+  "SNF performance — drug x sex" = file.path(MULTI_RESULTS_DIR, "Table22_snf_integration_performance.csv"),
+  "Random Forest performance — drug x sex" = file.path(MULTI_RESULTS_DIR, "Table37_rf_drugsex_performance.csv"),
+  "SNF patient clusters — Adalimumab" = file.path(MULTI_ADA_DIR, "Table_SNFjoint_cluster_assignments_adalimumab.csv"),
+  "SNF cluster-response association — Adalimumab" = file.path(MULTI_ADA_DIR, "Table_SNFjoint_cluster_response_association.csv"),
+  "SNF concordance NMI — Adalimumab" = file.path(MULTI_ADA_DIR, "Table_SNFjoint_concordanceNMI_adalimumab.csv"),
+  "SNF patient clusters — Etanercept" = file.path(MULTI_ETN_DIR, "Table_SNFjoint_cluster_assignments_etanercept.csv"),
+  "SNF cluster-response association — Etanercept" = file.path(MULTI_ETN_DIR, "Table_SNFjoint_cluster_response_association.csv"),
+  "SNF concordance NMI — Etanercept" = file.path(MULTI_ETN_DIR, "Table_SNFjoint_concordanceNMI_etanercept.csv"),
+  "Master six-part summary (integrated vs single-omics)" = file.path(MULTI_SUMMARY_DIR, "Table36_master_six_part_summary.csv"),
+  "Candidate multi-omics biomarkers — drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table40_candidate_multiomics_biomarkers_male_female.csv"),
+  "Candidate multi-omics biomarkers — response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table44b_candidate_multiomics_biomarkers_response_male_female.csv"),
+  "Gene <-> CpG concordance — drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table42_gene_cpg_concordance_male_female_ETN.csv"),
+  "Gene <-> CpG concordance — response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table45_gene_cpg_concordance_male_female_response.csv"),
+  "Pathway enrichment — drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table43_pathway_enrichment_male_female_ETN_panels.csv")
+)
+
+## Saved block.splsda fit objects (mixOmics), keyed by MULTI_CELLS' own
+## `key` - read via plain readRDS() and list-indexed (e.g. $prop_expl_var)
+## rather than requiring library(mixOmics)/mixOmics:: S3 method dispatch,
+## since only the fit's own already-computed numeric slots are read, never
+## re-fit or re-predicted. Used by multi_diablo_fit() (multiomics_helpers.R)
+## to surface the model's real per-component, per-block variance explained -
+## an existing mixOmics output this module didn't surface until now.
+MULTI_DIABLO_FIT_REGISTRY <- list(
+  female_Adalimumab = file.path(MULTI_RESULTS_ROOT, "diablo_drugsex_FEMALE_Adalimumab_fit.rds"),
+  male_Adalimumab = file.path(MULTI_RESULTS_ROOT, "diablo_drugsex_MALE_Adalimumab_fit.rds"),
+  female_Etanercept = file.path(MULTI_RESULTS_ROOT, "diablo_drugsex_FEMALE_Etanercept_fit.rds"),
+  male_Etanercept = file.path(MULTI_RESULTS_ROOT, "diablo_drugsex_MALE_Etanercept_fit.rds"),
+  female_response = file.path(MULTI_RESULTS_ROOT, "diablo_response_female_fit.rds"),
+  male_response = file.path(MULTI_RESULTS_ROOT, "diablo_response_male_fit.rds")
+)
+
+## Whether MOFA2 (and its Python backend, mofapy2, via reticulate/basilisk)
+## can actually run in this deployment - gates the Multi-Omics "Live
+## Analysis" sub-module's MOFA2 integration step, same
+## requireNamespace()-gated-optional-dependency convention
+## ARTHOMIX_ASYNC_AVAILABLE/openxlsx already use elsewhere in this app.
+## Checked once at app start rather than per-session, since package
+## availability doesn't change while the app process is running.
+MULTI_MOFA_AVAILABLE <- requireNamespace("MOFA2", quietly = TRUE)
+
+## ---------------------------------------------------------------------------
 ## Methylomics WGCNA: dedicated cache + optional published-reference loaders
 ## ---------------------------------------------------------------------------
 ## get_or_compute_wgcna_blocks() above hardcodes WGCNA_CACHE_DIR, a
@@ -1950,8 +2028,8 @@ MODULE_REGISTRY <- list(
   list(
     id = "multiomics", tab = "multiomics",
     title = "Multi-Omics",
-    tagline = "Combine every layer into one model rather than comparing them pairwise.",
-    icon = "layer-group", status = "planned", kind = "Multi-omics"
+    tagline = "Browse the pipeline's own DIABLO and SNF integration, joint biomarker discovery, gene<->CpG concordance, and pathway enrichment across transcriptomics + methylomics.",
+    icon = "layer-group", status = "available", kind = "Multi-omics"
   ),
   list(
     id = "arthochat", tab = "arthochat",

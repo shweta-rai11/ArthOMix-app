@@ -18,7 +18,7 @@
 ## file in that same renv, exactly where it would land if this were still
 ## one flat directory - ui.R/server.R/submodules_registry.R see no
 ## difference from before the split.
-for (.omics_dir in c("transcriptomics", "methylomics", "crossomics")) {
+for (.omics_dir in c("transcriptomics", "methylomics", "crossomics", "multiomics")) {
   .omics_files <- sort(list.files(file.path("R", .omics_dir), pattern = "\\.[rR]$", full.names = TRUE))
   for (.omics_file in .omics_files) source(.omics_file, local = TRUE)
 }

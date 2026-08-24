@@ -115,6 +115,17 @@ function(input, output, session) {
     }
   })
 
+  ## ---- Multi-Omics: shared dataset + computed-results store, separate from
+  ## every other module's own reactiveValues - starts NULL until the
+  ## Multi-Omics Dataset tab (mod_multi_dataset.R) loads one of the
+  ## multi-omics pipeline's own precomputed DIABLO/SNF/concordance/pathway
+  ## tables. Like Cross-Omics, there is no upload path here (see
+  ## mod_multi_dataset.R's own header comment).
+  multi_dataset <- reactiveValues(table_label = NULL, df = NULL, source = NULL)
+  multi_results <- reactiveValues()
+  mod_multi_dataset_server("mo_dataset", multi_dataset)
+  lapply(MULTI_MODULES, function(m) m$server(paste0("mo_", m$config$id), multi_dataset, multi_results))
+
   ## ---- ArthOChat: one shared assistant session for the whole app, its own
   ## top-level tab (see ui.R) rather than nested inside a sub-module ---------
   mod_arthochat_server("arthochat", dataset, results, cross_results)
@@ -255,6 +266,50 @@ function(input, output, session) {
     })
   }, ignoreNULL = FALSE)
 
+  ## ---- Multi-Omics Sub-modules tab: card Add/Remove toggles, count, and
+  ## live filter - identical wiring to the Transcriptomics/Methylomics/
+  ## Cross-Omics blocks above, against MULTI_MODULES/"mo_menu"/
+  ## multi_dataset+multi_results and the "mo_" id_prefix submoduleCardUI()
+  ## was given (see ui.R).
+  mo_added <- reactiveValues(ids = character(0))
+
+  lapply(MULTI_MODULES, function(m) {
+    hid <- m$config$id
+    toggle_input <- paste0("mo_sm_toggle_", hid)
+
+    observeEvent(input[[toggle_input]], {
+      if (hid %in% mo_added$ids) {
+        removeTab(session = session, inputId = "mo_menu", target = m$config$title)
+        mo_added$ids <- setdiff(mo_added$ids, hid)
+        shinyjs::removeClass(id = paste0("mo_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("mo_smstate_", hid), html = "Add")
+      } else {
+        insertTab(
+          session = session, inputId = "mo_menu",
+          tabPanel(m$config$title, br(), m$ui(paste0("mo_", hid))),
+          target = "Sub-modules", position = "before", select = TRUE
+        )
+        mo_added$ids <- union(mo_added$ids, hid)
+        shinyjs::addClass(id = paste0("mo_smcard_", hid), class = "sm-card-active")
+        shinyjs::html(id = paste0("mo_smstate_", hid), html = "Added")
+      }
+    }, ignoreInit = TRUE)
+  })
+
+  output$mo_sm_active_count <- renderUI({
+    n <- length(mo_added$ids)
+    span(class = "sm-count-badge", sprintf("%d of %d sub-modules added", n, length(MULTI_MODULES)))
+  })
+
+  observeEvent(input$mo_sm_search, {
+    q <- tolower(trimws(input$mo_sm_search %||% ""))
+    lapply(MULTI_MODULES, function(m) {
+      hid <- m$config$id
+      match <- q == "" || grepl(q, tolower(m$config$title), fixed = TRUE)
+      shinyjs::toggle(id = paste0("mo_smcard_wrap_", hid), condition = match)
+    })
+  }, ignoreNULL = FALSE)
+
   ## ===========================================================================
   ## App-shell navigation (header search, left sidebar, theme toggle, page
   ## subtitle) - additive UI glue only. Every call below is either a plain
@@ -358,6 +413,25 @@ function(input, output, session) {
     updateTabsetPanel(session, "cx_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
 
+  ## Multi-Omics sidebar nav - same jump-or-fall-back-to-picker pattern as
+  ## jump_to_cx_submodule() above, against MULTI_MODULES/"mo_menu"/mo_added$ids.
+  jump_to_mo_submodule <- function(mod_id, sm_filter = NULL) {
+    cfg <- MULTI_MODULES_BY_ID[[mod_id]]$config
+    if (mod_id %in% mo_added$ids) {
+      updateTabsetPanel(session, "mo_menu", selected = cfg$title)
+    } else {
+      updateTabsetPanel(session, "mo_menu", selected = "Sub-modules")
+      updateTextInput(session, "mo_sm_search", value = sm_filter %||% cfg$title)
+    }
+  }
+
+  observeEvent(input$sidebar_nav_multiomics_dataset, {
+    updateTabsetPanel(session, "mo_menu", selected = "Dataset")
+  }, ignoreInit = TRUE)
+  observeEvent(input$sidebar_nav_multiomics_submodules, {
+    updateTabsetPanel(session, "mo_menu", selected = "Sub-modules")
+  }, ignoreInit = TRUE)
+
   ## Header search: "Enter" in the search box (see R/ui_shell.R::app_header())
   ## sets this input; matched first against top-level modules, then against
   ## Transcriptomics sub-module titles, via the same jump helpers above.
@@ -393,6 +467,13 @@ function(input, output, session) {
     if (!is.null(cx_hit)) {
       updateTabsetPanel(session, "sidebar_tabs", selected = "crossomics")
       jump_to_cx_submodule(cx_hit$config$id, sm_filter = cx_hit$config$title)
+      return()
+    }
+
+    mo_hit <- Find(function(m) grepl(q, tolower(m$config$title), fixed = TRUE), MULTI_MODULES)
+    if (!is.null(mo_hit)) {
+      updateTabsetPanel(session, "sidebar_tabs", selected = "multiomics")
+      jump_to_mo_submodule(mo_hit$config$id, sm_filter = mo_hit$config$title)
       return()
     }
 
@@ -434,6 +515,17 @@ function(input, output, session) {
     sel <- input$cx_menu %||% "Dataset"
     txt <- switch(sel,
       "Dataset" = "Browse the pipeline's biomarker-convergence tables",
+      "Sub-modules" = "Add or remove pipeline analyses",
+      sel
+    )
+    p(txt)
+  })
+
+  ## Multi-Omics page subtitle - mirrors cx_page_subtitle above, against mo_menu.
+  output$mo_page_subtitle <- renderUI({
+    sel <- input$mo_menu %||% "Dataset"
+    txt <- switch(sel,
+      "Dataset" = "Browse the multi-omics pipeline's DIABLO/SNF/concordance/pathway tables",
       "Sub-modules" = "Add or remove pipeline analyses",
       sel
     )

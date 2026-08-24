@@ -1515,6 +1515,70 @@ crossomicsUI <- function() {
 }
 
 ## ---------------------------------------------------------------------------
+## Multi-Omics module: Dataset tab, Sub-modules tab - same "Dataset +
+## Sub-modules" layout as Transcriptomics/Methylomics/Cross-Omics above,
+## reused as-is rather than duplicated or restyled.
+## ---------------------------------------------------------------------------
+
+## Order follows Research_05_multiomics_sexstratified's own pipeline stages
+## (see submodules_registry.R's own comment on MULTI_MODULES); groups with
+## no module yet registered are simply skipped by build_submodule_grid()'s
+## intersect().
+MULTI_SUBMODULE_GROUP_ORDER <- c("Data", "Biomarker modeling", "Live Analysis", "Interpretation")
+MULTI_SUBMODULE_GROUP_BLURB <- c(
+  "Data" = "Cohort harmonization, DIABLO/SNF integration performance, and patient stratification.",
+  "Biomarker modeling" = "Rank candidate multi-omics biomarkers and characterize their gene<->CpG concordance.",
+  "Live Analysis" = "Upload your own omics data - QC, preprocessing, batch diagnostics, and a real MOFA2 fit.",
+  "Interpretation" = "Pathway-level meaning, session summary, and reproducibility."
+)
+
+MULTIOMICS_SIDEBAR_NAV <- list(
+  list(id = "dataset", label = "Dataset", icon = "database", match = "Dataset"),
+  list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
+)
+
+MULTIOMICS_DESCRIPTION <- "Browse the multi-omics pipeline's own DIABLO and SNF integration of transcriptomics + methylomics - joint biomarker discovery, gene<->CpG concordance, patient stratification, and pathway enrichment - for an independent RA anti-TNF cohort."
+
+multiomicsUI <- function() {
+  fluidRow(
+    column(3, div(class = "omics-sidebar-col", omics_sidebar(
+      "multiomics", "Multi-Omics", MULTIOMICS_SIDEBAR_NAV,
+      extra_sidebar_content = arthochat_shortcut_ui("Questions about DIABLO, SNF, or how these panels were built? Ask ArthOChat.", compact = TRUE)
+    ))),
+    column(
+      9,
+      div(
+        class = "page-header page-header-tight",
+        div(class = "page-header-pattern"),
+        h2(icon("layer-group"), " Multi-Omics"),
+        p(class = "sm-group-blurb", MULTIOMICS_DESCRIPTION),
+        uiOutput("mo_page_subtitle")
+      ),
+      div(
+        class = "tx-menu-wrap",
+        tabsetPanel(
+          id = "mo_menu", type = "tabs",
+          tabPanel("Dataset", br(), mod_multi_dataset_ui("mo_dataset")),
+          tabPanel(
+            "Sub-modules", br(),
+            div(
+              class = "sm-toolbar",
+              div(class = "sm-toolbar-count", uiOutput("mo_sm_active_count")),
+              div(
+                class = "sm-toolbar-search",
+                tags$span(icon("magnifying-glass")),
+                textInput("mo_sm_search", NULL, placeholder = "Filter sub-modules by name...", width = "260px")
+              )
+            ),
+            build_submodule_grid(MULTI_MODULES, MULTI_SUBMODULE_GROUP_ORDER, MULTI_SUBMODULE_GROUP_BLURB, id_prefix = "mo_")
+          )
+        )
+      )
+    )
+  )
+}
+
+## ---------------------------------------------------------------------------
 ## Placeholder modules
 ## ---------------------------------------------------------------------------
 
@@ -1577,10 +1641,7 @@ addCssDepsOnly(
       tabPanel(tagList(icon("dna"), "Transcriptomics"), value = "transcriptomics", transcriptomicsUI()),
       tabPanel(tagList(icon("circle-nodes"), "Methylomics"), value = "methylomics", methylomicsUI()),
       tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
-      tabPanel(tagList(icon("layer-group"), "Multi-Omics (soon)"), value = "multiomics", comingSoonUI(
-        "Multi-Omics",
-        "Joint integration across all available omics layers into a single biomarker or disease model will be added last, once each single-omics module is complete."
-      ))
+      tabPanel(tagList(icon("layer-group"), "Multi-Omics"), value = "multiomics", multiomicsUI())
       ## No "ArthOChat" tabPanel here - see the drawer below. Opening chat
       ## used to replace whatever module you were looking at with a
       ## separate full-page tab; it's now a slide-out panel mounted once,

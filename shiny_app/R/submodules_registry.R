@@ -71,6 +71,26 @@ CX_MODULES <- list(
 
 CX_MODULES_BY_ID <- setNames(CX_MODULES, vapply(CX_MODULES, function(m) m$config$id, character(1)))
 
+## Multi-Omics sub-modules - same config/ui/server trio shape as TX_MODULES/
+## MX_MODULES/CX_MODULES above (see ui.R's multiomicsUI(), which reuses
+## build_submodule_grid() against this list). Order follows
+## Research_05_multiomics_sexstratified's own pipeline stages: cohort/sample
+## harmonization first, then DIABLO+SNF integration, patient stratification,
+## joint biomarker discovery, gene<->CpG concordance, pathway enrichment,
+## and finally the session summary/reproducibility rollup.
+MULTI_MODULES <- list(
+  list(config = mod_multi_overview_config,       ui = mod_multi_overview_ui,       server = mod_multi_overview_server),
+  list(config = mod_multi_integration_config,    ui = mod_multi_integration_ui,    server = mod_multi_integration_server),
+  list(config = mod_multi_stratification_config, ui = mod_multi_stratification_ui, server = mod_multi_stratification_server),
+  list(config = mod_multi_biomarker_config,      ui = mod_multi_biomarker_ui,      server = mod_multi_biomarker_server),
+  list(config = mod_multi_concordance_config,    ui = mod_multi_concordance_ui,    server = mod_multi_concordance_server),
+  list(config = mod_multi_pathway_config,        ui = mod_multi_pathway_ui,        server = mod_multi_pathway_server),
+  list(config = mod_multi_live_config,           ui = mod_multi_live_ui,           server = mod_multi_live_server),
+  list(config = mod_multi_summary_config,        ui = mod_multi_summary_ui,        server = mod_multi_summary_server)
+)
+
+MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m) m$config$id, character(1)))
+
 ## ---------------------------------------------------------------------------
 ## AI assistant context
 ## ---------------------------------------------------------------------------
