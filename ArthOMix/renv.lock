@@ -1,0 +1,447 @@
+{
+  "R": {
+    "Version": "4.4.2",
+    "Repositories": [
+      {
+        "Name": "CRAN",
+        "URL": "https://cloud.r-project.org"
+      },
+      {
+        "Name": "Bioconductor",
+        "URL": "https://bioconductor.org/packages/release/bioc"
+      }
+    ]
+  },
+  "Packages": {
+    "AnnotationDbi": {
+      "Package": "AnnotationDbi",
+      "Version": "1.68.0",
+      "Source": "Bioconductor"
+    },
+    "base64enc": {
+      "Package": "base64enc",
+      "Version": "0.1.6",
+      "Source": "Repository"
+    },
+    "Biobase": {
+      "Package": "Biobase",
+      "Version": "2.66.0",
+      "Source": "Bioconductor"
+    },
+    "BiocGenerics": {
+      "Package": "BiocGenerics",
+      "Version": "0.52.0",
+      "Source": "Bioconductor"
+    },
+    "BiocManager": {
+      "Package": "BiocManager",
+      "Version": "1.30.27",
+      "Source": "Repository"
+    },
+    "caret": {
+      "Package": "caret",
+      "Version": "7.0.1",
+      "Source": "Repository"
+    },
+    "ChAMP": {
+      "Package": "ChAMP",
+      "Version": "2.36.0",
+      "Source": "Bioconductor"
+    },
+    "ChAMPdata": {
+      "Package": "ChAMPdata",
+      "Version": "2.38.0",
+      "Source": "Bioconductor"
+    },
+    "clusterProfiler": {
+      "Package": "clusterProfiler",
+      "Version": "4.14.6",
+      "Source": "Bioconductor"
+    },
+    "coloc": {
+      "Package": "coloc",
+      "Version": "5.2.3",
+      "Source": "Repository"
+    },
+    "data.table": {
+      "Package": "data.table",
+      "Version": "1.18.2.1",
+      "Source": "Repository"
+    },
+    "DESeq2": {
+      "Package": "DESeq2",
+      "Version": "1.46.0",
+      "Source": "Bioconductor"
+    },
+    "digest": {
+      "Package": "digest",
+      "Version": "0.6.39",
+      "Source": "Repository"
+    },
+    "DMRcate": {
+      "Package": "DMRcate",
+      "Version": "3.2.1",
+      "Source": "Bioconductor"
+    },
+    "dplyr": {
+      "Package": "dplyr",
+      "Version": "1.2.0",
+      "Source": "Repository"
+    },
+    "DT": {
+      "Package": "DT",
+      "Version": "0.34.0",
+      "Source": "Repository"
+    },
+    "e1071": {
+      "Package": "e1071",
+      "Version": "1.7.17",
+      "Source": "Repository"
+    },
+    "edgeR": {
+      "Package": "edgeR",
+      "Version": "4.4.2",
+      "Source": "Bioconductor"
+    },
+    "ellmer": {
+      "Package": "ellmer",
+      "Version": "0.4.0",
+      "Source": "Repository"
+    },
+    "enrichplot": {
+      "Package": "enrichplot",
+      "Version": "1.26.6",
+      "Source": "Bioconductor"
+    },
+    "future": {
+      "Package": "future",
+      "Version": "1.70.0",
+      "Source": "Repository"
+    },
+    "GenomicFeatures": {
+      "Package": "GenomicFeatures",
+      "Version": "1.58.0",
+      "Source": "Bioconductor"
+    },
+    "GenomicRanges": {
+      "Package": "GenomicRanges",
+      "Version": "1.58.0",
+      "Source": "Bioconductor"
+    },
+    "GEOquery": {
+      "Package": "GEOquery",
+      "Version": "2.74.0",
+      "Source": "Bioconductor"
+    },
+    "ggdendro": {
+      "Package": "ggdendro",
+      "Version": "0.2.0",
+      "Source": "Repository"
+    },
+    "ggplot2": {
+      "Package": "ggplot2",
+      "Version": "4.0.2",
+      "Source": "Repository"
+    },
+    "ggraph": {
+      "Package": "ggraph",
+      "Version": "2.2.2",
+      "Source": "Repository"
+    },
+    "ggrepel": {
+      "Package": "ggrepel",
+      "Version": "0.9.8",
+      "Source": "Repository"
+    },
+    "ggVennDiagram": {
+      "Package": "ggVennDiagram",
+      "Version": "1.5.7",
+      "Source": "Repository"
+    },
+    "glmnet": {
+      "Package": "glmnet",
+      "Version": "5.0",
+      "Source": "Repository"
+    },
+    "GO.db": {
+      "Package": "GO.db",
+      "Version": "3.20.0",
+      "Source": "Bioconductor"
+    },
+    "htmltools": {
+      "Package": "htmltools",
+      "Version": "0.5.9",
+      "Source": "Repository"
+    },
+    "httr": {
+      "Package": "httr",
+      "Version": "1.4.8",
+      "Source": "Repository"
+    },
+    "httr2": {
+      "Package": "httr2",
+      "Version": "1.2.2",
+      "Source": "Repository"
+    },
+    "ieugwasr": {
+      "Package": "ieugwasr",
+      "Version": "1.1.0.9000",
+      "Source": "Unknown"
+    },
+    "igraph": {
+      "Package": "igraph",
+      "Version": "2.2.2",
+      "Source": "Repository"
+    },
+    "impute": {
+      "Package": "impute",
+      "Version": "1.80.0",
+      "Source": "Bioconductor"
+    },
+    "IOBR": {
+      "Package": "IOBR",
+      "Version": "0.99.0",
+      "Source": "Unknown"
+    },
+    "IRanges": {
+      "Package": "IRanges",
+      "Version": "2.40.1",
+      "Source": "Bioconductor"
+    },
+    "jsonlite": {
+      "Package": "jsonlite",
+      "Version": "2.0.0",
+      "Source": "Repository"
+    },
+    "KEGGREST": {
+      "Package": "KEGGREST",
+      "Version": "1.46.0",
+      "Source": "Bioconductor"
+    },
+    "limma": {
+      "Package": "limma",
+      "Version": "3.62.2",
+      "Source": "Bioconductor"
+    },
+    "lumi": {
+      "Package": "lumi",
+      "Version": "2.58.0",
+      "Source": "Bioconductor"
+    },
+    "matrixStats": {
+      "Package": "matrixStats",
+      "Version": "1.5.0",
+      "Source": "Repository"
+    },
+    "MCPcounter": {
+      "Package": "MCPcounter",
+      "Version": "1.2.0",
+      "Source": "Unknown"
+    },
+    "MendelianRandomization": {
+      "Package": "MendelianRandomization",
+      "Version": "0.10.0",
+      "Source": "Repository"
+    },
+    "minfi": {
+      "Package": "minfi",
+      "Version": "1.52.1",
+      "Source": "Bioconductor"
+    },
+    "missMethyl": {
+      "Package": "missMethyl",
+      "Version": "1.40.3",
+      "Source": "Bioconductor"
+    },
+    "mixOmics": {
+      "Package": "mixOmics",
+      "Version": "6.37.0",
+      "Source": "Bioconductor"
+    },
+    "MLmetrics": {
+      "Package": "MLmetrics",
+      "Version": "1.1.3",
+      "Source": "Repository"
+    },
+    "MOFA2": {
+      "Package": "MOFA2",
+      "Version": "1.16.0",
+      "Source": "Bioconductor"
+    },
+    "MRPRESSO": {
+      "Package": "MRPRESSO",
+      "Version": "1.0",
+      "Source": "Unknown"
+    },
+    "openxlsx": {
+      "Package": "openxlsx",
+      "Version": "4.2.8.1",
+      "Source": "Repository"
+    },
+    "org.Hs.eg.db": {
+      "Package": "org.Hs.eg.db",
+      "Version": "3.20.0",
+      "Source": "Bioconductor"
+    },
+    "patchwork": {
+      "Package": "patchwork",
+      "Version": "1.3.2",
+      "Source": "Repository"
+    },
+    "pheatmap": {
+      "Package": "pheatmap",
+      "Version": "1.0.13",
+      "Source": "Repository"
+    },
+    "plotly": {
+      "Package": "plotly",
+      "Version": "4.12.0",
+      "Source": "Repository"
+    },
+    "pROC": {
+      "Package": "pROC",
+      "Version": "1.19.0.1",
+      "Source": "Repository"
+    },
+    "promises": {
+      "Package": "promises",
+      "Version": "1.5.0",
+      "Source": "Repository"
+    },
+    "PRROC": {
+      "Package": "PRROC",
+      "Version": "1.4",
+      "Source": "Repository"
+    },
+    "ragg": {
+      "Package": "ragg",
+      "Version": "1.5.0",
+      "Source": "Repository"
+    },
+    "randomForest": {
+      "Package": "randomForest",
+      "Version": "4.7.1.2",
+      "Source": "Repository"
+    },
+    "ReactomePA": {
+      "Package": "ReactomePA",
+      "Version": "1.50.0",
+      "Source": "Bioconductor"
+    },
+    "reticulate": {
+      "Package": "reticulate",
+      "Version": "1.44.1",
+      "Source": "Repository"
+    },
+    "rlang": {
+      "Package": "rlang",
+      "Version": "1.1.7",
+      "Source": "Repository"
+    },
+    "rmarkdown": {
+      "Package": "rmarkdown",
+      "Version": "2.30",
+      "Source": "Repository"
+    },
+    "rms": {
+      "Package": "rms",
+      "Version": "8.1.0",
+      "Source": "Repository"
+    },
+    "S4Vectors": {
+      "Package": "S4Vectors",
+      "Version": "0.44.0",
+      "Source": "Bioconductor"
+    },
+    "scales": {
+      "Package": "scales",
+      "Version": "1.4.0",
+      "Source": "Repository"
+    },
+    "shiny": {
+      "Package": "shiny",
+      "Version": "1.13.0",
+      "Source": "Repository"
+    },
+    "shinychat": {
+      "Package": "shinychat",
+      "Version": "0.3.0",
+      "Source": "Repository"
+    },
+    "shinycssloaders": {
+      "Package": "shinycssloaders",
+      "Version": "1.1.0",
+      "Source": "Repository"
+    },
+    "shinydashboard": {
+      "Package": "shinydashboard",
+      "Version": "0.7.3",
+      "Source": "Repository"
+    },
+    "shinyjs": {
+      "Package": "shinyjs",
+      "Version": "2.1.1",
+      "Source": "Repository"
+    },
+    "shinythemes": {
+      "Package": "shinythemes",
+      "Version": "1.2.0",
+      "Source": "Repository"
+    },
+    "shinyWidgets": {
+      "Package": "shinyWidgets",
+      "Version": "0.9.0",
+      "Source": "Repository"
+    },
+    "smotefamily": {
+      "Package": "smotefamily",
+      "Version": "1.4.0",
+      "Source": "Repository"
+    },
+    "SNFtool": {
+      "Package": "SNFtool",
+      "Version": "2.3.1",
+      "Source": "Repository"
+    },
+    "sva": {
+      "Package": "sva",
+      "Version": "3.54.0",
+      "Source": "Bioconductor"
+    },
+    "tidyr": {
+      "Package": "tidyr",
+      "Version": "1.3.2",
+      "Source": "Repository"
+    },
+    "tinytex": {
+      "Package": "tinytex",
+      "Version": "0.58",
+      "Source": "Repository"
+    },
+    "TwoSampleMR": {
+      "Package": "TwoSampleMR",
+      "Version": "0.7.8",
+      "Source": "Unknown"
+    },
+    "TxDb.Hsapiens.UCSC.hg19.knownGene": {
+      "Package": "TxDb.Hsapiens.UCSC.hg19.knownGene",
+      "Version": "3.2.2",
+      "Source": "Bioconductor"
+    },
+    "VennDiagram": {
+      "Package": "VennDiagram",
+      "Version": "1.8.2",
+      "Source": "Repository"
+    },
+    "WGCNA": {
+      "Package": "WGCNA",
+      "Version": "1.74",
+      "Source": "Repository"
+    },
+    "xgboost": {
+      "Package": "xgboost",
+      "Version": "3.2.0.1",
+      "Source": "Repository"
+    }
+  }
+}

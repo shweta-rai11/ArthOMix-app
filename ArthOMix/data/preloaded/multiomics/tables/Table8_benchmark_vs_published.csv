@@ -1,0 +1,5 @@
+source,sex,metric,value
+Tao et al. 2021 (published),pooled/not stratified,"DEG-based accuracy (per drug, range)",0.79-0.89
+Tao et al. 2021 (published),pooled/not stratified,"DMP-based accuracy (per drug, range)",0.847-0.88
+This analysis,female,"Integrated model accuracy (nested CV, out-of-fold)",0.411
+This analysis,male,"Integrated model accuracy (nested CV, out-of-fold)",0.565

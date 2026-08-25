@@ -19,3 +19,10 @@ Research_Q4_cross_Omics_sexstratified_COPY/
 .RData
 renv/library/
 renv/staging/
+
+# ArthOMix/data/: regenerable runtime caches and reserved-but-unused folders
+# - never bundled datasets, which are meant to be committed (large .rds/.RData
+# files route through git-lfs per .gitattributes above).
+ArthOMix/data/.cache/
+ArthOMix/data/uploads/*
+!ArthOMix/data/uploads/.gitkeep

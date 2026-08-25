@@ -19,7 +19,7 @@
 ## recommended approach: for each gene, keep the single probe with the
 ## highest mean expression across arrays) -> write one merged expression
 ## matrix + one merged metadata file, in exactly the format
-## shiny_app/R/mod_dataset.R's upload form expects (genes x samples,
+## ArthOMix/R/mod_dataset.R's upload form expects (genes x samples,
 ## sample/group/... metadata).
 suppressMessages({
   library(WGCNA)

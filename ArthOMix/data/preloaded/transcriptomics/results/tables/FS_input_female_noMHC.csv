@@ -1,0 +1,15 @@
+gene,direction,MR_OR,MR_pval,MR_FDR_stratum,nSNP,method
+AP4B1,risk (OR>1),1.424,1.3e-12,1.88e-09,1,Wald ratio
+PHF19,protective (OR<1),0.791,2.95e-08,2.08e-05,2,Inverse variance weighted
+IKZF3,risk (OR>1),1.174,4.32e-08,2.08e-05,2,Inverse variance weighted
+NCOA5,protective (OR<1),0.422,1.2e-06,0.000434,1,Wald ratio
+PGAP3,protective (OR<1),0.861,3.9e-06,0.00113,1,Wald ratio
+MED1,protective (OR<1),0.732,4.4e-05,0.0106,1,Wald ratio
+INPP5B,risk (OR>1),1.104,6e-05,0.0124,1,Wald ratio
+ZNF785,risk (OR>1),1.895,1e-04,0.0177,1,Wald ratio
+SMARCC2,protective (OR<1),0.76,0.00011,0.0177,1,Wald ratio
+SH2B1,protective (OR<1),0.494,0.00015,0.0217,1,Wald ratio
+LPCAT2,risk (OR>1),1.097,0.000194,0.0255,3,Inverse variance weighted
+IKZF4,protective (OR<1),0.607,0.00032,0.0386,1,Wald ratio
+CDC37,protective (OR<1),0.752,0.00036,0.0401,1,Wald ratio
+KLF2,protective (OR<1),0.54,0.00047,0.0486,1,Wald ratio

@@ -1,0 +1,3 @@
+sex,drug,n,n_fused_clusters,fisher_p_cluster_vs_response
+female,Etanercept,29,2,0.2914069281148914
+male,Etanercept,13,2,0.13519813519813498

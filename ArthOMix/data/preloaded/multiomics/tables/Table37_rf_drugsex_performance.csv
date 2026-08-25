@@ -1,0 +1,5 @@
+item,sex,drug,method,n,auroc,ci_lo,ci_hi,excludes_chance
+1,female,Adalimumab,RandomForest,27,0.30769230769230765,0.09495454282521218,0.5204300725594032,FALSE
+1,male,Adalimumab,RandomForest,10,0.14,0,0.3816405886322715,TRUE
+2,female,Etanercept,RandomForest,29,0.6658653846153845,0.4556902672541121,0.8760405019766571,FALSE
+2,male,Etanercept,RandomForest,13,0.8095238095238095,0.5593788212027755,1,TRUE

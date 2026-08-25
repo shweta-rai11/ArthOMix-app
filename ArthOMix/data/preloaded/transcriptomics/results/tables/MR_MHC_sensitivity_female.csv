@@ -1,0 +1,1478 @@
+gene,MHC_gene,instrument_chr,nSNP_primary,method_primary,OR_primary,OR_lo_primary,OR_hi_primary,p_primary,FDR_primary,nSNP_noMHC,method_noMHC,OR_noMHC,OR_lo_noMHC,OR_hi_noMHC,p_noMHC,FDR_noMHC,estimate_unchanged,verdict,direction_consistent
+HLA-DRB1,TRUE,6,1,Wald ratio,0.337,0.316,0.359,1e-250,1.48e-247,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+WDR46,TRUE,6,1,Wald ratio,4.531,3.643,5.635,5.2e-42,3.84e-39,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+AIF1,TRUE,6,2,Inverse variance weighted,0.556,0.497,0.623,2.53e-24,1.25e-21,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+VPS52,TRUE,6,1,Wald ratio,0.414,0.349,0.491,4.2e-24,1.55e-21,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+GNL1,TRUE,6,1,Wald ratio,4.629,3.263,6.567,9e-18,2.66e-15,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+VARS2,TRUE,6,3,Inverse variance weighted,1.203,1.152,1.257,1.08e-16,2.67e-14,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+AP4B1,FALSE,1,1,Wald ratio,1.424,1.291,1.569,1.3e-12,2.74e-10,1,Wald ratio,1.424,1.291,1.569,1.3e-12,1.88e-09,TRUE,ROBUST (significant with and without MHC),TRUE
+HLA-DMA,TRUE,6,1,Wald ratio,0.559,0.474,0.658,3.5e-12,6.46e-10,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+CSNK2B,TRUE,6,1,Wald ratio,0.546,0.459,0.651,1.3e-11,2.13e-09,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+LSM2,TRUE,6,1,Wald ratio,1.739,1.476,2.048,3.5e-11,5.17e-09,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+HLA-DPA1,TRUE,6,2,Inverse variance weighted,1.768,1.485,2.105,1.51e-10,2.03e-08,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+BRD2,TRUE,6,1,Wald ratio,1.554,1.336,1.806,9.9e-09,1.22e-06,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+C6orf136,TRUE,6,1,Wald ratio,0.537,0.433,0.665,1.2e-08,1.36e-06,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+PHF19,FALSE,9,2,Inverse variance weighted,0.791,0.728,0.859,2.95e-08,3.12e-06,2,Inverse variance weighted,0.791,0.728,0.859,2.95e-08,2.08e-05,TRUE,ROBUST (significant with and without MHC),TRUE
+IKZF3,FALSE,17,2,Inverse variance weighted,1.174,1.109,1.244,4.32e-08,4.25e-06,2,Inverse variance weighted,1.174,1.109,1.244,4.32e-08,2.08e-05,TRUE,ROBUST (significant with and without MHC),TRUE
+NCOA5,FALSE,20,1,Wald ratio,0.422,0.298,0.598,1.2e-06,0.000111,1,Wald ratio,0.422,0.298,0.598,1.2e-06,0.000434,TRUE,ROBUST (significant with and without MHC),TRUE
+DAXX,TRUE,6,2,Inverse variance weighted,0.484,0.357,0.656,2.98e-06,0.000259,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+PGAP3,FALSE,17,1,Wald ratio,0.861,0.807,0.917,3.9e-06,0.00032,1,Wald ratio,0.861,0.807,0.917,3.9e-06,0.00113,TRUE,ROBUST (significant with and without MHC),TRUE
+ZBTB9,TRUE,6,1,Wald ratio,1.589,1.304,1.937,4.6e-06,0.000358,,,,,,,,FALSE,UNTESTABLE without MHC (no non-MHC instrument),
+MED1,FALSE,17,1,Wald ratio,0.732,0.631,0.85,4.4e-05,0.00325,1,Wald ratio,0.732,0.631,0.85,4.4e-05,0.0106,TRUE,ROBUST (significant with and without MHC),TRUE
+INPP5B,FALSE,1,1,Wald ratio,1.104,1.052,1.159,6e-05,0.00422,1,Wald ratio,1.104,1.052,1.159,6e-05,0.0124,TRUE,ROBUST (significant with and without MHC),TRUE
+ZNF785,FALSE,16,1,Wald ratio,1.895,1.373,2.616,1e-04,0.00671,1,Wald ratio,1.895,1.373,2.616,1e-04,0.0177,TRUE,ROBUST (significant with and without MHC),TRUE
+SMARCC2,FALSE,12,1,Wald ratio,0.76,0.661,0.873,0.00011,0.00706,1,Wald ratio,0.76,0.661,0.873,0.00011,0.0177,TRUE,ROBUST (significant with and without MHC),TRUE
+SH2B1,FALSE,16,1,Wald ratio,0.494,0.344,0.712,0.00015,0.00923,1,Wald ratio,0.494,0.344,0.712,0.00015,0.0217,TRUE,ROBUST (significant with and without MHC),TRUE
+LPCAT2,FALSE,16,3,Inverse variance weighted,1.097,1.045,1.151,0.000194,0.0114,3,Inverse variance weighted,1.097,1.045,1.151,0.000194,0.0255,TRUE,ROBUST (significant with and without MHC),TRUE
+IKZF4,FALSE,12,1,Wald ratio,0.607,0.463,0.797,0.00032,0.0182,1,Wald ratio,0.607,0.463,0.797,0.00032,0.0386,TRUE,ROBUST (significant with and without MHC),TRUE
+CDC37,FALSE,19,1,Wald ratio,0.752,0.643,0.88,0.00036,0.0197,1,Wald ratio,0.752,0.643,0.88,0.00036,0.0401,TRUE,ROBUST (significant with and without MHC),TRUE
+KLF2,FALSE,19,1,Wald ratio,0.54,0.383,0.763,0.00047,0.0248,1,Wald ratio,0.54,0.383,0.763,0.00047,0.0486,TRUE,ROBUST (significant with and without MHC),TRUE
+ESYT1,FALSE,12,1,Wald ratio,0.67,0.532,0.845,0.00071,0.0362,1,Wald ratio,0.67,0.532,0.845,0.00071,0.0685,TRUE,FDR-RANK ONLY (estimate identical; lost to BH re-ranking),TRUE
+LAX1,FALSE,1,2,Inverse variance weighted,1.084,1.034,1.137,0.000914,0.045,2,Inverse variance weighted,1.084,1.034,1.137,0.000914,0.0827,TRUE,FDR-RANK ONLY (estimate identical; lost to BH re-ranking),TRUE
+RETSAT,FALSE,2,3,Inverse variance weighted,0.921,0.877,0.967,0.00102,0.0475,3,Inverse variance weighted,0.921,0.877,0.967,0.00102,0.0828,TRUE,FDR-RANK ONLY (estimate identical; lost to BH re-ranking),TRUE
+FCGR2B,FALSE,1,2,Inverse variance weighted,1.094,1.037,1.155,0.00103,0.0475,2,Inverse variance weighted,1.094,1.037,1.155,0.00103,0.0828,TRUE,FDR-RANK ONLY (estimate identical; lost to BH re-ranking),TRUE
+NFX1,FALSE,9,1,Wald ratio,0.52,0.35,0.772,0.0012,0.0537,1,Wald ratio,0.52,0.35,0.772,0.0012,0.0915,TRUE,ns in both,TRUE
+TRAM2,FALSE,6,1,Wald ratio,0.771,0.657,0.904,0.0014,0.0608,1,Wald ratio,0.771,0.657,0.904,0.0014,0.101,TRUE,ns in both,TRUE
+COQ4,FALSE,9,1,Wald ratio,3.138,1.542,6.383,0.0016,0.0675,1,Wald ratio,3.138,1.542,6.383,0.0016,0.11,TRUE,ns in both,TRUE
+ATP13A2,FALSE,1,1,Wald ratio,1.273,1.088,1.488,0.0025,0.0998,1,Wald ratio,1.273,1.088,1.488,0.0025,0.157,TRUE,ns in both,TRUE
+TXNDC11,FALSE,16,1,Wald ratio,0.76,0.636,0.908,0.0025,0.0998,1,Wald ratio,0.76,0.636,0.908,0.0025,0.157,TRUE,ns in both,TRUE
+CPSF4,FALSE,7,1,Wald ratio,0.704,0.56,0.886,0.0027,0.105,1,Wald ratio,0.704,0.56,0.886,0.0027,0.163,TRUE,ns in both,TRUE
+PPP2R3C,FALSE,14,4,Inverse variance weighted,0.95,0.919,0.983,0.00281,0.106,4,Inverse variance weighted,0.95,0.919,0.983,0.00281,0.163,TRUE,ns in both,TRUE
+MMS19,FALSE,10,1,Wald ratio,1.342,1.104,1.633,0.0032,0.118,1,Wald ratio,1.342,1.104,1.633,0.0032,0.178,TRUE,ns in both,TRUE
+GDF11,FALSE,12,1,Wald ratio,1.664,1.182,2.342,0.0035,0.123,1,Wald ratio,1.664,1.182,2.342,0.0035,0.181,TRUE,ns in both,TRUE
+TPR,FALSE,1,1,Wald ratio,1.949,1.245,3.051,0.0035,0.123,1,Wald ratio,1.949,1.245,3.051,0.0035,0.181,TRUE,ns in both,TRUE
+CD247,FALSE,1,2,Inverse variance weighted,0.901,0.839,0.967,0.0037,0.127,2,Inverse variance weighted,0.901,0.839,0.967,0.0037,0.185,TRUE,ns in both,TRUE
+FBXW8,FALSE,12,2,Inverse variance weighted,0.876,0.798,0.963,0.00596,0.2,2,Inverse variance weighted,0.876,0.798,0.963,0.00596,0.288,TRUE,ns in both,TRUE
+MYCBP2,FALSE,13,1,Wald ratio,0.666,0.497,0.893,0.0066,0.214,1,Wald ratio,0.666,0.497,0.893,0.0066,0.298,TRUE,ns in both,TRUE
+ACAP1,FALSE,17,1,Wald ratio,0.9,0.834,0.971,0.0068,0.214,1,Wald ratio,0.9,0.834,0.971,0.0068,0.298,TRUE,ns in both,TRUE
+SLC25A23,FALSE,19,1,Wald ratio,2.277,1.255,4.133,0.0068,0.214,1,Wald ratio,2.277,1.255,4.133,0.0068,0.298,TRUE,ns in both,TRUE
+FARP2,FALSE,2,2,Inverse variance weighted,1.119,1.031,1.215,0.00715,0.22,2,Inverse variance weighted,1.119,1.031,1.215,0.00715,0.305,TRUE,ns in both,TRUE
+AZI2,FALSE,3,2,Inverse variance weighted,0.873,0.791,0.965,0.00776,0.234,2,Inverse variance weighted,0.873,0.791,0.965,0.00776,0.321,TRUE,ns in both,TRUE
+BTN3A3,TRUE,6,1,Wald ratio,0.715,0.556,0.919,0.0087,0.253,,,,,,,,FALSE,ns in both,
+DNAH1,FALSE,3,3,Inverse variance weighted,0.859,0.766,0.962,0.00884,0.253,3,Inverse variance weighted,0.859,0.766,0.962,0.00884,0.348,TRUE,ns in both,TRUE
+CCPG1,FALSE,15,1,Wald ratio,0.78,0.648,0.94,0.0089,0.253,1,Wald ratio,0.78,0.648,0.94,0.0089,0.348,TRUE,ns in both,TRUE
+CD86,FALSE,3,3,Inverse variance weighted,1.188,1.042,1.354,0.00998,0.278,3,Inverse variance weighted,1.188,1.042,1.354,0.00998,0.38,TRUE,ns in both,TRUE
+FOXK1,FALSE,7,1,Wald ratio,1.124,1.026,1.231,0.012,0.328,1,Wald ratio,1.124,1.026,1.231,0.012,0.446,TRUE,ns in both,TRUE
+TUFM,FALSE,16,3,Inverse variance weighted,1.057,1.012,1.104,0.0125,0.336,3,Inverse variance weighted,1.057,1.012,1.104,0.0125,0.452,TRUE,ns in both,TRUE
+PHF1,TRUE,6,2,Inverse variance weighted,3.87,1.329,11.272,0.0131,0.345,,,,,,,,FALSE,ns in both,
+LRRC41,FALSE,1,1,Wald ratio,0.491,0.279,0.866,0.014,0.357,1,Wald ratio,0.491,0.279,0.866,0.014,0.494,TRUE,ns in both,TRUE
+LTA,TRUE,6,2,Inverse variance weighted,0.464,0.252,0.856,0.014,0.357,,,,,,,,FALSE,ns in both,
+COPS7B,FALSE,2,1,Wald ratio,1.897,1.132,3.177,0.015,0.375,1,Wald ratio,1.897,1.132,3.177,0.015,0.504,TRUE,ns in both,TRUE
+CRTC3,FALSE,15,2,Inverse variance weighted,0.83,0.713,0.966,0.0159,0.375,2,Inverse variance weighted,0.83,0.713,0.966,0.0159,0.504,TRUE,ns in both,TRUE
+CDK4,FALSE,12,1,Wald ratio,0.68,0.496,0.931,0.016,0.375,1,Wald ratio,0.68,0.496,0.931,0.016,0.504,TRUE,ns in both,TRUE
+PMPCA,FALSE,9,1,Wald ratio,0.592,0.386,0.907,0.016,0.375,1,Wald ratio,0.592,0.386,0.907,0.016,0.504,TRUE,ns in both,TRUE
+SMPDL3A,FALSE,6,1,Wald ratio,1.102,1.018,1.193,0.016,0.375,1,Wald ratio,1.102,1.018,1.193,0.016,0.504,TRUE,ns in both,TRUE
+MRPS34,FALSE,16,1,Wald ratio,1.27,1.044,1.547,0.017,0.392,1,Wald ratio,1.27,1.044,1.547,0.017,0.513,TRUE,ns in both,TRUE
+MAP2K5,FALSE,15,2,Inverse variance weighted,0.941,0.895,0.989,0.0177,0.396,2,Inverse variance weighted,0.941,0.895,0.989,0.0177,0.513,TRUE,ns in both,TRUE
+POLRMT,FALSE,19,1,Wald ratio,1.809,1.107,2.957,0.018,0.396,1,Wald ratio,1.809,1.107,2.957,0.018,0.513,TRUE,ns in both,TRUE
+TBL2,FALSE,7,1,Wald ratio,1.239,1.037,1.481,0.018,0.396,1,Wald ratio,1.239,1.037,1.481,0.018,0.513,TRUE,ns in both,TRUE
+PCSK7,FALSE,11,2,Inverse variance weighted,0.906,0.834,0.983,0.0184,0.396,2,Inverse variance weighted,0.906,0.834,0.983,0.0184,0.513,TRUE,ns in both,TRUE
+PPARD,FALSE,6,2,Inverse variance weighted,1.36,1.053,1.756,0.0186,0.396,2,Inverse variance weighted,1.36,1.053,1.756,0.0186,0.513,TRUE,ns in both,TRUE
+GSDMB,FALSE,17,5,Inverse variance weighted,0.846,0.736,0.973,0.0188,0.396,5,Inverse variance weighted,0.846,0.736,0.973,0.0188,0.513,TRUE,ns in both,TRUE
+CLSTN1,FALSE,1,2,Inverse variance weighted,0.851,0.742,0.976,0.0208,0.432,2,Inverse variance weighted,0.851,0.742,0.976,0.0208,0.555,TRUE,ns in both,TRUE
+CITED2,FALSE,6,3,Inverse variance weighted,0.864,0.762,0.979,0.0215,0.439,3,Inverse variance weighted,0.864,0.762,0.979,0.0215,0.555,TRUE,ns in both,TRUE
+CHD3,FALSE,17,1,Wald ratio,0.703,0.519,0.95,0.022,0.439,1,Wald ratio,0.703,0.519,0.95,0.022,0.555,TRUE,ns in both,TRUE
+SCMH1,FALSE,1,1,Wald ratio,1.803,1.089,2.985,0.022,0.439,1,Wald ratio,1.803,1.089,2.985,0.022,0.555,TRUE,ns in both,TRUE
+SUN2,FALSE,22,2,Inverse variance weighted,0.917,0.852,0.988,0.0224,0.441,2,Inverse variance weighted,0.917,0.852,0.988,0.0224,0.555,TRUE,ns in both,TRUE
+BNIP2,FALSE,15,1,Wald ratio,1.219,1.028,1.446,0.023,0.441,1,Wald ratio,1.219,1.028,1.446,0.023,0.555,TRUE,ns in both,TRUE
+PGGT1B,FALSE,5,2,Inverse variance weighted,0.894,0.812,0.985,0.023,0.441,2,Inverse variance weighted,0.894,0.812,0.985,0.023,0.555,TRUE,ns in both,TRUE
+KRAS,FALSE,12,2,Inverse variance weighted,1.51,1.056,2.159,0.0239,0.449,2,Inverse variance weighted,1.51,1.056,2.159,0.0239,0.561,TRUE,ns in both,TRUE
+IPP,FALSE,1,1,Wald ratio,1.119,1.015,1.234,0.024,0.449,1,Wald ratio,1.119,1.015,1.234,0.024,0.561,TRUE,ns in both,TRUE
+CASKIN2,FALSE,17,1,Wald ratio,1.402,1.041,1.888,0.026,0.47,1,Wald ratio,1.402,1.041,1.888,0.026,0.571,TRUE,ns in both,TRUE
+RPN2,FALSE,20,1,Wald ratio,0.654,0.45,0.95,0.026,0.47,1,Wald ratio,0.654,0.45,0.95,0.026,0.571,TRUE,ns in both,TRUE
+BAZ2B,FALSE,2,4,Inverse variance weighted,0.945,0.9,0.993,0.0262,0.47,4,Inverse variance weighted,0.945,0.9,0.993,0.0262,0.571,TRUE,ns in both,TRUE
+IL2RB,FALSE,22,1,Wald ratio,1.399,1.039,1.885,0.027,0.47,1,Wald ratio,1.399,1.039,1.885,0.027,0.571,TRUE,ns in both,TRUE
+NECAP1,FALSE,12,2,Inverse variance weighted,1.078,1.009,1.153,0.027,0.47,2,Inverse variance weighted,1.078,1.009,1.153,0.027,0.571,TRUE,ns in both,TRUE
+ANXA6,FALSE,5,4,Inverse variance weighted,1.044,1.005,1.085,0.0274,0.47,4,Inverse variance weighted,1.044,1.005,1.085,0.0274,0.571,TRUE,ns in both,TRUE
+NMI,FALSE,2,1,Wald ratio,1.07,1.007,1.137,0.028,0.47,1,Wald ratio,1.07,1.007,1.137,0.028,0.571,TRUE,ns in both,TRUE
+PSMD3,FALSE,17,1,Wald ratio,0.842,0.723,0.982,0.028,0.47,1,Wald ratio,0.842,0.723,0.982,0.028,0.571,TRUE,ns in both,TRUE
+PTPRS,FALSE,19,1,Wald ratio,0.717,0.532,0.965,0.028,0.47,1,Wald ratio,0.717,0.532,0.965,0.028,0.571,TRUE,ns in both,TRUE
+BAG4,FALSE,8,1,Wald ratio,1.127,1.012,1.254,0.029,0.481,1,Wald ratio,1.127,1.012,1.254,0.029,0.583,TRUE,ns in both,TRUE
+PLAC8L1,FALSE,5,1,Wald ratio,1.739,1.055,2.866,0.03,0.492,1,Wald ratio,1.739,1.055,2.866,0.03,0.595,TRUE,ns in both,TRUE
+TSC1,FALSE,9,1,Wald ratio,1.264,1.022,1.563,0.031,0.503,1,Wald ratio,1.264,1.022,1.563,0.031,0.607,TRUE,ns in both,TRUE
+DSC2,FALSE,18,1,Wald ratio,0.88,0.783,0.99,0.033,0.53,1,Wald ratio,0.88,0.783,0.99,0.033,0.637,TRUE,ns in both,TRUE
+CCDC126,FALSE,7,2,Inverse variance weighted,0.93,0.871,0.994,0.0336,0.533,2,Inverse variance weighted,0.93,0.871,0.994,0.0336,0.64,TRUE,ns in both,TRUE
+FNDC3A,FALSE,13,3,Inverse variance weighted,1.203,1.014,1.427,0.0341,0.537,3,Inverse variance weighted,1.203,1.014,1.427,0.0341,0.642,TRUE,ns in both,TRUE
+CCNT2,FALSE,2,1,Wald ratio,0.531,0.294,0.959,0.036,0.546,1,Wald ratio,0.531,0.294,0.959,0.036,0.645,TRUE,ns in both,TRUE
+USP34,FALSE,2,1,Wald ratio,1.183,1.011,1.383,0.036,0.546,1,Wald ratio,1.183,1.011,1.383,0.036,0.645,TRUE,ns in both,TRUE
+TMEM65,FALSE,8,2,Inverse variance weighted,0.762,0.59,0.983,0.0361,0.546,2,Inverse variance weighted,0.762,0.59,0.983,0.0361,0.645,TRUE,ns in both,TRUE
+ANKMY1,FALSE,2,1,Wald ratio,0.558,0.323,0.965,0.037,0.546,1,Wald ratio,0.558,0.323,0.965,0.037,0.645,TRUE,ns in both,TRUE
+ODF2,FALSE,9,1,Wald ratio,1.155,1.009,1.323,0.037,0.546,1,Wald ratio,1.155,1.009,1.323,0.037,0.645,TRUE,ns in both,TRUE
+TOB2,FALSE,22,1,Wald ratio,1.272,1.015,1.595,0.037,0.546,1,Wald ratio,1.272,1.015,1.595,0.037,0.645,TRUE,ns in both,TRUE
+OAT,FALSE,10,4,Inverse variance weighted,1.111,1.006,1.227,0.0379,0.555,4,Inverse variance weighted,1.111,1.006,1.227,0.0379,0.654,TRUE,ns in both,TRUE
+LMF1,FALSE,16,1,Wald ratio,1.128,1.006,1.264,0.039,0.565,1,Wald ratio,1.128,1.006,1.264,0.039,0.662,TRUE,ns in both,TRUE
+EIF3G,FALSE,19,1,Wald ratio,1.444,1.017,2.05,0.04,0.566,1,Wald ratio,1.444,1.017,2.05,0.04,0.662,TRUE,ns in both,TRUE
+SLC25A40,FALSE,7,1,Wald ratio,1.689,1.024,2.784,0.04,0.566,1,Wald ratio,1.689,1.024,2.784,0.04,0.662,TRUE,ns in both,TRUE
+ST3GAL1,FALSE,8,2,Inverse variance weighted,0.891,0.799,0.995,0.0403,0.566,2,Inverse variance weighted,0.891,0.799,0.995,0.0403,0.662,TRUE,ns in both,TRUE
+WDR1,FALSE,4,1,Wald ratio,0.865,0.753,0.994,0.041,0.571,1,Wald ratio,0.865,0.753,0.994,0.041,0.667,TRUE,ns in both,TRUE
+TELO2,FALSE,16,2,Inverse variance weighted,0.853,0.732,0.995,0.0424,0.585,2,Inverse variance weighted,0.853,0.732,0.995,0.0424,0.682,TRUE,ns in both,TRUE
+R3HCC1,FALSE,8,2,Inverse variance weighted,0.819,0.676,0.994,0.0431,0.589,2,Inverse variance weighted,0.819,0.676,0.994,0.0431,0.685,TRUE,ns in both,TRUE
+DOK2,FALSE,8,2,Inverse variance weighted,0.935,0.875,0.998,0.045,0.61,2,Inverse variance weighted,0.935,0.875,0.998,0.045,0.708,TRUE,ns in both,TRUE
+DVL2,FALSE,17,1,Wald ratio,1.262,1.004,1.586,0.046,0.612,1,Wald ratio,1.262,1.004,1.586,0.046,0.709,TRUE,ns in both,TRUE
+REPS1,FALSE,6,1,Wald ratio,0.757,0.576,0.995,0.046,0.612,1,Wald ratio,0.757,0.576,0.995,0.046,0.709,TRUE,ns in both,TRUE
+TRAPPC6B,FALSE,14,2,Inverse variance weighted,1.19,1.002,1.413,0.0476,0.627,2,Inverse variance weighted,1.19,1.002,1.413,0.0476,0.72,TRUE,ns in both,TRUE
+GCA,FALSE,2,1,Wald ratio,0.737,0.545,0.997,0.048,0.627,1,Wald ratio,0.737,0.545,0.997,0.048,0.72,TRUE,ns in both,TRUE
+UBA3,FALSE,3,1,Wald ratio,1.404,1.001,1.969,0.049,0.635,1,Wald ratio,1.404,1.001,1.969,0.049,0.72,TRUE,ns in both,TRUE
+ZDHHC14,FALSE,6,2,Inverse variance weighted,0.879,0.772,1,0.0504,0.644,2,Inverse variance weighted,0.879,0.772,1,0.0504,0.72,TRUE,ns in both,TRUE
+ARFIP1,FALSE,4,3,Inverse variance weighted,0.955,0.913,1,0.0506,0.644,3,Inverse variance weighted,0.955,0.913,1,0.0506,0.72,TRUE,ns in both,TRUE
+DDX51,FALSE,12,1,Wald ratio,0.707,0.499,1.002,0.051,0.644,1,Wald ratio,0.707,0.499,1.002,0.051,0.72,TRUE,ns in both,TRUE
+TWF1,FALSE,12,1,Wald ratio,0.703,0.492,1.003,0.052,0.651,1,Wald ratio,0.703,0.492,1.003,0.052,0.72,TRUE,ns in both,TRUE
+ABCF2,FALSE,7,1,Wald ratio,0.906,0.82,1.001,0.053,0.652,1,Wald ratio,0.906,0.82,1.001,0.053,0.72,TRUE,ns in both,TRUE
+MIER1,FALSE,1,1,Wald ratio,0.937,0.877,1.001,0.053,0.652,1,Wald ratio,0.937,0.877,1.001,0.053,0.72,TRUE,ns in both,TRUE
+MAD1L1,FALSE,7,3,Inverse variance weighted,1.091,0.999,1.193,0.0538,0.652,3,Inverse variance weighted,1.091,0.999,1.193,0.0538,0.72,TRUE,ns in both,TRUE
+MYO1G,FALSE,7,1,Wald ratio,1.57,0.992,2.486,0.054,0.652,1,Wald ratio,1.57,0.992,2.486,0.054,0.72,TRUE,ns in both,TRUE
+MTCH2,FALSE,11,1,Wald ratio,1.277,0.995,1.64,0.055,0.652,1,Wald ratio,1.277,0.995,1.64,0.055,0.72,TRUE,ns in both,TRUE
+LRCH3,FALSE,3,1,Wald ratio,0.704,0.49,1.012,0.058,0.652,1,Wald ratio,0.704,0.49,1.012,0.058,0.72,TRUE,ns in both,TRUE
+PIGL,FALSE,17,1,Wald ratio,1.133,0.996,1.29,0.058,0.652,1,Wald ratio,1.133,0.996,1.29,0.058,0.72,TRUE,ns in both,TRUE
+UBE2Z,FALSE,17,3,Inverse variance weighted,1.079,0.997,1.168,0.0584,0.652,3,Inverse variance weighted,1.079,0.997,1.168,0.0584,0.72,TRUE,ns in both,TRUE
+ANKH,FALSE,5,2,Inverse variance weighted,1.12,0.996,1.26,0.0586,0.652,2,Inverse variance weighted,1.12,0.996,1.26,0.0586,0.72,TRUE,ns in both,TRUE
+ENGASE,FALSE,17,3,Inverse variance weighted,1.074,0.997,1.157,0.0589,0.652,3,Inverse variance weighted,1.074,0.997,1.157,0.0589,0.72,TRUE,ns in both,TRUE
+GZMM,FALSE,19,1,Wald ratio,0.636,0.397,1.017,0.059,0.652,1,Wald ratio,0.636,0.397,1.017,0.059,0.72,TRUE,ns in both,TRUE
+C11orf54,FALSE,11,3,Inverse variance weighted,0.893,0.793,1.005,0.0594,0.652,3,Inverse variance weighted,0.893,0.793,1.005,0.0594,0.72,TRUE,ns in both,TRUE
+DDX46,FALSE,5,2,Inverse variance weighted,0.746,0.551,1.012,0.0595,0.652,2,Inverse variance weighted,0.746,0.551,1.012,0.0595,0.72,TRUE,ns in both,TRUE
+MORC2,FALSE,22,1,Wald ratio,0.878,0.767,1.005,0.06,0.652,1,Wald ratio,0.878,0.767,1.005,0.06,0.72,TRUE,ns in both,TRUE
+PRPF18,FALSE,10,1,Wald ratio,0.789,0.616,1.01,0.06,0.652,1,Wald ratio,0.789,0.616,1.01,0.06,0.72,TRUE,ns in both,TRUE
+RNF145,FALSE,5,1,Wald ratio,0.869,0.75,1.006,0.06,0.652,1,Wald ratio,0.869,0.75,1.006,0.06,0.72,TRUE,ns in both,TRUE
+IFNGR1,FALSE,6,1,Wald ratio,1.184,0.992,1.412,0.061,0.652,1,Wald ratio,1.184,0.992,1.412,0.061,0.72,TRUE,ns in both,TRUE
+PEMT,FALSE,17,1,Wald ratio,0.86,0.734,1.007,0.061,0.652,1,Wald ratio,0.86,0.734,1.007,0.061,0.72,TRUE,ns in both,TRUE
+REPIN1,FALSE,7,1,Wald ratio,1.102,0.996,1.221,0.061,0.652,1,Wald ratio,1.102,0.996,1.221,0.061,0.72,TRUE,ns in both,TRUE
+HMGXB4,FALSE,22,1,Wald ratio,1.187,0.991,1.421,0.062,0.652,1,Wald ratio,1.187,0.991,1.421,0.062,0.72,TRUE,ns in both,TRUE
+NUDC,FALSE,1,1,Wald ratio,1.363,0.983,1.889,0.063,0.652,1,Wald ratio,1.363,0.983,1.889,0.063,0.72,TRUE,ns in both,TRUE
+ARHGAP32,FALSE,11,3,Inverse variance weighted,0.904,0.812,1.006,0.0632,0.652,3,Inverse variance weighted,0.904,0.812,1.006,0.0632,0.72,TRUE,ns in both,TRUE
+IRF3,FALSE,19,2,Inverse variance weighted,0.851,0.717,1.009,0.0633,0.652,2,Inverse variance weighted,0.851,0.717,1.009,0.0633,0.72,TRUE,ns in both,TRUE
+B3GNT2,FALSE,2,2,Inverse variance weighted,1.082,0.996,1.177,0.0636,0.652,2,Inverse variance weighted,1.082,0.996,1.177,0.0636,0.72,TRUE,ns in both,TRUE
+BAZ1A,FALSE,14,1,Wald ratio,1.3,0.985,1.717,0.064,0.652,1,Wald ratio,1.3,0.985,1.717,0.064,0.72,TRUE,ns in both,TRUE
+TECR,FALSE,19,1,Wald ratio,1.442,0.979,2.123,0.064,0.652,1,Wald ratio,1.442,0.979,2.123,0.064,0.72,TRUE,ns in both,TRUE
+WDR77,FALSE,1,1,Wald ratio,1.364,0.982,1.894,0.064,0.652,1,Wald ratio,1.364,0.982,1.894,0.064,0.72,TRUE,ns in both,TRUE
+ARL2,FALSE,11,2,Inverse variance weighted,0.816,0.657,1.013,0.0648,0.656,2,Inverse variance weighted,0.816,0.657,1.013,0.0648,0.72,TRUE,ns in both,TRUE
+KHSRP,FALSE,19,1,Wald ratio,0.597,0.345,1.035,0.066,0.659,1,Wald ratio,0.597,0.345,1.035,0.066,0.72,TRUE,ns in both,TRUE
+ZNF776,FALSE,19,1,Wald ratio,1.223,0.987,1.517,0.066,0.659,1,Wald ratio,1.223,0.987,1.517,0.066,0.72,TRUE,ns in both,TRUE
+CMTM4,FALSE,16,2,Inverse variance weighted,1.393,0.977,1.986,0.0667,0.66,2,Inverse variance weighted,1.393,0.977,1.986,0.0667,0.72,TRUE,ns in both,TRUE
+MAP4K1,FALSE,19,1,Wald ratio,0.782,0.601,1.017,0.067,0.66,1,Wald ratio,0.782,0.601,1.017,0.067,0.72,TRUE,ns in both,TRUE
+ZNF396,FALSE,18,2,Inverse variance weighted,0.909,0.82,1.007,0.0676,0.661,2,Inverse variance weighted,0.909,0.82,1.007,0.0676,0.72,TRUE,ns in both,TRUE
+KRI1,FALSE,19,2,Inverse variance weighted,1.1,0.993,1.218,0.068,0.661,2,Inverse variance weighted,1.1,0.993,1.218,0.068,0.72,TRUE,ns in both,TRUE
+TXNDC17,FALSE,17,1,Wald ratio,0.841,0.698,1.014,0.069,0.663,1,Wald ratio,0.841,0.698,1.014,0.069,0.72,TRUE,ns in both,TRUE
+HLA-DPB1,TRUE,6,3,Inverse variance weighted,1.408,0.973,2.036,0.0694,0.663,,,,,,,,FALSE,ns in both,
+AFG3L2,FALSE,18,1,Wald ratio,0.752,0.552,1.024,0.07,0.663,1,Wald ratio,0.752,0.552,1.024,0.07,0.72,TRUE,ns in both,TRUE
+EIF3B,FALSE,7,1,Wald ratio,1.123,0.991,1.274,0.07,0.663,1,Wald ratio,1.123,0.991,1.274,0.07,0.72,TRUE,ns in both,TRUE
+EZR,FALSE,6,1,Wald ratio,1.129,0.99,1.287,0.071,0.664,1,Wald ratio,1.129,0.99,1.287,0.071,0.72,TRUE,ns in both,TRUE
+RNPS1,FALSE,16,1,Wald ratio,1.547,0.963,2.484,0.071,0.664,1,Wald ratio,1.547,0.963,2.484,0.071,0.72,TRUE,ns in both,TRUE
+ACSF3,FALSE,16,1,Wald ratio,0.787,0.605,1.022,0.072,0.665,1,Wald ratio,0.787,0.605,1.022,0.072,0.72,TRUE,ns in both,TRUE
+ARG1,FALSE,6,1,Wald ratio,0.946,0.891,1.005,0.072,0.665,1,Wald ratio,0.946,0.891,1.005,0.072,0.72,TRUE,ns in both,TRUE
+ABHD13,FALSE,13,2,Inverse variance weighted,1.291,0.976,1.707,0.073,0.67,2,Inverse variance weighted,1.291,0.976,1.707,0.073,0.72,TRUE,ns in both,TRUE
+RFX3,FALSE,9,1,Wald ratio,1.342,0.972,1.853,0.074,0.671,1,Wald ratio,1.342,0.972,1.853,0.074,0.72,TRUE,ns in both,TRUE
+XPO5,FALSE,6,1,Wald ratio,1.753,0.947,3.244,0.074,0.671,1,Wald ratio,1.753,0.947,3.244,0.074,0.72,TRUE,ns in both,TRUE
+EML2,FALSE,19,1,Wald ratio,0.691,0.459,1.039,0.076,0.677,1,Wald ratio,0.691,0.459,1.039,0.076,0.72,TRUE,ns in both,TRUE
+BTBD10,FALSE,11,1,Wald ratio,0.696,0.466,1.04,0.077,0.677,1,Wald ratio,0.696,0.466,1.04,0.077,0.72,TRUE,ns in both,TRUE
+GTF2B,FALSE,1,1,Wald ratio,1.225,0.978,1.535,0.077,0.677,1,Wald ratio,1.225,0.978,1.535,0.077,0.72,TRUE,ns in both,TRUE
+SLA2,FALSE,20,1,Wald ratio,1.663,0.946,2.922,0.077,0.677,1,Wald ratio,1.663,0.946,2.922,0.077,0.72,TRUE,ns in both,TRUE
+ZEB1,FALSE,10,1,Wald ratio,1.483,0.958,2.295,0.077,0.677,1,Wald ratio,1.483,0.958,2.295,0.077,0.72,TRUE,ns in both,TRUE
+SAMD8,FALSE,10,1,Wald ratio,0.699,0.469,1.041,0.078,0.677,1,Wald ratio,0.699,0.469,1.041,0.078,0.72,TRUE,ns in both,TRUE
+FANCG,FALSE,9,2,Inverse variance weighted,0.872,0.749,1.016,0.0783,0.677,2,Inverse variance weighted,0.872,0.749,1.016,0.0783,0.72,TRUE,ns in both,TRUE
+C9orf72,FALSE,9,3,Inverse variance weighted,0.843,0.697,1.02,0.0784,0.677,3,Inverse variance weighted,0.843,0.697,1.02,0.0784,0.72,TRUE,ns in both,TRUE
+TRIM14,FALSE,9,2,Inverse variance weighted,1.118,0.987,1.266,0.0794,0.677,2,Inverse variance weighted,1.118,0.987,1.266,0.0794,0.72,TRUE,ns in both,TRUE
+OSBP,FALSE,11,1,Wald ratio,0.354,0.111,1.132,0.08,0.677,1,Wald ratio,0.354,0.111,1.132,0.08,0.72,TRUE,ns in both,TRUE
+GCDH,FALSE,19,3,Inverse variance weighted,0.937,0.871,1.008,0.0803,0.677,3,Inverse variance weighted,0.937,0.871,1.008,0.0803,0.72,TRUE,ns in both,TRUE
+CD81,FALSE,11,1,Wald ratio,1.096,0.989,1.215,0.081,0.677,1,Wald ratio,1.096,0.989,1.215,0.081,0.72,TRUE,ns in both,TRUE
+FLNB,FALSE,3,2,Inverse variance weighted,1.239,0.973,1.578,0.0818,0.677,2,Inverse variance weighted,1.239,0.973,1.578,0.0818,0.72,TRUE,ns in both,TRUE
+C1orf159,FALSE,1,1,Wald ratio,0.811,0.641,1.027,0.082,0.677,1,Wald ratio,0.811,0.641,1.027,0.082,0.72,TRUE,ns in both,TRUE
+ATP13A1,FALSE,19,4,Inverse variance weighted,1.044,0.995,1.095,0.0822,0.677,4,Inverse variance weighted,1.044,0.995,1.095,0.0822,0.72,TRUE,ns in both,TRUE
+DHPS,FALSE,19,1,Wald ratio,1.346,0.962,1.883,0.083,0.677,1,Wald ratio,1.346,0.962,1.883,0.083,0.72,TRUE,ns in both,TRUE
+GGA1,FALSE,22,1,Wald ratio,0.88,0.761,1.017,0.083,0.677,1,Wald ratio,0.88,0.761,1.017,0.083,0.72,TRUE,ns in both,TRUE
+PRPF31,FALSE,19,3,Inverse variance weighted,0.918,0.833,1.011,0.0831,0.677,3,Inverse variance weighted,0.918,0.833,1.011,0.0831,0.72,TRUE,ns in both,TRUE
+ACAP2,FALSE,3,1,Wald ratio,1.914,0.917,3.996,0.084,0.677,1,Wald ratio,1.914,0.917,3.996,0.084,0.72,TRUE,ns in both,TRUE
+SPHK2,FALSE,19,1,Wald ratio,1.127,0.984,1.292,0.085,0.677,1,Wald ratio,1.127,0.984,1.292,0.085,0.72,TRUE,ns in both,TRUE
+PTPN7,FALSE,1,2,Inverse variance weighted,0.927,0.85,1.011,0.0855,0.677,2,Inverse variance weighted,0.927,0.85,1.011,0.0855,0.72,TRUE,ns in both,TRUE
+SIGMAR1,FALSE,9,4,Inverse variance weighted,0.919,0.835,1.012,0.0864,0.677,4,Inverse variance weighted,0.919,0.835,1.012,0.0864,0.72,TRUE,ns in both,TRUE
+URM1,FALSE,9,2,Inverse variance weighted,0.909,0.814,1.014,0.0872,0.677,2,Inverse variance weighted,0.909,0.814,1.014,0.0872,0.72,TRUE,ns in both,TRUE
+TCEA2,FALSE,20,1,Wald ratio,1.199,0.973,1.478,0.088,0.677,1,Wald ratio,1.199,0.973,1.478,0.088,0.72,TRUE,ns in both,TRUE
+HHEX,FALSE,10,2,Inverse variance weighted,0.908,0.812,1.015,0.0887,0.677,2,Inverse variance weighted,0.908,0.812,1.015,0.0887,0.72,TRUE,ns in both,TRUE
+ACADS,FALSE,12,1,Wald ratio,0.581,0.31,1.089,0.09,0.677,1,Wald ratio,0.581,0.31,1.089,0.09,0.72,TRUE,ns in both,TRUE
+ENTPD1,FALSE,10,4,Inverse variance weighted,1.05,0.992,1.111,0.09,0.677,4,Inverse variance weighted,1.05,0.992,1.111,0.09,0.72,TRUE,ns in both,TRUE
+STK36,FALSE,2,1,Wald ratio,0.884,0.767,1.019,0.09,0.677,1,Wald ratio,0.884,0.767,1.019,0.09,0.72,TRUE,ns in both,TRUE
+SLC25A3,FALSE,12,3,Inverse variance weighted,1.103,0.985,1.235,0.0909,0.677,3,Inverse variance weighted,1.103,0.985,1.235,0.0909,0.72,TRUE,ns in both,TRUE
+NUP93,FALSE,16,1,Wald ratio,0.83,0.669,1.03,0.091,0.677,1,Wald ratio,0.83,0.669,1.03,0.091,0.72,TRUE,ns in both,TRUE
+TPP1,FALSE,11,1,Wald ratio,0.941,0.878,1.01,0.091,0.677,1,Wald ratio,0.941,0.878,1.01,0.091,0.72,TRUE,ns in both,TRUE
+TEF,FALSE,22,2,Inverse variance weighted,0.95,0.894,1.008,0.0913,0.677,2,Inverse variance weighted,0.95,0.894,1.008,0.0913,0.72,TRUE,ns in both,TRUE
+TLE4,FALSE,9,2,Inverse variance weighted,0.851,0.704,1.028,0.0935,0.677,2,Inverse variance weighted,0.851,0.704,1.028,0.0935,0.72,TRUE,ns in both,TRUE
+KDM1A,FALSE,1,1,Wald ratio,0.741,0.522,1.052,0.094,0.677,1,Wald ratio,0.741,0.522,1.052,0.094,0.72,TRUE,ns in both,TRUE
+ZC3H12C,FALSE,11,1,Wald ratio,0.948,0.891,1.009,0.094,0.677,1,Wald ratio,0.948,0.891,1.009,0.094,0.72,TRUE,ns in both,TRUE
+ZHX2,FALSE,8,1,Wald ratio,0.9,0.795,1.018,0.095,0.677,1,Wald ratio,0.9,0.795,1.018,0.095,0.72,TRUE,ns in both,TRUE
+HBP1,FALSE,7,1,Wald ratio,0.873,0.744,1.024,0.096,0.677,1,Wald ratio,0.873,0.744,1.024,0.096,0.72,TRUE,ns in both,TRUE
+MAP3K10,FALSE,19,1,Wald ratio,0.86,0.72,1.028,0.097,0.677,1,Wald ratio,0.86,0.72,1.028,0.097,0.72,TRUE,ns in both,TRUE
+APP,FALSE,21,1,Wald ratio,1.097,0.983,1.223,0.098,0.677,1,Wald ratio,1.097,0.983,1.223,0.098,0.72,TRUE,ns in both,TRUE
+LAIR1,FALSE,19,1,Wald ratio,1.187,0.969,1.455,0.098,0.677,1,Wald ratio,1.187,0.969,1.455,0.098,0.72,TRUE,ns in both,TRUE
+TXN,FALSE,9,3,Inverse variance weighted,0.923,0.839,1.015,0.0981,0.677,3,Inverse variance weighted,0.923,0.839,1.015,0.0981,0.72,TRUE,ns in both,TRUE
+IFRD1,FALSE,7,3,Inverse variance weighted,0.924,0.841,1.015,0.0991,0.677,3,Inverse variance weighted,0.924,0.841,1.015,0.0991,0.72,TRUE,ns in both,TRUE
+BAHD1,FALSE,15,1,Wald ratio,0.801,0.616,1.043,0.1,0.677,1,Wald ratio,0.801,0.616,1.043,0.1,0.72,TRUE,ns in both,TRUE
+PRPF6,FALSE,20,1,Wald ratio,1.106,0.981,1.246,0.1,0.677,1,Wald ratio,1.106,0.981,1.246,0.1,0.72,TRUE,ns in both,TRUE
+PTGES2,FALSE,9,1,Wald ratio,0.824,0.654,1.038,0.1,0.677,1,Wald ratio,0.824,0.654,1.038,0.1,0.72,TRUE,ns in both,TRUE
+SAMD10,FALSE,20,1,Wald ratio,1.079,0.986,1.181,0.1,0.677,1,Wald ratio,1.079,0.986,1.181,0.1,0.72,TRUE,ns in both,TRUE
+SH3BGRL3,FALSE,1,1,Wald ratio,0.853,0.705,1.031,0.1,0.677,1,Wald ratio,0.853,0.705,1.031,0.1,0.72,TRUE,ns in both,TRUE
+SUPT5H,FALSE,19,1,Wald ratio,1.161,0.972,1.388,0.1,0.677,1,Wald ratio,1.161,0.972,1.388,0.1,0.72,TRUE,ns in both,TRUE
+TGFBR1,FALSE,9,1,Wald ratio,0.769,0.562,1.052,0.1,0.677,1,Wald ratio,0.769,0.562,1.052,0.1,0.72,TRUE,ns in both,TRUE
+TUBB,TRUE,6,2,Inverse variance weighted,1.147,0.974,1.35,0.1,0.677,,,,,,,,FALSE,ns in both,
+VNN2,FALSE,6,3,Inverse variance weighted,1.034,0.993,1.077,0.102,0.677,3,Inverse variance weighted,1.034,0.993,1.077,0.102,0.72,TRUE,ns in both,TRUE
+CD36,FALSE,7,3,Inverse variance weighted,0.95,0.894,1.01,0.103,0.677,3,Inverse variance weighted,0.95,0.894,1.01,0.103,0.72,TRUE,ns in both,TRUE
+INTS4,FALSE,11,2,Inverse variance weighted,0.955,0.903,1.009,0.103,0.677,2,Inverse variance weighted,0.955,0.903,1.009,0.103,0.72,TRUE,ns in both,TRUE
+FMNL2,FALSE,2,2,Inverse variance weighted,0.846,0.691,1.035,0.105,0.677,2,Inverse variance weighted,0.846,0.691,1.035,0.105,0.72,TRUE,ns in both,TRUE
+PLA2G4A,FALSE,1,2,Inverse variance weighted,1.252,0.954,1.642,0.105,0.677,2,Inverse variance weighted,1.252,0.954,1.642,0.105,0.72,TRUE,ns in both,TRUE
+MCM3,FALSE,6,2,Inverse variance weighted,1.199,0.962,1.494,0.107,0.677,2,Inverse variance weighted,1.199,0.962,1.494,0.107,0.72,TRUE,ns in both,TRUE
+NDUFA3,FALSE,19,2,Inverse variance weighted,1.1,0.98,1.235,0.107,0.677,2,Inverse variance weighted,1.1,0.98,1.235,0.107,0.72,TRUE,ns in both,TRUE
+CHCHD10,FALSE,22,2,Inverse variance weighted,1.176,0.965,1.432,0.108,0.677,2,Inverse variance weighted,1.176,0.965,1.432,0.108,0.72,TRUE,ns in both,TRUE
+CRIPT,FALSE,2,2,Inverse variance weighted,0.961,0.915,1.009,0.108,0.677,2,Inverse variance weighted,0.961,0.915,1.009,0.108,0.72,TRUE,ns in both,TRUE
+RRP7A,FALSE,22,3,Inverse variance weighted,0.942,0.876,1.013,0.108,0.677,3,Inverse variance weighted,0.942,0.876,1.013,0.108,0.72,TRUE,ns in both,TRUE
+ASXL2,FALSE,2,1,Wald ratio,0.77,0.558,1.061,0.11,0.677,1,Wald ratio,0.77,0.558,1.061,0.11,0.72,TRUE,ns in both,TRUE
+CD84,FALSE,1,3,Inverse variance weighted,1.08,0.983,1.188,0.11,0.677,3,Inverse variance weighted,1.08,0.983,1.188,0.11,0.72,TRUE,ns in both,TRUE
+CHTF18,FALSE,16,1,Wald ratio,0.741,0.513,1.07,0.11,0.677,1,Wald ratio,0.741,0.513,1.07,0.11,0.72,TRUE,ns in both,TRUE
+CIZ1,FALSE,9,1,Wald ratio,0.558,0.273,1.141,0.11,0.677,1,Wald ratio,0.558,0.273,1.141,0.11,0.72,TRUE,ns in both,TRUE
+DOCK4,FALSE,7,1,Wald ratio,1.511,0.911,2.506,0.11,0.677,1,Wald ratio,1.511,0.911,2.506,0.11,0.72,TRUE,ns in both,TRUE
+EPS8L2,FALSE,11,2,Inverse variance weighted,1.126,0.974,1.302,0.11,0.677,2,Inverse variance weighted,1.126,0.974,1.302,0.11,0.72,TRUE,ns in both,TRUE
+GEMIN5,FALSE,5,1,Wald ratio,0.611,0.334,1.118,0.11,0.677,1,Wald ratio,0.611,0.334,1.118,0.11,0.72,TRUE,ns in both,TRUE
+JMJD4,FALSE,1,1,Wald ratio,1.093,0.98,1.219,0.11,0.677,1,Wald ratio,1.093,0.98,1.219,0.11,0.72,TRUE,ns in both,TRUE
+NAGPA,FALSE,16,1,Wald ratio,0.957,0.906,1.01,0.11,0.677,1,Wald ratio,0.957,0.906,1.01,0.11,0.72,TRUE,ns in both,TRUE
+NUP62,FALSE,19,1,Wald ratio,0.878,0.749,1.03,0.11,0.677,1,Wald ratio,0.878,0.749,1.03,0.11,0.72,TRUE,ns in both,TRUE
+PFKM,FALSE,12,1,Wald ratio,0.879,0.751,1.03,0.11,0.677,1,Wald ratio,0.879,0.751,1.03,0.11,0.72,TRUE,ns in both,TRUE
+SNRK,FALSE,3,1,Wald ratio,0.818,0.64,1.046,0.11,0.677,1,Wald ratio,0.818,0.64,1.046,0.11,0.72,TRUE,ns in both,TRUE
+SYMPK,FALSE,19,1,Wald ratio,0.862,0.718,1.034,0.11,0.677,1,Wald ratio,0.862,0.718,1.034,0.11,0.72,TRUE,ns in both,TRUE
+TDP2,FALSE,6,2,Inverse variance weighted,1.127,0.973,1.306,0.11,0.677,2,Inverse variance weighted,1.127,0.973,1.306,0.11,0.72,TRUE,ns in both,TRUE
+TMEM39B,FALSE,1,1,Wald ratio,0.873,0.739,1.031,0.11,0.677,1,Wald ratio,0.873,0.739,1.031,0.11,0.72,TRUE,ns in both,TRUE
+TRIM46,FALSE,1,1,Wald ratio,0.83,0.66,1.043,0.11,0.677,1,Wald ratio,0.83,0.66,1.043,0.11,0.72,TRUE,ns in both,TRUE
+URGCP,FALSE,7,1,Wald ratio,0.89,0.771,1.027,0.11,0.677,1,Wald ratio,0.89,0.771,1.027,0.11,0.72,TRUE,ns in both,TRUE
+ZSCAN2,FALSE,15,1,Wald ratio,1.212,0.957,1.533,0.11,0.677,1,Wald ratio,1.212,0.957,1.533,0.11,0.72,TRUE,ns in both,TRUE
+AIFM2,FALSE,10,2,Inverse variance weighted,1.074,0.984,1.173,0.111,0.677,2,Inverse variance weighted,1.074,0.984,1.173,0.111,0.72,TRUE,ns in both,TRUE
+PNPLA7,FALSE,9,3,Inverse variance weighted,0.894,0.778,1.027,0.112,0.682,3,Inverse variance weighted,0.894,0.778,1.027,0.112,0.726,TRUE,ns in both,TRUE
+CROCC,FALSE,1,2,Inverse variance weighted,0.878,0.748,1.031,0.113,0.686,2,Inverse variance weighted,0.878,0.748,1.031,0.113,0.73,TRUE,ns in both,TRUE
+ACTR10,FALSE,14,3,Inverse variance weighted,0.897,0.783,1.029,0.12,0.713,3,Inverse variance weighted,0.897,0.783,1.029,0.12,0.757,TRUE,ns in both,TRUE
+ARID4A,FALSE,14,1,Wald ratio,1.214,0.951,1.551,0.12,0.713,1,Wald ratio,1.214,0.951,1.551,0.12,0.757,TRUE,ns in both,TRUE
+CCDC134,FALSE,22,1,Wald ratio,1.479,0.903,2.424,0.12,0.713,1,Wald ratio,1.479,0.903,2.424,0.12,0.757,TRUE,ns in both,TRUE
+NUDCD3,FALSE,7,1,Wald ratio,0.935,0.859,1.018,0.12,0.713,1,Wald ratio,0.935,0.859,1.018,0.12,0.757,TRUE,ns in both,TRUE
+USE1,FALSE,19,1,Wald ratio,1.571,0.889,2.777,0.12,0.713,1,Wald ratio,1.571,0.889,2.777,0.12,0.757,TRUE,ns in both,TRUE
+SCRN1,FALSE,7,2,Inverse variance weighted,0.882,0.753,1.034,0.122,0.717,2,Inverse variance weighted,0.882,0.753,1.034,0.122,0.758,TRUE,ns in both,TRUE
+TMEM59,FALSE,1,2,Inverse variance weighted,0.82,0.637,1.055,0.122,0.717,2,Inverse variance weighted,0.82,0.637,1.055,0.122,0.758,TRUE,ns in both,TRUE
+ANAPC13,FALSE,3,2,Inverse variance weighted,1.233,0.944,1.61,0.124,0.718,2,Inverse variance weighted,1.233,0.944,1.61,0.124,0.758,TRUE,ns in both,TRUE
+ZDHHC17,FALSE,12,3,Inverse variance weighted,0.926,0.839,1.022,0.125,0.718,3,Inverse variance weighted,0.926,0.839,1.022,0.125,0.758,TRUE,ns in both,TRUE
+ERC1,FALSE,12,2,Inverse variance weighted,1.186,0.953,1.475,0.126,0.718,2,Inverse variance weighted,1.186,0.953,1.475,0.126,0.758,TRUE,ns in both,TRUE
+SNX17,FALSE,2,2,Inverse variance weighted,0.932,0.853,1.02,0.126,0.718,2,Inverse variance weighted,0.932,0.853,1.02,0.126,0.758,TRUE,ns in both,TRUE
+LIMD1,FALSE,3,2,Inverse variance weighted,0.906,0.798,1.029,0.129,0.718,2,Inverse variance weighted,0.906,0.798,1.029,0.129,0.758,TRUE,ns in both,TRUE
+ST6GALNAC6,FALSE,9,3,Inverse variance weighted,0.944,0.875,1.017,0.129,0.718,3,Inverse variance weighted,0.944,0.875,1.017,0.129,0.758,TRUE,ns in both,TRUE
+CEP250,FALSE,20,1,Wald ratio,1.123,0.966,1.304,0.13,0.718,1,Wald ratio,1.123,0.966,1.304,0.13,0.758,TRUE,ns in both,TRUE
+DYNLRB1,FALSE,20,1,Wald ratio,0.661,0.387,1.13,0.13,0.718,1,Wald ratio,0.661,0.387,1.13,0.13,0.758,TRUE,ns in both,TRUE
+EIF2B4,FALSE,2,1,Wald ratio,1.174,0.954,1.444,0.13,0.718,1,Wald ratio,1.174,0.954,1.444,0.13,0.758,TRUE,ns in both,TRUE
+HNMT,FALSE,2,1,Wald ratio,1.315,0.923,1.875,0.13,0.718,1,Wald ratio,1.315,0.923,1.875,0.13,0.758,TRUE,ns in both,TRUE
+KLHL26,FALSE,19,1,Wald ratio,1.199,0.948,1.516,0.13,0.718,1,Wald ratio,1.199,0.948,1.516,0.13,0.758,TRUE,ns in both,TRUE
+OSBPL11,FALSE,3,1,Wald ratio,0.876,0.738,1.04,0.13,0.718,1,Wald ratio,0.876,0.738,1.04,0.13,0.758,TRUE,ns in both,TRUE
+RDH13,FALSE,19,1,Wald ratio,0.97,0.932,1.009,0.13,0.718,1,Wald ratio,0.97,0.932,1.009,0.13,0.758,TRUE,ns in both,TRUE
+SND1,FALSE,7,1,Wald ratio,0.904,0.793,1.03,0.13,0.718,1,Wald ratio,0.904,0.793,1.03,0.13,0.758,TRUE,ns in both,TRUE
+WDR20,FALSE,14,1,Wald ratio,1.634,0.865,3.084,0.13,0.718,1,Wald ratio,1.634,0.865,3.084,0.13,0.758,TRUE,ns in both,TRUE
+WDR6,FALSE,3,2,Inverse variance weighted,1.024,0.993,1.056,0.13,0.718,2,Inverse variance weighted,1.024,0.993,1.056,0.13,0.758,TRUE,ns in both,TRUE
+ZNF93,FALSE,19,1,Wald ratio,1.202,0.947,1.527,0.13,0.718,1,Wald ratio,1.202,0.947,1.527,0.13,0.758,TRUE,ns in both,TRUE
+STARD3NL,FALSE,7,3,Inverse variance weighted,0.899,0.783,1.033,0.133,0.73,3,Inverse variance weighted,0.899,0.783,1.033,0.133,0.77,TRUE,ns in both,TRUE
+SERINC1,FALSE,6,3,Inverse variance weighted,1.067,0.979,1.163,0.138,0.739,3,Inverse variance weighted,1.067,0.979,1.163,0.138,0.777,TRUE,ns in both,TRUE
+NOP14,FALSE,4,2,Inverse variance weighted,0.834,0.655,1.061,0.139,0.739,2,Inverse variance weighted,0.834,0.655,1.061,0.139,0.777,TRUE,ns in both,TRUE
+ARHGAP22,FALSE,10,1,Wald ratio,0.943,0.872,1.02,0.14,0.739,1,Wald ratio,0.943,0.872,1.02,0.14,0.777,TRUE,ns in both,TRUE
+ARL15,FALSE,5,1,Wald ratio,0.877,0.737,1.044,0.14,0.739,1,Wald ratio,0.877,0.737,1.044,0.14,0.777,TRUE,ns in both,TRUE
+ARMC5,FALSE,16,1,Wald ratio,0.871,0.725,1.046,0.14,0.739,1,Wald ratio,0.871,0.725,1.046,0.14,0.777,TRUE,ns in both,TRUE
+CNOT1,FALSE,16,1,Wald ratio,0.866,0.715,1.048,0.14,0.739,1,Wald ratio,0.866,0.715,1.048,0.14,0.777,TRUE,ns in both,TRUE
+EIF3I,FALSE,1,1,Wald ratio,0.7,0.436,1.124,0.14,0.739,1,Wald ratio,0.7,0.436,1.124,0.14,0.777,TRUE,ns in both,TRUE
+EIF4A3,FALSE,17,1,Wald ratio,1.221,0.937,1.592,0.14,0.739,1,Wald ratio,1.221,0.937,1.592,0.14,0.777,TRUE,ns in both,TRUE
+HEATR5A,FALSE,14,1,Wald ratio,1.249,0.93,1.678,0.14,0.739,1,Wald ratio,1.249,0.93,1.678,0.14,0.777,TRUE,ns in both,TRUE
+RNF146,FALSE,6,1,Wald ratio,1.179,0.947,1.468,0.14,0.739,1,Wald ratio,1.179,0.947,1.468,0.14,0.777,TRUE,ns in both,TRUE
+TXLNA,FALSE,1,1,Wald ratio,0.764,0.535,1.092,0.14,0.739,1,Wald ratio,0.764,0.535,1.092,0.14,0.777,TRUE,ns in both,TRUE
+DEGS1,FALSE,1,3,Inverse variance weighted,1.051,0.983,1.124,0.146,0.748,3,Inverse variance weighted,1.051,0.983,1.124,0.146,0.78,TRUE,ns in both,TRUE
+TCF7L2,FALSE,10,2,Inverse variance weighted,0.905,0.791,1.035,0.146,0.748,2,Inverse variance weighted,0.905,0.791,1.035,0.146,0.78,TRUE,ns in both,TRUE
+MLEC,FALSE,12,2,Inverse variance weighted,0.923,0.827,1.029,0.148,0.748,2,Inverse variance weighted,0.923,0.827,1.029,0.148,0.78,TRUE,ns in both,TRUE
+DDX42,FALSE,17,1,Wald ratio,0.76,0.523,1.104,0.15,0.748,1,Wald ratio,0.76,0.523,1.104,0.15,0.78,TRUE,ns in both,TRUE
+FKBP2,FALSE,11,1,Wald ratio,1.434,0.878,2.343,0.15,0.748,1,Wald ratio,1.434,0.878,2.343,0.15,0.78,TRUE,ns in both,TRUE
+GDAP2,FALSE,1,1,Wald ratio,4.456,0.583,34.081,0.15,0.748,1,Wald ratio,4.456,0.583,34.081,0.15,0.78,TRUE,ns in both,TRUE
+HTT,FALSE,4,1,Wald ratio,0.777,0.55,1.096,0.15,0.748,1,Wald ratio,0.777,0.55,1.096,0.15,0.78,TRUE,ns in both,TRUE
+KPNA6,FALSE,1,1,Wald ratio,1.235,0.927,1.646,0.15,0.748,1,Wald ratio,1.235,0.927,1.646,0.15,0.78,TRUE,ns in both,TRUE
+NCKIPSD,FALSE,3,1,Wald ratio,0.941,0.867,1.022,0.15,0.748,1,Wald ratio,0.941,0.867,1.022,0.15,0.78,TRUE,ns in both,TRUE
+PAFAH1B3,FALSE,19,1,Wald ratio,1.224,0.929,1.613,0.15,0.748,1,Wald ratio,1.224,0.929,1.613,0.15,0.78,TRUE,ns in both,TRUE
+PSMC3,FALSE,11,2,Inverse variance weighted,1.18,0.942,1.478,0.15,0.748,2,Inverse variance weighted,1.18,0.942,1.478,0.15,0.78,TRUE,ns in both,TRUE
+PSMD11,FALSE,17,1,Wald ratio,1.279,0.915,1.788,0.15,0.748,1,Wald ratio,1.279,0.915,1.788,0.15,0.78,TRUE,ns in both,TRUE
+STK3,FALSE,8,1,Wald ratio,1.471,0.87,2.489,0.15,0.748,1,Wald ratio,1.471,0.87,2.489,0.15,0.78,TRUE,ns in both,TRUE
+THOP1,FALSE,19,1,Wald ratio,1.14,0.954,1.362,0.15,0.748,1,Wald ratio,1.14,0.954,1.362,0.15,0.78,TRUE,ns in both,TRUE
+WRAP53,FALSE,17,1,Wald ratio,0.678,0.399,1.151,0.15,0.748,1,Wald ratio,0.678,0.399,1.151,0.15,0.78,TRUE,ns in both,TRUE
+IKBIP,FALSE,12,2,Inverse variance weighted,1.279,0.914,1.791,0.151,0.748,2,Inverse variance weighted,1.279,0.914,1.791,0.151,0.78,TRUE,ns in both,TRUE
+RNF141,FALSE,11,2,Inverse variance weighted,1.112,0.961,1.287,0.153,0.748,2,Inverse variance weighted,1.112,0.961,1.287,0.153,0.78,TRUE,ns in both,TRUE
+ZFP64,FALSE,20,2,Inverse variance weighted,0.829,0.64,1.073,0.154,0.748,2,Inverse variance weighted,0.829,0.64,1.073,0.154,0.78,TRUE,ns in both,TRUE
+ARL3,FALSE,10,2,Inverse variance weighted,1.16,0.945,1.423,0.156,0.748,2,Inverse variance weighted,1.16,0.945,1.423,0.156,0.78,TRUE,ns in both,TRUE
+RNF216,FALSE,7,2,Inverse variance weighted,0.867,0.713,1.056,0.156,0.748,2,Inverse variance weighted,0.867,0.713,1.056,0.156,0.78,TRUE,ns in both,TRUE
+FAM174A,FALSE,5,2,Inverse variance weighted,0.962,0.911,1.015,0.157,0.748,2,Inverse variance weighted,0.962,0.911,1.015,0.157,0.78,TRUE,ns in both,TRUE
+NDRG3,FALSE,20,2,Inverse variance weighted,0.898,0.774,1.042,0.157,0.748,2,Inverse variance weighted,0.898,0.774,1.042,0.157,0.78,TRUE,ns in both,TRUE
+HECW2,FALSE,2,3,Inverse variance weighted,0.931,0.844,1.028,0.158,0.748,3,Inverse variance weighted,0.931,0.844,1.028,0.158,0.78,TRUE,ns in both,TRUE
+EPHB6,FALSE,7,2,Inverse variance weighted,1.341,0.892,2.018,0.159,0.748,2,Inverse variance weighted,1.341,0.892,2.018,0.159,0.78,TRUE,ns in both,TRUE
+ADAM9,FALSE,8,1,Wald ratio,0.878,0.731,1.053,0.16,0.748,1,Wald ratio,0.878,0.731,1.053,0.16,0.78,TRUE,ns in both,TRUE
+ADRM1,FALSE,20,1,Wald ratio,0.79,0.569,1.097,0.16,0.748,1,Wald ratio,0.79,0.569,1.097,0.16,0.78,TRUE,ns in both,TRUE
+CELSR3,FALSE,3,1,Wald ratio,0.897,0.772,1.044,0.16,0.748,1,Wald ratio,0.897,0.772,1.044,0.16,0.78,TRUE,ns in both,TRUE
+D2HGDH,FALSE,2,1,Wald ratio,0.472,0.166,1.345,0.16,0.748,1,Wald ratio,0.472,0.166,1.345,0.16,0.78,TRUE,ns in both,TRUE
+FAR1,FALSE,11,1,Wald ratio,0.87,0.716,1.057,0.16,0.748,1,Wald ratio,0.87,0.716,1.057,0.16,0.78,TRUE,ns in both,TRUE
+HNRNPAB,FALSE,5,1,Wald ratio,0.669,0.382,1.172,0.16,0.748,1,Wald ratio,0.669,0.382,1.172,0.16,0.78,TRUE,ns in both,TRUE
+KDM3A,FALSE,2,1,Wald ratio,0.88,0.737,1.052,0.16,0.748,1,Wald ratio,0.88,0.737,1.052,0.16,0.78,TRUE,ns in both,TRUE
+PCK2,FALSE,14,1,Wald ratio,1.285,0.906,1.824,0.16,0.748,1,Wald ratio,1.285,0.906,1.824,0.16,0.78,TRUE,ns in both,TRUE
+RGS18,FALSE,1,1,Wald ratio,0.857,0.691,1.063,0.16,0.748,1,Wald ratio,0.857,0.691,1.063,0.16,0.78,TRUE,ns in both,TRUE
+SDHA,FALSE,5,1,Wald ratio,1.227,0.923,1.631,0.16,0.748,1,Wald ratio,1.227,0.923,1.631,0.16,0.78,TRUE,ns in both,TRUE
+SLC7A6OS,FALSE,16,1,Wald ratio,1.125,0.955,1.326,0.16,0.748,1,Wald ratio,1.125,0.955,1.326,0.16,0.78,TRUE,ns in both,TRUE
+SPPL3,FALSE,12,1,Wald ratio,0.774,0.542,1.106,0.16,0.748,1,Wald ratio,0.774,0.542,1.106,0.16,0.78,TRUE,ns in both,TRUE
+GABBR1,TRUE,6,3,Inverse variance weighted,1.288,0.902,1.84,0.164,0.76,,,,,,,,FALSE,ns in both,
+RNH1,FALSE,11,2,Inverse variance weighted,1.097,0.963,1.249,0.164,0.76,2,Inverse variance weighted,1.097,0.963,1.249,0.164,0.794,TRUE,ns in both,TRUE
+HMGCR,FALSE,5,2,Inverse variance weighted,0.86,0.695,1.064,0.165,0.76,2,Inverse variance weighted,0.86,0.695,1.064,0.165,0.794,TRUE,ns in both,TRUE
+KRBA1,FALSE,7,2,Inverse variance weighted,1.095,0.963,1.245,0.165,0.76,2,Inverse variance weighted,1.095,0.963,1.245,0.165,0.794,TRUE,ns in both,TRUE
+FCHO2,FALSE,5,2,Inverse variance weighted,1.038,0.985,1.094,0.166,0.76,2,Inverse variance weighted,1.038,0.985,1.094,0.166,0.794,TRUE,ns in both,TRUE
+UCP2,FALSE,11,2,Inverse variance weighted,1.051,0.979,1.127,0.168,0.76,2,Inverse variance weighted,1.051,0.979,1.127,0.168,0.794,TRUE,ns in both,TRUE
+DPP9,FALSE,19,1,Wald ratio,0.844,0.663,1.075,0.17,0.76,1,Wald ratio,0.844,0.663,1.075,0.17,0.794,TRUE,ns in both,TRUE
+HCST,FALSE,19,1,Wald ratio,1.497,0.841,2.662,0.17,0.76,1,Wald ratio,1.497,0.841,2.662,0.17,0.794,TRUE,ns in both,TRUE
+IMMT,FALSE,2,1,Wald ratio,1.042,0.982,1.106,0.17,0.76,1,Wald ratio,1.042,0.982,1.106,0.17,0.794,TRUE,ns in both,TRUE
+ISOC2,FALSE,19,1,Wald ratio,0.833,0.642,1.081,0.17,0.76,1,Wald ratio,0.833,0.642,1.081,0.17,0.794,TRUE,ns in both,TRUE
+KIF27,FALSE,9,1,Wald ratio,0.807,0.594,1.096,0.17,0.76,1,Wald ratio,0.807,0.594,1.096,0.17,0.794,TRUE,ns in both,TRUE
+RAB33B,FALSE,4,1,Wald ratio,1.072,0.971,1.184,0.17,0.76,1,Wald ratio,1.072,0.971,1.184,0.17,0.794,TRUE,ns in both,TRUE
+RHOBTB2,FALSE,8,1,Wald ratio,0.822,0.622,1.087,0.17,0.76,1,Wald ratio,0.822,0.622,1.087,0.17,0.794,TRUE,ns in both,TRUE
+TMEM229B,FALSE,14,1,Wald ratio,0.944,0.869,1.025,0.17,0.76,1,Wald ratio,0.944,0.869,1.025,0.17,0.794,TRUE,ns in both,TRUE
+XPNPEP1,FALSE,10,3,Inverse variance weighted,0.894,0.761,1.05,0.17,0.76,3,Inverse variance weighted,0.894,0.761,1.05,0.17,0.794,TRUE,ns in both,TRUE
+RHPN1,FALSE,8,2,Inverse variance weighted,0.888,0.748,1.053,0.172,0.764,2,Inverse variance weighted,0.888,0.748,1.053,0.172,0.795,TRUE,ns in both,TRUE
+TRAP1,FALSE,16,2,Inverse variance weighted,0.907,0.788,1.044,0.174,0.764,2,Inverse variance weighted,0.907,0.788,1.044,0.174,0.795,TRUE,ns in both,TRUE
+PRMT7,FALSE,16,2,Inverse variance weighted,0.941,0.862,1.027,0.175,0.764,2,Inverse variance weighted,0.941,0.862,1.027,0.175,0.795,TRUE,ns in both,TRUE
+WWOX,FALSE,16,3,Inverse variance weighted,0.895,0.762,1.051,0.176,0.764,3,Inverse variance weighted,0.895,0.762,1.051,0.176,0.795,TRUE,ns in both,TRUE
+PRDM15,FALSE,21,2,Inverse variance weighted,0.934,0.846,1.031,0.178,0.764,2,Inverse variance weighted,0.934,0.846,1.031,0.178,0.795,TRUE,ns in both,TRUE
+SLC37A1,FALSE,21,2,Inverse variance weighted,1.221,0.913,1.631,0.178,0.764,2,Inverse variance weighted,1.221,0.913,1.631,0.178,0.795,TRUE,ns in both,TRUE
+TSPAN32,FALSE,11,2,Inverse variance weighted,0.907,0.786,1.046,0.179,0.764,2,Inverse variance weighted,0.907,0.786,1.046,0.179,0.795,TRUE,ns in both,TRUE
+C17orf67,FALSE,17,1,Wald ratio,0.912,0.797,1.044,0.18,0.764,1,Wald ratio,0.912,0.797,1.044,0.18,0.795,TRUE,ns in both,TRUE
+COG1,FALSE,17,1,Wald ratio,0.939,0.856,1.03,0.18,0.764,1,Wald ratio,0.939,0.856,1.03,0.18,0.795,TRUE,ns in both,TRUE
+IMPDH2,FALSE,3,1,Wald ratio,0.813,0.601,1.1,0.18,0.764,1,Wald ratio,0.813,0.601,1.1,0.18,0.795,TRUE,ns in both,TRUE
+JAK2,FALSE,9,1,Wald ratio,1.069,0.969,1.18,0.18,0.764,1,Wald ratio,1.069,0.969,1.18,0.18,0.795,TRUE,ns in both,TRUE
+KLF3,FALSE,4,1,Wald ratio,0.755,0.5,1.139,0.18,0.764,1,Wald ratio,0.755,0.5,1.139,0.18,0.795,TRUE,ns in both,TRUE
+LBR,FALSE,1,1,Wald ratio,1.209,0.916,1.594,0.18,0.764,1,Wald ratio,1.209,0.916,1.594,0.18,0.795,TRUE,ns in both,TRUE
+R3HDM2,FALSE,12,1,Wald ratio,1.253,0.901,1.742,0.18,0.764,1,Wald ratio,1.253,0.901,1.742,0.18,0.795,TRUE,ns in both,TRUE
+RAD54L2,FALSE,3,1,Wald ratio,0.68,0.387,1.195,0.18,0.764,1,Wald ratio,0.68,0.387,1.195,0.18,0.795,TRUE,ns in both,TRUE
+RANGAP1,FALSE,22,1,Wald ratio,1.215,0.914,1.617,0.18,0.764,1,Wald ratio,1.215,0.914,1.617,0.18,0.795,TRUE,ns in both,TRUE
+ZNF562,FALSE,19,1,Wald ratio,1.307,0.884,1.931,0.18,0.764,1,Wald ratio,1.307,0.884,1.931,0.18,0.795,TRUE,ns in both,TRUE
+OSBPL5,FALSE,11,3,Inverse variance weighted,0.956,0.894,1.022,0.184,0.78,3,Inverse variance weighted,0.956,0.894,1.022,0.184,0.809,TRUE,ns in both,TRUE
+DCBLD2,FALSE,3,5,Inverse variance weighted,0.951,0.884,1.024,0.185,0.78,5,Inverse variance weighted,0.951,0.884,1.024,0.185,0.809,TRUE,ns in both,TRUE
+ZNF586,FALSE,19,2,Inverse variance weighted,0.959,0.901,1.02,0.186,0.78,2,Inverse variance weighted,0.959,0.901,1.02,0.186,0.809,TRUE,ns in both,TRUE
+ANXA3,FALSE,4,4,Inverse variance weighted,1.061,0.972,1.159,0.187,0.78,4,Inverse variance weighted,1.061,0.972,1.159,0.187,0.809,TRUE,ns in both,TRUE
+PDIA4,FALSE,7,2,Inverse variance weighted,1.101,0.954,1.27,0.188,0.78,2,Inverse variance weighted,1.101,0.954,1.27,0.188,0.809,TRUE,ns in both,TRUE
+ADAM10,FALSE,15,1,Wald ratio,1.188,0.918,1.537,0.19,0.78,1,Wald ratio,1.188,0.918,1.537,0.19,0.809,TRUE,ns in both,TRUE
+CCT7,FALSE,2,1,Wald ratio,0.875,0.718,1.068,0.19,0.78,1,Wald ratio,0.875,0.718,1.068,0.19,0.809,TRUE,ns in both,TRUE
+DAG1,FALSE,3,1,Wald ratio,1.168,0.926,1.474,0.19,0.78,1,Wald ratio,1.168,0.926,1.474,0.19,0.809,TRUE,ns in both,TRUE
+LUZP1,FALSE,1,1,Wald ratio,0.893,0.754,1.058,0.19,0.78,1,Wald ratio,0.893,0.754,1.058,0.19,0.809,TRUE,ns in both,TRUE
+PIGU,FALSE,20,1,Wald ratio,0.795,0.563,1.121,0.19,0.78,1,Wald ratio,0.795,0.563,1.121,0.19,0.809,TRUE,ns in both,TRUE
+RUFY3,FALSE,4,1,Wald ratio,0.857,0.68,1.08,0.19,0.78,1,Wald ratio,0.857,0.68,1.08,0.19,0.809,TRUE,ns in both,TRUE
+SGSM3,FALSE,22,1,Wald ratio,0.804,0.58,1.114,0.19,0.78,1,Wald ratio,0.804,0.58,1.114,0.19,0.809,TRUE,ns in both,TRUE
+PDZD8,FALSE,10,2,Inverse variance weighted,1.037,0.982,1.095,0.192,0.784,2,Inverse variance weighted,1.037,0.982,1.095,0.192,0.814,TRUE,ns in both,TRUE
+SOX12,FALSE,20,2,Inverse variance weighted,0.801,0.574,1.118,0.192,0.784,2,Inverse variance weighted,0.801,0.574,1.118,0.192,0.814,TRUE,ns in both,TRUE
+NCOA3,FALSE,20,2,Inverse variance weighted,1.092,0.956,1.247,0.193,0.785,2,Inverse variance weighted,1.092,0.956,1.247,0.193,0.815,TRUE,ns in both,TRUE
+PELI1,FALSE,2,2,Inverse variance weighted,1.238,0.897,1.707,0.194,0.786,2,Inverse variance weighted,1.238,0.897,1.707,0.194,0.815,TRUE,ns in both,TRUE
+NFRKB,FALSE,11,3,Inverse variance weighted,1.076,0.963,1.203,0.195,0.787,3,Inverse variance weighted,1.076,0.963,1.203,0.195,0.817,TRUE,ns in both,TRUE
+METTL13,FALSE,1,2,Inverse variance weighted,1.044,0.978,1.115,0.197,0.789,2,Inverse variance weighted,1.044,0.978,1.115,0.197,0.818,TRUE,ns in both,TRUE
+ELOVL5,FALSE,6,2,Inverse variance weighted,1.115,0.945,1.315,0.199,0.789,2,Inverse variance weighted,1.115,0.945,1.315,0.199,0.818,TRUE,ns in both,TRUE
+ALDH18A1,FALSE,10,1,Wald ratio,1.097,0.952,1.263,0.2,0.789,1,Wald ratio,1.097,0.952,1.263,0.2,0.818,TRUE,ns in both,TRUE
+ATP8B4,FALSE,15,4,Inverse variance weighted,1.037,0.981,1.095,0.2,0.789,4,Inverse variance weighted,1.037,0.981,1.095,0.2,0.818,TRUE,ns in both,TRUE
+BMS1,FALSE,10,1,Wald ratio,1.186,0.914,1.538,0.2,0.789,1,Wald ratio,1.186,0.914,1.538,0.2,0.818,TRUE,ns in both,TRUE
+CREB3L2,FALSE,7,1,Wald ratio,0.812,0.591,1.116,0.2,0.789,1,Wald ratio,0.812,0.591,1.116,0.2,0.818,TRUE,ns in both,TRUE
+FBXL5,FALSE,4,2,Inverse variance weighted,1.105,0.948,1.288,0.2,0.789,2,Inverse variance weighted,1.105,0.948,1.288,0.2,0.818,TRUE,ns in both,TRUE
+NCKAP1L,FALSE,12,1,Wald ratio,1.112,0.945,1.309,0.2,0.789,1,Wald ratio,1.112,0.945,1.309,0.2,0.818,TRUE,ns in both,TRUE
+RPAP1,FALSE,15,2,Inverse variance weighted,1.04,0.979,1.104,0.2,0.789,2,Inverse variance weighted,1.04,0.979,1.104,0.2,0.818,TRUE,ns in both,TRUE
+SCRIB,FALSE,8,1,Wald ratio,1.295,0.872,1.921,0.2,0.789,1,Wald ratio,1.295,0.872,1.921,0.2,0.818,TRUE,ns in both,TRUE
+DCPS,FALSE,11,3,Inverse variance weighted,0.939,0.851,1.035,0.203,0.796,3,Inverse variance weighted,0.939,0.851,1.035,0.203,0.82,TRUE,ns in both,TRUE
+SF3A3,FALSE,1,2,Inverse variance weighted,1.138,0.931,1.39,0.207,0.797,2,Inverse variance weighted,1.138,0.931,1.39,0.207,0.82,TRUE,ns in both,TRUE
+CCNG2,FALSE,4,2,Inverse variance weighted,0.861,0.682,1.087,0.208,0.797,2,Inverse variance weighted,0.861,0.682,1.087,0.208,0.82,TRUE,ns in both,TRUE
+DYNLL2,FALSE,17,1,Wald ratio,0.818,0.597,1.12,0.21,0.797,1,Wald ratio,0.818,0.597,1.12,0.21,0.82,TRUE,ns in both,TRUE
+GNG7,FALSE,19,1,Wald ratio,1.619,0.762,3.439,0.21,0.797,1,Wald ratio,1.619,0.762,3.439,0.21,0.82,TRUE,ns in both,TRUE
+GPN2,FALSE,1,1,Wald ratio,1.305,0.861,1.981,0.21,0.797,1,Wald ratio,1.305,0.861,1.981,0.21,0.82,TRUE,ns in both,TRUE
+KLK1,FALSE,19,1,Wald ratio,1.117,0.94,1.327,0.21,0.797,1,Wald ratio,1.117,0.94,1.327,0.21,0.82,TRUE,ns in both,TRUE
+NOC4L,FALSE,12,1,Wald ratio,1.404,0.826,2.385,0.21,0.797,1,Wald ratio,1.404,0.826,2.385,0.21,0.82,TRUE,ns in both,TRUE
+PUF60,FALSE,8,1,Wald ratio,1.724,0.736,4.04,0.21,0.797,1,Wald ratio,1.724,0.736,4.04,0.21,0.82,TRUE,ns in both,TRUE
+STK38L,FALSE,12,1,Wald ratio,0.81,0.582,1.126,0.21,0.797,1,Wald ratio,0.81,0.582,1.126,0.21,0.82,TRUE,ns in both,TRUE
+SULT1B1,FALSE,4,1,Wald ratio,0.877,0.714,1.077,0.21,0.797,1,Wald ratio,0.877,0.714,1.077,0.21,0.82,TRUE,ns in both,TRUE
+THAP5,FALSE,7,1,Wald ratio,1.118,0.939,1.332,0.21,0.797,1,Wald ratio,1.118,0.939,1.332,0.21,0.82,TRUE,ns in both,TRUE
+THAP6,FALSE,4,1,Wald ratio,0.887,0.736,1.07,0.21,0.797,1,Wald ratio,0.887,0.736,1.07,0.21,0.82,TRUE,ns in both,TRUE
+PHTF1,FALSE,1,2,Inverse variance weighted,0.718,0.426,1.209,0.213,0.797,2,Inverse variance weighted,0.718,0.426,1.209,0.213,0.82,TRUE,ns in both,TRUE
+ZNF212,FALSE,7,3,Inverse variance weighted,0.952,0.882,1.029,0.213,0.797,3,Inverse variance weighted,0.952,0.882,1.029,0.213,0.82,TRUE,ns in both,TRUE
+SLC6A16,FALSE,19,2,Inverse variance weighted,0.914,0.793,1.054,0.215,0.797,2,Inverse variance weighted,0.914,0.793,1.054,0.215,0.82,TRUE,ns in both,TRUE
+ERAP2,FALSE,5,4,Inverse variance weighted,1.021,0.988,1.054,0.216,0.797,4,Inverse variance weighted,1.021,0.988,1.054,0.216,0.82,TRUE,ns in both,TRUE
+GTPBP3,FALSE,19,2,Inverse variance weighted,0.885,0.729,1.074,0.216,0.797,2,Inverse variance weighted,0.885,0.729,1.074,0.216,0.82,TRUE,ns in both,TRUE
+HIF1A,FALSE,14,2,Inverse variance weighted,0.902,0.767,1.062,0.216,0.797,2,Inverse variance weighted,0.902,0.767,1.062,0.216,0.82,TRUE,ns in both,TRUE
+OVGP1,FALSE,1,3,Inverse variance weighted,1.033,0.981,1.087,0.218,0.797,3,Inverse variance weighted,1.033,0.981,1.087,0.218,0.82,TRUE,ns in both,TRUE
+ZNF500,FALSE,16,2,Inverse variance weighted,1.054,0.969,1.146,0.218,0.797,2,Inverse variance weighted,1.054,0.969,1.146,0.218,0.82,TRUE,ns in both,TRUE
+ASB7,FALSE,15,1,Wald ratio,0.781,0.526,1.159,0.22,0.797,1,Wald ratio,0.781,0.526,1.159,0.22,0.82,TRUE,ns in both,TRUE
+CNOT4,FALSE,7,1,Wald ratio,0.806,0.571,1.138,0.22,0.797,1,Wald ratio,0.806,0.571,1.138,0.22,0.82,TRUE,ns in both,TRUE
+ERGIC2,FALSE,12,1,Wald ratio,0.855,0.665,1.098,0.22,0.797,1,Wald ratio,0.855,0.665,1.098,0.22,0.82,TRUE,ns in both,TRUE
+GMPPA,FALSE,2,1,Wald ratio,0.716,0.42,1.221,0.22,0.797,1,Wald ratio,0.716,0.42,1.221,0.22,0.82,TRUE,ns in both,TRUE
+PPM1G,FALSE,2,1,Wald ratio,0.911,0.785,1.057,0.22,0.797,1,Wald ratio,0.911,0.785,1.057,0.22,0.82,TRUE,ns in both,TRUE
+RBM6,FALSE,3,1,Wald ratio,1.022,0.987,1.057,0.22,0.797,1,Wald ratio,1.022,0.987,1.057,0.22,0.82,TRUE,ns in both,TRUE
+SLC35C2,FALSE,20,1,Wald ratio,1.64,0.744,3.618,0.22,0.797,1,Wald ratio,1.64,0.744,3.618,0.22,0.82,TRUE,ns in both,TRUE
+TBCC,FALSE,6,1,Wald ratio,1.294,0.857,1.955,0.22,0.797,1,Wald ratio,1.294,0.857,1.955,0.22,0.82,TRUE,ns in both,TRUE
+TRRAP,FALSE,7,1,Wald ratio,0.829,0.614,1.119,0.22,0.797,1,Wald ratio,0.829,0.614,1.119,0.22,0.82,TRUE,ns in both,TRUE
+ZNF862,FALSE,7,1,Wald ratio,1.163,0.914,1.481,0.22,0.797,1,Wald ratio,1.163,0.914,1.481,0.22,0.82,TRUE,ns in both,TRUE
+ANKRD6,FALSE,6,2,Inverse variance weighted,1.146,0.921,1.427,0.221,0.797,2,Inverse variance weighted,1.146,0.921,1.427,0.221,0.82,TRUE,ns in both,TRUE
+CPSF1,FALSE,8,4,Inverse variance weighted,1.031,0.982,1.083,0.221,0.797,4,Inverse variance weighted,1.031,0.982,1.083,0.221,0.82,TRUE,ns in both,TRUE
+LPAR1,FALSE,9,3,Inverse variance weighted,0.969,0.921,1.019,0.224,0.797,3,Inverse variance weighted,0.969,0.921,1.019,0.224,0.82,TRUE,ns in both,TRUE
+ARRDC4,FALSE,15,3,Inverse variance weighted,0.972,0.928,1.018,0.226,0.797,3,Inverse variance weighted,0.972,0.928,1.018,0.226,0.82,TRUE,ns in both,TRUE
+KIAA1191,FALSE,5,2,Inverse variance weighted,0.923,0.81,1.051,0.226,0.797,2,Inverse variance weighted,0.923,0.81,1.051,0.226,0.82,TRUE,ns in both,TRUE
+NBN,FALSE,8,3,Inverse variance weighted,1.04,0.976,1.109,0.226,0.797,3,Inverse variance weighted,1.04,0.976,1.109,0.226,0.82,TRUE,ns in both,TRUE
+ABHD3,FALSE,18,2,Inverse variance weighted,1.123,0.93,1.357,0.227,0.797,2,Inverse variance weighted,1.123,0.93,1.357,0.227,0.82,TRUE,ns in both,TRUE
+ANKRD17,FALSE,4,1,Wald ratio,1.308,0.844,2.029,0.23,0.797,1,Wald ratio,1.308,0.844,2.029,0.23,0.82,TRUE,ns in both,TRUE
+BAZ1B,FALSE,7,1,Wald ratio,1.408,0.805,2.461,0.23,0.797,1,Wald ratio,1.408,0.805,2.461,0.23,0.82,TRUE,ns in both,TRUE
+BIRC6,FALSE,2,1,Wald ratio,1.222,0.881,1.695,0.23,0.797,1,Wald ratio,1.222,0.881,1.695,0.23,0.82,TRUE,ns in both,TRUE
+BLMH,FALSE,17,1,Wald ratio,0.83,0.612,1.125,0.23,0.797,1,Wald ratio,0.83,0.612,1.125,0.23,0.82,TRUE,ns in both,TRUE
+CKLF,FALSE,16,1,Wald ratio,1.157,0.912,1.467,0.23,0.797,1,Wald ratio,1.157,0.912,1.467,0.23,0.82,TRUE,ns in both,TRUE
+FASTK,FALSE,7,1,Wald ratio,0.816,0.585,1.137,0.23,0.797,1,Wald ratio,0.816,0.585,1.137,0.23,0.82,TRUE,ns in both,TRUE
+HEATR1,FALSE,1,1,Wald ratio,1.123,0.929,1.359,0.23,0.797,1,Wald ratio,1.123,0.929,1.359,0.23,0.82,TRUE,ns in both,TRUE
+KL,FALSE,13,4,Inverse variance weighted,0.931,0.829,1.046,0.23,0.797,4,Inverse variance weighted,0.931,0.829,1.046,0.23,0.82,TRUE,ns in both,TRUE
+NOL10,FALSE,2,1,Wald ratio,0.768,0.499,1.182,0.23,0.797,1,Wald ratio,0.768,0.499,1.182,0.23,0.82,TRUE,ns in both,TRUE
+SLC25A45,FALSE,11,1,Wald ratio,0.881,0.716,1.084,0.23,0.797,1,Wald ratio,0.881,0.716,1.084,0.23,0.82,TRUE,ns in both,TRUE
+TIMM50,FALSE,19,1,Wald ratio,1.486,0.778,2.838,0.23,0.797,1,Wald ratio,1.486,0.778,2.838,0.23,0.82,TRUE,ns in both,TRUE
+TMEM131,FALSE,2,1,Wald ratio,1.298,0.848,1.987,0.23,0.797,1,Wald ratio,1.298,0.848,1.987,0.23,0.82,TRUE,ns in both,TRUE
+USP38,FALSE,4,1,Wald ratio,1.069,0.958,1.193,0.23,0.797,1,Wald ratio,1.069,0.958,1.193,0.23,0.82,TRUE,ns in both,TRUE
+CASP1,FALSE,11,2,Inverse variance weighted,1.087,0.948,1.247,0.233,0.807,2,Inverse variance weighted,1.087,0.948,1.247,0.233,0.83,TRUE,ns in both,TRUE
+ANAPC16,FALSE,10,2,Inverse variance weighted,0.779,0.517,1.175,0.234,0.808,2,Inverse variance weighted,0.779,0.517,1.175,0.234,0.831,TRUE,ns in both,TRUE
+JUP,FALSE,17,2,Inverse variance weighted,1.022,0.986,1.06,0.239,0.811,2,Inverse variance weighted,1.022,0.986,1.06,0.239,0.833,TRUE,ns in both,TRUE
+PPP1CB,FALSE,2,2,Inverse variance weighted,0.951,0.875,1.034,0.239,0.811,2,Inverse variance weighted,0.951,0.875,1.034,0.239,0.833,TRUE,ns in both,TRUE
+ALG8,FALSE,11,1,Wald ratio,1.101,0.938,1.292,0.24,0.811,1,Wald ratio,1.101,0.938,1.292,0.24,0.833,TRUE,ns in both,TRUE
+FIZ1,FALSE,19,1,Wald ratio,1.249,0.862,1.812,0.24,0.811,1,Wald ratio,1.249,0.862,1.812,0.24,0.833,TRUE,ns in both,TRUE
+GDPD5,FALSE,11,5,Inverse variance weighted,1.029,0.981,1.078,0.24,0.811,5,Inverse variance weighted,1.029,0.981,1.078,0.24,0.833,TRUE,ns in both,TRUE
+POGK,FALSE,1,1,Wald ratio,0.927,0.816,1.052,0.24,0.811,1,Wald ratio,0.927,0.816,1.052,0.24,0.833,TRUE,ns in both,TRUE
+POGZ,FALSE,1,1,Wald ratio,1.072,0.955,1.204,0.24,0.811,1,Wald ratio,1.072,0.955,1.204,0.24,0.833,TRUE,ns in both,TRUE
+TRMT2A,FALSE,22,1,Wald ratio,0.773,0.504,1.187,0.24,0.811,1,Wald ratio,0.773,0.504,1.187,0.24,0.833,TRUE,ns in both,TRUE
+YEATS2,FALSE,3,1,Wald ratio,0.904,0.764,1.07,0.24,0.811,1,Wald ratio,0.904,0.764,1.07,0.24,0.833,TRUE,ns in both,TRUE
+DGKQ,FALSE,4,3,Inverse variance weighted,1.029,0.981,1.079,0.243,0.82,3,Inverse variance weighted,1.029,0.981,1.079,0.243,0.843,TRUE,ns in both,TRUE
+ZMIZ2,FALSE,7,3,Inverse variance weighted,0.954,0.88,1.033,0.244,0.821,3,Inverse variance weighted,0.954,0.88,1.033,0.244,0.844,TRUE,ns in both,TRUE
+S100A8,FALSE,1,2,Inverse variance weighted,0.931,0.825,1.051,0.247,0.822,2,Inverse variance weighted,0.931,0.825,1.051,0.247,0.846,TRUE,ns in both,TRUE
+VEGFA,FALSE,6,3,Inverse variance weighted,1.082,0.947,1.237,0.247,0.822,3,Inverse variance weighted,1.082,0.947,1.237,0.247,0.846,TRUE,ns in both,TRUE
+CISD2,FALSE,4,1,Wald ratio,0.865,0.675,1.108,0.25,0.822,1,Wald ratio,0.865,0.675,1.108,0.25,0.846,TRUE,ns in both,TRUE
+INTS9,FALSE,8,1,Wald ratio,1.251,0.854,1.834,0.25,0.822,1,Wald ratio,1.251,0.854,1.834,0.25,0.846,TRUE,ns in both,TRUE
+KCNJ2,FALSE,17,1,Wald ratio,1.109,0.93,1.324,0.25,0.822,1,Wald ratio,1.109,0.93,1.324,0.25,0.846,TRUE,ns in both,TRUE
+RNASEH2A,FALSE,19,1,Wald ratio,0.808,0.562,1.162,0.25,0.822,1,Wald ratio,0.808,0.562,1.162,0.25,0.846,TRUE,ns in both,TRUE
+RRM2B,FALSE,8,1,Wald ratio,0.894,0.74,1.082,0.25,0.822,1,Wald ratio,0.894,0.74,1.082,0.25,0.846,TRUE,ns in both,TRUE
+SLC40A1,FALSE,2,1,Wald ratio,0.954,0.88,1.034,0.25,0.822,1,Wald ratio,0.954,0.88,1.034,0.25,0.846,TRUE,ns in both,TRUE
+TRIM26,TRUE,6,1,Wald ratio,0.862,0.67,1.11,0.25,0.822,,,,,,,,FALSE,ns in both,
+TRIP4,FALSE,15,1,Wald ratio,1.047,0.968,1.133,0.25,0.822,1,Wald ratio,1.047,0.968,1.133,0.25,0.846,TRUE,ns in both,TRUE
+DUS3L,FALSE,19,3,Inverse variance weighted,0.95,0.87,1.037,0.253,0.831,3,Inverse variance weighted,0.95,0.87,1.037,0.253,0.855,TRUE,ns in both,TRUE
+MRPL10,FALSE,17,2,Inverse variance weighted,1.066,0.955,1.191,0.254,0.833,2,Inverse variance weighted,1.066,0.955,1.191,0.254,0.857,TRUE,ns in both,TRUE
+ASXL1,FALSE,20,1,Wald ratio,0.925,0.808,1.059,0.26,0.838,1,Wald ratio,0.925,0.808,1.059,0.26,0.861,TRUE,ns in both,TRUE
+CNIH4,FALSE,1,1,Wald ratio,0.795,0.533,1.185,0.26,0.838,1,Wald ratio,0.795,0.533,1.185,0.26,0.861,TRUE,ns in both,TRUE
+DDOST,FALSE,1,1,Wald ratio,0.934,0.83,1.052,0.26,0.838,1,Wald ratio,0.934,0.83,1.052,0.26,0.861,TRUE,ns in both,TRUE
+IL11RA,FALSE,9,1,Wald ratio,0.89,0.726,1.09,0.26,0.838,1,Wald ratio,0.89,0.726,1.09,0.26,0.861,TRUE,ns in both,TRUE
+KCTD12,FALSE,13,1,Wald ratio,0.926,0.811,1.058,0.26,0.838,1,Wald ratio,0.926,0.811,1.058,0.26,0.861,TRUE,ns in both,TRUE
+RSBN1L,FALSE,7,1,Wald ratio,1.091,0.938,1.27,0.26,0.838,1,Wald ratio,1.091,0.938,1.27,0.26,0.861,TRUE,ns in both,TRUE
+WDR90,FALSE,16,1,Wald ratio,0.928,0.815,1.057,0.26,0.838,1,Wald ratio,0.928,0.815,1.057,0.26,0.861,TRUE,ns in both,TRUE
+ABCF1,TRUE,6,2,Inverse variance weighted,1.235,0.855,1.784,0.261,0.84,,,,,,,,FALSE,ns in both,
+LMF2,FALSE,22,2,Inverse variance weighted,0.881,0.705,1.102,0.267,0.84,2,Inverse variance weighted,0.881,0.705,1.102,0.267,0.861,TRUE,ns in both,TRUE
+GAMT,FALSE,19,2,Inverse variance weighted,0.85,0.637,1.134,0.269,0.84,2,Inverse variance weighted,0.85,0.637,1.134,0.269,0.861,TRUE,ns in both,TRUE
+ABI3,FALSE,17,1,Wald ratio,1.245,0.843,1.838,0.27,0.84,1,Wald ratio,1.245,0.843,1.838,0.27,0.861,TRUE,ns in both,TRUE
+BBS1,FALSE,11,1,Wald ratio,0.895,0.734,1.09,0.27,0.84,1,Wald ratio,0.895,0.734,1.09,0.27,0.861,TRUE,ns in both,TRUE
+CD248,FALSE,11,1,Wald ratio,1.353,0.791,2.316,0.27,0.84,1,Wald ratio,1.353,0.791,2.316,0.27,0.861,TRUE,ns in both,TRUE
+HAGHL,FALSE,16,2,Inverse variance weighted,1.057,0.958,1.166,0.27,0.84,2,Inverse variance weighted,1.057,0.958,1.166,0.27,0.861,TRUE,ns in both,TRUE
+LONRF1,FALSE,8,1,Wald ratio,1.095,0.932,1.285,0.27,0.84,1,Wald ratio,1.095,0.932,1.285,0.27,0.861,TRUE,ns in both,TRUE
+MRPL55,FALSE,1,1,Wald ratio,1.079,0.943,1.235,0.27,0.84,1,Wald ratio,1.079,0.943,1.235,0.27,0.861,TRUE,ns in both,TRUE
+NOL9,FALSE,1,1,Wald ratio,1.06,0.956,1.175,0.27,0.84,1,Wald ratio,1.06,0.956,1.175,0.27,0.861,TRUE,ns in both,TRUE
+PWP1,FALSE,12,1,Wald ratio,1.044,0.967,1.127,0.27,0.84,1,Wald ratio,1.044,0.967,1.127,0.27,0.861,TRUE,ns in both,TRUE
+SBF2,FALSE,11,1,Wald ratio,1.202,0.867,1.665,0.27,0.84,1,Wald ratio,1.202,0.867,1.665,0.27,0.861,TRUE,ns in both,TRUE
+ZNF276,FALSE,16,1,Wald ratio,0.944,0.853,1.046,0.27,0.84,1,Wald ratio,0.944,0.853,1.046,0.27,0.861,TRUE,ns in both,TRUE
+PCGF3,FALSE,4,2,Inverse variance weighted,0.922,0.798,1.066,0.271,0.84,2,Inverse variance weighted,0.922,0.798,1.066,0.271,0.861,TRUE,ns in both,TRUE
+CDK13,FALSE,7,2,Inverse variance weighted,0.883,0.707,1.104,0.275,0.84,2,Inverse variance weighted,0.883,0.707,1.104,0.275,0.861,TRUE,ns in both,TRUE
+FN3KRP,FALSE,17,3,Inverse variance weighted,1.021,0.984,1.058,0.275,0.84,3,Inverse variance weighted,1.021,0.984,1.058,0.275,0.861,TRUE,ns in both,TRUE
+CBLB,FALSE,3,3,Inverse variance weighted,1.105,0.923,1.323,0.278,0.84,3,Inverse variance weighted,1.105,0.923,1.323,0.278,0.861,TRUE,ns in both,TRUE
+SNAP47,FALSE,1,2,Inverse variance weighted,0.889,0.718,1.1,0.279,0.84,2,Inverse variance weighted,0.889,0.718,1.1,0.279,0.861,TRUE,ns in both,TRUE
+CUTC,FALSE,10,1,Wald ratio,0.41,0.082,2.065,0.28,0.84,1,Wald ratio,0.41,0.082,2.065,0.28,0.861,TRUE,ns in both,TRUE
+DCTD,FALSE,4,1,Wald ratio,1.053,0.959,1.158,0.28,0.84,1,Wald ratio,1.053,0.959,1.158,0.28,0.861,TRUE,ns in both,TRUE
+DNPEP,FALSE,2,2,Inverse variance weighted,0.923,0.798,1.068,0.28,0.84,2,Inverse variance weighted,0.923,0.798,1.068,0.28,0.861,TRUE,ns in both,TRUE
+GALK2,FALSE,15,1,Wald ratio,0.935,0.827,1.056,0.28,0.84,1,Wald ratio,0.935,0.827,1.056,0.28,0.861,TRUE,ns in both,TRUE
+INO80,FALSE,15,1,Wald ratio,1.303,0.806,2.106,0.28,0.84,1,Wald ratio,1.303,0.806,2.106,0.28,0.861,TRUE,ns in both,TRUE
+MAPKBP1,FALSE,15,1,Wald ratio,0.828,0.587,1.167,0.28,0.84,1,Wald ratio,0.828,0.587,1.167,0.28,0.861,TRUE,ns in both,TRUE
+MYO9A,FALSE,15,1,Wald ratio,0.911,0.77,1.079,0.28,0.84,1,Wald ratio,0.911,0.77,1.079,0.28,0.861,TRUE,ns in both,TRUE
+TBC1D10C,FALSE,11,1,Wald ratio,1.166,0.883,1.54,0.28,0.84,1,Wald ratio,1.166,0.883,1.54,0.28,0.861,TRUE,ns in both,TRUE
+TMOD3,FALSE,15,1,Wald ratio,0.896,0.733,1.094,0.28,0.84,1,Wald ratio,0.896,0.733,1.094,0.28,0.861,TRUE,ns in both,TRUE
+TSPAN2,FALSE,1,1,Wald ratio,0.855,0.643,1.137,0.28,0.84,1,Wald ratio,0.855,0.643,1.137,0.28,0.861,TRUE,ns in both,TRUE
+ZBTB20,FALSE,3,1,Wald ratio,1.256,0.83,1.901,0.28,0.84,1,Wald ratio,1.256,0.83,1.901,0.28,0.861,TRUE,ns in both,TRUE
+ZNF346,FALSE,5,1,Wald ratio,1.287,0.814,2.036,0.28,0.84,1,Wald ratio,1.287,0.814,2.036,0.28,0.861,TRUE,ns in both,TRUE
+PPP2R5A,FALSE,1,3,Inverse variance weighted,0.91,0.767,1.08,0.281,0.84,3,Inverse variance weighted,0.91,0.767,1.08,0.281,0.861,TRUE,ns in both,TRUE
+RASA3,FALSE,13,4,Inverse variance weighted,1.079,0.939,1.24,0.282,0.84,4,Inverse variance weighted,1.079,0.939,1.24,0.282,0.861,TRUE,ns in both,TRUE
+RAB5A,FALSE,3,2,Inverse variance weighted,1.062,0.952,1.184,0.283,0.84,2,Inverse variance weighted,1.062,0.952,1.184,0.283,0.861,TRUE,ns in both,TRUE
+SDR39U1,FALSE,14,2,Inverse variance weighted,0.932,0.819,1.06,0.283,0.84,2,Inverse variance weighted,0.932,0.819,1.06,0.283,0.861,TRUE,ns in both,TRUE
+MYH10,FALSE,17,2,Inverse variance weighted,1.204,0.857,1.691,0.284,0.84,2,Inverse variance weighted,1.204,0.857,1.691,0.284,0.861,TRUE,ns in both,TRUE
+RASSF7,FALSE,11,2,Inverse variance weighted,0.845,0.622,1.149,0.284,0.84,2,Inverse variance weighted,0.845,0.622,1.149,0.284,0.861,TRUE,ns in both,TRUE
+CIITA,FALSE,16,2,Inverse variance weighted,0.911,0.767,1.081,0.285,0.84,2,Inverse variance weighted,0.911,0.767,1.081,0.285,0.861,TRUE,ns in both,TRUE
+S100A12,FALSE,1,2,Inverse variance weighted,0.973,0.926,1.023,0.286,0.84,2,Inverse variance weighted,0.973,0.926,1.023,0.286,0.861,TRUE,ns in both,TRUE
+MTDH,FALSE,8,2,Inverse variance weighted,1.215,0.849,1.74,0.287,0.84,2,Inverse variance weighted,1.215,0.849,1.74,0.287,0.861,TRUE,ns in both,TRUE
+ABCC2,FALSE,10,1,Wald ratio,0.912,0.769,1.082,0.29,0.84,1,Wald ratio,0.912,0.769,1.082,0.29,0.861,TRUE,ns in both,TRUE
+ADCK2,FALSE,7,1,Wald ratio,1.03,0.975,1.089,0.29,0.84,1,Wald ratio,1.03,0.975,1.089,0.29,0.861,TRUE,ns in both,TRUE
+ELAC2,FALSE,17,1,Wald ratio,0.961,0.894,1.034,0.29,0.84,1,Wald ratio,0.961,0.894,1.034,0.29,0.861,TRUE,ns in both,TRUE
+FANCE,FALSE,6,1,Wald ratio,0.847,0.624,1.152,0.29,0.84,1,Wald ratio,0.847,0.624,1.152,0.29,0.861,TRUE,ns in both,TRUE
+IL27RA,FALSE,19,1,Wald ratio,1.419,0.742,2.716,0.29,0.84,1,Wald ratio,1.419,0.742,2.716,0.29,0.861,TRUE,ns in both,TRUE
+NAT14,FALSE,19,1,Wald ratio,0.85,0.628,1.149,0.29,0.84,1,Wald ratio,0.85,0.628,1.149,0.29,0.861,TRUE,ns in both,TRUE
+NOB1,FALSE,16,1,Wald ratio,1.218,0.845,1.754,0.29,0.84,1,Wald ratio,1.218,0.845,1.754,0.29,0.861,TRUE,ns in both,TRUE
+SIN3A,FALSE,15,1,Wald ratio,1.48,0.716,3.06,0.29,0.84,1,Wald ratio,1.48,0.716,3.06,0.29,0.861,TRUE,ns in both,TRUE
+SLC37A3,FALSE,7,1,Wald ratio,1.048,0.961,1.142,0.29,0.84,1,Wald ratio,1.048,0.961,1.142,0.29,0.861,TRUE,ns in both,TRUE
+SLK,FALSE,10,3,Inverse variance weighted,1.07,0.944,1.213,0.29,0.84,3,Inverse variance weighted,1.07,0.944,1.213,0.29,0.861,TRUE,ns in both,TRUE
+TM6SF1,FALSE,15,1,Wald ratio,0.925,0.8,1.069,0.29,0.84,1,Wald ratio,0.925,0.8,1.069,0.29,0.861,TRUE,ns in both,TRUE
+TRPV2,FALSE,17,1,Wald ratio,1.084,0.934,1.259,0.29,0.84,1,Wald ratio,1.084,0.934,1.259,0.29,0.861,TRUE,ns in both,TRUE
+UBFD1,FALSE,16,1,Wald ratio,0.926,0.802,1.068,0.29,0.84,1,Wald ratio,0.926,0.802,1.068,0.29,0.861,TRUE,ns in both,TRUE
+CIB1,FALSE,15,2,Inverse variance weighted,1.022,0.982,1.063,0.293,0.847,2,Inverse variance weighted,1.022,0.982,1.063,0.293,0.867,TRUE,ns in both,TRUE
+KLHL5,FALSE,4,2,Inverse variance weighted,1.032,0.973,1.096,0.295,0.849,2,Inverse variance weighted,1.032,0.973,1.096,0.295,0.869,TRUE,ns in both,TRUE
+TCTN1,FALSE,12,2,Inverse variance weighted,0.882,0.697,1.116,0.296,0.849,2,Inverse variance weighted,0.882,0.697,1.116,0.296,0.869,TRUE,ns in both,TRUE
+SLCO4C1,FALSE,5,2,Inverse variance weighted,0.93,0.811,1.066,0.297,0.849,2,Inverse variance weighted,0.93,0.811,1.066,0.297,0.869,TRUE,ns in both,TRUE
+AHSA1,FALSE,14,1,Wald ratio,1.297,0.793,2.121,0.3,0.849,1,Wald ratio,1.297,0.793,2.121,0.3,0.869,TRUE,ns in both,TRUE
+COPZ1,FALSE,12,1,Wald ratio,1.189,0.857,1.65,0.3,0.849,1,Wald ratio,1.189,0.857,1.65,0.3,0.869,TRUE,ns in both,TRUE
+ERGIC3,FALSE,20,1,Wald ratio,1.113,0.909,1.365,0.3,0.849,1,Wald ratio,1.113,0.909,1.365,0.3,0.869,TRUE,ns in both,TRUE
+LSM4,FALSE,19,1,Wald ratio,0.941,0.838,1.056,0.3,0.849,1,Wald ratio,0.941,0.838,1.056,0.3,0.869,TRUE,ns in both,TRUE
+PDXDC1,FALSE,16,1,Wald ratio,1.208,0.845,1.725,0.3,0.849,1,Wald ratio,1.208,0.845,1.725,0.3,0.869,TRUE,ns in both,TRUE
+SETD1A,FALSE,16,1,Wald ratio,1.126,0.899,1.41,0.3,0.849,1,Wald ratio,1.126,0.899,1.41,0.3,0.869,TRUE,ns in both,TRUE
+SF3B3,FALSE,16,1,Wald ratio,0.93,0.81,1.067,0.3,0.849,1,Wald ratio,0.93,0.81,1.067,0.3,0.869,TRUE,ns in both,TRUE
+SFMBT1,FALSE,3,1,Wald ratio,0.894,0.724,1.105,0.3,0.849,1,Wald ratio,0.894,0.724,1.105,0.3,0.869,TRUE,ns in both,TRUE
+FPGS,FALSE,9,2,Inverse variance weighted,1.194,0.853,1.673,0.301,0.85,2,Inverse variance weighted,1.194,0.853,1.673,0.301,0.869,TRUE,ns in both,TRUE
+OSGEP,FALSE,14,3,Inverse variance weighted,0.974,0.927,1.024,0.302,0.85,3,Inverse variance weighted,0.974,0.927,1.024,0.302,0.869,TRUE,ns in both,TRUE
+PTPN12,FALSE,7,4,Inverse variance weighted,0.963,0.896,1.035,0.302,0.85,4,Inverse variance weighted,0.963,0.896,1.035,0.302,0.869,TRUE,ns in both,TRUE
+NEIL2,FALSE,8,3,Inverse variance weighted,1.068,0.943,1.21,0.303,0.85,3,Inverse variance weighted,1.068,0.943,1.21,0.303,0.869,TRUE,ns in both,TRUE
+ALS2CL,FALSE,3,2,Inverse variance weighted,1.214,0.838,1.759,0.304,0.851,2,Inverse variance weighted,1.214,0.838,1.759,0.304,0.87,TRUE,ns in both,TRUE
+WDR18,FALSE,19,2,Inverse variance weighted,1.051,0.956,1.156,0.304,0.851,2,Inverse variance weighted,1.051,0.956,1.156,0.304,0.87,TRUE,ns in both,TRUE
+RIN2,FALSE,20,3,Inverse variance weighted,1.141,0.886,1.469,0.307,0.851,3,Inverse variance weighted,1.141,0.886,1.469,0.307,0.87,TRUE,ns in both,TRUE
+IL18R1,FALSE,2,2,Inverse variance weighted,0.961,0.891,1.037,0.309,0.851,2,Inverse variance weighted,0.961,0.891,1.037,0.309,0.87,TRUE,ns in both,TRUE
+ACSS1,FALSE,20,1,Wald ratio,1.146,0.881,1.489,0.31,0.851,1,Wald ratio,1.146,0.881,1.489,0.31,0.87,TRUE,ns in both,TRUE
+CHD1,FALSE,5,1,Wald ratio,1.339,0.762,2.352,0.31,0.851,1,Wald ratio,1.339,0.762,2.352,0.31,0.87,TRUE,ns in both,TRUE
+CIRBP,FALSE,19,1,Wald ratio,0.8,0.52,1.231,0.31,0.851,1,Wald ratio,0.8,0.52,1.231,0.31,0.87,TRUE,ns in both,TRUE
+FNIP2,FALSE,4,1,Wald ratio,1.058,0.949,1.178,0.31,0.851,1,Wald ratio,1.058,0.949,1.178,0.31,0.87,TRUE,ns in both,TRUE
+NEK8,FALSE,17,1,Wald ratio,0.777,0.477,1.265,0.31,0.851,1,Wald ratio,0.777,0.477,1.265,0.31,0.87,TRUE,ns in both,TRUE
+SSBP4,FALSE,19,1,Wald ratio,1.122,0.898,1.402,0.31,0.851,1,Wald ratio,1.122,0.898,1.402,0.31,0.87,TRUE,ns in both,TRUE
+SSRP1,FALSE,11,1,Wald ratio,1.345,0.759,2.383,0.31,0.851,1,Wald ratio,1.345,0.759,2.383,0.31,0.87,TRUE,ns in both,TRUE
+THAP4,FALSE,2,1,Wald ratio,1.221,0.831,1.793,0.31,0.851,1,Wald ratio,1.221,0.831,1.793,0.31,0.87,TRUE,ns in both,TRUE
+LARP1,FALSE,5,2,Inverse variance weighted,0.939,0.831,1.061,0.314,0.857,2,Inverse variance weighted,0.939,0.831,1.061,0.314,0.873,TRUE,ns in both,TRUE
+VAV2,FALSE,9,3,Inverse variance weighted,0.858,0.637,1.156,0.314,0.857,3,Inverse variance weighted,0.858,0.637,1.156,0.314,0.873,TRUE,ns in both,TRUE
+TMEM71,FALSE,8,3,Inverse variance weighted,1.044,0.96,1.136,0.315,0.857,3,Inverse variance weighted,1.044,0.96,1.136,0.315,0.873,TRUE,ns in both,TRUE
+EXOC2,FALSE,6,2,Inverse variance weighted,0.926,0.797,1.076,0.317,0.857,2,Inverse variance weighted,0.926,0.797,1.076,0.317,0.873,TRUE,ns in both,TRUE
+PARP1,FALSE,1,3,Inverse variance weighted,1.067,0.939,1.211,0.319,0.857,3,Inverse variance weighted,1.067,0.939,1.211,0.319,0.873,TRUE,ns in both,TRUE
+GALNT6,FALSE,12,1,Wald ratio,1.083,0.926,1.267,0.32,0.857,1,Wald ratio,1.083,0.926,1.267,0.32,0.873,TRUE,ns in both,TRUE
+HMGXB3,FALSE,5,1,Wald ratio,1.058,0.947,1.183,0.32,0.857,1,Wald ratio,1.058,0.947,1.183,0.32,0.873,TRUE,ns in both,TRUE
+MAFK,FALSE,7,1,Wald ratio,0.868,0.658,1.147,0.32,0.857,1,Wald ratio,0.868,0.658,1.147,0.32,0.873,TRUE,ns in both,TRUE
+PPP1R12A,FALSE,12,1,Wald ratio,1.232,0.817,1.858,0.32,0.857,1,Wald ratio,1.232,0.817,1.858,0.32,0.873,TRUE,ns in both,TRUE
+SORBS3,FALSE,8,1,Wald ratio,0.825,0.564,1.206,0.32,0.857,1,Wald ratio,0.825,0.564,1.206,0.32,0.873,TRUE,ns in both,TRUE
+TOMM34,FALSE,20,2,Inverse variance weighted,0.971,0.915,1.029,0.32,0.857,2,Inverse variance weighted,0.971,0.915,1.029,0.32,0.873,TRUE,ns in both,TRUE
+ZBTB4,FALSE,17,1,Wald ratio,1.091,0.919,1.294,0.32,0.857,1,Wald ratio,1.091,0.919,1.294,0.32,0.873,TRUE,ns in both,TRUE
+ZFPM1,FALSE,16,1,Wald ratio,1.285,0.784,2.104,0.32,0.857,1,Wald ratio,1.285,0.784,2.104,0.32,0.873,TRUE,ns in both,TRUE
+WDR47,FALSE,1,2,Inverse variance weighted,1.284,0.784,2.105,0.321,0.857,2,Inverse variance weighted,1.284,0.784,2.105,0.321,0.873,TRUE,ns in both,TRUE
+CDK9,FALSE,9,2,Inverse variance weighted,1.172,0.856,1.605,0.323,0.857,2,Inverse variance weighted,1.172,0.856,1.605,0.323,0.873,TRUE,ns in both,TRUE
+TSPAN10,FALSE,17,2,Inverse variance weighted,1.103,0.908,1.34,0.324,0.857,2,Inverse variance weighted,1.103,0.908,1.34,0.324,0.873,TRUE,ns in both,TRUE
+LHPP,FALSE,10,4,Inverse variance weighted,0.959,0.882,1.042,0.326,0.857,4,Inverse variance weighted,0.959,0.882,1.042,0.326,0.873,TRUE,ns in both,TRUE
+NAT1,FALSE,8,2,Inverse variance weighted,1.119,0.894,1.402,0.327,0.857,2,Inverse variance weighted,1.119,0.894,1.402,0.327,0.873,TRUE,ns in both,TRUE
+ZNF608,FALSE,5,3,Inverse variance weighted,1.109,0.901,1.365,0.328,0.857,3,Inverse variance weighted,1.109,0.901,1.365,0.328,0.873,TRUE,ns in both,TRUE
+CLEC4A,FALSE,12,1,Wald ratio,0.945,0.844,1.059,0.33,0.857,1,Wald ratio,0.945,0.844,1.059,0.33,0.873,TRUE,ns in both,TRUE
+FNBP1,FALSE,9,3,Inverse variance weighted,1.044,0.957,1.138,0.33,0.857,3,Inverse variance weighted,1.044,0.957,1.138,0.33,0.873,TRUE,ns in both,TRUE
+IL18,FALSE,11,1,Wald ratio,0.937,0.822,1.068,0.33,0.857,1,Wald ratio,0.937,0.822,1.068,0.33,0.873,TRUE,ns in both,TRUE
+LUC7L,FALSE,16,1,Wald ratio,0.892,0.708,1.123,0.33,0.857,1,Wald ratio,0.892,0.708,1.123,0.33,0.873,TRUE,ns in both,TRUE
+MPP7,FALSE,10,1,Wald ratio,0.775,0.465,1.294,0.33,0.857,1,Wald ratio,0.775,0.465,1.294,0.33,0.873,TRUE,ns in both,TRUE
+NEK7,FALSE,1,1,Wald ratio,0.834,0.579,1.201,0.33,0.857,1,Wald ratio,0.834,0.579,1.201,0.33,0.873,TRUE,ns in both,TRUE
+NSUN5P1,FALSE,7,1,Wald ratio,0.905,0.741,1.106,0.33,0.857,1,Wald ratio,0.905,0.741,1.106,0.33,0.873,TRUE,ns in both,TRUE
+POLD2,FALSE,7,1,Wald ratio,1.224,0.815,1.84,0.33,0.857,1,Wald ratio,1.224,0.815,1.84,0.33,0.873,TRUE,ns in both,TRUE
+RNF126,FALSE,19,1,Wald ratio,0.837,0.585,1.197,0.33,0.857,1,Wald ratio,0.837,0.585,1.197,0.33,0.873,TRUE,ns in both,TRUE
+SLC17A9,FALSE,20,1,Wald ratio,0.936,0.82,1.069,0.33,0.857,1,Wald ratio,0.936,0.82,1.069,0.33,0.873,TRUE,ns in both,TRUE
+TTYH2,FALSE,17,2,Inverse variance weighted,0.931,0.807,1.075,0.33,0.857,2,Inverse variance weighted,0.931,0.807,1.075,0.33,0.873,TRUE,ns in both,TRUE
+WBP11,FALSE,12,1,Wald ratio,1.126,0.887,1.428,0.33,0.857,1,Wald ratio,1.126,0.887,1.428,0.33,0.873,TRUE,ns in both,TRUE
+TRAF3IP2,FALSE,6,3,Inverse variance weighted,1.028,0.972,1.088,0.331,0.857,3,Inverse variance weighted,1.028,0.972,1.088,0.331,0.873,TRUE,ns in both,TRUE
+MAPRE2,FALSE,18,2,Inverse variance weighted,1.069,0.934,1.225,0.332,0.858,2,Inverse variance weighted,1.069,0.934,1.225,0.332,0.874,TRUE,ns in both,TRUE
+SMARCB1,FALSE,22,3,Inverse variance weighted,0.901,0.729,1.112,0.332,0.858,3,Inverse variance weighted,0.901,0.729,1.112,0.332,0.874,TRUE,ns in both,TRUE
+AKR7A2,FALSE,1,2,Inverse variance weighted,0.904,0.738,1.109,0.333,0.858,2,Inverse variance weighted,0.904,0.738,1.109,0.333,0.874,TRUE,ns in both,TRUE
+BTBD3,FALSE,20,2,Inverse variance weighted,0.891,0.704,1.127,0.334,0.858,2,Inverse variance weighted,0.891,0.704,1.127,0.334,0.874,TRUE,ns in both,TRUE
+PCNT,FALSE,21,2,Inverse variance weighted,0.966,0.902,1.036,0.334,0.858,2,Inverse variance weighted,0.966,0.902,1.036,0.334,0.874,TRUE,ns in both,TRUE
+PCMTD1,FALSE,8,2,Inverse variance weighted,1.049,0.952,1.156,0.336,0.858,2,Inverse variance weighted,1.049,0.952,1.156,0.336,0.874,TRUE,ns in both,TRUE
+SRBD1,FALSE,2,2,Inverse variance weighted,1.045,0.955,1.143,0.337,0.858,2,Inverse variance weighted,1.045,0.955,1.143,0.337,0.874,TRUE,ns in both,TRUE
+BCL2A1,FALSE,15,1,Wald ratio,0.87,0.654,1.158,0.34,0.858,1,Wald ratio,0.87,0.654,1.158,0.34,0.874,TRUE,ns in both,TRUE
+BTRC,FALSE,10,1,Wald ratio,1.116,0.891,1.398,0.34,0.858,1,Wald ratio,1.116,0.891,1.398,0.34,0.874,TRUE,ns in both,TRUE
+CD58,FALSE,1,1,Wald ratio,0.871,0.655,1.157,0.34,0.858,1,Wald ratio,0.871,0.655,1.157,0.34,0.874,TRUE,ns in both,TRUE
+CEP164,FALSE,11,1,Wald ratio,1.209,0.819,1.786,0.34,0.858,1,Wald ratio,1.209,0.819,1.786,0.34,0.874,TRUE,ns in both,TRUE
+PAFAH2,FALSE,1,1,Wald ratio,1.043,0.957,1.136,0.34,0.858,1,Wald ratio,1.043,0.957,1.136,0.34,0.874,TRUE,ns in both,TRUE
+PTPN18,FALSE,2,1,Wald ratio,0.827,0.559,1.222,0.34,0.858,1,Wald ratio,0.827,0.559,1.222,0.34,0.874,TRUE,ns in both,TRUE
+RGS2,FALSE,1,1,Wald ratio,0.911,0.753,1.103,0.34,0.858,1,Wald ratio,0.911,0.753,1.103,0.34,0.874,TRUE,ns in both,TRUE
+RNF13,FALSE,3,2,Inverse variance weighted,1.04,0.96,1.126,0.34,0.858,2,Inverse variance weighted,1.04,0.96,1.126,0.34,0.874,TRUE,ns in both,TRUE
+UBL3,FALSE,13,2,Inverse variance weighted,1.11,0.896,1.374,0.34,0.858,2,Inverse variance weighted,1.11,0.896,1.374,0.34,0.874,TRUE,ns in both,TRUE
+ING1,FALSE,13,2,Inverse variance weighted,0.938,0.822,1.07,0.341,0.858,2,Inverse variance weighted,0.938,0.822,1.07,0.341,0.874,TRUE,ns in both,TRUE
+LONP1,FALSE,19,3,Inverse variance weighted,1.034,0.964,1.11,0.345,0.865,3,Inverse variance weighted,1.034,0.964,1.11,0.345,0.879,TRUE,ns in both,TRUE
+NFATC2IP,FALSE,16,2,Inverse variance weighted,1.216,0.811,1.822,0.345,0.865,2,Inverse variance weighted,1.216,0.811,1.822,0.345,0.879,TRUE,ns in both,TRUE
+DRAM1,FALSE,12,2,Inverse variance weighted,1.071,0.928,1.237,0.346,0.865,2,Inverse variance weighted,1.071,0.928,1.237,0.346,0.879,TRUE,ns in both,TRUE
+ITPA,FALSE,20,2,Inverse variance weighted,1.028,0.97,1.09,0.347,0.865,2,Inverse variance weighted,1.028,0.97,1.09,0.347,0.879,TRUE,ns in both,TRUE
+CDAN1,FALSE,15,2,Inverse variance weighted,1.107,0.895,1.369,0.349,0.865,2,Inverse variance weighted,1.107,0.895,1.369,0.349,0.879,TRUE,ns in both,TRUE
+AEBP1,FALSE,7,1,Wald ratio,1.242,0.788,1.957,0.35,0.865,1,Wald ratio,1.242,0.788,1.957,0.35,0.879,TRUE,ns in both,TRUE
+PBLD,FALSE,10,1,Wald ratio,0.765,0.437,1.341,0.35,0.865,1,Wald ratio,0.765,0.437,1.341,0.35,0.879,TRUE,ns in both,TRUE
+SAC3D1,FALSE,11,1,Wald ratio,1.064,0.934,1.212,0.35,0.865,1,Wald ratio,1.064,0.934,1.212,0.35,0.879,TRUE,ns in both,TRUE
+SNRNP70,FALSE,19,1,Wald ratio,0.907,0.74,1.112,0.35,0.865,1,Wald ratio,0.907,0.74,1.112,0.35,0.879,TRUE,ns in both,TRUE
+GPD2,FALSE,2,3,Inverse variance weighted,0.961,0.885,1.045,0.354,0.865,3,Inverse variance weighted,0.961,0.885,1.045,0.354,0.879,TRUE,ns in both,TRUE
+TLR4,FALSE,9,3,Inverse variance weighted,1.022,0.976,1.071,0.355,0.865,3,Inverse variance weighted,1.022,0.976,1.071,0.355,0.879,TRUE,ns in both,TRUE
+ABCA3,FALSE,16,1,Wald ratio,1.303,0.739,2.298,0.36,0.865,1,Wald ratio,1.303,0.739,2.298,0.36,0.879,TRUE,ns in both,TRUE
+C11orf24,FALSE,11,1,Wald ratio,1.112,0.886,1.395,0.36,0.865,1,Wald ratio,1.112,0.886,1.395,0.36,0.879,TRUE,ns in both,TRUE
+CLEC12A,FALSE,12,2,Inverse variance weighted,1.125,0.874,1.448,0.36,0.865,2,Inverse variance weighted,1.125,0.874,1.448,0.36,0.879,TRUE,ns in both,TRUE
+CNDP2,FALSE,18,3,Inverse variance weighted,1.029,0.968,1.093,0.36,0.865,3,Inverse variance weighted,1.029,0.968,1.093,0.36,0.879,TRUE,ns in both,TRUE
+EHD4,FALSE,15,1,Wald ratio,0.956,0.868,1.053,0.36,0.865,1,Wald ratio,0.956,0.868,1.053,0.36,0.879,TRUE,ns in both,TRUE
+FBXO30,FALSE,6,1,Wald ratio,0.898,0.712,1.131,0.36,0.865,1,Wald ratio,0.898,0.712,1.131,0.36,0.879,TRUE,ns in both,TRUE
+FGD2,FALSE,6,1,Wald ratio,1.084,0.912,1.29,0.36,0.865,1,Wald ratio,1.084,0.912,1.29,0.36,0.879,TRUE,ns in both,TRUE
+IGSF8,FALSE,1,1,Wald ratio,0.93,0.797,1.086,0.36,0.865,1,Wald ratio,0.93,0.797,1.086,0.36,0.879,TRUE,ns in both,TRUE
+ITPKB,FALSE,1,1,Wald ratio,1.119,0.88,1.423,0.36,0.865,1,Wald ratio,1.119,0.88,1.423,0.36,0.879,TRUE,ns in both,TRUE
+NFATC2,FALSE,20,1,Wald ratio,1.385,0.689,2.784,0.36,0.865,1,Wald ratio,1.385,0.689,2.784,0.36,0.879,TRUE,ns in both,TRUE
+PIGB,FALSE,15,1,Wald ratio,0.932,0.801,1.084,0.36,0.865,1,Wald ratio,0.932,0.801,1.084,0.36,0.879,TRUE,ns in both,TRUE
+PWWP2A,FALSE,5,1,Wald ratio,1.126,0.874,1.45,0.36,0.865,1,Wald ratio,1.126,0.874,1.45,0.36,0.879,TRUE,ns in both,TRUE
+REEP3,FALSE,10,1,Wald ratio,1.279,0.755,2.168,0.36,0.865,1,Wald ratio,1.279,0.755,2.168,0.36,0.879,TRUE,ns in both,TRUE
+RNF111,FALSE,15,1,Wald ratio,0.793,0.483,1.303,0.36,0.865,1,Wald ratio,0.793,0.483,1.303,0.36,0.879,TRUE,ns in both,TRUE
+SNX13,FALSE,7,1,Wald ratio,1.178,0.829,1.674,0.36,0.865,1,Wald ratio,1.178,0.829,1.674,0.36,0.879,TRUE,ns in both,TRUE
+TEX261,FALSE,2,1,Wald ratio,0.924,0.78,1.095,0.36,0.865,1,Wald ratio,0.924,0.78,1.095,0.36,0.879,TRUE,ns in both,TRUE
+TNRC6B,FALSE,22,1,Wald ratio,0.802,0.5,1.287,0.36,0.865,1,Wald ratio,0.802,0.5,1.287,0.36,0.879,TRUE,ns in both,TRUE
+SFI1,FALSE,22,2,Inverse variance weighted,0.95,0.852,1.06,0.361,0.866,2,Inverse variance weighted,0.95,0.852,1.06,0.361,0.88,TRUE,ns in both,TRUE
+LRRK2,FALSE,12,2,Inverse variance weighted,1.024,0.973,1.078,0.362,0.866,2,Inverse variance weighted,1.024,0.973,1.078,0.362,0.88,TRUE,ns in both,TRUE
+BICD1,FALSE,12,2,Inverse variance weighted,1.084,0.91,1.291,0.366,0.871,2,Inverse variance weighted,1.084,0.91,1.291,0.366,0.885,TRUE,ns in both,TRUE
+SGSH,FALSE,17,2,Inverse variance weighted,0.941,0.824,1.074,0.367,0.871,2,Inverse variance weighted,0.941,0.824,1.074,0.367,0.885,TRUE,ns in both,TRUE
+GOT2,FALSE,16,2,Inverse variance weighted,1.058,0.935,1.198,0.369,0.871,2,Inverse variance weighted,1.058,0.935,1.198,0.369,0.885,TRUE,ns in both,TRUE
+XPR1,FALSE,1,2,Inverse variance weighted,0.875,0.654,1.171,0.369,0.871,2,Inverse variance weighted,0.875,0.654,1.171,0.369,0.885,TRUE,ns in both,TRUE
+BACH1,FALSE,21,1,Wald ratio,1.2,0.806,1.785,0.37,0.871,1,Wald ratio,1.2,0.806,1.785,0.37,0.885,TRUE,ns in both,TRUE
+EPB41L2,FALSE,6,3,Inverse variance weighted,1.076,0.917,1.263,0.37,0.871,3,Inverse variance weighted,1.076,0.917,1.263,0.37,0.885,TRUE,ns in both,TRUE
+FKBP4,FALSE,12,1,Wald ratio,1.22,0.79,1.883,0.37,0.871,1,Wald ratio,1.22,0.79,1.883,0.37,0.885,TRUE,ns in both,TRUE
+MINK1,FALSE,17,3,Inverse variance weighted,1.059,0.935,1.2,0.37,0.871,3,Inverse variance weighted,1.059,0.935,1.2,0.37,0.885,TRUE,ns in both,TRUE
+RORC,FALSE,1,1,Wald ratio,1.113,0.881,1.405,0.37,0.871,1,Wald ratio,1.113,0.881,1.405,0.37,0.885,TRUE,ns in both,TRUE
+UBTF,FALSE,17,1,Wald ratio,1.127,0.867,1.465,0.37,0.871,1,Wald ratio,1.127,0.867,1.465,0.37,0.885,TRUE,ns in both,TRUE
+UEVLD,FALSE,11,1,Wald ratio,0.787,0.466,1.329,0.37,0.871,1,Wald ratio,0.787,0.466,1.329,0.37,0.885,TRUE,ns in both,TRUE
+NLRC5,FALSE,16,2,Inverse variance weighted,0.944,0.831,1.072,0.371,0.871,2,Inverse variance weighted,0.944,0.831,1.072,0.371,0.885,TRUE,ns in both,TRUE
+STK24,FALSE,13,2,Inverse variance weighted,0.927,0.786,1.094,0.372,0.872,2,Inverse variance weighted,0.927,0.786,1.094,0.372,0.885,TRUE,ns in both,TRUE
+TMC6,FALSE,17,2,Inverse variance weighted,0.96,0.878,1.05,0.375,0.877,2,Inverse variance weighted,0.96,0.878,1.05,0.375,0.891,TRUE,ns in both,TRUE
+NCR3,TRUE,6,4,Inverse variance weighted,1.419,0.653,3.084,0.378,0.877,,,,,,,,FALSE,ns in both,
+CXXC1,FALSE,18,1,Wald ratio,0.884,0.672,1.163,0.38,0.877,1,Wald ratio,0.884,0.672,1.163,0.38,0.892,TRUE,ns in both,TRUE
+ERCC2,FALSE,19,1,Wald ratio,1.087,0.902,1.311,0.38,0.877,1,Wald ratio,1.087,0.902,1.311,0.38,0.892,TRUE,ns in both,TRUE
+FAM91A1,FALSE,8,1,Wald ratio,0.892,0.692,1.151,0.38,0.877,1,Wald ratio,0.892,0.692,1.151,0.38,0.892,TRUE,ns in both,TRUE
+FARS2,FALSE,6,1,Wald ratio,0.941,0.821,1.078,0.38,0.877,1,Wald ratio,0.941,0.821,1.078,0.38,0.892,TRUE,ns in both,TRUE
+PDE6B,FALSE,4,1,Wald ratio,1.082,0.907,1.292,0.38,0.877,1,Wald ratio,1.082,0.907,1.292,0.38,0.892,TRUE,ns in both,TRUE
+ST6GALNAC3,FALSE,1,1,Wald ratio,1.143,0.848,1.541,0.38,0.877,1,Wald ratio,1.143,0.848,1.541,0.38,0.892,TRUE,ns in both,TRUE
+TEX10,FALSE,9,1,Wald ratio,1.079,0.91,1.28,0.38,0.877,1,Wald ratio,1.079,0.91,1.28,0.38,0.892,TRUE,ns in both,TRUE
+YTHDF2,FALSE,1,1,Wald ratio,0.893,0.694,1.149,0.38,0.877,1,Wald ratio,0.893,0.694,1.149,0.38,0.892,TRUE,ns in both,TRUE
+BTBD7,FALSE,14,3,Inverse variance weighted,1.068,0.92,1.24,0.385,0.884,3,Inverse variance weighted,1.068,0.92,1.24,0.385,0.892,TRUE,ns in both,TRUE
+CACNB2,FALSE,10,1,Wald ratio,0.907,0.727,1.132,0.39,0.884,1,Wald ratio,0.907,0.727,1.132,0.39,0.892,TRUE,ns in both,TRUE
+DHCR24,FALSE,1,1,Wald ratio,1.058,0.93,1.203,0.39,0.884,1,Wald ratio,1.058,0.93,1.203,0.39,0.892,TRUE,ns in both,TRUE
+MVD,FALSE,16,1,Wald ratio,0.932,0.793,1.095,0.39,0.884,1,Wald ratio,0.932,0.793,1.095,0.39,0.892,TRUE,ns in both,TRUE
+NDUFB9,FALSE,8,1,Wald ratio,1.085,0.901,1.305,0.39,0.884,1,Wald ratio,1.085,0.901,1.305,0.39,0.892,TRUE,ns in both,TRUE
+PARP6,FALSE,15,1,Wald ratio,1.142,0.844,1.546,0.39,0.884,1,Wald ratio,1.142,0.844,1.546,0.39,0.892,TRUE,ns in both,TRUE
+PHACTR4,FALSE,1,1,Wald ratio,0.945,0.83,1.076,0.39,0.884,1,Wald ratio,0.945,0.83,1.076,0.39,0.892,TRUE,ns in both,TRUE
+SMARCD1,FALSE,12,1,Wald ratio,1.114,0.871,1.426,0.39,0.884,1,Wald ratio,1.114,0.871,1.426,0.39,0.892,TRUE,ns in both,TRUE
+SPPL2B,FALSE,19,1,Wald ratio,1.239,0.76,2.019,0.39,0.884,1,Wald ratio,1.239,0.76,2.019,0.39,0.892,TRUE,ns in both,TRUE
+UBIAD1,FALSE,1,1,Wald ratio,1.273,0.734,2.209,0.39,0.884,1,Wald ratio,1.273,0.734,2.209,0.39,0.892,TRUE,ns in both,TRUE
+TEX264,FALSE,3,2,Inverse variance weighted,0.941,0.818,1.082,0.391,0.884,2,Inverse variance weighted,0.941,0.818,1.082,0.391,0.892,TRUE,ns in both,TRUE
+FLYWCH1,FALSE,16,2,Inverse variance weighted,0.966,0.893,1.046,0.393,0.884,2,Inverse variance weighted,0.966,0.893,1.046,0.393,0.892,TRUE,ns in both,TRUE
+COLQ,FALSE,3,2,Inverse variance weighted,1.049,0.94,1.171,0.394,0.884,2,Inverse variance weighted,1.049,0.94,1.171,0.394,0.892,TRUE,ns in both,TRUE
+MTMR10,FALSE,15,2,Inverse variance weighted,0.968,0.898,1.043,0.396,0.884,2,Inverse variance weighted,0.968,0.898,1.043,0.396,0.892,TRUE,ns in both,TRUE
+NIPSNAP1,FALSE,22,2,Inverse variance weighted,1.036,0.955,1.125,0.397,0.884,2,Inverse variance weighted,1.036,0.955,1.125,0.397,0.892,TRUE,ns in both,TRUE
+SETD4,FALSE,21,2,Inverse variance weighted,0.967,0.896,1.045,0.397,0.884,2,Inverse variance weighted,0.967,0.896,1.045,0.397,0.892,TRUE,ns in both,TRUE
+DCAF5,FALSE,14,2,Inverse variance weighted,1.199,0.786,1.83,0.399,0.884,2,Inverse variance weighted,1.199,0.786,1.83,0.399,0.892,TRUE,ns in both,TRUE
+ANO9,FALSE,11,1,Wald ratio,0.948,0.837,1.074,0.4,0.884,1,Wald ratio,0.948,0.837,1.074,0.4,0.892,TRUE,ns in both,TRUE
+CIAPIN1,FALSE,16,1,Wald ratio,1.151,0.829,1.598,0.4,0.884,1,Wald ratio,1.151,0.829,1.598,0.4,0.892,TRUE,ns in both,TRUE
+DYNC1H1,FALSE,14,1,Wald ratio,1.231,0.759,1.997,0.4,0.884,1,Wald ratio,1.231,0.759,1.997,0.4,0.892,TRUE,ns in both,TRUE
+NFE2L2,FALSE,2,1,Wald ratio,1.224,0.764,1.962,0.4,0.884,1,Wald ratio,1.224,0.764,1.962,0.4,0.892,TRUE,ns in both,TRUE
+OBSCN,FALSE,1,1,Wald ratio,0.927,0.777,1.106,0.4,0.884,1,Wald ratio,0.927,0.777,1.106,0.4,0.892,TRUE,ns in both,TRUE
+POLG,FALSE,15,1,Wald ratio,1.059,0.926,1.212,0.4,0.884,1,Wald ratio,1.059,0.926,1.212,0.4,0.892,TRUE,ns in both,TRUE
+POLR3C,FALSE,1,1,Wald ratio,1.339,0.678,2.643,0.4,0.884,1,Wald ratio,1.339,0.678,2.643,0.4,0.892,TRUE,ns in both,TRUE
+PTPN1,FALSE,20,1,Wald ratio,1.045,0.943,1.157,0.4,0.884,1,Wald ratio,1.045,0.943,1.157,0.4,0.892,TRUE,ns in both,TRUE
+RYBP,FALSE,3,1,Wald ratio,1.556,0.556,4.355,0.4,0.884,1,Wald ratio,1.556,0.556,4.355,0.4,0.892,TRUE,ns in both,TRUE
+SLC35C1,FALSE,11,1,Wald ratio,0.959,0.868,1.058,0.4,0.884,1,Wald ratio,0.959,0.868,1.058,0.4,0.892,TRUE,ns in both,TRUE
+ZNF580,FALSE,19,1,Wald ratio,0.857,0.598,1.228,0.4,0.884,1,Wald ratio,0.857,0.598,1.228,0.4,0.892,TRUE,ns in both,TRUE
+AKR1B1,FALSE,7,3,Inverse variance weighted,1.046,0.941,1.163,0.401,0.885,3,Inverse variance weighted,1.046,0.941,1.163,0.401,0.892,TRUE,ns in both,TRUE
+EP400,FALSE,12,3,Inverse variance weighted,1.077,0.906,1.28,0.402,0.885,3,Inverse variance weighted,1.077,0.906,1.28,0.402,0.892,TRUE,ns in both,TRUE
+POMT2,FALSE,14,2,Inverse variance weighted,1.128,0.851,1.494,0.402,0.885,2,Inverse variance weighted,1.128,0.851,1.494,0.402,0.892,TRUE,ns in both,TRUE
+MPI,FALSE,15,2,Inverse variance weighted,1.052,0.934,1.186,0.403,0.886,2,Inverse variance weighted,1.052,0.934,1.186,0.403,0.892,TRUE,ns in both,TRUE
+CTNNBL1,FALSE,20,1,Wald ratio,1.114,0.862,1.44,0.41,0.889,1,Wald ratio,1.114,0.862,1.44,0.41,0.892,TRUE,ns in both,TRUE
+DFFA,FALSE,1,2,Inverse variance weighted,0.96,0.871,1.058,0.41,0.889,2,Inverse variance weighted,0.96,0.871,1.058,0.41,0.892,TRUE,ns in both,TRUE
+EIF3D,FALSE,22,1,Wald ratio,1.239,0.744,2.063,0.41,0.889,1,Wald ratio,1.239,0.744,2.063,0.41,0.892,TRUE,ns in both,TRUE
+GMCL1,FALSE,2,1,Wald ratio,0.932,0.789,1.101,0.41,0.889,1,Wald ratio,0.932,0.789,1.101,0.41,0.892,TRUE,ns in both,TRUE
+GPS1,FALSE,17,1,Wald ratio,0.769,0.411,1.437,0.41,0.889,1,Wald ratio,0.769,0.411,1.437,0.41,0.892,TRUE,ns in both,TRUE
+MIF4GD,FALSE,17,1,Wald ratio,1.255,0.731,2.154,0.41,0.889,1,Wald ratio,1.255,0.731,2.154,0.41,0.892,TRUE,ns in both,TRUE
+MTHFD1,FALSE,14,1,Wald ratio,1.09,0.888,1.336,0.41,0.889,1,Wald ratio,1.09,0.888,1.336,0.41,0.892,TRUE,ns in both,TRUE
+XAB2,FALSE,19,1,Wald ratio,0.961,0.873,1.057,0.41,0.889,1,Wald ratio,0.961,0.873,1.057,0.41,0.892,TRUE,ns in both,TRUE
+ZFAND6,FALSE,15,1,Wald ratio,0.753,0.384,1.477,0.41,0.889,1,Wald ratio,0.753,0.384,1.477,0.41,0.892,TRUE,ns in both,TRUE
+SBK1,FALSE,16,2,Inverse variance weighted,0.924,0.765,1.116,0.413,0.891,2,Inverse variance weighted,0.924,0.765,1.116,0.413,0.892,TRUE,ns in both,TRUE
+PPP2R5D,FALSE,6,2,Inverse variance weighted,0.912,0.73,1.139,0.416,0.891,2,Inverse variance weighted,0.912,0.73,1.139,0.416,0.892,TRUE,ns in both,TRUE
+LSS,FALSE,21,2,Inverse variance weighted,0.969,0.898,1.046,0.418,0.891,2,Inverse variance weighted,0.969,0.898,1.046,0.418,0.892,TRUE,ns in both,TRUE
+LSG1,FALSE,3,3,Inverse variance weighted,0.949,0.836,1.078,0.419,0.891,3,Inverse variance weighted,0.949,0.836,1.078,0.419,0.892,TRUE,ns in both,TRUE
+NOD1,FALSE,7,2,Inverse variance weighted,1.11,0.862,1.43,0.419,0.891,2,Inverse variance weighted,1.11,0.862,1.43,0.419,0.892,TRUE,ns in both,TRUE
+CCDC107,FALSE,9,1,Wald ratio,1.153,0.816,1.63,0.42,0.891,1,Wald ratio,1.153,0.816,1.63,0.42,0.892,TRUE,ns in both,TRUE
+CLIP1,FALSE,12,1,Wald ratio,0.836,0.54,1.293,0.42,0.891,1,Wald ratio,0.836,0.54,1.293,0.42,0.892,TRUE,ns in both,TRUE
+IFT172,FALSE,2,1,Wald ratio,1.19,0.78,1.814,0.42,0.891,1,Wald ratio,1.19,0.78,1.814,0.42,0.892,TRUE,ns in both,TRUE
+NCAPD2,FALSE,12,1,Wald ratio,0.76,0.389,1.482,0.42,0.891,1,Wald ratio,0.76,0.389,1.482,0.42,0.892,TRUE,ns in both,TRUE
+OSBPL9,FALSE,1,1,Wald ratio,1.127,0.843,1.506,0.42,0.891,1,Wald ratio,1.127,0.843,1.506,0.42,0.892,TRUE,ns in both,TRUE
+OSGIN2,FALSE,8,1,Wald ratio,0.951,0.841,1.075,0.42,0.891,1,Wald ratio,0.951,0.841,1.075,0.42,0.892,TRUE,ns in both,TRUE
+PIH1D1,FALSE,19,1,Wald ratio,1.06,0.921,1.22,0.42,0.891,1,Wald ratio,1.06,0.921,1.22,0.42,0.892,TRUE,ns in both,TRUE
+SLC37A4,FALSE,11,1,Wald ratio,0.923,0.76,1.121,0.42,0.891,1,Wald ratio,0.923,0.76,1.121,0.42,0.892,TRUE,ns in both,TRUE
+TIMM44,FALSE,19,1,Wald ratio,1.054,0.928,1.197,0.42,0.891,1,Wald ratio,1.054,0.928,1.197,0.42,0.892,TRUE,ns in both,TRUE
+ZNF609,FALSE,15,1,Wald ratio,1.238,0.737,2.082,0.42,0.891,1,Wald ratio,1.238,0.737,2.082,0.42,0.892,TRUE,ns in both,TRUE
+SUMF2,FALSE,7,2,Inverse variance weighted,0.96,0.869,1.061,0.423,0.892,2,Inverse variance weighted,0.96,0.869,1.061,0.423,0.892,TRUE,ns in both,TRUE
+ZNF589,FALSE,3,3,Inverse variance weighted,1.011,0.984,1.038,0.426,0.892,3,Inverse variance weighted,1.011,0.984,1.038,0.426,0.892,TRUE,ns in both,TRUE
+CAND2,FALSE,3,4,Inverse variance weighted,1.027,0.961,1.097,0.429,0.892,4,Inverse variance weighted,1.027,0.961,1.097,0.429,0.892,TRUE,ns in both,TRUE
+DCP2,FALSE,5,1,Wald ratio,1.056,0.922,1.21,0.43,0.892,1,Wald ratio,1.056,0.922,1.21,0.43,0.892,TRUE,ns in both,TRUE
+JAK1,FALSE,1,1,Wald ratio,1.221,0.744,2.005,0.43,0.892,1,Wald ratio,1.221,0.744,2.005,0.43,0.892,TRUE,ns in both,TRUE
+NEK1,FALSE,4,1,Wald ratio,0.954,0.848,1.073,0.43,0.892,1,Wald ratio,0.954,0.848,1.073,0.43,0.892,TRUE,ns in both,TRUE
+ZNF844,FALSE,19,1,Wald ratio,0.873,0.624,1.222,0.43,0.892,1,Wald ratio,0.873,0.624,1.222,0.43,0.892,TRUE,ns in both,TRUE
+PTDSS2,FALSE,11,3,Inverse variance weighted,1.094,0.875,1.369,0.431,0.892,3,Inverse variance weighted,1.094,0.875,1.369,0.431,0.892,TRUE,ns in both,TRUE
+GIMAP8,FALSE,7,2,Inverse variance weighted,0.978,0.924,1.035,0.435,0.892,2,Inverse variance weighted,0.978,0.924,1.035,0.435,0.892,TRUE,ns in both,TRUE
+FDFT1,FALSE,8,2,Inverse variance weighted,1.012,0.983,1.041,0.436,0.892,2,Inverse variance weighted,1.012,0.983,1.041,0.436,0.892,TRUE,ns in both,TRUE
+RHOQ,FALSE,2,2,Inverse variance weighted,0.879,0.636,1.215,0.436,0.892,2,Inverse variance weighted,0.879,0.636,1.215,0.436,0.892,TRUE,ns in both,TRUE
+IK,FALSE,5,4,Inverse variance weighted,1.039,0.943,1.145,0.437,0.892,4,Inverse variance weighted,1.039,0.943,1.145,0.437,0.892,TRUE,ns in both,TRUE
+FASN,FALSE,17,1,Wald ratio,0.945,0.817,1.092,0.44,0.892,1,Wald ratio,0.945,0.817,1.092,0.44,0.892,TRUE,ns in both,TRUE
+GSS,FALSE,20,1,Wald ratio,1.191,0.764,1.858,0.44,0.892,1,Wald ratio,1.191,0.764,1.858,0.44,0.892,TRUE,ns in both,TRUE
+IRF2BP2,FALSE,1,1,Wald ratio,0.901,0.693,1.173,0.44,0.892,1,Wald ratio,0.901,0.693,1.173,0.44,0.892,TRUE,ns in both,TRUE
+MYBBP1A,FALSE,17,1,Wald ratio,0.915,0.731,1.146,0.44,0.892,1,Wald ratio,0.915,0.731,1.146,0.44,0.892,TRUE,ns in both,TRUE
+OTUD1,FALSE,10,1,Wald ratio,1.505,0.533,4.244,0.44,0.892,1,Wald ratio,1.505,0.533,4.244,0.44,0.892,TRUE,ns in both,TRUE
+CHRAC1,FALSE,8,2,Inverse variance weighted,0.946,0.821,1.09,0.441,0.892,2,Inverse variance weighted,0.946,0.821,1.09,0.441,0.892,TRUE,ns in both,TRUE
+COMMD2,FALSE,3,2,Inverse variance weighted,0.946,0.821,1.091,0.447,0.892,2,Inverse variance weighted,0.946,0.821,1.091,0.447,0.892,TRUE,ns in both,TRUE
+EIF6,FALSE,20,3,Inverse variance weighted,1.035,0.947,1.13,0.448,0.892,3,Inverse variance weighted,1.035,0.947,1.13,0.448,0.892,TRUE,ns in both,TRUE
+AHNAK,FALSE,11,1,Wald ratio,0.887,0.649,1.211,0.45,0.892,1,Wald ratio,0.887,0.649,1.211,0.45,0.892,TRUE,ns in both,TRUE
+DMXL2,FALSE,15,1,Wald ratio,1.131,0.822,1.555,0.45,0.892,1,Wald ratio,1.131,0.822,1.555,0.45,0.892,TRUE,ns in both,TRUE
+EIF5A,FALSE,17,1,Wald ratio,0.938,0.796,1.107,0.45,0.892,1,Wald ratio,0.938,0.796,1.107,0.45,0.892,TRUE,ns in both,TRUE
+FAM83G,FALSE,17,1,Wald ratio,1.059,0.913,1.229,0.45,0.892,1,Wald ratio,1.059,0.913,1.229,0.45,0.892,TRUE,ns in both,TRUE
+FBXL4,FALSE,6,1,Wald ratio,1.049,0.926,1.188,0.45,0.892,1,Wald ratio,1.049,0.926,1.188,0.45,0.892,TRUE,ns in both,TRUE
+LZTS2,FALSE,10,1,Wald ratio,1.144,0.807,1.622,0.45,0.892,1,Wald ratio,1.144,0.807,1.622,0.45,0.892,TRUE,ns in both,TRUE
+MMADHC,FALSE,2,1,Wald ratio,0.871,0.609,1.246,0.45,0.892,1,Wald ratio,0.871,0.609,1.246,0.45,0.892,TRUE,ns in both,TRUE
+NAB1,FALSE,2,1,Wald ratio,0.938,0.795,1.107,0.45,0.892,1,Wald ratio,0.938,0.795,1.107,0.45,0.892,TRUE,ns in both,TRUE
+PAOX,FALSE,10,1,Wald ratio,0.678,0.247,1.86,0.45,0.892,1,Wald ratio,0.678,0.247,1.86,0.45,0.892,TRUE,ns in both,TRUE
+PIAS3,FALSE,1,1,Wald ratio,1.297,0.66,2.549,0.45,0.892,1,Wald ratio,1.297,0.66,2.549,0.45,0.892,TRUE,ns in both,TRUE
+PTPN23,FALSE,3,1,Wald ratio,0.799,0.447,1.429,0.45,0.892,1,Wald ratio,0.799,0.447,1.429,0.45,0.892,TRUE,ns in both,TRUE
+SPAG9,FALSE,17,1,Wald ratio,1.209,0.739,1.976,0.45,0.892,1,Wald ratio,1.209,0.739,1.976,0.45,0.892,TRUE,ns in both,TRUE
+DCTN5,FALSE,16,4,Inverse variance weighted,1.014,0.978,1.052,0.451,0.892,4,Inverse variance weighted,1.014,0.978,1.052,0.451,0.892,TRUE,ns in both,TRUE
+PITRM1,FALSE,10,3,Inverse variance weighted,0.969,0.893,1.052,0.451,0.892,3,Inverse variance weighted,0.969,0.893,1.052,0.451,0.892,TRUE,ns in both,TRUE
+CASP2,FALSE,7,2,Inverse variance weighted,1.151,0.797,1.661,0.453,0.892,2,Inverse variance weighted,1.151,0.797,1.661,0.453,0.892,TRUE,ns in both,TRUE
+MORN3,FALSE,12,2,Inverse variance weighted,1.03,0.953,1.114,0.455,0.892,2,Inverse variance weighted,1.03,0.953,1.114,0.455,0.892,TRUE,ns in both,TRUE
+FMNL3,FALSE,12,2,Inverse variance weighted,0.962,0.869,1.065,0.456,0.892,2,Inverse variance weighted,0.962,0.869,1.065,0.456,0.892,TRUE,ns in both,TRUE
+SCARB1,FALSE,12,3,Inverse variance weighted,1.03,0.952,1.115,0.457,0.892,3,Inverse variance weighted,1.03,0.952,1.115,0.457,0.892,TRUE,ns in both,TRUE
+CXXC5,FALSE,5,1,Wald ratio,1.129,0.818,1.558,0.46,0.892,1,Wald ratio,1.129,0.818,1.558,0.46,0.892,TRUE,ns in both,TRUE
+DHX37,FALSE,12,1,Wald ratio,0.848,0.548,1.312,0.46,0.892,1,Wald ratio,0.848,0.548,1.312,0.46,0.892,TRUE,ns in both,TRUE
+IL10RA,FALSE,11,1,Wald ratio,1.121,0.828,1.519,0.46,0.892,1,Wald ratio,1.121,0.828,1.519,0.46,0.892,TRUE,ns in both,TRUE
+MFN1,FALSE,3,1,Wald ratio,1.067,0.898,1.267,0.46,0.892,1,Wald ratio,1.067,0.898,1.267,0.46,0.892,TRUE,ns in both,TRUE
+PDCD11,FALSE,10,1,Wald ratio,1.229,0.711,2.124,0.46,0.892,1,Wald ratio,1.229,0.711,2.124,0.46,0.892,TRUE,ns in both,TRUE
+PLD4,FALSE,14,1,Wald ratio,1.079,0.881,1.322,0.46,0.892,1,Wald ratio,1.079,0.881,1.322,0.46,0.892,TRUE,ns in both,TRUE
+PZP,FALSE,12,1,Wald ratio,0.975,0.911,1.043,0.46,0.892,1,Wald ratio,0.975,0.911,1.043,0.46,0.892,TRUE,ns in both,TRUE
+SLC35F5,FALSE,2,1,Wald ratio,1.214,0.726,2.029,0.46,0.892,1,Wald ratio,1.214,0.726,2.029,0.46,0.892,TRUE,ns in both,TRUE
+VAV3,FALSE,1,4,Inverse variance weighted,0.982,0.936,1.03,0.46,0.892,4,Inverse variance weighted,0.982,0.936,1.03,0.46,0.892,TRUE,ns in both,TRUE
+CARD8,FALSE,19,2,Inverse variance weighted,0.952,0.835,1.085,0.461,0.892,2,Inverse variance weighted,0.952,0.835,1.085,0.461,0.892,TRUE,ns in both,TRUE
+CD59,FALSE,11,3,Inverse variance weighted,0.979,0.925,1.036,0.461,0.892,3,Inverse variance weighted,0.979,0.925,1.036,0.461,0.892,TRUE,ns in both,TRUE
+SLC35A4,FALSE,5,2,Inverse variance weighted,1.034,0.945,1.131,0.462,0.892,2,Inverse variance weighted,1.034,0.945,1.131,0.462,0.892,TRUE,ns in both,TRUE
+BCAT2,FALSE,19,2,Inverse variance weighted,0.925,0.752,1.139,0.465,0.892,2,Inverse variance weighted,0.925,0.752,1.139,0.465,0.892,TRUE,ns in both,TRUE
+SPAG1,FALSE,8,2,Inverse variance weighted,1.045,0.929,1.175,0.466,0.892,2,Inverse variance weighted,1.045,0.929,1.175,0.466,0.892,TRUE,ns in both,TRUE
+ASPH,FALSE,8,4,Inverse variance weighted,1.04,0.935,1.157,0.468,0.892,4,Inverse variance weighted,1.04,0.935,1.157,0.468,0.892,TRUE,ns in both,TRUE
+SLC22A15,FALSE,1,2,Inverse variance weighted,1.018,0.97,1.068,0.469,0.892,2,Inverse variance weighted,1.018,0.97,1.068,0.469,0.892,TRUE,ns in both,TRUE
+DMPK,FALSE,19,1,Wald ratio,0.953,0.837,1.086,0.47,0.892,1,Wald ratio,0.953,0.837,1.086,0.47,0.892,TRUE,ns in both,TRUE
+DTX3,FALSE,12,1,Wald ratio,0.912,0.711,1.171,0.47,0.892,1,Wald ratio,0.912,0.711,1.171,0.47,0.892,TRUE,ns in both,TRUE
+FAM8A1,FALSE,6,1,Wald ratio,1.045,0.927,1.178,0.47,0.892,1,Wald ratio,1.045,0.927,1.178,0.47,0.892,TRUE,ns in both,TRUE
+HNRNPUL1,FALSE,19,1,Wald ratio,1.067,0.895,1.271,0.47,0.892,1,Wald ratio,1.067,0.895,1.271,0.47,0.892,TRUE,ns in both,TRUE
+IDH3A,FALSE,15,1,Wald ratio,1.395,0.565,3.446,0.47,0.892,1,Wald ratio,1.395,0.565,3.446,0.47,0.892,TRUE,ns in both,TRUE
+IPO13,FALSE,1,1,Wald ratio,1.119,0.825,1.516,0.47,0.892,1,Wald ratio,1.119,0.825,1.516,0.47,0.892,TRUE,ns in both,TRUE
+RANBP3,FALSE,19,1,Wald ratio,0.851,0.55,1.317,0.47,0.892,1,Wald ratio,0.851,0.55,1.317,0.47,0.892,TRUE,ns in both,TRUE
+SERAC1,FALSE,6,4,Inverse variance weighted,0.973,0.903,1.048,0.47,0.892,4,Inverse variance weighted,0.973,0.903,1.048,0.47,0.892,TRUE,ns in both,TRUE
+TRIM28,FALSE,19,1,Wald ratio,1.095,0.856,1.399,0.47,0.892,1,Wald ratio,1.095,0.856,1.399,0.47,0.892,TRUE,ns in both,TRUE
+TSEN54,FALSE,17,1,Wald ratio,1.033,0.946,1.127,0.47,0.892,1,Wald ratio,1.033,0.946,1.127,0.47,0.892,TRUE,ns in both,TRUE
+CPNE8,FALSE,12,3,Inverse variance weighted,1.241,0.69,2.233,0.471,0.892,3,Inverse variance weighted,1.241,0.69,2.233,0.471,0.892,TRUE,ns in both,TRUE
+CEP97,FALSE,3,2,Inverse variance weighted,0.928,0.757,1.138,0.472,0.892,2,Inverse variance weighted,0.928,0.757,1.138,0.472,0.892,TRUE,ns in both,TRUE
+LILRA4,FALSE,19,2,Inverse variance weighted,0.875,0.605,1.265,0.476,0.892,2,Inverse variance weighted,0.875,0.605,1.265,0.476,0.892,TRUE,ns in both,TRUE
+TMEM63A,FALSE,1,3,Inverse variance weighted,1.019,0.968,1.073,0.477,0.892,3,Inverse variance weighted,1.019,0.968,1.073,0.477,0.892,TRUE,ns in both,TRUE
+ASAH1,FALSE,8,3,Inverse variance weighted,0.985,0.945,1.027,0.478,0.892,3,Inverse variance weighted,0.985,0.945,1.027,0.478,0.892,TRUE,ns in both,TRUE
+PGPEP1,FALSE,19,2,Inverse variance weighted,0.919,0.728,1.16,0.478,0.892,2,Inverse variance weighted,0.919,0.728,1.16,0.478,0.892,TRUE,ns in both,TRUE
+CDK5R1,FALSE,17,3,Inverse variance weighted,1.127,0.809,1.571,0.479,0.892,3,Inverse variance weighted,1.127,0.809,1.571,0.479,0.892,TRUE,ns in both,TRUE
+AGTPBP1,FALSE,9,1,Wald ratio,1.094,0.852,1.405,0.48,0.892,1,Wald ratio,1.094,0.852,1.405,0.48,0.892,TRUE,ns in both,TRUE
+ALDH16A1,FALSE,19,1,Wald ratio,1.035,0.94,1.14,0.48,0.892,1,Wald ratio,1.035,0.94,1.14,0.48,0.892,TRUE,ns in both,TRUE
+BTN2A1,TRUE,6,1,Wald ratio,1.094,0.852,1.404,0.48,0.892,,,,,,,,FALSE,ns in both,
+DPAGT1,FALSE,11,1,Wald ratio,0.963,0.867,1.069,0.48,0.892,1,Wald ratio,0.963,0.867,1.069,0.48,0.892,TRUE,ns in both,TRUE
+FARSB,FALSE,2,1,Wald ratio,1.174,0.753,1.831,0.48,0.892,1,Wald ratio,1.174,0.753,1.831,0.48,0.892,TRUE,ns in both,TRUE
+GPSM2,FALSE,1,1,Wald ratio,1.446,0.519,4.028,0.48,0.892,1,Wald ratio,1.446,0.519,4.028,0.48,0.892,TRUE,ns in both,TRUE
+HEATR6,FALSE,17,1,Wald ratio,1.015,0.975,1.056,0.48,0.892,1,Wald ratio,1.015,0.975,1.056,0.48,0.892,TRUE,ns in both,TRUE
+KLHDC3,FALSE,6,1,Wald ratio,0.892,0.65,1.225,0.48,0.892,1,Wald ratio,0.892,0.65,1.225,0.48,0.892,TRUE,ns in both,TRUE
+PEX14,FALSE,1,1,Wald ratio,0.968,0.883,1.06,0.48,0.892,1,Wald ratio,0.968,0.883,1.06,0.48,0.892,TRUE,ns in both,TRUE
+RNF26,FALSE,11,1,Wald ratio,0.927,0.751,1.144,0.48,0.892,1,Wald ratio,0.927,0.751,1.144,0.48,0.892,TRUE,ns in both,TRUE
+CD4,FALSE,12,2,Inverse variance weighted,0.901,0.674,1.204,0.481,0.892,2,Inverse variance weighted,0.901,0.674,1.204,0.481,0.892,TRUE,ns in both,TRUE
+TMEM170B,FALSE,6,3,Inverse variance weighted,1.04,0.933,1.159,0.481,0.892,3,Inverse variance weighted,1.04,0.933,1.159,0.481,0.892,TRUE,ns in both,TRUE
+APEH,FALSE,3,2,Inverse variance weighted,1.023,0.96,1.092,0.482,0.892,2,Inverse variance weighted,1.023,0.96,1.092,0.482,0.892,TRUE,ns in both,TRUE
+MFGE8,FALSE,15,2,Inverse variance weighted,1.034,0.941,1.137,0.483,0.892,2,Inverse variance weighted,1.034,0.941,1.137,0.483,0.892,TRUE,ns in both,TRUE
+OGFOD1,FALSE,16,2,Inverse variance weighted,1.07,0.886,1.293,0.483,0.892,2,Inverse variance weighted,1.07,0.886,1.293,0.483,0.892,TRUE,ns in both,TRUE
+BANF1,FALSE,11,2,Inverse variance weighted,1.088,0.859,1.379,0.484,0.892,2,Inverse variance weighted,1.088,0.859,1.379,0.484,0.892,TRUE,ns in both,TRUE
+PTGS2,FALSE,1,2,Inverse variance weighted,1.098,0.844,1.43,0.485,0.892,2,Inverse variance weighted,1.098,0.844,1.43,0.485,0.892,TRUE,ns in both,TRUE
+HIVEP1,FALSE,6,3,Inverse variance weighted,0.939,0.785,1.123,0.49,0.892,3,Inverse variance weighted,0.939,0.785,1.123,0.49,0.892,TRUE,ns in both,TRUE
+KDSR,FALSE,18,1,Wald ratio,0.969,0.885,1.06,0.49,0.892,1,Wald ratio,0.969,0.885,1.06,0.49,0.892,TRUE,ns in both,TRUE
+KIDINS220,FALSE,2,1,Wald ratio,0.839,0.511,1.38,0.49,0.892,1,Wald ratio,0.839,0.511,1.38,0.49,0.892,TRUE,ns in both,TRUE
+SAMD1,FALSE,19,1,Wald ratio,0.6,0.141,2.56,0.49,0.892,1,Wald ratio,0.6,0.141,2.56,0.49,0.892,TRUE,ns in both,TRUE
+SKIL,FALSE,3,1,Wald ratio,0.895,0.653,1.227,0.49,0.892,1,Wald ratio,0.895,0.653,1.227,0.49,0.892,TRUE,ns in both,TRUE
+YTHDF3,FALSE,8,1,Wald ratio,1.058,0.901,1.243,0.49,0.892,1,Wald ratio,1.058,0.901,1.243,0.49,0.892,TRUE,ns in both,TRUE
+ZAP70,FALSE,2,1,Wald ratio,0.97,0.889,1.058,0.49,0.892,1,Wald ratio,0.97,0.889,1.058,0.49,0.892,TRUE,ns in both,TRUE
+SP140L,FALSE,2,3,Inverse variance weighted,1.014,0.974,1.056,0.492,0.892,3,Inverse variance weighted,1.014,0.974,1.056,0.492,0.892,TRUE,ns in both,TRUE
+EMP3,FALSE,19,2,Inverse variance weighted,0.906,0.683,1.202,0.493,0.892,2,Inverse variance weighted,0.906,0.683,1.202,0.493,0.892,TRUE,ns in both,TRUE
+EAPP,FALSE,14,2,Inverse variance weighted,0.899,0.66,1.224,0.499,0.892,2,Inverse variance weighted,0.899,0.66,1.224,0.499,0.892,TRUE,ns in both,TRUE
+UBE2I,FALSE,16,2,Inverse variance weighted,1.031,0.945,1.124,0.499,0.892,2,Inverse variance weighted,1.031,0.945,1.124,0.499,0.892,TRUE,ns in both,TRUE
+ALKBH5,FALSE,17,1,Wald ratio,0.954,0.831,1.095,0.5,0.892,1,Wald ratio,0.954,0.831,1.095,0.5,0.892,TRUE,ns in both,TRUE
+ANGPT1,FALSE,8,3,Inverse variance weighted,0.966,0.874,1.068,0.5,0.892,3,Inverse variance weighted,0.966,0.874,1.068,0.5,0.892,TRUE,ns in both,TRUE
+CNTROB,FALSE,17,1,Wald ratio,0.808,0.434,1.502,0.5,0.892,1,Wald ratio,0.808,0.434,1.502,0.5,0.892,TRUE,ns in both,TRUE
+COG4,FALSE,16,1,Wald ratio,0.969,0.883,1.063,0.5,0.892,1,Wald ratio,0.969,0.883,1.063,0.5,0.892,TRUE,ns in both,TRUE
+IPO4,FALSE,14,1,Wald ratio,0.914,0.703,1.188,0.5,0.892,1,Wald ratio,0.914,0.703,1.188,0.5,0.892,TRUE,ns in both,TRUE
+MZF1,FALSE,19,2,Inverse variance weighted,1.048,0.915,1.201,0.5,0.892,2,Inverse variance weighted,1.048,0.915,1.201,0.5,0.892,TRUE,ns in both,TRUE
+PDK4,FALSE,7,1,Wald ratio,0.961,0.856,1.079,0.5,0.892,1,Wald ratio,0.961,0.856,1.079,0.5,0.892,TRUE,ns in both,TRUE
+PITPNB,FALSE,22,1,Wald ratio,1.078,0.866,1.343,0.5,0.892,1,Wald ratio,1.078,0.866,1.343,0.5,0.892,TRUE,ns in both,TRUE
+TUT1,FALSE,11,1,Wald ratio,0.908,0.686,1.202,0.5,0.892,1,Wald ratio,0.908,0.686,1.202,0.5,0.892,TRUE,ns in both,TRUE
+MCTP1,FALSE,5,2,Inverse variance weighted,0.955,0.836,1.092,0.501,0.892,2,Inverse variance weighted,0.955,0.836,1.092,0.501,0.892,TRUE,ns in both,TRUE
+MBOAT1,FALSE,6,3,Inverse variance weighted,1.061,0.892,1.262,0.502,0.892,3,Inverse variance weighted,1.061,0.892,1.262,0.502,0.892,TRUE,ns in both,TRUE
+MPRIP,FALSE,17,2,Inverse variance weighted,1.102,0.829,1.465,0.502,0.892,2,Inverse variance weighted,1.102,0.829,1.465,0.502,0.892,TRUE,ns in both,TRUE
+CCDC92,FALSE,12,3,Inverse variance weighted,1.033,0.939,1.137,0.504,0.892,3,Inverse variance weighted,1.033,0.939,1.137,0.504,0.892,TRUE,ns in both,TRUE
+CARD16,FALSE,11,4,Inverse variance weighted,1.044,0.92,1.185,0.506,0.892,4,Inverse variance weighted,1.044,0.92,1.185,0.506,0.892,TRUE,ns in both,TRUE
+FXYD5,FALSE,19,3,Inverse variance weighted,1.024,0.954,1.1,0.509,0.892,3,Inverse variance weighted,1.024,0.954,1.1,0.509,0.892,TRUE,ns in both,TRUE
+MRPL38,FALSE,17,2,Inverse variance weighted,1.29,0.606,2.744,0.509,0.892,2,Inverse variance weighted,1.29,0.606,2.744,0.509,0.892,TRUE,ns in both,TRUE
+ZMAT3,FALSE,3,3,Inverse variance weighted,0.98,0.922,1.041,0.509,0.892,3,Inverse variance weighted,0.98,0.922,1.041,0.509,0.892,TRUE,ns in both,TRUE
+FBXO34,FALSE,14,1,Wald ratio,0.964,0.863,1.076,0.51,0.892,1,Wald ratio,0.964,0.863,1.076,0.51,0.892,TRUE,ns in both,TRUE
+GMFG,FALSE,19,1,Wald ratio,0.924,0.731,1.169,0.51,0.892,1,Wald ratio,0.924,0.731,1.169,0.51,0.892,TRUE,ns in both,TRUE
+GOT1,FALSE,10,1,Wald ratio,0.922,0.723,1.175,0.51,0.892,1,Wald ratio,0.922,0.723,1.175,0.51,0.892,TRUE,ns in both,TRUE
+GUSB,FALSE,7,1,Wald ratio,1.033,0.938,1.138,0.51,0.892,1,Wald ratio,1.033,0.938,1.138,0.51,0.892,TRUE,ns in both,TRUE
+MON1A,FALSE,3,1,Wald ratio,1.046,0.914,1.198,0.51,0.892,1,Wald ratio,1.046,0.914,1.198,0.51,0.892,TRUE,ns in both,TRUE
+NDUFA11,FALSE,19,1,Wald ratio,1.063,0.887,1.273,0.51,0.892,1,Wald ratio,1.063,0.887,1.273,0.51,0.892,TRUE,ns in both,TRUE
+NICN1,FALSE,3,1,Wald ratio,0.834,0.486,1.432,0.51,0.892,1,Wald ratio,0.834,0.486,1.432,0.51,0.892,TRUE,ns in both,TRUE
+NUP210,FALSE,3,2,Inverse variance weighted,0.967,0.873,1.07,0.51,0.892,2,Inverse variance weighted,0.967,0.873,1.07,0.51,0.892,TRUE,ns in both,TRUE
+PHC1,FALSE,12,1,Wald ratio,0.931,0.753,1.152,0.51,0.892,1,Wald ratio,0.931,0.753,1.152,0.51,0.892,TRUE,ns in both,TRUE
+RAD9A,FALSE,11,1,Wald ratio,1.148,0.762,1.728,0.51,0.892,1,Wald ratio,1.148,0.762,1.728,0.51,0.892,TRUE,ns in both,TRUE
+RIPK2,FALSE,8,2,Inverse variance weighted,1.044,0.919,1.185,0.51,0.892,2,Inverse variance weighted,1.044,0.919,1.185,0.51,0.892,TRUE,ns in both,TRUE
+STRN3,FALSE,14,1,Wald ratio,1.05,0.908,1.215,0.51,0.892,1,Wald ratio,1.05,0.908,1.215,0.51,0.892,TRUE,ns in both,TRUE
+STT3A,FALSE,11,1,Wald ratio,0.878,0.595,1.294,0.51,0.892,1,Wald ratio,0.878,0.595,1.294,0.51,0.892,TRUE,ns in both,TRUE
+TERF2,FALSE,16,1,Wald ratio,0.966,0.871,1.071,0.51,0.892,1,Wald ratio,0.966,0.871,1.071,0.51,0.892,TRUE,ns in both,TRUE
+TOPORS,FALSE,9,1,Wald ratio,0.882,0.608,1.28,0.51,0.892,1,Wald ratio,0.882,0.608,1.28,0.51,0.892,TRUE,ns in both,TRUE
+UPF2,FALSE,10,1,Wald ratio,1.309,0.588,2.913,0.51,0.892,1,Wald ratio,1.309,0.588,2.913,0.51,0.892,TRUE,ns in both,TRUE
+MEN1,FALSE,11,2,Inverse variance weighted,1.065,0.882,1.285,0.512,0.892,2,Inverse variance weighted,1.065,0.882,1.285,0.512,0.892,TRUE,ns in both,TRUE
+SNX16,FALSE,8,2,Inverse variance weighted,0.986,0.946,1.028,0.513,0.892,2,Inverse variance weighted,0.986,0.946,1.028,0.513,0.892,TRUE,ns in both,TRUE
+USP36,FALSE,17,3,Inverse variance weighted,0.978,0.916,1.045,0.514,0.892,3,Inverse variance weighted,0.978,0.916,1.045,0.514,0.892,TRUE,ns in both,TRUE
+DPP3,FALSE,11,2,Inverse variance weighted,0.955,0.83,1.098,0.515,0.892,2,Inverse variance weighted,0.955,0.83,1.098,0.515,0.892,TRUE,ns in both,TRUE
+SLC7A11,FALSE,4,2,Inverse variance weighted,0.912,0.691,1.204,0.515,0.892,2,Inverse variance weighted,0.912,0.691,1.204,0.515,0.892,TRUE,ns in both,TRUE
+MCM3AP,FALSE,21,3,Inverse variance weighted,1.016,0.969,1.064,0.516,0.892,3,Inverse variance weighted,1.016,0.969,1.064,0.516,0.892,TRUE,ns in both,TRUE
+WDFY1,FALSE,2,2,Inverse variance weighted,1.033,0.937,1.138,0.516,0.892,2,Inverse variance weighted,1.033,0.937,1.138,0.516,0.892,TRUE,ns in both,TRUE
+RPA1,FALSE,17,3,Inverse variance weighted,0.97,0.883,1.065,0.517,0.892,3,Inverse variance weighted,0.97,0.883,1.065,0.517,0.892,TRUE,ns in both,TRUE
+ARHGAP17,FALSE,16,1,Wald ratio,1.066,0.877,1.297,0.52,0.892,1,Wald ratio,1.066,0.877,1.297,0.52,0.892,TRUE,ns in both,TRUE
+COG2,FALSE,1,1,Wald ratio,0.942,0.785,1.13,0.52,0.892,1,Wald ratio,0.942,0.785,1.13,0.52,0.892,TRUE,ns in both,TRUE
+CTBP1,FALSE,4,1,Wald ratio,0.899,0.65,1.243,0.52,0.892,1,Wald ratio,0.899,0.65,1.243,0.52,0.892,TRUE,ns in both,TRUE
+DDX54,FALSE,12,1,Wald ratio,0.77,0.348,1.707,0.52,0.892,1,Wald ratio,0.77,0.348,1.707,0.52,0.892,TRUE,ns in both,TRUE
+GOLGA3,FALSE,12,2,Inverse variance weighted,1.055,0.896,1.242,0.52,0.892,2,Inverse variance weighted,1.055,0.896,1.242,0.52,0.892,TRUE,ns in both,TRUE
+KBTBD7,FALSE,13,1,Wald ratio,0.947,0.804,1.117,0.52,0.892,1,Wald ratio,0.947,0.804,1.117,0.52,0.892,TRUE,ns in both,TRUE
+NOL6,FALSE,9,1,Wald ratio,1.042,0.919,1.181,0.52,0.892,1,Wald ratio,1.042,0.919,1.181,0.52,0.892,TRUE,ns in both,TRUE
+PLA2G12A,FALSE,4,1,Wald ratio,0.959,0.843,1.09,0.52,0.892,1,Wald ratio,0.959,0.843,1.09,0.52,0.892,TRUE,ns in both,TRUE
+RUVBL1,FALSE,3,1,Wald ratio,0.965,0.866,1.075,0.52,0.892,1,Wald ratio,0.965,0.866,1.075,0.52,0.892,TRUE,ns in both,TRUE
+TBC1D15,FALSE,12,1,Wald ratio,1.035,0.933,1.148,0.52,0.892,1,Wald ratio,1.035,0.933,1.148,0.52,0.892,TRUE,ns in both,TRUE
+WBP4,FALSE,13,1,Wald ratio,1.048,0.909,1.208,0.52,0.892,1,Wald ratio,1.048,0.909,1.208,0.52,0.892,TRUE,ns in both,TRUE
+FTSJ3,FALSE,17,2,Inverse variance weighted,1.045,0.914,1.194,0.523,0.892,2,Inverse variance weighted,1.045,0.914,1.194,0.523,0.892,TRUE,ns in both,TRUE
+SRGN,FALSE,10,2,Inverse variance weighted,1.025,0.95,1.106,0.523,0.892,2,Inverse variance weighted,1.025,0.95,1.106,0.523,0.892,TRUE,ns in both,TRUE
+TMEM167B,FALSE,1,3,Inverse variance weighted,1.112,0.801,1.543,0.525,0.892,3,Inverse variance weighted,1.112,0.801,1.543,0.525,0.892,TRUE,ns in both,TRUE
+GPR65,FALSE,14,2,Inverse variance weighted,0.978,0.913,1.047,0.526,0.892,2,Inverse variance weighted,0.978,0.913,1.047,0.526,0.892,TRUE,ns in both,TRUE
+IQGAP2,FALSE,5,2,Inverse variance weighted,1.019,0.961,1.08,0.527,0.892,2,Inverse variance weighted,1.019,0.961,1.08,0.527,0.892,TRUE,ns in both,TRUE
+AZIN1,FALSE,8,2,Inverse variance weighted,1.037,0.926,1.16,0.528,0.892,2,Inverse variance weighted,1.037,0.926,1.16,0.528,0.892,TRUE,ns in both,TRUE
+URB1,FALSE,21,2,Inverse variance weighted,1.043,0.915,1.188,0.528,0.892,2,Inverse variance weighted,1.043,0.915,1.188,0.528,0.892,TRUE,ns in both,TRUE
+LXN,FALSE,3,2,Inverse variance weighted,1.039,0.922,1.172,0.529,0.892,2,Inverse variance weighted,1.039,0.922,1.172,0.529,0.892,TRUE,ns in both,TRUE
+ABHD14B,FALSE,3,1,Wald ratio,0.938,0.767,1.146,0.53,0.892,1,Wald ratio,0.938,0.767,1.146,0.53,0.892,TRUE,ns in both,TRUE
+BMP8B,FALSE,1,1,Wald ratio,0.904,0.66,1.238,0.53,0.892,1,Wald ratio,0.904,0.66,1.238,0.53,0.892,TRUE,ns in both,TRUE
+MTMR6,FALSE,13,1,Wald ratio,0.958,0.839,1.094,0.53,0.892,1,Wald ratio,0.958,0.839,1.094,0.53,0.892,TRUE,ns in both,TRUE
+RAB18,FALSE,10,1,Wald ratio,0.94,0.776,1.139,0.53,0.892,1,Wald ratio,0.94,0.776,1.139,0.53,0.892,TRUE,ns in both,TRUE
+RBM7,FALSE,11,1,Wald ratio,0.877,0.582,1.321,0.53,0.892,1,Wald ratio,0.877,0.582,1.321,0.53,0.892,TRUE,ns in both,TRUE
+SLC25A42,FALSE,19,1,Wald ratio,0.897,0.64,1.258,0.53,0.892,1,Wald ratio,0.897,0.64,1.258,0.53,0.892,TRUE,ns in both,TRUE
+SRRM1,FALSE,1,1,Wald ratio,0.886,0.607,1.293,0.53,0.892,1,Wald ratio,0.886,0.607,1.293,0.53,0.892,TRUE,ns in both,TRUE
+ABI1,FALSE,10,3,Inverse variance weighted,0.895,0.633,1.265,0.531,0.892,3,Inverse variance weighted,0.895,0.633,1.265,0.531,0.892,TRUE,ns in both,TRUE
+WDR81,FALSE,17,2,Inverse variance weighted,0.972,0.89,1.062,0.531,0.892,2,Inverse variance weighted,0.972,0.89,1.062,0.531,0.892,TRUE,ns in both,TRUE
+ALCAM,FALSE,3,4,Inverse variance weighted,0.986,0.942,1.032,0.532,0.892,4,Inverse variance weighted,0.986,0.942,1.032,0.532,0.892,TRUE,ns in both,TRUE
+SLC36A4,FALSE,11,3,Inverse variance weighted,1.103,0.81,1.502,0.534,0.892,3,Inverse variance weighted,1.103,0.81,1.502,0.534,0.892,TRUE,ns in both,TRUE
+SFT2D1,FALSE,6,2,Inverse variance weighted,1.042,0.916,1.185,0.535,0.892,2,Inverse variance weighted,1.042,0.916,1.185,0.535,0.892,TRUE,ns in both,TRUE
+CCR5,FALSE,3,2,Inverse variance weighted,0.947,0.798,1.124,0.536,0.892,2,Inverse variance weighted,0.947,0.798,1.124,0.536,0.892,TRUE,ns in both,TRUE
+FIBP,FALSE,11,3,Inverse variance weighted,1.029,0.939,1.128,0.536,0.892,3,Inverse variance weighted,1.029,0.939,1.128,0.536,0.892,TRUE,ns in both,TRUE
+SPOCK2,FALSE,10,3,Inverse variance weighted,0.957,0.832,1.1,0.536,0.892,3,Inverse variance weighted,0.957,0.832,1.1,0.536,0.892,TRUE,ns in both,TRUE
+TANK,FALSE,2,2,Inverse variance weighted,1.063,0.875,1.292,0.536,0.892,2,Inverse variance weighted,1.063,0.875,1.292,0.536,0.892,TRUE,ns in both,TRUE
+ABL1,FALSE,9,1,Wald ratio,1.244,0.618,2.505,0.54,0.892,1,Wald ratio,1.244,0.618,2.505,0.54,0.892,TRUE,ns in both,TRUE
+ATP11B,FALSE,3,1,Wald ratio,1.058,0.884,1.265,0.54,0.892,1,Wald ratio,1.058,0.884,1.265,0.54,0.892,TRUE,ns in both,TRUE
+CD46,FALSE,1,1,Wald ratio,0.914,0.685,1.219,0.54,0.892,1,Wald ratio,0.914,0.685,1.219,0.54,0.892,TRUE,ns in both,TRUE
+DDX55,FALSE,12,1,Wald ratio,0.865,0.545,1.374,0.54,0.892,1,Wald ratio,0.865,0.545,1.374,0.54,0.892,TRUE,ns in both,TRUE
+DPH2,FALSE,1,1,Wald ratio,1.124,0.774,1.632,0.54,0.892,1,Wald ratio,1.124,0.774,1.632,0.54,0.892,TRUE,ns in both,TRUE
+EXOSC10,FALSE,1,1,Wald ratio,1.058,0.883,1.268,0.54,0.892,1,Wald ratio,1.058,0.883,1.268,0.54,0.892,TRUE,ns in both,TRUE
+FBXO10,FALSE,9,1,Wald ratio,1.06,0.879,1.279,0.54,0.892,1,Wald ratio,1.06,0.879,1.279,0.54,0.892,TRUE,ns in both,TRUE
+FBXW4P1,FALSE,22,1,Wald ratio,0.927,0.727,1.181,0.54,0.892,1,Wald ratio,0.927,0.727,1.181,0.54,0.892,TRUE,ns in both,TRUE
+GIPC3,FALSE,19,1,Wald ratio,0.945,0.789,1.132,0.54,0.892,1,Wald ratio,0.945,0.789,1.132,0.54,0.892,TRUE,ns in both,TRUE
+NEURL4,FALSE,17,1,Wald ratio,1.127,0.769,1.652,0.54,0.892,1,Wald ratio,1.127,0.769,1.652,0.54,0.892,TRUE,ns in both,TRUE
+PACSIN1,FALSE,6,1,Wald ratio,0.92,0.705,1.2,0.54,0.892,1,Wald ratio,0.92,0.705,1.2,0.54,0.892,TRUE,ns in both,TRUE
+POMZP3,FALSE,7,1,Wald ratio,0.895,0.628,1.276,0.54,0.892,1,Wald ratio,0.895,0.628,1.276,0.54,0.892,TRUE,ns in both,TRUE
+PRR12,FALSE,19,1,Wald ratio,0.827,0.452,1.516,0.54,0.892,1,Wald ratio,0.827,0.452,1.516,0.54,0.892,TRUE,ns in both,TRUE
+SEL1L,FALSE,14,1,Wald ratio,0.917,0.696,1.209,0.54,0.892,1,Wald ratio,0.917,0.696,1.209,0.54,0.892,TRUE,ns in both,TRUE
+SRRM2,FALSE,16,1,Wald ratio,0.788,0.367,1.69,0.54,0.892,1,Wald ratio,0.788,0.367,1.69,0.54,0.892,TRUE,ns in both,TRUE
+UQCRC1,FALSE,3,1,Wald ratio,1.08,0.845,1.381,0.54,0.892,1,Wald ratio,1.08,0.845,1.381,0.54,0.892,TRUE,ns in both,TRUE
+VPS33B,FALSE,15,1,Wald ratio,1.037,0.922,1.167,0.54,0.892,1,Wald ratio,1.037,0.922,1.167,0.54,0.892,TRUE,ns in both,TRUE
+NRG1,FALSE,8,2,Inverse variance weighted,0.981,0.924,1.042,0.541,0.892,2,Inverse variance weighted,0.981,0.924,1.042,0.541,0.892,TRUE,ns in both,TRUE
+LARS2,FALSE,3,2,Inverse variance weighted,0.969,0.876,1.072,0.546,0.892,2,Inverse variance weighted,0.969,0.876,1.072,0.546,0.892,TRUE,ns in both,TRUE
+BET1L,FALSE,11,3,Inverse variance weighted,1.058,0.881,1.272,0.547,0.892,3,Inverse variance weighted,1.058,0.881,1.272,0.547,0.892,TRUE,ns in both,TRUE
+APOBEC3C,FALSE,22,2,Inverse variance weighted,1.041,0.913,1.188,0.548,0.892,2,Inverse variance weighted,1.041,0.913,1.188,0.548,0.892,TRUE,ns in both,TRUE
+ICAM2,FALSE,17,2,Inverse variance weighted,1.091,0.821,1.45,0.548,0.892,2,Inverse variance weighted,1.091,0.821,1.45,0.548,0.892,TRUE,ns in both,TRUE
+TAF1C,FALSE,16,4,Inverse variance weighted,1.028,0.94,1.124,0.548,0.892,4,Inverse variance weighted,1.028,0.94,1.124,0.548,0.892,TRUE,ns in both,TRUE
+CAB39,FALSE,2,1,Wald ratio,0.964,0.856,1.086,0.55,0.892,1,Wald ratio,0.964,0.856,1.086,0.55,0.892,TRUE,ns in both,TRUE
+OSBPL7,FALSE,17,1,Wald ratio,0.943,0.778,1.143,0.55,0.892,1,Wald ratio,0.943,0.778,1.143,0.55,0.892,TRUE,ns in both,TRUE
+RPRD2,FALSE,1,1,Wald ratio,1.07,0.858,1.334,0.55,0.892,1,Wald ratio,1.07,0.858,1.334,0.55,0.892,TRUE,ns in both,TRUE
+INTS1,FALSE,7,3,Inverse variance weighted,1.021,0.954,1.093,0.551,0.892,3,Inverse variance weighted,1.021,0.954,1.093,0.551,0.892,TRUE,ns in both,TRUE
+MAN1A1,FALSE,6,2,Inverse variance weighted,0.969,0.871,1.077,0.556,0.892,2,Inverse variance weighted,0.969,0.871,1.077,0.556,0.892,TRUE,ns in both,TRUE
+LCMT1,FALSE,16,2,Inverse variance weighted,0.944,0.779,1.144,0.557,0.892,2,Inverse variance weighted,0.944,0.779,1.144,0.557,0.892,TRUE,ns in both,TRUE
+TCFL5,FALSE,20,2,Inverse variance weighted,1.05,0.892,1.235,0.558,0.892,2,Inverse variance weighted,1.05,0.892,1.235,0.558,0.892,TRUE,ns in both,TRUE
+ARHGEF5,FALSE,7,1,Wald ratio,0.922,0.702,1.212,0.56,0.892,1,Wald ratio,0.922,0.702,1.212,0.56,0.892,TRUE,ns in both,TRUE
+BLZF1,FALSE,1,1,Wald ratio,1.104,0.792,1.537,0.56,0.892,1,Wald ratio,1.104,0.792,1.537,0.56,0.892,TRUE,ns in both,TRUE
+CCDC88C,FALSE,14,1,Wald ratio,1.079,0.835,1.395,0.56,0.892,1,Wald ratio,1.079,0.835,1.395,0.56,0.892,TRUE,ns in both,TRUE
+COQ10B,FALSE,2,1,Wald ratio,1.071,0.85,1.351,0.56,0.892,1,Wald ratio,1.071,0.85,1.351,0.56,0.892,TRUE,ns in both,TRUE
+GNB4,FALSE,3,1,Wald ratio,1.064,0.863,1.312,0.56,0.892,1,Wald ratio,1.064,0.863,1.312,0.56,0.892,TRUE,ns in both,TRUE
+GOSR2,FALSE,17,1,Wald ratio,1.143,0.729,1.791,0.56,0.892,1,Wald ratio,1.143,0.729,1.791,0.56,0.892,TRUE,ns in both,TRUE
+KIFC2,FALSE,8,1,Wald ratio,0.941,0.768,1.154,0.56,0.892,1,Wald ratio,0.941,0.768,1.154,0.56,0.892,TRUE,ns in both,TRUE
+LMBRD1,FALSE,6,1,Wald ratio,0.927,0.717,1.197,0.56,0.892,1,Wald ratio,0.927,0.717,1.197,0.56,0.892,TRUE,ns in both,TRUE
+PDGFC,FALSE,4,2,Inverse variance weighted,0.936,0.751,1.168,0.56,0.892,2,Inverse variance weighted,0.936,0.751,1.168,0.56,0.892,TRUE,ns in both,TRUE
+STAM2,FALSE,2,1,Wald ratio,0.977,0.905,1.055,0.56,0.892,1,Wald ratio,0.977,0.905,1.055,0.56,0.892,TRUE,ns in both,TRUE
+TGS1,FALSE,8,1,Wald ratio,1.125,0.758,1.669,0.56,0.892,1,Wald ratio,1.125,0.758,1.669,0.56,0.892,TRUE,ns in both,TRUE
+TMEM33,FALSE,4,1,Wald ratio,0.928,0.721,1.194,0.56,0.892,1,Wald ratio,0.928,0.721,1.194,0.56,0.892,TRUE,ns in both,TRUE
+GPI,FALSE,19,2,Inverse variance weighted,0.944,0.774,1.151,0.568,0.892,2,Inverse variance weighted,0.944,0.774,1.151,0.568,0.892,TRUE,ns in both,TRUE
+TRAF3,FALSE,14,2,Inverse variance weighted,1.048,0.892,1.231,0.568,0.892,2,Inverse variance weighted,1.048,0.892,1.231,0.568,0.892,TRUE,ns in both,TRUE
+CENPT,FALSE,16,1,Wald ratio,0.935,0.741,1.179,0.57,0.892,1,Wald ratio,0.935,0.741,1.179,0.57,0.892,TRUE,ns in both,TRUE
+HAUS5,FALSE,19,1,Wald ratio,1.095,0.801,1.498,0.57,0.892,1,Wald ratio,1.095,0.801,1.498,0.57,0.892,TRUE,ns in both,TRUE
+NAA35,FALSE,9,1,Wald ratio,0.971,0.877,1.075,0.57,0.892,1,Wald ratio,0.971,0.877,1.075,0.57,0.892,TRUE,ns in both,TRUE
+POLR2L,FALSE,11,1,Wald ratio,1.145,0.718,1.826,0.57,0.892,1,Wald ratio,1.145,0.718,1.826,0.57,0.892,TRUE,ns in both,TRUE
+RABGGTA,FALSE,14,1,Wald ratio,0.955,0.815,1.119,0.57,0.892,1,Wald ratio,0.955,0.815,1.119,0.57,0.892,TRUE,ns in both,TRUE
+RNFT1,FALSE,17,1,Wald ratio,1.055,0.878,1.267,0.57,0.892,1,Wald ratio,1.055,0.878,1.267,0.57,0.892,TRUE,ns in both,TRUE
+ST3GAL6,FALSE,3,2,Inverse variance weighted,0.969,0.87,1.079,0.57,0.892,2,Inverse variance weighted,0.969,0.87,1.079,0.57,0.892,TRUE,ns in both,TRUE
+UTP20,FALSE,12,1,Wald ratio,1.088,0.813,1.456,0.57,0.892,1,Wald ratio,1.088,0.813,1.456,0.57,0.892,TRUE,ns in both,TRUE
+VGLL4,FALSE,3,1,Wald ratio,0.92,0.689,1.228,0.57,0.892,1,Wald ratio,0.92,0.689,1.228,0.57,0.892,TRUE,ns in both,TRUE
+ZNF335,FALSE,20,1,Wald ratio,1.149,0.712,1.854,0.57,0.892,1,Wald ratio,1.149,0.712,1.854,0.57,0.892,TRUE,ns in both,TRUE
+RHOT1,FALSE,17,2,Inverse variance weighted,1.018,0.956,1.084,0.572,0.892,2,Inverse variance weighted,1.018,0.956,1.084,0.572,0.892,TRUE,ns in both,TRUE
+GPR160,FALSE,3,3,Inverse variance weighted,0.978,0.904,1.058,0.577,0.892,3,Inverse variance weighted,0.978,0.904,1.058,0.577,0.892,TRUE,ns in both,TRUE
+SEMA3C,FALSE,7,2,Inverse variance weighted,0.933,0.732,1.189,0.577,0.892,2,Inverse variance weighted,0.933,0.732,1.189,0.577,0.892,TRUE,ns in both,TRUE
+SLFN5,FALSE,17,2,Inverse variance weighted,0.974,0.89,1.067,0.577,0.892,2,Inverse variance weighted,0.974,0.89,1.067,0.577,0.892,TRUE,ns in both,TRUE
+ATP11A,FALSE,13,2,Inverse variance weighted,1.111,0.766,1.613,0.578,0.892,2,Inverse variance weighted,1.111,0.766,1.613,0.578,0.892,TRUE,ns in both,TRUE
+CD37,FALSE,19,2,Inverse variance weighted,1.018,0.955,1.086,0.578,0.892,2,Inverse variance weighted,1.018,0.955,1.086,0.578,0.892,TRUE,ns in both,TRUE
+MCM6,FALSE,2,2,Inverse variance weighted,0.983,0.925,1.044,0.578,0.892,2,Inverse variance weighted,0.983,0.925,1.044,0.578,0.892,TRUE,ns in both,TRUE
+TPK1,FALSE,7,2,Inverse variance weighted,0.973,0.882,1.073,0.579,0.892,2,Inverse variance weighted,0.973,0.882,1.073,0.579,0.892,TRUE,ns in both,TRUE
+ATP8B1,FALSE,18,1,Wald ratio,1.099,0.786,1.538,0.58,0.892,1,Wald ratio,1.099,0.786,1.538,0.58,0.892,TRUE,ns in both,TRUE
+COPS6,FALSE,7,1,Wald ratio,0.975,0.892,1.066,0.58,0.892,1,Wald ratio,0.975,0.892,1.066,0.58,0.892,TRUE,ns in both,TRUE
+FAM200B,FALSE,4,1,Wald ratio,0.938,0.749,1.175,0.58,0.892,1,Wald ratio,0.938,0.749,1.175,0.58,0.892,TRUE,ns in both,TRUE
+LATS2,FALSE,13,1,Wald ratio,1.092,0.8,1.49,0.58,0.892,1,Wald ratio,1.092,0.8,1.49,0.58,0.892,TRUE,ns in both,TRUE
+MED29,FALSE,19,1,Wald ratio,0.972,0.879,1.075,0.58,0.892,1,Wald ratio,0.972,0.879,1.075,0.58,0.892,TRUE,ns in both,TRUE
+PLOD3,FALSE,7,1,Wald ratio,1.113,0.762,1.624,0.58,0.892,1,Wald ratio,1.113,0.762,1.624,0.58,0.892,TRUE,ns in both,TRUE
+PNPO,FALSE,17,1,Wald ratio,1.021,0.948,1.1,0.58,0.892,1,Wald ratio,1.021,0.948,1.1,0.58,0.892,TRUE,ns in both,TRUE
+POLE,FALSE,12,1,Wald ratio,1.14,0.717,1.81,0.58,0.892,1,Wald ratio,1.14,0.717,1.81,0.58,0.892,TRUE,ns in both,TRUE
+SAP30,FALSE,4,1,Wald ratio,1.06,0.862,1.304,0.58,0.892,1,Wald ratio,1.06,0.862,1.304,0.58,0.892,TRUE,ns in both,TRUE
+SNRNP40,FALSE,1,1,Wald ratio,1.044,0.897,1.215,0.58,0.892,1,Wald ratio,1.044,0.897,1.215,0.58,0.892,TRUE,ns in both,TRUE
+TMEM104,FALSE,17,1,Wald ratio,0.898,0.614,1.314,0.58,0.892,1,Wald ratio,0.898,0.614,1.314,0.58,0.892,TRUE,ns in both,TRUE
+ARHGEF7,FALSE,13,3,Inverse variance weighted,1.073,0.836,1.377,0.582,0.892,3,Inverse variance weighted,1.073,0.836,1.377,0.582,0.892,TRUE,ns in both,TRUE
+JAG1,FALSE,20,2,Inverse variance weighted,0.845,0.464,1.539,0.582,0.892,2,Inverse variance weighted,0.845,0.464,1.539,0.582,0.892,TRUE,ns in both,TRUE
+APRT,FALSE,16,2,Inverse variance weighted,1.05,0.881,1.251,0.585,0.892,2,Inverse variance weighted,1.05,0.881,1.251,0.585,0.892,TRUE,ns in both,TRUE
+EIF4E3,FALSE,3,4,Inverse variance weighted,0.983,0.925,1.045,0.586,0.892,4,Inverse variance weighted,0.983,0.925,1.045,0.586,0.892,TRUE,ns in both,TRUE
+SECISBP2,FALSE,9,3,Inverse variance weighted,0.978,0.901,1.061,0.588,0.892,3,Inverse variance weighted,0.978,0.901,1.061,0.588,0.892,TRUE,ns in both,TRUE
+TMEM144,FALSE,4,4,Inverse variance weighted,0.982,0.92,1.048,0.588,0.892,4,Inverse variance weighted,0.982,0.92,1.048,0.588,0.892,TRUE,ns in both,TRUE
+DNHD1,FALSE,11,2,Inverse variance weighted,0.961,0.832,1.11,0.589,0.892,2,Inverse variance weighted,0.961,0.832,1.11,0.589,0.892,TRUE,ns in both,TRUE
+FTO,FALSE,16,2,Inverse variance weighted,1.1,0.779,1.553,0.589,0.892,2,Inverse variance weighted,1.1,0.779,1.553,0.589,0.892,TRUE,ns in both,TRUE
+ABCC10,FALSE,6,1,Wald ratio,1.076,0.823,1.407,0.59,0.892,1,Wald ratio,1.076,0.823,1.407,0.59,0.892,TRUE,ns in both,TRUE
+B3GAT3,FALSE,11,1,Wald ratio,0.909,0.644,1.285,0.59,0.892,1,Wald ratio,0.909,0.644,1.285,0.59,0.892,TRUE,ns in both,TRUE
+BCS1L,FALSE,2,1,Wald ratio,0.968,0.859,1.09,0.59,0.892,1,Wald ratio,0.968,0.859,1.09,0.59,0.892,TRUE,ns in both,TRUE
+COQ2,FALSE,4,1,Wald ratio,0.973,0.88,1.075,0.59,0.892,1,Wald ratio,0.973,0.88,1.075,0.59,0.892,TRUE,ns in both,TRUE
+CSNK2A2,FALSE,16,1,Wald ratio,0.951,0.793,1.141,0.59,0.892,1,Wald ratio,0.951,0.793,1.141,0.59,0.892,TRUE,ns in both,TRUE
+MFAP3,FALSE,5,1,Wald ratio,1.075,0.827,1.397,0.59,0.892,1,Wald ratio,1.075,0.827,1.397,0.59,0.892,TRUE,ns in both,TRUE
+PDK2,FALSE,17,1,Wald ratio,1.045,0.889,1.229,0.59,0.892,1,Wald ratio,1.045,0.889,1.229,0.59,0.892,TRUE,ns in both,TRUE
+RC3H1,FALSE,1,1,Wald ratio,1.132,0.721,1.775,0.59,0.892,1,Wald ratio,1.132,0.721,1.775,0.59,0.892,TRUE,ns in both,TRUE
+SYNJ1,FALSE,21,1,Wald ratio,1.071,0.834,1.375,0.59,0.892,1,Wald ratio,1.071,0.834,1.375,0.59,0.892,TRUE,ns in both,TRUE
+TATDN2,FALSE,3,1,Wald ratio,1.222,0.589,2.538,0.59,0.892,1,Wald ratio,1.222,0.589,2.538,0.59,0.892,TRUE,ns in both,TRUE
+TM7SF2,FALSE,11,1,Wald ratio,1.051,0.876,1.262,0.59,0.892,1,Wald ratio,1.051,0.876,1.262,0.59,0.892,TRUE,ns in both,TRUE
+ZC3HAV1,FALSE,7,1,Wald ratio,1.061,0.855,1.317,0.59,0.892,1,Wald ratio,1.061,0.855,1.317,0.59,0.892,TRUE,ns in both,TRUE
+ZKSCAN4,TRUE,6,1,Wald ratio,1.023,0.941,1.114,0.59,0.892,,,,,,,,FALSE,ns in both,
+GAPT,FALSE,5,2,Inverse variance weighted,1.01,0.973,1.049,0.592,0.892,2,Inverse variance weighted,1.01,0.973,1.049,0.592,0.892,TRUE,ns in both,TRUE
+SEC13,FALSE,3,2,Inverse variance weighted,0.972,0.876,1.079,0.592,0.892,2,Inverse variance weighted,0.972,0.876,1.079,0.592,0.892,TRUE,ns in both,TRUE
+NFATC3,FALSE,16,2,Inverse variance weighted,0.972,0.876,1.079,0.594,0.892,2,Inverse variance weighted,0.972,0.876,1.079,0.594,0.892,TRUE,ns in both,TRUE
+BCAT1,FALSE,12,3,Inverse variance weighted,1.01,0.974,1.047,0.595,0.892,3,Inverse variance weighted,1.01,0.974,1.047,0.595,0.892,TRUE,ns in both,TRUE
+EML3,FALSE,11,3,Inverse variance weighted,0.983,0.924,1.047,0.596,0.892,3,Inverse variance weighted,0.983,0.924,1.047,0.596,0.892,TRUE,ns in both,TRUE
+USP40,FALSE,2,2,Inverse variance weighted,0.985,0.933,1.041,0.596,0.892,2,Inverse variance weighted,0.985,0.933,1.041,0.596,0.892,TRUE,ns in both,TRUE
+BYSL,FALSE,6,3,Inverse variance weighted,1.034,0.914,1.169,0.598,0.892,3,Inverse variance weighted,1.034,0.914,1.169,0.598,0.892,TRUE,ns in both,TRUE
+CPD,FALSE,17,3,Inverse variance weighted,0.975,0.886,1.072,0.598,0.892,3,Inverse variance weighted,0.975,0.886,1.072,0.598,0.892,TRUE,ns in both,TRUE
+AP3D1,FALSE,19,1,Wald ratio,0.942,0.754,1.177,0.6,0.892,1,Wald ratio,0.942,0.754,1.177,0.6,0.892,TRUE,ns in both,TRUE
+CLEC12B,FALSE,12,1,Wald ratio,0.885,0.56,1.398,0.6,0.892,1,Wald ratio,0.885,0.56,1.398,0.6,0.892,TRUE,ns in both,TRUE
+DYNLT1,FALSE,6,1,Wald ratio,1.113,0.745,1.664,0.6,0.892,1,Wald ratio,1.113,0.745,1.664,0.6,0.892,TRUE,ns in both,TRUE
+FUBP1,FALSE,1,1,Wald ratio,0.873,0.527,1.448,0.6,0.892,1,Wald ratio,0.873,0.527,1.448,0.6,0.892,TRUE,ns in both,TRUE
+RASGRP2,FALSE,11,1,Wald ratio,0.869,0.513,1.47,0.6,0.892,1,Wald ratio,0.869,0.513,1.47,0.6,0.892,TRUE,ns in both,TRUE
+RB1,FALSE,13,1,Wald ratio,1.042,0.893,1.217,0.6,0.892,1,Wald ratio,1.042,0.893,1.217,0.6,0.892,TRUE,ns in both,TRUE
+VPS4A,FALSE,16,1,Wald ratio,1.073,0.826,1.393,0.6,0.892,1,Wald ratio,1.073,0.826,1.393,0.6,0.892,TRUE,ns in both,TRUE
+SLC7A1,FALSE,13,2,Inverse variance weighted,1.03,0.922,1.151,0.603,0.892,2,Inverse variance weighted,1.03,0.922,1.151,0.603,0.892,TRUE,ns in both,TRUE
+TUBGCP6,FALSE,22,2,Inverse variance weighted,0.889,0.569,1.388,0.604,0.892,2,Inverse variance weighted,0.889,0.569,1.388,0.604,0.892,TRUE,ns in both,TRUE
+SURF2,FALSE,9,2,Inverse variance weighted,0.841,0.436,1.621,0.605,0.892,2,Inverse variance weighted,0.841,0.436,1.621,0.605,0.892,TRUE,ns in both,TRUE
+ZNF142,FALSE,2,2,Inverse variance weighted,0.973,0.875,1.081,0.606,0.892,2,Inverse variance weighted,0.973,0.875,1.081,0.606,0.892,TRUE,ns in both,TRUE
+ABHD15,FALSE,17,5,Inverse variance weighted,0.976,0.888,1.072,0.607,0.892,5,Inverse variance weighted,0.976,0.888,1.072,0.607,0.892,TRUE,ns in both,TRUE
+CAD,FALSE,2,2,Inverse variance weighted,1.107,0.751,1.633,0.607,0.892,2,Inverse variance weighted,1.107,0.751,1.633,0.607,0.892,TRUE,ns in both,TRUE
+TBC1D9B,FALSE,5,4,Inverse variance weighted,0.982,0.915,1.053,0.607,0.892,4,Inverse variance weighted,0.982,0.915,1.053,0.607,0.892,TRUE,ns in both,TRUE
+MEF2A,FALSE,15,2,Inverse variance weighted,0.927,0.695,1.237,0.608,0.892,2,Inverse variance weighted,0.927,0.695,1.237,0.608,0.892,TRUE,ns in both,TRUE
+TCF25,FALSE,16,2,Inverse variance weighted,0.933,0.716,1.216,0.608,0.892,2,Inverse variance weighted,0.933,0.716,1.216,0.608,0.892,TRUE,ns in both,TRUE
+CENPW,FALSE,6,1,Wald ratio,1.087,0.789,1.497,0.61,0.892,1,Wald ratio,1.087,0.789,1.497,0.61,0.892,TRUE,ns in both,TRUE
+GMFB,FALSE,14,1,Wald ratio,1.063,0.842,1.342,0.61,0.892,1,Wald ratio,1.063,0.842,1.342,0.61,0.892,TRUE,ns in both,TRUE
+HMOX2,FALSE,16,1,Wald ratio,0.944,0.756,1.179,0.61,0.892,1,Wald ratio,0.944,0.756,1.179,0.61,0.892,TRUE,ns in both,TRUE
+MS4A4A,FALSE,11,1,Wald ratio,0.973,0.876,1.081,0.61,0.892,1,Wald ratio,0.973,0.876,1.081,0.61,0.892,TRUE,ns in both,TRUE
+NOXA1,FALSE,9,1,Wald ratio,0.878,0.531,1.45,0.61,0.892,1,Wald ratio,0.878,0.531,1.45,0.61,0.892,TRUE,ns in both,TRUE
+PITPNM2,FALSE,12,1,Wald ratio,1.108,0.747,1.644,0.61,0.892,1,Wald ratio,1.108,0.747,1.644,0.61,0.892,TRUE,ns in both,TRUE
+RFTN1,FALSE,3,1,Wald ratio,0.963,0.834,1.112,0.61,0.892,1,Wald ratio,0.963,0.834,1.112,0.61,0.892,TRUE,ns in both,TRUE
+RNF25,FALSE,2,1,Wald ratio,1.117,0.73,1.71,0.61,0.892,1,Wald ratio,1.117,0.73,1.71,0.61,0.892,TRUE,ns in both,TRUE
+S1PR2,FALSE,19,1,Wald ratio,0.915,0.65,1.287,0.61,0.892,1,Wald ratio,0.915,0.65,1.287,0.61,0.892,TRUE,ns in both,TRUE
+THADA,FALSE,2,2,Inverse variance weighted,0.869,0.506,1.491,0.61,0.892,2,Inverse variance weighted,0.869,0.506,1.491,0.61,0.892,TRUE,ns in both,TRUE
+VPS11,FALSE,11,1,Wald ratio,1.152,0.669,1.986,0.61,0.892,1,Wald ratio,1.152,0.669,1.986,0.61,0.892,TRUE,ns in both,TRUE
+YIF1A,FALSE,11,1,Wald ratio,0.964,0.837,1.11,0.61,0.892,1,Wald ratio,0.964,0.837,1.11,0.61,0.892,TRUE,ns in both,TRUE
+BCR,FALSE,22,2,Inverse variance weighted,0.974,0.878,1.08,0.611,0.892,2,Inverse variance weighted,0.974,0.878,1.08,0.611,0.892,TRUE,ns in both,TRUE
+FPGT,FALSE,1,2,Inverse variance weighted,0.977,0.895,1.068,0.613,0.892,2,Inverse variance weighted,0.977,0.895,1.068,0.613,0.892,TRUE,ns in both,TRUE
+ACSL3,FALSE,2,2,Inverse variance weighted,1.037,0.899,1.197,0.615,0.892,2,Inverse variance weighted,1.037,0.899,1.197,0.615,0.892,TRUE,ns in both,TRUE
+IKZF1,FALSE,7,3,Inverse variance weighted,0.978,0.894,1.069,0.619,0.892,3,Inverse variance weighted,0.978,0.894,1.069,0.619,0.892,TRUE,ns in both,TRUE
+AGFG2,FALSE,7,1,Wald ratio,1.176,0.619,2.237,0.62,0.892,1,Wald ratio,1.176,0.619,2.237,0.62,0.892,TRUE,ns in both,TRUE
+CCDC137,FALSE,17,1,Wald ratio,0.965,0.839,1.11,0.62,0.892,1,Wald ratio,0.965,0.839,1.11,0.62,0.892,TRUE,ns in both,TRUE
+CHUK,FALSE,10,1,Wald ratio,1.135,0.689,1.869,0.62,0.892,1,Wald ratio,1.135,0.689,1.869,0.62,0.892,TRUE,ns in both,TRUE
+GALNT7,FALSE,4,1,Wald ratio,0.921,0.665,1.275,0.62,0.892,1,Wald ratio,0.921,0.665,1.275,0.62,0.892,TRUE,ns in both,TRUE
+IDH3B,FALSE,20,1,Wald ratio,0.961,0.821,1.125,0.62,0.892,1,Wald ratio,0.961,0.821,1.125,0.62,0.892,TRUE,ns in both,TRUE
+KLC2,FALSE,11,1,Wald ratio,0.931,0.703,1.234,0.62,0.892,1,Wald ratio,0.931,0.703,1.234,0.62,0.892,TRUE,ns in both,TRUE
+LPCAT4,FALSE,15,1,Wald ratio,0.931,0.703,1.234,0.62,0.892,1,Wald ratio,0.931,0.703,1.234,0.62,0.892,TRUE,ns in both,TRUE
+MFNG,FALSE,22,2,Inverse variance weighted,1.07,0.818,1.4,0.62,0.892,2,Inverse variance weighted,1.07,0.818,1.4,0.62,0.892,TRUE,ns in both,TRUE
+PPIL2,FALSE,22,1,Wald ratio,0.961,0.822,1.124,0.62,0.892,1,Wald ratio,0.961,0.822,1.124,0.62,0.892,TRUE,ns in both,TRUE
+PRPF8,FALSE,17,1,Wald ratio,1.139,0.681,1.903,0.62,0.892,1,Wald ratio,1.139,0.681,1.903,0.62,0.892,TRUE,ns in both,TRUE
+PRSS53,FALSE,16,1,Wald ratio,0.968,0.849,1.102,0.62,0.892,1,Wald ratio,0.968,0.849,1.102,0.62,0.892,TRUE,ns in both,TRUE
+RNF43,FALSE,17,1,Wald ratio,1.075,0.808,1.428,0.62,0.892,1,Wald ratio,1.075,0.808,1.428,0.62,0.892,TRUE,ns in both,TRUE
+SIRT3,FALSE,11,1,Wald ratio,1.033,0.909,1.174,0.62,0.892,1,Wald ratio,1.033,0.909,1.174,0.62,0.892,TRUE,ns in both,TRUE
+SLC2A6,FALSE,9,1,Wald ratio,0.878,0.526,1.466,0.62,0.892,1,Wald ratio,0.878,0.526,1.466,0.62,0.892,TRUE,ns in both,TRUE
+ZNF200,FALSE,16,1,Wald ratio,1.062,0.837,1.348,0.62,0.892,1,Wald ratio,1.062,0.837,1.348,0.62,0.892,TRUE,ns in both,TRUE
+ACAD9,FALSE,3,5,Inverse variance weighted,0.949,0.771,1.168,0.621,0.892,5,Inverse variance weighted,0.949,0.771,1.168,0.621,0.892,TRUE,ns in both,TRUE
+HDHD3,FALSE,9,2,Inverse variance weighted,0.989,0.947,1.033,0.621,0.892,2,Inverse variance weighted,0.989,0.947,1.033,0.621,0.892,TRUE,ns in both,TRUE
+CARNS1,FALSE,11,3,Inverse variance weighted,0.942,0.744,1.193,0.622,0.892,3,Inverse variance weighted,0.942,0.744,1.193,0.622,0.892,TRUE,ns in both,TRUE
+DEPDC5,FALSE,22,2,Inverse variance weighted,0.967,0.845,1.107,0.624,0.892,2,Inverse variance weighted,0.967,0.845,1.107,0.624,0.892,TRUE,ns in both,TRUE
+INTS5,FALSE,11,3,Inverse variance weighted,0.987,0.939,1.039,0.624,0.892,3,Inverse variance weighted,0.987,0.939,1.039,0.624,0.892,TRUE,ns in both,TRUE
+DEXI,FALSE,16,2,Inverse variance weighted,0.971,0.862,1.094,0.627,0.892,2,Inverse variance weighted,0.971,0.862,1.094,0.627,0.892,TRUE,ns in both,TRUE
+ABHD12,FALSE,20,2,Inverse variance weighted,1.047,0.868,1.263,0.629,0.892,2,Inverse variance weighted,1.047,0.868,1.263,0.629,0.892,TRUE,ns in both,TRUE
+AP1G2,FALSE,14,1,Wald ratio,1.021,0.939,1.109,0.63,0.892,1,Wald ratio,1.021,0.939,1.109,0.63,0.892,TRUE,ns in both,TRUE
+CDK2AP2,FALSE,11,1,Wald ratio,1.162,0.631,2.14,0.63,0.892,1,Wald ratio,1.162,0.631,2.14,0.63,0.892,TRUE,ns in both,TRUE
+CDKN2B,FALSE,9,1,Wald ratio,0.977,0.889,1.074,0.63,0.892,1,Wald ratio,0.977,0.889,1.074,0.63,0.892,TRUE,ns in both,TRUE
+EME2,FALSE,16,1,Wald ratio,1.03,0.913,1.163,0.63,0.892,1,Wald ratio,1.03,0.913,1.163,0.63,0.892,TRUE,ns in both,TRUE
+MDH2,FALSE,7,1,Wald ratio,1.403,0.354,5.564,0.63,0.892,1,Wald ratio,1.403,0.354,5.564,0.63,0.892,TRUE,ns in both,TRUE
+PIP5K1B,FALSE,9,1,Wald ratio,1.097,0.752,1.6,0.63,0.892,1,Wald ratio,1.097,0.752,1.6,0.63,0.892,TRUE,ns in both,TRUE
+STXBP3,FALSE,1,2,Inverse variance weighted,0.958,0.805,1.141,0.63,0.892,2,Inverse variance weighted,0.958,0.805,1.141,0.63,0.892,TRUE,ns in both,TRUE
+STXBP5,FALSE,6,1,Wald ratio,0.945,0.751,1.19,0.63,0.892,1,Wald ratio,0.945,0.751,1.19,0.63,0.892,TRUE,ns in both,TRUE
+THTPA,FALSE,14,1,Wald ratio,0.96,0.812,1.135,0.63,0.892,1,Wald ratio,0.96,0.812,1.135,0.63,0.892,TRUE,ns in both,TRUE
+SGSM2,FALSE,17,2,Inverse variance weighted,1.057,0.844,1.322,0.631,0.892,2,Inverse variance weighted,1.057,0.844,1.322,0.631,0.892,TRUE,ns in both,TRUE
+CDC16,FALSE,13,3,Inverse variance weighted,1.007,0.977,1.039,0.633,0.892,3,Inverse variance weighted,1.007,0.977,1.039,0.633,0.892,TRUE,ns in both,TRUE
+GALT,FALSE,9,4,Inverse variance weighted,0.979,0.896,1.07,0.637,0.892,4,Inverse variance weighted,0.979,0.896,1.07,0.637,0.892,TRUE,ns in both,TRUE
+TIMM22,FALSE,17,2,Inverse variance weighted,0.965,0.831,1.12,0.638,0.892,2,Inverse variance weighted,0.965,0.831,1.12,0.638,0.892,TRUE,ns in both,TRUE
+TAF7,FALSE,5,2,Inverse variance weighted,1.022,0.933,1.121,0.639,0.892,2,Inverse variance weighted,1.022,0.933,1.121,0.639,0.892,TRUE,ns in both,TRUE
+ALAD,FALSE,9,2,Inverse variance weighted,1.041,0.88,1.231,0.64,0.892,2,Inverse variance weighted,1.041,0.88,1.231,0.64,0.892,TRUE,ns in both,TRUE
+APOL3,FALSE,22,1,Wald ratio,1.123,0.691,1.823,0.64,0.892,1,Wald ratio,1.123,0.691,1.823,0.64,0.892,TRUE,ns in both,TRUE
+CAPZA1,FALSE,1,1,Wald ratio,0.902,0.584,1.392,0.64,0.892,1,Wald ratio,0.902,0.584,1.392,0.64,0.892,TRUE,ns in both,TRUE
+CD3E,FALSE,11,1,Wald ratio,1.046,0.865,1.265,0.64,0.892,1,Wald ratio,1.046,0.865,1.265,0.64,0.892,TRUE,ns in both,TRUE
+CLEC4D,FALSE,12,1,Wald ratio,0.99,0.947,1.034,0.64,0.892,1,Wald ratio,0.99,0.947,1.034,0.64,0.892,TRUE,ns in both,TRUE
+DCUN1D1,FALSE,3,1,Wald ratio,1.086,0.768,1.535,0.64,0.892,1,Wald ratio,1.086,0.768,1.535,0.64,0.892,TRUE,ns in both,TRUE
+EDC4,FALSE,16,1,Wald ratio,0.943,0.738,1.205,0.64,0.892,1,Wald ratio,0.943,0.738,1.205,0.64,0.892,TRUE,ns in both,TRUE
+ENTPD5,FALSE,14,1,Wald ratio,1.045,0.87,1.255,0.64,0.892,1,Wald ratio,1.045,0.87,1.255,0.64,0.892,TRUE,ns in both,TRUE
+LRRC45,FALSE,17,1,Wald ratio,1.028,0.916,1.154,0.64,0.892,1,Wald ratio,1.028,0.916,1.154,0.64,0.892,TRUE,ns in both,TRUE
+SF3A2,FALSE,19,1,Wald ratio,1.059,0.832,1.349,0.64,0.892,1,Wald ratio,1.059,0.832,1.349,0.64,0.892,TRUE,ns in both,TRUE
+SMAD4,FALSE,18,1,Wald ratio,1.041,0.879,1.233,0.64,0.892,1,Wald ratio,1.041,0.879,1.233,0.64,0.892,TRUE,ns in both,TRUE
+USP7,FALSE,16,1,Wald ratio,1.105,0.728,1.676,0.64,0.892,1,Wald ratio,1.105,0.728,1.676,0.64,0.892,TRUE,ns in both,TRUE
+UTP23,FALSE,8,1,Wald ratio,1.024,0.926,1.132,0.64,0.892,1,Wald ratio,1.024,0.926,1.132,0.64,0.892,TRUE,ns in both,TRUE
+ZNF230,FALSE,19,1,Wald ratio,1.061,0.828,1.36,0.64,0.892,1,Wald ratio,1.061,0.828,1.36,0.64,0.892,TRUE,ns in both,TRUE
+CLIP2,FALSE,7,2,Inverse variance weighted,0.952,0.774,1.171,0.641,0.892,2,Inverse variance weighted,0.952,0.774,1.171,0.641,0.892,TRUE,ns in both,TRUE
+SMCHD1,FALSE,18,2,Inverse variance weighted,0.926,0.668,1.282,0.642,0.892,2,Inverse variance weighted,0.926,0.668,1.282,0.642,0.892,TRUE,ns in both,TRUE
+FRMD4B,FALSE,3,2,Inverse variance weighted,1.031,0.905,1.176,0.644,0.892,2,Inverse variance weighted,1.031,0.905,1.176,0.644,0.892,TRUE,ns in both,TRUE
+TRIM23,FALSE,5,2,Inverse variance weighted,0.961,0.811,1.139,0.646,0.892,2,Inverse variance weighted,0.961,0.811,1.139,0.646,0.892,TRUE,ns in both,TRUE
+VAMP1,FALSE,12,4,Inverse variance weighted,1.012,0.963,1.064,0.646,0.892,4,Inverse variance weighted,1.012,0.963,1.064,0.646,0.892,TRUE,ns in both,TRUE
+PDE4A,FALSE,19,2,Inverse variance weighted,0.904,0.587,1.393,0.648,0.892,2,Inverse variance weighted,0.904,0.587,1.393,0.648,0.892,TRUE,ns in both,TRUE
+BTBD2,FALSE,19,1,Wald ratio,0.868,0.47,1.601,0.65,0.892,1,Wald ratio,0.868,0.47,1.601,0.65,0.892,TRUE,ns in both,TRUE
+GALNT10,FALSE,5,1,Wald ratio,1.034,0.895,1.195,0.65,0.892,1,Wald ratio,1.034,0.895,1.195,0.65,0.892,TRUE,ns in both,TRUE
+NISCH,FALSE,3,1,Wald ratio,0.917,0.63,1.334,0.65,0.892,1,Wald ratio,0.917,0.63,1.334,0.65,0.892,TRUE,ns in both,TRUE
+PSMD2,FALSE,3,1,Wald ratio,0.866,0.466,1.611,0.65,0.892,1,Wald ratio,0.866,0.466,1.611,0.65,0.892,TRUE,ns in both,TRUE
+RBM18,FALSE,9,1,Wald ratio,0.875,0.492,1.558,0.65,0.892,1,Wald ratio,0.875,0.492,1.558,0.65,0.892,TRUE,ns in both,TRUE
+SARM1,FALSE,17,1,Wald ratio,1.029,0.91,1.164,0.65,0.892,1,Wald ratio,1.029,0.91,1.164,0.65,0.892,TRUE,ns in both,TRUE
+TMCO4,FALSE,1,1,Wald ratio,0.952,0.771,1.177,0.65,0.892,1,Wald ratio,0.952,0.771,1.177,0.65,0.892,TRUE,ns in both,TRUE
+HSDL2,FALSE,9,3,Inverse variance weighted,1.011,0.964,1.061,0.651,0.892,3,Inverse variance weighted,1.011,0.964,1.061,0.651,0.892,TRUE,ns in both,TRUE
+MS4A6A,FALSE,11,3,Inverse variance weighted,0.975,0.871,1.091,0.654,0.892,3,Inverse variance weighted,0.975,0.871,1.091,0.654,0.892,TRUE,ns in both,TRUE
+CXCL6,FALSE,4,2,Inverse variance weighted,1.118,0.685,1.825,0.655,0.892,2,Inverse variance weighted,1.118,0.685,1.825,0.655,0.892,TRUE,ns in both,TRUE
+FEM1C,FALSE,5,2,Inverse variance weighted,0.968,0.84,1.116,0.656,0.892,2,Inverse variance weighted,0.968,0.84,1.116,0.656,0.892,TRUE,ns in both,TRUE
+OXA1L,FALSE,14,2,Inverse variance weighted,0.956,0.784,1.166,0.656,0.892,2,Inverse variance weighted,0.956,0.784,1.166,0.656,0.892,TRUE,ns in both,TRUE
+TMC8,FALSE,17,3,Inverse variance weighted,1.035,0.891,1.201,0.656,0.892,3,Inverse variance weighted,1.035,0.891,1.201,0.656,0.892,TRUE,ns in both,TRUE
+ITFG2,FALSE,12,2,Inverse variance weighted,0.969,0.845,1.112,0.657,0.892,2,Inverse variance weighted,0.969,0.845,1.112,0.657,0.892,TRUE,ns in both,TRUE
+DDX11,FALSE,12,2,Inverse variance weighted,0.992,0.958,1.028,0.66,0.892,2,Inverse variance weighted,0.992,0.958,1.028,0.66,0.892,TRUE,ns in both,TRUE
+EIF2B5,FALSE,3,1,Wald ratio,0.924,0.648,1.316,0.66,0.892,1,Wald ratio,0.924,0.648,1.316,0.66,0.892,TRUE,ns in both,TRUE
+EXOC8,FALSE,1,1,Wald ratio,1.032,0.898,1.184,0.66,0.892,1,Wald ratio,1.032,0.898,1.184,0.66,0.892,TRUE,ns in both,TRUE
+FBXO21,FALSE,12,1,Wald ratio,0.916,0.62,1.353,0.66,0.892,1,Wald ratio,0.916,0.62,1.353,0.66,0.892,TRUE,ns in both,TRUE
+MS4A3,FALSE,11,1,Wald ratio,0.907,0.587,1.402,0.66,0.892,1,Wald ratio,0.907,0.587,1.402,0.66,0.892,TRUE,ns in both,TRUE
+NIN,FALSE,14,1,Wald ratio,1.06,0.819,1.372,0.66,0.892,1,Wald ratio,1.06,0.819,1.372,0.66,0.892,TRUE,ns in both,TRUE
+NUMA1,FALSE,11,1,Wald ratio,0.965,0.821,1.133,0.66,0.892,1,Wald ratio,0.965,0.821,1.133,0.66,0.892,TRUE,ns in both,TRUE
+RALGDS,FALSE,9,1,Wald ratio,1.023,0.924,1.132,0.66,0.892,1,Wald ratio,1.023,0.924,1.132,0.66,0.892,TRUE,ns in both,TRUE
+SAMHD1,FALSE,20,1,Wald ratio,0.963,0.816,1.137,0.66,0.892,1,Wald ratio,0.963,0.816,1.137,0.66,0.892,TRUE,ns in both,TRUE
+SERPINB2,FALSE,18,2,Inverse variance weighted,1.042,0.867,1.253,0.66,0.892,2,Inverse variance weighted,1.042,0.867,1.253,0.66,0.892,TRUE,ns in both,TRUE
+SLMAP,FALSE,3,1,Wald ratio,1.065,0.805,1.408,0.66,0.892,1,Wald ratio,1.065,0.805,1.408,0.66,0.892,TRUE,ns in both,TRUE
+SNRPA,FALSE,19,1,Wald ratio,0.953,0.771,1.179,0.66,0.892,1,Wald ratio,0.953,0.771,1.179,0.66,0.892,TRUE,ns in both,TRUE
+MUC20,FALSE,3,4,Inverse variance weighted,0.981,0.899,1.07,0.663,0.892,4,Inverse variance weighted,0.981,0.899,1.07,0.663,0.892,TRUE,ns in both,TRUE
+USP24,FALSE,1,2,Inverse variance weighted,0.976,0.875,1.089,0.663,0.892,2,Inverse variance weighted,0.976,0.875,1.089,0.663,0.892,TRUE,ns in both,TRUE
+ATIC,FALSE,2,2,Inverse variance weighted,0.972,0.853,1.107,0.665,0.892,2,Inverse variance weighted,0.972,0.853,1.107,0.665,0.892,TRUE,ns in both,TRUE
+MPZL2,FALSE,11,3,Inverse variance weighted,1.017,0.94,1.101,0.667,0.892,3,Inverse variance weighted,1.017,0.94,1.101,0.667,0.892,TRUE,ns in both,TRUE
+CYP1B1,FALSE,2,3,Inverse variance weighted,1.026,0.913,1.152,0.668,0.892,3,Inverse variance weighted,1.026,0.913,1.152,0.668,0.892,TRUE,ns in both,TRUE
+CBX6,FALSE,22,3,Inverse variance weighted,1.027,0.909,1.16,0.669,0.892,3,Inverse variance weighted,1.027,0.909,1.16,0.669,0.892,TRUE,ns in both,TRUE
+ZNF701,FALSE,19,3,Inverse variance weighted,0.975,0.866,1.096,0.669,0.892,3,Inverse variance weighted,0.975,0.866,1.096,0.669,0.892,TRUE,ns in both,TRUE
+ATG3,FALSE,3,1,Wald ratio,1.084,0.749,1.567,0.67,0.892,1,Wald ratio,1.084,0.749,1.567,0.67,0.892,TRUE,ns in both,TRUE
+ATN1,FALSE,12,1,Wald ratio,1.071,0.782,1.466,0.67,0.892,1,Wald ratio,1.071,0.782,1.466,0.67,0.892,TRUE,ns in both,TRUE
+ENO3,FALSE,17,2,Inverse variance weighted,1.22,0.489,3.047,0.67,0.892,2,Inverse variance weighted,1.22,0.489,3.047,0.67,0.892,TRUE,ns in both,TRUE
+GORASP2,FALSE,2,1,Wald ratio,1.071,0.781,1.468,0.67,0.892,1,Wald ratio,1.071,0.781,1.468,0.67,0.892,TRUE,ns in both,TRUE
+INTS12,FALSE,4,1,Wald ratio,1.027,0.907,1.164,0.67,0.892,1,Wald ratio,1.027,0.907,1.164,0.67,0.892,TRUE,ns in both,TRUE
+KRCC1,FALSE,2,1,Wald ratio,0.957,0.783,1.171,0.67,0.892,1,Wald ratio,0.957,0.783,1.171,0.67,0.892,TRUE,ns in both,TRUE
+PAN3,FALSE,13,1,Wald ratio,1.042,0.862,1.259,0.67,0.892,1,Wald ratio,1.042,0.862,1.259,0.67,0.892,TRUE,ns in both,TRUE
+PLCG1,FALSE,20,2,Inverse variance weighted,1.122,0.661,1.906,0.67,0.892,2,Inverse variance weighted,1.122,0.661,1.906,0.67,0.892,TRUE,ns in both,TRUE
+POLR1B,FALSE,2,1,Wald ratio,0.902,0.562,1.449,0.67,0.892,1,Wald ratio,0.902,0.562,1.449,0.67,0.892,TRUE,ns in both,TRUE
+RCBTB2,FALSE,13,1,Wald ratio,1.099,0.713,1.693,0.67,0.892,1,Wald ratio,1.099,0.713,1.693,0.67,0.892,TRUE,ns in both,TRUE
+SCFD2,FALSE,4,1,Wald ratio,0.949,0.748,1.205,0.67,0.892,1,Wald ratio,0.949,0.748,1.205,0.67,0.892,TRUE,ns in both,TRUE
+SHMT2,FALSE,12,1,Wald ratio,1.086,0.743,1.588,0.67,0.892,1,Wald ratio,1.086,0.743,1.588,0.67,0.892,TRUE,ns in both,TRUE
+THRA,FALSE,17,1,Wald ratio,1.015,0.946,1.09,0.67,0.892,1,Wald ratio,1.015,0.946,1.09,0.67,0.892,TRUE,ns in both,TRUE
+TRAPPC6A,FALSE,19,1,Wald ratio,0.873,0.468,1.629,0.67,0.892,1,Wald ratio,0.873,0.468,1.629,0.67,0.892,TRUE,ns in both,TRUE
+UBQLN4,FALSE,1,1,Wald ratio,0.965,0.821,1.136,0.67,0.892,1,Wald ratio,0.965,0.821,1.136,0.67,0.892,TRUE,ns in both,TRUE
+ZNF317,FALSE,19,1,Wald ratio,1.096,0.719,1.671,0.67,0.892,1,Wald ratio,1.096,0.719,1.671,0.67,0.892,TRUE,ns in both,TRUE
+TBK1,FALSE,12,2,Inverse variance weighted,0.974,0.863,1.099,0.671,0.892,2,Inverse variance weighted,0.974,0.863,1.099,0.671,0.892,TRUE,ns in both,TRUE
+CLEC7A,FALSE,12,2,Inverse variance weighted,1.022,0.924,1.13,0.674,0.892,2,Inverse variance weighted,1.022,0.924,1.13,0.674,0.892,TRUE,ns in both,TRUE
+YWHAB,FALSE,20,2,Inverse variance weighted,1.046,0.848,1.291,0.674,0.892,2,Inverse variance weighted,1.046,0.848,1.291,0.674,0.892,TRUE,ns in both,TRUE
+LPAR5,FALSE,12,3,Inverse variance weighted,0.96,0.792,1.163,0.675,0.892,3,Inverse variance weighted,0.96,0.792,1.163,0.675,0.892,TRUE,ns in both,TRUE
+GEMIN4,FALSE,17,2,Inverse variance weighted,0.971,0.846,1.115,0.677,0.892,2,Inverse variance weighted,0.971,0.846,1.115,0.677,0.892,TRUE,ns in both,TRUE
+SAMM50,FALSE,22,2,Inverse variance weighted,0.992,0.953,1.032,0.678,0.892,2,Inverse variance weighted,0.992,0.953,1.032,0.678,0.892,TRUE,ns in both,TRUE
+TBCD,FALSE,17,3,Inverse variance weighted,0.986,0.925,1.052,0.678,0.892,3,Inverse variance weighted,0.986,0.925,1.052,0.678,0.892,TRUE,ns in both,TRUE
+CREG1,FALSE,1,1,Wald ratio,1.025,0.912,1.152,0.68,0.892,1,Wald ratio,1.025,0.912,1.152,0.68,0.892,TRUE,ns in both,TRUE
+JMJD8,FALSE,16,1,Wald ratio,0.942,0.71,1.251,0.68,0.892,1,Wald ratio,0.942,0.71,1.251,0.68,0.892,TRUE,ns in both,TRUE
+NEK9,FALSE,14,1,Wald ratio,1.111,0.674,1.833,0.68,0.892,1,Wald ratio,1.111,0.674,1.833,0.68,0.892,TRUE,ns in both,TRUE
+SLC18A2,FALSE,10,1,Wald ratio,1.069,0.777,1.471,0.68,0.892,1,Wald ratio,1.069,0.777,1.471,0.68,0.892,TRUE,ns in both,TRUE
+SLC25A35,FALSE,17,1,Wald ratio,0.942,0.708,1.253,0.68,0.892,1,Wald ratio,0.942,0.708,1.253,0.68,0.892,TRUE,ns in both,TRUE
+TSPAN18,FALSE,11,1,Wald ratio,1.081,0.746,1.567,0.68,0.892,1,Wald ratio,1.081,0.746,1.567,0.68,0.892,TRUE,ns in both,TRUE
+ZFYVE9,FALSE,1,1,Wald ratio,0.912,0.59,1.41,0.68,0.892,1,Wald ratio,0.912,0.59,1.41,0.68,0.892,TRUE,ns in both,TRUE
+GALC,FALSE,14,2,Inverse variance weighted,1.017,0.939,1.101,0.684,0.892,2,Inverse variance weighted,1.017,0.939,1.101,0.684,0.892,TRUE,ns in both,TRUE
+UBASH3B,FALSE,11,2,Inverse variance weighted,0.954,0.762,1.195,0.684,0.892,2,Inverse variance weighted,0.954,0.762,1.195,0.684,0.892,TRUE,ns in both,TRUE
+CARD11,FALSE,7,2,Inverse variance weighted,1.078,0.747,1.555,0.688,0.892,2,Inverse variance weighted,1.078,0.747,1.555,0.688,0.892,TRUE,ns in both,TRUE
+CDC25B,FALSE,20,3,Inverse variance weighted,1.017,0.937,1.103,0.688,0.892,3,Inverse variance weighted,1.017,0.937,1.103,0.688,0.892,TRUE,ns in both,TRUE
+CLK4,FALSE,5,2,Inverse variance weighted,1.076,0.752,1.538,0.689,0.892,2,Inverse variance weighted,1.076,0.752,1.538,0.689,0.892,TRUE,ns in both,TRUE
+ERAL1,FALSE,17,1,Wald ratio,0.97,0.833,1.128,0.69,0.892,1,Wald ratio,0.97,0.833,1.128,0.69,0.892,TRUE,ns in both,TRUE
+IMP4,FALSE,2,2,Inverse variance weighted,1.021,0.922,1.131,0.69,0.892,2,Inverse variance weighted,1.021,0.922,1.131,0.69,0.892,TRUE,ns in both,TRUE
+MCF2L,FALSE,13,1,Wald ratio,0.957,0.772,1.187,0.69,0.892,1,Wald ratio,0.957,0.772,1.187,0.69,0.892,TRUE,ns in both,TRUE
+MED24,FALSE,17,1,Wald ratio,0.959,0.779,1.179,0.69,0.892,1,Wald ratio,0.959,0.779,1.179,0.69,0.892,TRUE,ns in both,TRUE
+PRKAR1A,FALSE,17,1,Wald ratio,1.081,0.738,1.584,0.69,0.892,1,Wald ratio,1.081,0.738,1.584,0.69,0.892,TRUE,ns in both,TRUE
+SCRN3,FALSE,2,1,Wald ratio,1.062,0.789,1.431,0.69,0.892,1,Wald ratio,1.062,0.789,1.431,0.69,0.892,TRUE,ns in both,TRUE
+TNRC6A,FALSE,16,1,Wald ratio,0.978,0.876,1.092,0.69,0.892,1,Wald ratio,0.978,0.876,1.092,0.69,0.892,TRUE,ns in both,TRUE
+TBX19,FALSE,1,2,Inverse variance weighted,1.043,0.842,1.291,0.699,0.892,2,Inverse variance weighted,1.043,0.842,1.291,0.699,0.892,TRUE,ns in both,TRUE
+CENPB,FALSE,20,1,Wald ratio,0.974,0.852,1.114,0.7,0.892,1,Wald ratio,0.974,0.852,1.114,0.7,0.892,TRUE,ns in both,TRUE
+FDPS,FALSE,1,1,Wald ratio,0.933,0.654,1.329,0.7,0.892,1,Wald ratio,0.933,0.654,1.329,0.7,0.892,TRUE,ns in both,TRUE
+MORC3,FALSE,21,1,Wald ratio,1.057,0.797,1.401,0.7,0.892,1,Wald ratio,1.057,0.797,1.401,0.7,0.892,TRUE,ns in both,TRUE
+MTOR,FALSE,1,1,Wald ratio,1.029,0.891,1.187,0.7,0.892,1,Wald ratio,1.029,0.891,1.187,0.7,0.892,TRUE,ns in both,TRUE
+PAK4,FALSE,19,1,Wald ratio,0.969,0.827,1.136,0.7,0.892,1,Wald ratio,0.969,0.827,1.136,0.7,0.892,TRUE,ns in both,TRUE
+PES1,FALSE,22,1,Wald ratio,1.045,0.834,1.31,0.7,0.892,1,Wald ratio,1.045,0.834,1.31,0.7,0.892,TRUE,ns in both,TRUE
+RAB21,FALSE,12,1,Wald ratio,1.025,0.905,1.161,0.7,0.892,1,Wald ratio,1.025,0.905,1.161,0.7,0.892,TRUE,ns in both,TRUE
+SMARCAL1,FALSE,2,1,Wald ratio,0.957,0.767,1.195,0.7,0.892,1,Wald ratio,0.957,0.767,1.195,0.7,0.892,TRUE,ns in both,TRUE
+TRIM66,FALSE,11,2,Inverse variance weighted,0.988,0.931,1.049,0.701,0.892,2,Inverse variance weighted,0.988,0.931,1.049,0.701,0.892,TRUE,ns in both,TRUE
+MTHFR,FALSE,1,3,Inverse variance weighted,1.013,0.949,1.082,0.702,0.892,3,Inverse variance weighted,1.013,0.949,1.082,0.702,0.892,TRUE,ns in both,TRUE
+TCHP,FALSE,12,2,Inverse variance weighted,1.05,0.818,1.348,0.702,0.892,2,Inverse variance weighted,1.05,0.818,1.348,0.702,0.892,TRUE,ns in both,TRUE
+PNPLA8,FALSE,7,3,Inverse variance weighted,1.022,0.914,1.143,0.705,0.892,3,Inverse variance weighted,1.022,0.914,1.143,0.705,0.892,TRUE,ns in both,TRUE
+NKTR,FALSE,3,2,Inverse variance weighted,0.962,0.787,1.177,0.707,0.892,2,Inverse variance weighted,0.962,0.787,1.177,0.707,0.892,TRUE,ns in both,TRUE
+ICMT,FALSE,1,3,Inverse variance weighted,0.982,0.896,1.078,0.708,0.892,3,Inverse variance weighted,0.982,0.896,1.078,0.708,0.892,TRUE,ns in both,TRUE
+CHMP2B,FALSE,3,1,Wald ratio,0.98,0.881,1.09,0.71,0.892,1,Wald ratio,0.98,0.881,1.09,0.71,0.892,TRUE,ns in both,TRUE
+CUEDC2,FALSE,10,1,Wald ratio,1.085,0.705,1.672,0.71,0.892,1,Wald ratio,1.085,0.705,1.672,0.71,0.892,TRUE,ns in both,TRUE
+CUL1,FALSE,7,1,Wald ratio,0.931,0.638,1.359,0.71,0.892,1,Wald ratio,0.931,0.638,1.359,0.71,0.892,TRUE,ns in both,TRUE
+CUL9,FALSE,6,1,Wald ratio,1.047,0.822,1.333,0.71,0.892,1,Wald ratio,1.047,0.822,1.333,0.71,0.892,TRUE,ns in both,TRUE
+DPY19L3,FALSE,19,1,Wald ratio,0.976,0.859,1.109,0.71,0.892,1,Wald ratio,0.976,0.859,1.109,0.71,0.892,TRUE,ns in both,TRUE
+ILKAP,FALSE,2,1,Wald ratio,0.949,0.718,1.253,0.71,0.892,1,Wald ratio,0.949,0.718,1.253,0.71,0.892,TRUE,ns in both,TRUE
+NFYA,FALSE,6,1,Wald ratio,0.982,0.894,1.079,0.71,0.892,1,Wald ratio,0.982,0.894,1.079,0.71,0.892,TRUE,ns in both,TRUE
+PUS1,FALSE,12,1,Wald ratio,0.881,0.451,1.72,0.71,0.892,1,Wald ratio,0.881,0.451,1.72,0.71,0.892,TRUE,ns in both,TRUE
+SLC43A1,FALSE,11,1,Wald ratio,0.923,0.605,1.408,0.71,0.892,1,Wald ratio,0.923,0.605,1.408,0.71,0.892,TRUE,ns in both,TRUE
+TSNAX,FALSE,1,1,Wald ratio,1.063,0.77,1.467,0.71,0.892,1,Wald ratio,1.063,0.77,1.467,0.71,0.892,TRUE,ns in both,TRUE
+YIPF4,FALSE,2,1,Wald ratio,1.107,0.647,1.896,0.71,0.892,1,Wald ratio,1.107,0.647,1.896,0.71,0.892,TRUE,ns in both,TRUE
+SLAMF6,FALSE,1,2,Inverse variance weighted,0.96,0.775,1.191,0.713,0.892,2,Inverse variance weighted,0.96,0.775,1.191,0.713,0.892,TRUE,ns in both,TRUE
+FMO5,FALSE,1,2,Inverse variance weighted,0.978,0.869,1.102,0.719,0.892,2,Inverse variance weighted,0.978,0.869,1.102,0.719,0.892,TRUE,ns in both,TRUE
+SH3PXD2A,FALSE,10,2,Inverse variance weighted,1.036,0.855,1.255,0.719,0.892,2,Inverse variance weighted,1.036,0.855,1.255,0.719,0.892,TRUE,ns in both,TRUE
+AMD1,FALSE,6,1,Wald ratio,0.951,0.721,1.253,0.72,0.892,1,Wald ratio,0.951,0.721,1.253,0.72,0.892,TRUE,ns in both,TRUE
+CAPNS1,FALSE,19,1,Wald ratio,1.037,0.85,1.265,0.72,0.892,1,Wald ratio,1.037,0.85,1.265,0.72,0.892,TRUE,ns in both,TRUE
+HORMAD1,FALSE,1,1,Wald ratio,0.973,0.84,1.128,0.72,0.892,1,Wald ratio,0.973,0.84,1.128,0.72,0.892,TRUE,ns in both,TRUE
+IVNS1ABP,FALSE,1,2,Inverse variance weighted,1.024,0.898,1.169,0.72,0.892,2,Inverse variance weighted,1.024,0.898,1.169,0.72,0.892,TRUE,ns in both,TRUE
+MAPK1,FALSE,22,1,Wald ratio,1.054,0.789,1.409,0.72,0.892,1,Wald ratio,1.054,0.789,1.409,0.72,0.892,TRUE,ns in both,TRUE
+MFHAS1,FALSE,8,1,Wald ratio,1.031,0.874,1.216,0.72,0.892,1,Wald ratio,1.031,0.874,1.216,0.72,0.892,TRUE,ns in both,TRUE
+SLC20A2,FALSE,8,1,Wald ratio,0.975,0.851,1.118,0.72,0.892,1,Wald ratio,0.975,0.851,1.118,0.72,0.892,TRUE,ns in both,TRUE
+SLU7,FALSE,5,1,Wald ratio,1.034,0.862,1.24,0.72,0.892,1,Wald ratio,1.034,0.862,1.24,0.72,0.892,TRUE,ns in both,TRUE
+TP53,FALSE,17,1,Wald ratio,0.946,0.698,1.282,0.72,0.892,1,Wald ratio,0.946,0.698,1.282,0.72,0.892,TRUE,ns in both,TRUE
+ADA,FALSE,20,3,Inverse variance weighted,1.02,0.915,1.137,0.722,0.892,3,Inverse variance weighted,1.02,0.915,1.137,0.722,0.892,TRUE,ns in both,TRUE
+MAN1B1,FALSE,9,2,Inverse variance weighted,0.931,0.627,1.382,0.722,0.892,2,Inverse variance weighted,0.931,0.627,1.382,0.722,0.892,TRUE,ns in both,TRUE
+ACSL5,FALSE,10,2,Inverse variance weighted,0.986,0.909,1.068,0.724,0.892,2,Inverse variance weighted,0.986,0.909,1.068,0.724,0.892,TRUE,ns in both,TRUE
+ALMS1,FALSE,2,2,Inverse variance weighted,0.983,0.891,1.083,0.725,0.892,2,Inverse variance weighted,0.983,0.891,1.083,0.725,0.892,TRUE,ns in both,TRUE
+TMBIM4,FALSE,12,2,Inverse variance weighted,1.023,0.899,1.165,0.726,0.892,2,Inverse variance weighted,1.023,0.899,1.165,0.726,0.892,TRUE,ns in both,TRUE
+DPYSL2,FALSE,8,2,Inverse variance weighted,0.921,0.581,1.461,0.728,0.892,2,Inverse variance weighted,0.921,0.581,1.461,0.728,0.892,TRUE,ns in both,TRUE
+DHRS3,FALSE,1,2,Inverse variance weighted,0.952,0.719,1.259,0.729,0.892,2,Inverse variance weighted,0.952,0.719,1.259,0.729,0.892,TRUE,ns in both,TRUE
+CALM1,FALSE,14,1,Wald ratio,1.029,0.873,1.214,0.73,0.892,1,Wald ratio,1.029,0.873,1.214,0.73,0.892,TRUE,ns in both,TRUE
+CSNK2A1,FALSE,20,1,Wald ratio,1.067,0.738,1.542,0.73,0.892,1,Wald ratio,1.067,0.738,1.542,0.73,0.892,TRUE,ns in both,TRUE
+DCHS1,FALSE,11,1,Wald ratio,0.982,0.887,1.087,0.73,0.892,1,Wald ratio,0.982,0.887,1.087,0.73,0.892,TRUE,ns in both,TRUE
+EHMT1,FALSE,9,1,Wald ratio,1.022,0.902,1.158,0.73,0.892,1,Wald ratio,1.022,0.902,1.158,0.73,0.892,TRUE,ns in both,TRUE
+FXYD7,FALSE,19,1,Wald ratio,1.022,0.901,1.16,0.73,0.892,1,Wald ratio,1.022,0.901,1.16,0.73,0.892,TRUE,ns in both,TRUE
+PFN1,FALSE,17,1,Wald ratio,0.872,0.4,1.9,0.73,0.892,1,Wald ratio,0.872,0.4,1.9,0.73,0.892,TRUE,ns in both,TRUE
+PIK3CA,FALSE,3,1,Wald ratio,1.074,0.715,1.613,0.73,0.892,1,Wald ratio,1.074,0.715,1.613,0.73,0.892,TRUE,ns in both,TRUE
+RMI1,FALSE,9,4,Inverse variance weighted,1.023,0.898,1.167,0.73,0.892,4,Inverse variance weighted,1.023,0.898,1.167,0.73,0.892,TRUE,ns in both,TRUE
+SCCPDH,FALSE,1,1,Wald ratio,0.978,0.862,1.11,0.73,0.892,1,Wald ratio,0.978,0.862,1.11,0.73,0.892,TRUE,ns in both,TRUE
+SLFN12,FALSE,17,1,Wald ratio,1.01,0.955,1.068,0.73,0.892,1,Wald ratio,1.01,0.955,1.068,0.73,0.892,TRUE,ns in both,TRUE
+KYNU,FALSE,2,2,Inverse variance weighted,1.01,0.954,1.069,0.733,0.892,2,Inverse variance weighted,1.01,0.954,1.069,0.733,0.892,TRUE,ns in both,TRUE
+TXNDC12,FALSE,1,2,Inverse variance weighted,0.979,0.866,1.107,0.736,0.892,2,Inverse variance weighted,0.979,0.866,1.107,0.736,0.892,TRUE,ns in both,TRUE
+NDRG2,FALSE,14,2,Inverse variance weighted,1.097,0.638,1.886,0.738,0.892,2,Inverse variance weighted,1.097,0.638,1.886,0.738,0.892,TRUE,ns in both,TRUE
+ALG3,FALSE,3,1,Wald ratio,1.043,0.815,1.334,0.74,0.892,1,Wald ratio,1.043,0.815,1.334,0.74,0.892,TRUE,ns in both,TRUE
+ANGEL1,FALSE,14,1,Wald ratio,0.975,0.842,1.13,0.74,0.892,1,Wald ratio,0.975,0.842,1.13,0.74,0.892,TRUE,ns in both,TRUE
+ARPC5L,FALSE,9,1,Wald ratio,0.928,0.595,1.446,0.74,0.892,1,Wald ratio,0.928,0.595,1.446,0.74,0.892,TRUE,ns in both,TRUE
+DUSP11,FALSE,2,1,Wald ratio,1.089,0.657,1.807,0.74,0.892,1,Wald ratio,1.089,0.657,1.807,0.74,0.892,TRUE,ns in both,TRUE
+ING2,FALSE,4,1,Wald ratio,1.126,0.557,2.276,0.74,0.892,1,Wald ratio,1.126,0.557,2.276,0.74,0.892,TRUE,ns in both,TRUE
+KDELR1,FALSE,19,1,Wald ratio,0.92,0.564,1.503,0.74,0.892,1,Wald ratio,0.92,0.564,1.503,0.74,0.892,TRUE,ns in both,TRUE
+NR4A2,FALSE,2,1,Wald ratio,0.928,0.596,1.444,0.74,0.892,1,Wald ratio,0.928,0.596,1.444,0.74,0.892,TRUE,ns in both,TRUE
+PELI3,FALSE,11,1,Wald ratio,0.974,0.831,1.141,0.74,0.892,1,Wald ratio,0.974,0.831,1.141,0.74,0.892,TRUE,ns in both,TRUE
+PHPT1,FALSE,9,1,Wald ratio,0.908,0.512,1.608,0.74,0.892,1,Wald ratio,0.908,0.512,1.608,0.74,0.892,TRUE,ns in both,TRUE
+PTDSS1,FALSE,8,1,Wald ratio,0.903,0.495,1.648,0.74,0.892,1,Wald ratio,0.903,0.495,1.648,0.74,0.892,TRUE,ns in both,TRUE
+RAD50,FALSE,5,1,Wald ratio,0.957,0.741,1.238,0.74,0.892,1,Wald ratio,0.957,0.741,1.238,0.74,0.892,TRUE,ns in both,TRUE
+RNF11,FALSE,1,1,Wald ratio,0.924,0.581,1.47,0.74,0.892,1,Wald ratio,0.924,0.581,1.47,0.74,0.892,TRUE,ns in both,TRUE
+SNX10,FALSE,7,1,Wald ratio,0.937,0.639,1.374,0.74,0.892,1,Wald ratio,0.937,0.639,1.374,0.74,0.892,TRUE,ns in both,TRUE
+STX7,FALSE,6,1,Wald ratio,0.96,0.755,1.222,0.74,0.892,1,Wald ratio,0.96,0.755,1.222,0.74,0.892,TRUE,ns in both,TRUE
+SURF4,FALSE,9,1,Wald ratio,1.081,0.682,1.715,0.74,0.892,1,Wald ratio,1.081,0.682,1.715,0.74,0.892,TRUE,ns in both,TRUE
+TMEM161A,FALSE,19,1,Wald ratio,1.045,0.807,1.353,0.74,0.892,1,Wald ratio,1.045,0.807,1.353,0.74,0.892,TRUE,ns in both,TRUE
+TMEM41A,FALSE,3,1,Wald ratio,0.882,0.421,1.85,0.74,0.892,1,Wald ratio,0.882,0.421,1.85,0.74,0.892,TRUE,ns in both,TRUE
+POMT1,FALSE,9,3,Inverse variance weighted,0.973,0.827,1.146,0.746,0.892,3,Inverse variance weighted,0.973,0.827,1.146,0.746,0.892,TRUE,ns in both,TRUE
+COX10,FALSE,17,2,Inverse variance weighted,1.046,0.793,1.381,0.749,0.892,2,Inverse variance weighted,1.046,0.793,1.381,0.749,0.892,TRUE,ns in both,TRUE
+ZSCAN16,TRUE,6,2,Inverse variance weighted,0.937,0.631,1.393,0.749,0.892,,,,,,,,FALSE,ns in both,
+CLPP,FALSE,19,1,Wald ratio,1.023,0.891,1.174,0.75,0.892,1,Wald ratio,1.023,0.891,1.174,0.75,0.892,TRUE,ns in both,TRUE
+CSGALNACT2,FALSE,10,1,Wald ratio,0.954,0.714,1.274,0.75,0.892,1,Wald ratio,0.954,0.714,1.274,0.75,0.892,TRUE,ns in both,TRUE
+DOT1L,FALSE,19,1,Wald ratio,0.939,0.639,1.38,0.75,0.892,1,Wald ratio,0.939,0.639,1.38,0.75,0.892,TRUE,ns in both,TRUE
+ELP3,FALSE,8,2,Inverse variance weighted,0.984,0.888,1.089,0.75,0.892,2,Inverse variance weighted,0.984,0.888,1.089,0.75,0.892,TRUE,ns in both,TRUE
+FBRSL1,FALSE,12,1,Wald ratio,1.032,0.852,1.25,0.75,0.892,1,Wald ratio,1.032,0.852,1.25,0.75,0.892,TRUE,ns in both,TRUE
+HVCN1,FALSE,12,1,Wald ratio,0.979,0.859,1.116,0.75,0.892,1,Wald ratio,0.979,0.859,1.116,0.75,0.892,TRUE,ns in both,TRUE
+LRRC47,FALSE,1,1,Wald ratio,0.971,0.811,1.163,0.75,0.892,1,Wald ratio,0.971,0.811,1.163,0.75,0.892,TRUE,ns in both,TRUE
+MCM5,FALSE,22,1,Wald ratio,1.016,0.919,1.124,0.75,0.892,1,Wald ratio,1.016,0.919,1.124,0.75,0.892,TRUE,ns in both,TRUE
+OSTM1,FALSE,6,1,Wald ratio,0.979,0.856,1.118,0.75,0.892,1,Wald ratio,0.979,0.856,1.118,0.75,0.892,TRUE,ns in both,TRUE
+PTPDC1,FALSE,9,1,Wald ratio,1.126,0.543,2.335,0.75,0.892,1,Wald ratio,1.126,0.543,2.335,0.75,0.892,TRUE,ns in both,TRUE
+SFXN2,FALSE,10,1,Wald ratio,0.981,0.871,1.104,0.75,0.892,1,Wald ratio,0.981,0.871,1.104,0.75,0.892,TRUE,ns in both,TRUE
+SIGIRR,FALSE,11,1,Wald ratio,0.978,0.85,1.124,0.75,0.892,1,Wald ratio,0.978,0.85,1.124,0.75,0.892,TRUE,ns in both,TRUE
+SIK2,FALSE,11,1,Wald ratio,0.97,0.805,1.169,0.75,0.892,1,Wald ratio,0.97,0.805,1.169,0.75,0.892,TRUE,ns in both,TRUE
+SPATS2,FALSE,12,1,Wald ratio,1.12,0.558,2.246,0.75,0.892,1,Wald ratio,1.12,0.558,2.246,0.75,0.892,TRUE,ns in both,TRUE
+TMEM143,FALSE,19,1,Wald ratio,0.953,0.709,1.281,0.75,0.892,1,Wald ratio,0.953,0.709,1.281,0.75,0.892,TRUE,ns in both,TRUE
+IGSF9B,FALSE,11,2,Inverse variance weighted,1.042,0.809,1.341,0.751,0.892,2,Inverse variance weighted,1.042,0.809,1.341,0.751,0.892,TRUE,ns in both,TRUE
+AGFG1,FALSE,2,2,Inverse variance weighted,1.037,0.827,1.3,0.753,0.892,2,Inverse variance weighted,1.037,0.827,1.3,0.753,0.892,TRUE,ns in both,TRUE
+FBXO38,FALSE,5,2,Inverse variance weighted,1.017,0.915,1.13,0.753,0.892,2,Inverse variance weighted,1.017,0.915,1.13,0.753,0.892,TRUE,ns in both,TRUE
+TNFAIP8L1,FALSE,19,2,Inverse variance weighted,0.937,0.62,1.414,0.755,0.892,2,Inverse variance weighted,0.937,0.62,1.414,0.755,0.892,TRUE,ns in both,TRUE
+HADHA,FALSE,2,2,Inverse variance weighted,1.015,0.923,1.116,0.756,0.892,2,Inverse variance weighted,1.015,0.923,1.116,0.756,0.892,TRUE,ns in both,TRUE
+MGMT,FALSE,10,5,Inverse variance weighted,1.013,0.932,1.102,0.759,0.892,5,Inverse variance weighted,1.013,0.932,1.102,0.759,0.892,TRUE,ns in both,TRUE
+PJA2,FALSE,5,3,Inverse variance weighted,0.988,0.916,1.066,0.759,0.892,3,Inverse variance weighted,0.988,0.916,1.066,0.759,0.892,TRUE,ns in both,TRUE
+ACLY,FALSE,17,1,Wald ratio,1.035,0.829,1.293,0.76,0.892,1,Wald ratio,1.035,0.829,1.293,0.76,0.892,TRUE,ns in both,TRUE
+BRPF1,FALSE,3,1,Wald ratio,1.061,0.726,1.549,0.76,0.892,1,Wald ratio,1.061,0.726,1.549,0.76,0.892,TRUE,ns in both,TRUE
+CLPTM1L,FALSE,5,1,Wald ratio,0.918,0.529,1.591,0.76,0.892,1,Wald ratio,0.918,0.529,1.591,0.76,0.892,TRUE,ns in both,TRUE
+CRYGS,FALSE,3,1,Wald ratio,0.952,0.694,1.306,0.76,0.892,1,Wald ratio,0.952,0.694,1.306,0.76,0.892,TRUE,ns in both,TRUE
+ECHS1,FALSE,10,1,Wald ratio,1.125,0.527,2.403,0.76,0.892,1,Wald ratio,1.125,0.527,2.403,0.76,0.892,TRUE,ns in both,TRUE
+FARSA,FALSE,19,1,Wald ratio,0.961,0.744,1.241,0.76,0.892,1,Wald ratio,0.961,0.744,1.241,0.76,0.892,TRUE,ns in both,TRUE
+FOXP4,FALSE,6,1,Wald ratio,1.063,0.719,1.571,0.76,0.892,1,Wald ratio,1.063,0.719,1.571,0.76,0.892,TRUE,ns in both,TRUE
+LPCAT1,FALSE,5,1,Wald ratio,0.93,0.582,1.485,0.76,0.892,1,Wald ratio,0.93,0.582,1.485,0.76,0.892,TRUE,ns in both,TRUE
+MKLN1,FALSE,7,1,Wald ratio,0.866,0.345,2.174,0.76,0.892,1,Wald ratio,0.866,0.345,2.174,0.76,0.892,TRUE,ns in both,TRUE
+MUS81,FALSE,11,1,Wald ratio,1.038,0.816,1.321,0.76,0.892,1,Wald ratio,1.038,0.816,1.321,0.76,0.892,TRUE,ns in both,TRUE
+PATZ1,FALSE,22,1,Wald ratio,0.916,0.522,1.608,0.76,0.892,1,Wald ratio,0.916,0.522,1.608,0.76,0.892,TRUE,ns in both,TRUE
+PITPNC1,FALSE,17,2,Inverse variance weighted,1.049,0.773,1.423,0.76,0.892,2,Inverse variance weighted,1.049,0.773,1.423,0.76,0.892,TRUE,ns in both,TRUE
+POLR1A,FALSE,2,1,Wald ratio,0.968,0.787,1.191,0.76,0.892,1,Wald ratio,0.968,0.787,1.191,0.76,0.892,TRUE,ns in both,TRUE
+RAB11FIP3,FALSE,16,1,Wald ratio,0.957,0.72,1.271,0.76,0.892,1,Wald ratio,0.957,0.72,1.271,0.76,0.892,TRUE,ns in both,TRUE
+RHOT2,FALSE,16,1,Wald ratio,0.944,0.65,1.369,0.76,0.892,1,Wald ratio,0.944,0.65,1.369,0.76,0.892,TRUE,ns in both,TRUE
+TRAF2,FALSE,9,1,Wald ratio,0.96,0.738,1.249,0.76,0.892,1,Wald ratio,0.96,0.738,1.249,0.76,0.892,TRUE,ns in both,TRUE
+TRIM65,FALSE,17,1,Wald ratio,1.028,0.862,1.226,0.76,0.892,1,Wald ratio,1.028,0.862,1.226,0.76,0.892,TRUE,ns in both,TRUE
+TSPAN17,FALSE,5,1,Wald ratio,1.037,0.82,1.313,0.76,0.892,1,Wald ratio,1.037,0.82,1.313,0.76,0.892,TRUE,ns in both,TRUE
+MTFMT,FALSE,15,2,Inverse variance weighted,0.925,0.562,1.524,0.761,0.892,2,Inverse variance weighted,0.925,0.562,1.524,0.761,0.892,TRUE,ns in both,TRUE
+KLHDC4,FALSE,16,4,Inverse variance weighted,1.011,0.942,1.085,0.762,0.892,4,Inverse variance weighted,1.011,0.942,1.085,0.762,0.892,TRUE,ns in both,TRUE
+CPEB4,FALSE,5,4,Inverse variance weighted,1.008,0.958,1.06,0.764,0.892,4,Inverse variance weighted,1.008,0.958,1.06,0.764,0.892,TRUE,ns in both,TRUE
+SAMSN1,FALSE,21,3,Inverse variance weighted,1.031,0.839,1.268,0.769,0.892,3,Inverse variance weighted,1.031,0.839,1.268,0.769,0.892,TRUE,ns in both,TRUE
+ATAD3A,FALSE,1,1,Wald ratio,0.943,0.638,1.394,0.77,0.892,1,Wald ratio,0.943,0.638,1.394,0.77,0.892,TRUE,ns in both,TRUE
+CREB3,FALSE,9,1,Wald ratio,0.912,0.494,1.686,0.77,0.892,1,Wald ratio,0.912,0.494,1.686,0.77,0.892,TRUE,ns in both,TRUE
+DENND1C,FALSE,19,1,Wald ratio,1.13,0.499,2.556,0.77,0.892,1,Wald ratio,1.13,0.499,2.556,0.77,0.892,TRUE,ns in both,TRUE
+PI4KA,FALSE,22,1,Wald ratio,1.077,0.653,1.777,0.77,0.892,1,Wald ratio,1.077,0.653,1.777,0.77,0.892,TRUE,ns in both,TRUE
+PSMD1,FALSE,2,1,Wald ratio,1.035,0.82,1.306,0.77,0.892,1,Wald ratio,1.035,0.82,1.306,0.77,0.892,TRUE,ns in both,TRUE
+R3HDM1,FALSE,2,1,Wald ratio,0.957,0.712,1.286,0.77,0.892,1,Wald ratio,0.957,0.712,1.286,0.77,0.892,TRUE,ns in both,TRUE
+RGP1,FALSE,9,1,Wald ratio,0.975,0.82,1.158,0.77,0.892,1,Wald ratio,0.975,0.82,1.158,0.77,0.892,TRUE,ns in both,TRUE
+ZBTB40,FALSE,1,1,Wald ratio,1.028,0.853,1.24,0.77,0.892,1,Wald ratio,1.028,0.853,1.24,0.77,0.892,TRUE,ns in both,TRUE
+EXT2,FALSE,11,3,Inverse variance weighted,1.024,0.873,1.201,0.773,0.892,3,Inverse variance weighted,1.024,0.873,1.201,0.773,0.892,TRUE,ns in both,TRUE
+SLC5A6,FALSE,2,2,Inverse variance weighted,1.013,0.928,1.106,0.774,0.892,2,Inverse variance weighted,1.013,0.928,1.106,0.774,0.892,TRUE,ns in both,TRUE
+TPM2,FALSE,9,3,Inverse variance weighted,0.991,0.929,1.057,0.777,0.892,3,Inverse variance weighted,0.991,0.929,1.057,0.777,0.892,TRUE,ns in both,TRUE
+CCDC12,FALSE,3,2,Inverse variance weighted,1.05,0.748,1.475,0.778,0.892,2,Inverse variance weighted,1.05,0.748,1.475,0.778,0.892,TRUE,ns in both,TRUE
+CSRP1,FALSE,1,2,Inverse variance weighted,1.025,0.864,1.215,0.778,0.892,2,Inverse variance weighted,1.025,0.864,1.215,0.778,0.892,TRUE,ns in both,TRUE
+DIP2C,FALSE,10,3,Inverse variance weighted,0.974,0.808,1.173,0.778,0.892,3,Inverse variance weighted,0.974,0.808,1.173,0.778,0.892,TRUE,ns in both,TRUE
+KIF13B,FALSE,8,2,Inverse variance weighted,0.969,0.777,1.208,0.778,0.892,2,Inverse variance weighted,0.969,0.777,1.208,0.778,0.892,TRUE,ns in both,TRUE
+RPTOR,FALSE,17,2,Inverse variance weighted,1.019,0.896,1.157,0.778,0.892,2,Inverse variance weighted,1.019,0.896,1.157,0.778,0.892,TRUE,ns in both,TRUE
+TNIK,FALSE,3,3,Inverse variance weighted,0.978,0.835,1.144,0.778,0.892,3,Inverse variance weighted,0.978,0.835,1.144,0.778,0.892,TRUE,ns in both,TRUE
+CTNNAL1,FALSE,9,2,Inverse variance weighted,0.93,0.562,1.541,0.779,0.892,2,Inverse variance weighted,0.93,0.562,1.541,0.779,0.892,TRUE,ns in both,TRUE
+AIMP2,FALSE,7,1,Wald ratio,1.028,0.848,1.246,0.78,0.892,1,Wald ratio,1.028,0.848,1.246,0.78,0.892,TRUE,ns in both,TRUE
+AKR1A1,FALSE,1,1,Wald ratio,1.071,0.662,1.734,0.78,0.892,1,Wald ratio,1.071,0.662,1.734,0.78,0.892,TRUE,ns in both,TRUE
+ALS2,FALSE,2,1,Wald ratio,1.009,0.945,1.078,0.78,0.892,1,Wald ratio,1.009,0.945,1.078,0.78,0.892,TRUE,ns in both,TRUE
+CCDC86,FALSE,11,1,Wald ratio,0.96,0.72,1.279,0.78,0.892,1,Wald ratio,0.96,0.72,1.279,0.78,0.892,TRUE,ns in both,TRUE
+CHST14,FALSE,15,1,Wald ratio,1.083,0.62,1.892,0.78,0.892,1,Wald ratio,1.083,0.62,1.892,0.78,0.892,TRUE,ns in both,TRUE
+HSD17B11,FALSE,4,1,Wald ratio,1.014,0.919,1.12,0.78,0.892,1,Wald ratio,1.014,0.919,1.12,0.78,0.892,TRUE,ns in both,TRUE
+PGM2,FALSE,4,1,Wald ratio,1.024,0.865,1.212,0.78,0.892,1,Wald ratio,1.024,0.865,1.212,0.78,0.892,TRUE,ns in both,TRUE
+PPARA,FALSE,22,1,Wald ratio,0.913,0.48,1.734,0.78,0.892,1,Wald ratio,0.913,0.48,1.734,0.78,0.892,TRUE,ns in both,TRUE
+SENP6,FALSE,6,1,Wald ratio,1.018,0.899,1.153,0.78,0.892,1,Wald ratio,1.018,0.899,1.153,0.78,0.892,TRUE,ns in both,TRUE
+SLC35A5,FALSE,3,1,Wald ratio,1.011,0.937,1.09,0.78,0.892,1,Wald ratio,1.011,0.937,1.09,0.78,0.892,TRUE,ns in both,TRUE
+UNC119B,FALSE,12,2,Inverse variance weighted,0.983,0.87,1.111,0.78,0.892,2,Inverse variance weighted,0.983,0.87,1.111,0.78,0.892,TRUE,ns in both,TRUE
+PARP8,FALSE,5,2,Inverse variance weighted,0.983,0.873,1.107,0.783,0.892,2,Inverse variance weighted,0.983,0.873,1.107,0.783,0.892,TRUE,ns in both,TRUE
+DNAJB1,FALSE,19,4,Inverse variance weighted,1.031,0.827,1.287,0.784,0.892,4,Inverse variance weighted,1.031,0.827,1.287,0.784,0.892,TRUE,ns in both,TRUE
+IL18BP,FALSE,11,2,Inverse variance weighted,0.966,0.755,1.236,0.784,0.892,2,Inverse variance weighted,0.966,0.755,1.236,0.784,0.892,TRUE,ns in both,TRUE
+PAFAH1B1,FALSE,17,4,Inverse variance weighted,1.024,0.865,1.212,0.784,0.892,4,Inverse variance weighted,1.024,0.865,1.212,0.784,0.892,TRUE,ns in both,TRUE
+PCYOX1L,FALSE,5,4,Inverse variance weighted,0.993,0.941,1.047,0.784,0.892,4,Inverse variance weighted,0.993,0.941,1.047,0.784,0.892,TRUE,ns in both,TRUE
+IFT27,FALSE,22,2,Inverse variance weighted,1.012,0.927,1.105,0.787,0.892,2,Inverse variance weighted,1.012,0.927,1.105,0.787,0.892,TRUE,ns in both,TRUE
+RHOF,FALSE,12,2,Inverse variance weighted,1.037,0.795,1.351,0.789,0.892,2,Inverse variance weighted,1.037,0.795,1.351,0.789,0.892,TRUE,ns in both,TRUE
+AUP1,FALSE,2,1,Wald ratio,1.04,0.779,1.388,0.79,0.892,1,Wald ratio,1.04,0.779,1.388,0.79,0.892,TRUE,ns in both,TRUE
+CLPX,FALSE,15,1,Wald ratio,1.106,0.527,2.321,0.79,0.892,1,Wald ratio,1.106,0.527,2.321,0.79,0.892,TRUE,ns in both,TRUE
+FBXO31,FALSE,16,1,Wald ratio,1.127,0.467,2.72,0.79,0.892,1,Wald ratio,1.127,0.467,2.72,0.79,0.892,TRUE,ns in both,TRUE
+MAP4,FALSE,3,1,Wald ratio,0.964,0.734,1.265,0.79,0.892,1,Wald ratio,0.964,0.734,1.265,0.79,0.892,TRUE,ns in both,TRUE
+MOGS,FALSE,2,1,Wald ratio,1.048,0.74,1.485,0.79,0.892,1,Wald ratio,1.048,0.74,1.485,0.79,0.892,TRUE,ns in both,TRUE
+PFAS,FALSE,17,1,Wald ratio,1.047,0.749,1.463,0.79,0.892,1,Wald ratio,1.047,0.749,1.463,0.79,0.892,TRUE,ns in both,TRUE
+PPDPF,FALSE,20,3,Inverse variance weighted,0.978,0.829,1.153,0.79,0.892,3,Inverse variance weighted,0.978,0.829,1.153,0.79,0.892,TRUE,ns in both,TRUE
+SHC1,FALSE,1,1,Wald ratio,0.982,0.862,1.12,0.79,0.892,1,Wald ratio,0.982,0.862,1.12,0.79,0.892,TRUE,ns in both,TRUE
+TAB2,FALSE,6,1,Wald ratio,1.041,0.773,1.403,0.79,0.892,1,Wald ratio,1.041,0.773,1.403,0.79,0.892,TRUE,ns in both,TRUE
+TMEM129,FALSE,4,1,Wald ratio,1.049,0.739,1.488,0.79,0.892,1,Wald ratio,1.049,0.739,1.488,0.79,0.892,TRUE,ns in both,TRUE
+TPCN1,FALSE,12,1,Wald ratio,0.961,0.717,1.289,0.79,0.892,1,Wald ratio,0.961,0.717,1.289,0.79,0.892,TRUE,ns in both,TRUE
+TTC31,FALSE,2,1,Wald ratio,1.041,0.773,1.402,0.79,0.892,1,Wald ratio,1.041,0.773,1.402,0.79,0.892,TRUE,ns in both,TRUE
+ZC3H4,FALSE,19,1,Wald ratio,0.942,0.607,1.462,0.79,0.892,1,Wald ratio,0.942,0.607,1.462,0.79,0.892,TRUE,ns in both,TRUE
+SAE1,FALSE,19,2,Inverse variance weighted,0.917,0.481,1.75,0.793,0.892,2,Inverse variance weighted,0.917,0.481,1.75,0.793,0.892,TRUE,ns in both,TRUE
+ZNRF2,FALSE,7,2,Inverse variance weighted,0.951,0.654,1.383,0.793,0.892,2,Inverse variance weighted,0.951,0.654,1.383,0.793,0.892,TRUE,ns in both,TRUE
+ABCA1,FALSE,9,4,Inverse variance weighted,1.024,0.854,1.229,0.796,0.892,4,Inverse variance weighted,1.024,0.854,1.229,0.796,0.892,TRUE,ns in both,TRUE
+MYO5A,FALSE,15,2,Inverse variance weighted,0.983,0.859,1.124,0.799,0.892,2,Inverse variance weighted,0.983,0.859,1.124,0.799,0.892,TRUE,ns in both,TRUE
+ABL2,FALSE,1,1,Wald ratio,0.964,0.726,1.28,0.8,0.892,1,Wald ratio,0.964,0.726,1.28,0.8,0.892,TRUE,ns in both,TRUE
+ADD1,FALSE,4,1,Wald ratio,1.045,0.746,1.463,0.8,0.892,1,Wald ratio,1.045,0.746,1.463,0.8,0.892,TRUE,ns in both,TRUE
+APH1B,FALSE,15,1,Wald ratio,0.958,0.688,1.334,0.8,0.892,1,Wald ratio,0.958,0.688,1.334,0.8,0.892,TRUE,ns in both,TRUE
+APOBEC3F,FALSE,22,1,Wald ratio,0.967,0.743,1.257,0.8,0.892,1,Wald ratio,0.967,0.743,1.257,0.8,0.892,TRUE,ns in both,TRUE
+DDX24,FALSE,14,1,Wald ratio,1.02,0.873,1.192,0.8,0.892,1,Wald ratio,1.02,0.873,1.192,0.8,0.892,TRUE,ns in both,TRUE
+DERA,FALSE,12,1,Wald ratio,0.881,0.332,2.341,0.8,0.892,1,Wald ratio,0.881,0.332,2.341,0.8,0.892,TRUE,ns in both,TRUE
+EGLN1,FALSE,1,1,Wald ratio,1.022,0.864,1.209,0.8,0.892,1,Wald ratio,1.022,0.864,1.209,0.8,0.892,TRUE,ns in both,TRUE
+EXOC6,FALSE,10,1,Wald ratio,0.923,0.495,1.719,0.8,0.892,1,Wald ratio,0.923,0.495,1.719,0.8,0.892,TRUE,ns in both,TRUE
+GPAA1,FALSE,8,1,Wald ratio,1.066,0.65,1.748,0.8,0.892,1,Wald ratio,1.066,0.65,1.748,0.8,0.892,TRUE,ns in both,TRUE
+MFSD1,FALSE,3,1,Wald ratio,1.033,0.805,1.324,0.8,0.892,1,Wald ratio,1.033,0.805,1.324,0.8,0.892,TRUE,ns in both,TRUE
+RPLP2,FALSE,11,1,Wald ratio,1.068,0.64,1.784,0.8,0.892,1,Wald ratio,1.068,0.64,1.784,0.8,0.892,TRUE,ns in both,TRUE
+SPNS1,FALSE,16,1,Wald ratio,0.933,0.543,1.601,0.8,0.892,1,Wald ratio,0.933,0.543,1.601,0.8,0.892,TRUE,ns in both,TRUE
+STK25,FALSE,2,1,Wald ratio,0.943,0.598,1.486,0.8,0.892,1,Wald ratio,0.943,0.598,1.486,0.8,0.892,TRUE,ns in both,TRUE
+ZNF469,FALSE,16,1,Wald ratio,0.911,0.442,1.877,0.8,0.892,1,Wald ratio,0.911,0.442,1.877,0.8,0.892,TRUE,ns in both,TRUE
+SLC12A7,FALSE,5,2,Inverse variance weighted,1.01,0.933,1.094,0.802,0.892,2,Inverse variance weighted,1.01,0.933,1.094,0.802,0.892,TRUE,ns in both,TRUE
+UBE2D1,FALSE,10,3,Inverse variance weighted,1.011,0.93,1.099,0.803,0.892,3,Inverse variance weighted,1.011,0.93,1.099,0.803,0.892,TRUE,ns in both,TRUE
+TMOD2,FALSE,15,3,Inverse variance weighted,0.958,0.685,1.341,0.804,0.892,3,Inverse variance weighted,0.958,0.685,1.341,0.804,0.892,TRUE,ns in both,TRUE
+SPTLC1,FALSE,9,2,Inverse variance weighted,1.048,0.722,1.521,0.806,0.892,2,Inverse variance weighted,1.048,0.722,1.521,0.806,0.892,TRUE,ns in both,TRUE
+GALNT3,FALSE,2,1,Wald ratio,0.926,0.495,1.733,0.81,0.892,1,Wald ratio,0.926,0.495,1.733,0.81,0.892,TRUE,ns in both,TRUE
+GRAMD1C,FALSE,3,1,Wald ratio,1.018,0.878,1.182,0.81,0.892,1,Wald ratio,1.018,0.878,1.182,0.81,0.892,TRUE,ns in both,TRUE
+LZTR1,FALSE,22,1,Wald ratio,1.064,0.641,1.766,0.81,0.892,1,Wald ratio,1.064,0.641,1.766,0.81,0.892,TRUE,ns in both,TRUE
+PDIA3,FALSE,15,1,Wald ratio,1.065,0.637,1.779,0.81,0.892,1,Wald ratio,1.065,0.637,1.779,0.81,0.892,TRUE,ns in both,TRUE
+RPUSD3,FALSE,3,1,Wald ratio,0.987,0.887,1.098,0.81,0.892,1,Wald ratio,0.987,0.887,1.098,0.81,0.892,TRUE,ns in both,TRUE
+SHOC2,FALSE,10,1,Wald ratio,0.953,0.643,1.412,0.81,0.892,1,Wald ratio,0.953,0.643,1.412,0.81,0.892,TRUE,ns in both,TRUE
+SLC25A13,FALSE,7,1,Wald ratio,0.979,0.824,1.163,0.81,0.892,1,Wald ratio,0.979,0.824,1.163,0.81,0.892,TRUE,ns in both,TRUE
+SPPL2A,FALSE,15,1,Wald ratio,1.031,0.805,1.321,0.81,0.892,1,Wald ratio,1.031,0.805,1.321,0.81,0.892,TRUE,ns in both,TRUE
+TATDN3,FALSE,1,1,Wald ratio,1.027,0.829,1.271,0.81,0.892,1,Wald ratio,1.027,0.829,1.271,0.81,0.892,TRUE,ns in both,TRUE
+TPRN,FALSE,9,1,Wald ratio,0.927,0.498,1.724,0.81,0.892,1,Wald ratio,0.927,0.498,1.724,0.81,0.892,TRUE,ns in both,TRUE
+UBR3,FALSE,2,1,Wald ratio,1.037,0.769,1.398,0.81,0.892,1,Wald ratio,1.037,0.769,1.398,0.81,0.892,TRUE,ns in both,TRUE
+ZNF281,FALSE,1,1,Wald ratio,1.029,0.815,1.299,0.81,0.892,1,Wald ratio,1.029,0.815,1.299,0.81,0.892,TRUE,ns in both,TRUE
+CCHCR1,TRUE,6,3,Inverse variance weighted,0.936,0.546,1.605,0.811,0.892,,,,,,,,FALSE,ns in both,
+SLC16A6,FALSE,17,2,Inverse variance weighted,1.013,0.911,1.126,0.811,0.892,2,Inverse variance weighted,1.013,0.911,1.126,0.811,0.893,TRUE,ns in both,TRUE
+APBA2,FALSE,15,2,Inverse variance weighted,0.981,0.833,1.155,0.815,0.894,2,Inverse variance weighted,0.981,0.833,1.155,0.815,0.895,TRUE,ns in both,TRUE
+PFKP,FALSE,10,5,Inverse variance weighted,0.989,0.898,1.089,0.819,0.894,5,Inverse variance weighted,0.989,0.898,1.089,0.819,0.895,TRUE,ns in both,TRUE
+APOBEC3D,FALSE,22,1,Wald ratio,0.964,0.7,1.326,0.82,0.894,1,Wald ratio,0.964,0.7,1.326,0.82,0.895,TRUE,ns in both,TRUE
+CCDC124,FALSE,19,1,Wald ratio,0.943,0.57,1.56,0.82,0.894,1,Wald ratio,0.943,0.57,1.56,0.82,0.895,TRUE,ns in both,TRUE
+IKBKB,FALSE,8,1,Wald ratio,1.038,0.753,1.432,0.82,0.894,1,Wald ratio,1.038,0.753,1.432,0.82,0.895,TRUE,ns in both,TRUE
+JKAMP,FALSE,14,1,Wald ratio,1.01,0.925,1.104,0.82,0.894,1,Wald ratio,1.01,0.925,1.104,0.82,0.895,TRUE,ns in both,TRUE
+PARN,FALSE,16,1,Wald ratio,1.064,0.625,1.812,0.82,0.894,1,Wald ratio,1.064,0.625,1.812,0.82,0.895,TRUE,ns in both,TRUE
+POLB,FALSE,8,1,Wald ratio,0.973,0.769,1.231,0.82,0.894,1,Wald ratio,0.973,0.769,1.231,0.82,0.895,TRUE,ns in both,TRUE
+PPOX,FALSE,1,1,Wald ratio,1.069,0.602,1.898,0.82,0.894,1,Wald ratio,1.069,0.602,1.898,0.82,0.895,TRUE,ns in both,TRUE
+RNF103,FALSE,2,2,Inverse variance weighted,0.962,0.691,1.34,0.82,0.894,2,Inverse variance weighted,0.962,0.691,1.34,0.82,0.895,TRUE,ns in both,TRUE
+RNF220,FALSE,1,1,Wald ratio,0.951,0.615,1.469,0.82,0.894,1,Wald ratio,0.951,0.615,1.469,0.82,0.895,TRUE,ns in both,TRUE
+ZBTB7A,FALSE,19,1,Wald ratio,0.938,0.541,1.626,0.82,0.894,1,Wald ratio,0.938,0.541,1.626,0.82,0.895,TRUE,ns in both,TRUE
+RRP8,FALSE,11,2,Inverse variance weighted,0.97,0.744,1.267,0.825,0.897,2,Inverse variance weighted,0.97,0.744,1.267,0.825,0.897,TRUE,ns in both,TRUE
+DDX31,FALSE,9,2,Inverse variance weighted,1.021,0.843,1.238,0.829,0.897,2,Inverse variance weighted,1.021,0.843,1.238,0.829,0.897,TRUE,ns in both,TRUE
+CYB5R4,FALSE,6,1,Wald ratio,1.067,0.588,1.936,0.83,0.897,1,Wald ratio,1.067,0.588,1.936,0.83,0.897,TRUE,ns in both,TRUE
+DDX27,FALSE,20,1,Wald ratio,1.072,0.567,2.03,0.83,0.897,1,Wald ratio,1.072,0.567,2.03,0.83,0.897,TRUE,ns in both,TRUE
+EDEM1,FALSE,3,1,Wald ratio,1.043,0.708,1.539,0.83,0.897,1,Wald ratio,1.043,0.708,1.539,0.83,0.897,TRUE,ns in both,TRUE
+GRWD1,FALSE,19,1,Wald ratio,1.016,0.878,1.176,0.83,0.897,1,Wald ratio,1.016,0.878,1.176,0.83,0.897,TRUE,ns in both,TRUE
+KLHL2,FALSE,4,1,Wald ratio,1.051,0.667,1.656,0.83,0.897,1,Wald ratio,1.051,0.667,1.656,0.83,0.897,TRUE,ns in both,TRUE
+PPM1B,FALSE,2,1,Wald ratio,1.055,0.647,1.721,0.83,0.897,1,Wald ratio,1.055,0.647,1.721,0.83,0.897,TRUE,ns in both,TRUE
+RNF139,FALSE,8,1,Wald ratio,0.933,0.496,1.756,0.83,0.897,1,Wald ratio,0.933,0.496,1.756,0.83,0.897,TRUE,ns in both,TRUE
+SSBP3,FALSE,1,1,Wald ratio,0.922,0.438,1.941,0.83,0.897,1,Wald ratio,0.922,0.438,1.941,0.83,0.897,TRUE,ns in both,TRUE
+TP53INP1,FALSE,8,1,Wald ratio,1.103,0.45,2.708,0.83,0.897,1,Wald ratio,1.103,0.45,2.708,0.83,0.897,TRUE,ns in both,TRUE
+ZNF689,FALSE,16,1,Wald ratio,1.03,0.788,1.346,0.83,0.897,1,Wald ratio,1.03,0.788,1.346,0.83,0.897,TRUE,ns in both,TRUE
+LTBP3,FALSE,11,4,Inverse variance weighted,0.987,0.871,1.118,0.834,0.9,4,Inverse variance weighted,0.987,0.871,1.118,0.834,0.9,TRUE,ns in both,TRUE
+ZFAND5,FALSE,9,3,Inverse variance weighted,1.035,0.751,1.425,0.834,0.9,3,Inverse variance weighted,1.035,0.751,1.425,0.834,0.9,TRUE,ns in both,TRUE
+ANO8,FALSE,19,1,Wald ratio,0.977,0.78,1.223,0.84,0.901,1,Wald ratio,0.977,0.78,1.223,0.84,0.901,TRUE,ns in both,TRUE
+CERK,FALSE,22,1,Wald ratio,1.07,0.553,2.072,0.84,0.901,1,Wald ratio,1.07,0.553,2.072,0.84,0.901,TRUE,ns in both,TRUE
+EEF2,FALSE,19,1,Wald ratio,0.982,0.826,1.169,0.84,0.901,1,Wald ratio,0.982,0.826,1.169,0.84,0.901,TRUE,ns in both,TRUE
+GANC,FALSE,15,1,Wald ratio,0.944,0.537,1.659,0.84,0.901,1,Wald ratio,0.944,0.537,1.659,0.84,0.901,TRUE,ns in both,TRUE
+HEXA,FALSE,15,1,Wald ratio,1.038,0.724,1.487,0.84,0.901,1,Wald ratio,1.038,0.724,1.487,0.84,0.901,TRUE,ns in both,TRUE
+LRBA,FALSE,4,1,Wald ratio,0.951,0.586,1.545,0.84,0.901,1,Wald ratio,0.951,0.586,1.545,0.84,0.901,TRUE,ns in both,TRUE
+LY96,FALSE,8,1,Wald ratio,0.988,0.875,1.115,0.84,0.901,1,Wald ratio,0.988,0.875,1.115,0.84,0.901,TRUE,ns in both,TRUE
+NAT10,FALSE,11,1,Wald ratio,1.022,0.828,1.261,0.84,0.901,1,Wald ratio,1.022,0.828,1.261,0.84,0.901,TRUE,ns in both,TRUE
+RAI1,FALSE,17,2,Inverse variance weighted,0.97,0.719,1.309,0.84,0.901,2,Inverse variance weighted,0.97,0.719,1.309,0.84,0.901,TRUE,ns in both,TRUE
+CAPS,FALSE,19,2,Inverse variance weighted,0.99,0.893,1.097,0.849,0.907,2,Inverse variance weighted,0.99,0.893,1.097,0.849,0.907,TRUE,ns in both,TRUE
+ARL5B,FALSE,10,1,Wald ratio,1.081,0.481,2.432,0.85,0.907,1,Wald ratio,1.081,0.481,2.432,0.85,0.907,TRUE,ns in both,TRUE
+CRY2,FALSE,11,2,Inverse variance weighted,1.009,0.92,1.107,0.85,0.907,2,Inverse variance weighted,1.009,0.92,1.107,0.85,0.907,TRUE,ns in both,TRUE
+MAP4K2,FALSE,11,1,Wald ratio,1.067,0.544,2.094,0.85,0.907,1,Wald ratio,1.067,0.544,2.094,0.85,0.907,TRUE,ns in both,TRUE
+MMP19,FALSE,12,1,Wald ratio,1.115,0.362,3.434,0.85,0.907,1,Wald ratio,1.115,0.362,3.434,0.85,0.907,TRUE,ns in both,TRUE
+ZNF350,FALSE,19,1,Wald ratio,1.057,0.593,1.885,0.85,0.907,1,Wald ratio,1.057,0.593,1.885,0.85,0.907,TRUE,ns in both,TRUE
+C2orf42,FALSE,2,3,Inverse variance weighted,0.984,0.834,1.162,0.852,0.907,3,Inverse variance weighted,0.984,0.834,1.162,0.852,0.907,TRUE,ns in both,TRUE
+CALML4,FALSE,15,2,Inverse variance weighted,1.01,0.909,1.123,0.852,0.907,2,Inverse variance weighted,1.01,0.909,1.123,0.852,0.907,TRUE,ns in both,TRUE
+IVD,FALSE,15,3,Inverse variance weighted,1.015,0.866,1.191,0.852,0.907,3,Inverse variance weighted,1.015,0.866,1.191,0.852,0.907,TRUE,ns in both,TRUE
+SFXN3,FALSE,10,2,Inverse variance weighted,0.979,0.78,1.228,0.853,0.908,2,Inverse variance weighted,0.979,0.78,1.228,0.853,0.908,TRUE,ns in both,TRUE
+NFATC1,FALSE,18,2,Inverse variance weighted,0.973,0.727,1.303,0.854,0.908,2,Inverse variance weighted,0.973,0.727,1.303,0.854,0.908,TRUE,ns in both,TRUE
+PIGX,FALSE,3,2,Inverse variance weighted,0.979,0.775,1.237,0.858,0.909,2,Inverse variance weighted,0.979,0.775,1.237,0.858,0.909,TRUE,ns in both,TRUE
+OGFRL1,FALSE,6,3,Inverse variance weighted,0.991,0.895,1.097,0.859,0.909,3,Inverse variance weighted,0.991,0.895,1.097,0.859,0.909,TRUE,ns in both,TRUE
+ARID4B,FALSE,1,1,Wald ratio,1.056,0.577,1.933,0.86,0.909,1,Wald ratio,1.056,0.577,1.933,0.86,0.909,TRUE,ns in both,TRUE
+ATP6V1D,FALSE,14,1,Wald ratio,0.988,0.863,1.131,0.86,0.909,1,Wald ratio,0.988,0.863,1.131,0.86,0.909,TRUE,ns in both,TRUE
+BTN3A2,TRUE,6,2,Inverse variance weighted,0.997,0.96,1.035,0.86,0.909,,,,,,,,FALSE,ns in both,
+MCM7,FALSE,7,2,Inverse variance weighted,1.013,0.876,1.172,0.86,0.909,2,Inverse variance weighted,1.013,0.876,1.172,0.86,0.909,TRUE,ns in both,TRUE
+NCAPH2,FALSE,22,1,Wald ratio,1.066,0.523,2.174,0.86,0.909,1,Wald ratio,1.066,0.523,2.174,0.86,0.909,TRUE,ns in both,TRUE
+TNPO2,FALSE,19,2,Inverse variance weighted,0.971,0.7,1.348,0.86,0.909,2,Inverse variance weighted,0.971,0.7,1.348,0.86,0.909,TRUE,ns in both,TRUE
+ZNF33A,FALSE,10,1,Wald ratio,0.94,0.475,1.862,0.86,0.909,1,Wald ratio,0.94,0.475,1.862,0.86,0.909,TRUE,ns in both,TRUE
+IFFO2,FALSE,1,2,Inverse variance weighted,1.017,0.844,1.224,0.861,0.909,2,Inverse variance weighted,1.017,0.844,1.224,0.861,0.91,TRUE,ns in both,TRUE
+TRIM24,FALSE,7,3,Inverse variance weighted,0.994,0.934,1.059,0.863,0.91,3,Inverse variance weighted,0.994,0.934,1.059,0.863,0.91,TRUE,ns in both,TRUE
+ACACB,FALSE,12,2,Inverse variance weighted,0.994,0.931,1.062,0.867,0.914,2,Inverse variance weighted,0.994,0.931,1.062,0.867,0.914,TRUE,ns in both,TRUE
+EDF1,FALSE,9,1,Wald ratio,0.913,0.309,2.702,0.87,0.915,1,Wald ratio,0.913,0.309,2.702,0.87,0.916,TRUE,ns in both,TRUE
+PAN2,FALSE,12,1,Wald ratio,1.038,0.663,1.624,0.87,0.915,1,Wald ratio,1.038,0.663,1.624,0.87,0.916,TRUE,ns in both,TRUE
+SNRPB,FALSE,20,1,Wald ratio,1.02,0.801,1.3,0.87,0.915,1,Wald ratio,1.02,0.801,1.3,0.87,0.916,TRUE,ns in both,TRUE
+TMEM109,FALSE,11,2,Inverse variance weighted,1.019,0.805,1.29,0.874,0.919,2,Inverse variance weighted,1.019,0.805,1.29,0.874,0.919,TRUE,ns in both,TRUE
+TMTC1,FALSE,12,3,Inverse variance weighted,0.988,0.855,1.142,0.874,0.919,3,Inverse variance weighted,0.988,0.855,1.142,0.874,0.919,TRUE,ns in both,TRUE
+CDK5RAP3,FALSE,17,3,Inverse variance weighted,1.006,0.929,1.09,0.878,0.921,3,Inverse variance weighted,1.006,0.929,1.09,0.878,0.921,TRUE,ns in both,TRUE
+DRG2,FALSE,17,1,Wald ratio,1.019,0.794,1.31,0.88,0.922,1,Wald ratio,1.019,0.794,1.31,0.88,0.922,TRUE,ns in both,TRUE
+POLH,FALSE,6,1,Wald ratio,0.968,0.632,1.482,0.88,0.922,1,Wald ratio,0.968,0.632,1.482,0.88,0.922,TRUE,ns in both,TRUE
+TJAP1,FALSE,6,1,Wald ratio,1.045,0.592,1.842,0.88,0.922,1,Wald ratio,1.045,0.592,1.842,0.88,0.922,TRUE,ns in both,TRUE
+FYN,FALSE,6,2,Inverse variance weighted,0.979,0.745,1.287,0.881,0.922,2,Inverse variance weighted,0.979,0.745,1.287,0.881,0.922,TRUE,ns in both,TRUE
+ZNF354A,FALSE,5,2,Inverse variance weighted,0.968,0.632,1.483,0.881,0.922,2,Inverse variance weighted,0.968,0.632,1.483,0.881,0.922,TRUE,ns in both,TRUE
+CSGALNACT1,FALSE,8,2,Inverse variance weighted,0.996,0.945,1.05,0.885,0.925,2,Inverse variance weighted,0.996,0.945,1.05,0.885,0.925,TRUE,ns in both,TRUE
+NUP50,FALSE,22,3,Inverse variance weighted,1.013,0.844,1.218,0.886,0.925,3,Inverse variance weighted,1.013,0.844,1.218,0.886,0.925,TRUE,ns in both,TRUE
+CTU2,FALSE,16,2,Inverse variance weighted,0.987,0.827,1.178,0.887,0.925,2,Inverse variance weighted,0.987,0.827,1.178,0.887,0.925,TRUE,ns in both,TRUE
+B3GNT5,FALSE,3,1,Wald ratio,1.075,0.388,2.977,0.89,0.925,1,Wald ratio,1.075,0.388,2.977,0.89,0.925,TRUE,ns in both,TRUE
+BRD9,FALSE,5,1,Wald ratio,1.021,0.759,1.374,0.89,0.925,1,Wald ratio,1.021,0.759,1.374,0.89,0.925,TRUE,ns in both,TRUE
+CCDC85C,FALSE,14,1,Wald ratio,1.025,0.719,1.462,0.89,0.925,1,Wald ratio,1.025,0.719,1.462,0.89,0.925,TRUE,ns in both,TRUE
+NOP2,FALSE,12,1,Wald ratio,1.051,0.517,2.139,0.89,0.925,1,Wald ratio,1.051,0.517,2.139,0.89,0.925,TRUE,ns in both,TRUE
+SNX18,FALSE,5,2,Inverse variance weighted,1.018,0.789,1.313,0.89,0.925,2,Inverse variance weighted,1.018,0.789,1.313,0.89,0.925,TRUE,ns in both,TRUE
+SUPV3L1,FALSE,10,1,Wald ratio,0.956,0.504,1.814,0.89,0.925,1,Wald ratio,0.956,0.504,1.814,0.89,0.925,TRUE,ns in both,TRUE
+ORMDL3,FALSE,17,3,Inverse variance weighted,1.021,0.747,1.395,0.895,0.93,3,Inverse variance weighted,1.021,0.747,1.395,0.895,0.93,TRUE,ns in both,TRUE
+ARHGAP10,FALSE,4,2,Inverse variance weighted,0.982,0.748,1.29,0.897,0.931,2,Inverse variance weighted,0.982,0.748,1.29,0.897,0.931,TRUE,ns in both,TRUE
+ARHGEF18,FALSE,19,2,Inverse variance weighted,1.036,0.603,1.778,0.899,0.931,2,Inverse variance weighted,1.036,0.603,1.778,0.899,0.931,TRUE,ns in both,TRUE
+COMT,FALSE,22,3,Inverse variance weighted,1.01,0.863,1.183,0.899,0.931,3,Inverse variance weighted,1.01,0.863,1.183,0.899,0.931,TRUE,ns in both,TRUE
+SPDYE2,FALSE,7,1,Wald ratio,1.102,0.242,5.019,0.9,0.931,1,Wald ratio,1.102,0.242,5.019,0.9,0.931,TRUE,ns in both,TRUE
+SYTL1,FALSE,1,1,Wald ratio,1.018,0.767,1.351,0.9,0.931,1,Wald ratio,1.018,0.767,1.351,0.9,0.931,TRUE,ns in both,TRUE
+ZNF362,FALSE,1,2,Inverse variance weighted,1.007,0.899,1.129,0.9,0.931,2,Inverse variance weighted,1.007,0.899,1.129,0.9,0.931,TRUE,ns in both,TRUE
+RASSF1,FALSE,3,3,Inverse variance weighted,1.016,0.788,1.309,0.905,0.935,3,Inverse variance weighted,1.016,0.788,1.309,0.905,0.935,TRUE,ns in both,TRUE
+MED30,FALSE,8,1,Wald ratio,1.06,0.385,2.918,0.91,0.94,1,Wald ratio,1.06,0.385,2.918,0.91,0.94,TRUE,ns in both,TRUE
+SEC31B,FALSE,10,2,Inverse variance weighted,1.005,0.92,1.098,0.913,0.942,2,Inverse variance weighted,1.005,0.92,1.098,0.913,0.942,TRUE,ns in both,TRUE
+LPGAT1,FALSE,1,2,Inverse variance weighted,1.01,0.847,1.204,0.914,0.942,2,Inverse variance weighted,1.01,0.847,1.204,0.914,0.942,TRUE,ns in both,TRUE
+PPP1R15B,FALSE,1,2,Inverse variance weighted,1.032,0.588,1.809,0.914,0.942,2,Inverse variance weighted,1.032,0.588,1.809,0.914,0.942,TRUE,ns in both,TRUE
+AK2,FALSE,1,2,Inverse variance weighted,1.013,0.797,1.287,0.916,0.943,2,Inverse variance weighted,1.013,0.797,1.287,0.916,0.943,TRUE,ns in both,TRUE
+PAG1,FALSE,8,2,Inverse variance weighted,1.006,0.894,1.133,0.919,0.945,2,Inverse variance weighted,1.006,0.894,1.133,0.919,0.945,TRUE,ns in both,TRUE
+LRRC8A,FALSE,9,1,Wald ratio,1.022,0.663,1.577,0.92,0.945,1,Wald ratio,1.022,0.663,1.577,0.92,0.945,TRUE,ns in both,TRUE
+MADD,FALSE,11,2,Inverse variance weighted,1.005,0.917,1.101,0.92,0.945,2,Inverse variance weighted,1.005,0.917,1.101,0.92,0.945,TRUE,ns in both,TRUE
+TESK1,FALSE,9,1,Wald ratio,0.97,0.532,1.767,0.92,0.945,1,Wald ratio,0.97,0.532,1.767,0.92,0.945,TRUE,ns in both,TRUE
+CCDC146,FALSE,7,2,Inverse variance weighted,0.992,0.853,1.154,0.922,0.946,2,Inverse variance weighted,0.992,0.853,1.154,0.922,0.946,TRUE,ns in both,TRUE
+C4orf33,FALSE,4,2,Inverse variance weighted,0.995,0.895,1.106,0.926,0.95,2,Inverse variance weighted,0.995,0.895,1.106,0.926,0.95,TRUE,ns in both,TRUE
+RCC2,FALSE,1,2,Inverse variance weighted,1.004,0.924,1.09,0.928,0.952,2,Inverse variance weighted,1.004,0.924,1.09,0.928,0.951,TRUE,ns in both,TRUE
+ACOT13,FALSE,6,2,Inverse variance weighted,1.01,0.815,1.251,0.93,0.953,2,Inverse variance weighted,1.01,0.815,1.251,0.93,0.953,TRUE,ns in both,TRUE
+RFWD3,FALSE,16,3,Inverse variance weighted,1.005,0.899,1.123,0.932,0.954,3,Inverse variance weighted,1.005,0.899,1.123,0.932,0.953,TRUE,ns in both,TRUE
+ANKRD50,FALSE,4,2,Inverse variance weighted,1.009,0.81,1.258,0.933,0.954,2,Inverse variance weighted,1.009,0.81,1.258,0.933,0.954,TRUE,ns in both,TRUE
+VAC14,FALSE,16,2,Inverse variance weighted,0.982,0.637,1.513,0.934,0.955,2,Inverse variance weighted,0.982,0.637,1.513,0.934,0.955,TRUE,ns in both,TRUE
+TMX4,FALSE,20,4,Inverse variance weighted,0.995,0.89,1.114,0.936,0.956,4,Inverse variance weighted,0.995,0.89,1.114,0.936,0.955,TRUE,ns in both,TRUE
+SLC3A1,FALSE,2,2,Inverse variance weighted,0.98,0.583,1.646,0.938,0.957,2,Inverse variance weighted,0.98,0.583,1.646,0.938,0.957,TRUE,ns in both,TRUE
+EI24,FALSE,11,2,Inverse variance weighted,0.991,0.795,1.237,0.939,0.958,2,Inverse variance weighted,0.991,0.795,1.237,0.939,0.957,TRUE,ns in both,TRUE
+AACS,FALSE,12,2,Inverse variance weighted,0.993,0.817,1.207,0.943,0.961,2,Inverse variance weighted,0.993,0.817,1.207,0.943,0.961,TRUE,ns in both,TRUE
+CYFIP2,FALSE,5,3,Inverse variance weighted,0.991,0.773,1.272,0.945,0.963,3,Inverse variance weighted,0.991,0.773,1.272,0.945,0.962,TRUE,ns in both,TRUE
+BTN3A1,TRUE,6,4,Inverse variance weighted,1.003,0.92,1.092,0.95,0.967,,,,,,,,FALSE,ns in both,
+PTP4A1,FALSE,6,2,Inverse variance weighted,1.009,0.766,1.328,0.95,0.967,2,Inverse variance weighted,1.009,0.766,1.328,0.95,0.967,TRUE,ns in both,TRUE
+DCXR,FALSE,17,2,Inverse variance weighted,1.013,0.665,1.543,0.952,0.967,2,Inverse variance weighted,1.013,0.665,1.543,0.952,0.968,TRUE,ns in both,TRUE
+ENO1,FALSE,1,2,Inverse variance weighted,0.992,0.748,1.315,0.954,0.968,2,Inverse variance weighted,0.992,0.748,1.315,0.954,0.968,TRUE,ns in both,TRUE
+FGL2,FALSE,7,3,Inverse variance weighted,0.995,0.839,1.18,0.954,0.968,3,Inverse variance weighted,0.995,0.839,1.18,0.954,0.968,TRUE,ns in both,TRUE
+PIK3AP1,FALSE,10,2,Inverse variance weighted,0.992,0.764,1.289,0.954,0.968,2,Inverse variance weighted,0.992,0.764,1.289,0.954,0.968,TRUE,ns in both,TRUE
+ABCF3,FALSE,3,2,Inverse variance weighted,0.993,0.769,1.283,0.956,0.97,2,Inverse variance weighted,0.993,0.769,1.283,0.956,0.97,TRUE,ns in both,TRUE
+TMEM30A,FALSE,6,2,Inverse variance weighted,1.005,0.844,1.196,0.959,0.971,2,Inverse variance weighted,1.005,0.844,1.196,0.959,0.971,TRUE,ns in both,TRUE
+DCAKD,FALSE,17,4,Inverse variance weighted,0.998,0.931,1.07,0.964,0.976,4,Inverse variance weighted,0.998,0.931,1.07,0.964,0.976,TRUE,ns in both,TRUE
+RAB8A,FALSE,19,2,Inverse variance weighted,1.003,0.879,1.145,0.965,0.976,2,Inverse variance weighted,1.003,0.879,1.145,0.965,0.976,TRUE,ns in both,TRUE
+RNASEL,FALSE,1,2,Inverse variance weighted,1.004,0.829,1.217,0.966,0.977,2,Inverse variance weighted,1.004,0.829,1.217,0.966,0.977,TRUE,ns in both,TRUE
+ST8SIA4,FALSE,5,2,Inverse variance weighted,1.002,0.894,1.123,0.969,0.979,2,Inverse variance weighted,1.002,0.894,1.123,0.969,0.979,TRUE,ns in both,TRUE
+IL21R,FALSE,16,2,Inverse variance weighted,1.004,0.814,1.238,0.971,0.98,2,Inverse variance weighted,1.004,0.814,1.238,0.971,0.98,TRUE,ns in both,TRUE
+LYST,FALSE,1,2,Inverse variance weighted,0.996,0.796,1.245,0.971,0.98,2,Inverse variance weighted,0.996,0.796,1.245,0.971,0.98,TRUE,ns in both,TRUE
+DSE,FALSE,6,4,Inverse variance weighted,1.002,0.877,1.146,0.972,0.98,4,Inverse variance weighted,1.002,0.877,1.146,0.972,0.98,TRUE,ns in both,TRUE
+DHX33,FALSE,17,2,Inverse variance weighted,1.011,0.525,1.949,0.973,0.98,2,Inverse variance weighted,1.011,0.525,1.949,0.973,0.98,TRUE,ns in both,TRUE
+ZNF117,FALSE,7,2,Inverse variance weighted,0.996,0.769,1.289,0.974,0.98,2,Inverse variance weighted,0.996,0.769,1.289,0.974,0.981,TRUE,ns in both,TRUE
+M6PR,FALSE,12,3,Inverse variance weighted,1.001,0.917,1.093,0.975,0.981,3,Inverse variance weighted,1.001,0.917,1.093,0.975,0.981,TRUE,ns in both,TRUE
+HEMK1,FALSE,3,2,Inverse variance weighted,1.003,0.814,1.237,0.976,0.981,2,Inverse variance weighted,1.003,0.814,1.237,0.976,0.982,TRUE,ns in both,TRUE
+SNX29,FALSE,16,3,Inverse variance weighted,1.001,0.914,1.096,0.979,0.984,3,Inverse variance weighted,1.001,0.914,1.096,0.979,0.984,TRUE,ns in both,TRUE
+GPATCH1,FALSE,19,2,Inverse variance weighted,1.001,0.922,1.086,0.983,0.987,2,Inverse variance weighted,1.001,0.922,1.086,0.983,0.987,TRUE,ns in both,TRUE
+ITGB7,FALSE,12,3,Inverse variance weighted,0.999,0.938,1.065,0.984,0.987,3,Inverse variance weighted,0.999,0.938,1.065,0.984,0.987,TRUE,ns in both,TRUE
+L3MBTL2,FALSE,22,2,Inverse variance weighted,0.999,0.88,1.133,0.984,0.987,2,Inverse variance weighted,0.999,0.88,1.133,0.984,0.987,TRUE,ns in both,TRUE
+EIF2B1,FALSE,12,2,Inverse variance weighted,1.001,0.889,1.128,0.986,0.988,2,Inverse variance weighted,1.001,0.889,1.128,0.986,0.988,TRUE,ns in both,TRUE
+C12orf76,FALSE,12,3,Inverse variance weighted,0.999,0.842,1.184,0.989,0.991,3,Inverse variance weighted,0.999,0.842,1.184,0.989,0.991,TRUE,ns in both,TRUE
+NFKBIZ,FALSE,3,2,Inverse variance weighted,1.001,0.862,1.163,0.991,0.992,2,Inverse variance weighted,1.001,0.862,1.163,0.991,0.992,TRUE,ns in both,TRUE
+RIMS3,FALSE,1,3,Inverse variance weighted,0.999,0.819,1.219,0.992,0.992,3,Inverse variance weighted,0.999,0.819,1.219,0.992,0.992,TRUE,ns in both,TRUE

@@ -1,0 +1,2 @@
+n_probes_raw,n_probes_retained,n_samples_raw,n_samples_retained,n_female,n_male,mean_sample_detection_fail_rate,mean_beta_reconstruction_error
+866297,847489,80,80,56,24,0.0020598305200179613,2.4987824152482536e-8

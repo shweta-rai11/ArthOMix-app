@@ -1,0 +1,29 @@
+item,question,sex,drug,omics,method,variant,n,auroc,ci_lo,ci_hi,excludes_chance
+1,female-Adalimumab,female,Adalimumab,methylation + transcriptomics (integrated),DIABLO,sparse_supervised,27,0.40384615384615385,0.21538807840961025,0.5923042292826974,FALSE
+1,female-Adalimumab,female,Adalimumab,methylation + transcriptomics (integrated),RandomForest,-,27,0.30769230769230765,0.09495454282521218,0.5204300725594032,FALSE
+1,female-Adalimumab,female,Adalimumab,methylation + transcriptomics (integrated),SNF,response_informed,27,0.33516483516483514,0.11625448696310292,0.5540751833665674,FALSE
+1,female-Adalimumab,female,Adalimumab,methylation + transcriptomics (integrated),SNF,unsupervised,27,0.16483516483516483,0,0.3396114380162859,TRUE
+1,male-Adalimumab,male,Adalimumab,methylation + transcriptomics (integrated),DIABLO,sparse_supervised,10,0.30000000000000004,0,0.6098975161522806,FALSE
+1,male-Adalimumab,male,Adalimumab,methylation + transcriptomics (integrated),RandomForest,-,10,0.14,0,0.3816405886322715,TRUE
+1,male-Adalimumab,male,Adalimumab,methylation + transcriptomics (integrated),SNF,response_informed,10,0.32,0,0.7348461825388981,FALSE
+1,male-Adalimumab,male,Adalimumab,methylation + transcriptomics (integrated),SNF,unsupervised,10,0,0,0,TRUE
+2,female-Etanercept,female,Etanercept,methylation + transcriptomics (integrated),DIABLO,sparse_supervised,29,0.49759615384615385,0.32208798361899194,0.6731043240733158,FALSE
+2,female-Etanercept,female,Etanercept,methylation + transcriptomics (integrated),RandomForest,-,29,0.6658653846153845,0.4556902672541121,0.8760405019766571,FALSE
+2,female-Etanercept,female,Etanercept,methylation + transcriptomics (integrated),SNF,response_informed,29,0.6298076923076922,0.4186281061532966,0.840987278462088,FALSE
+2,female-Etanercept,female,Etanercept,methylation + transcriptomics (integrated),SNF,unsupervised,29,0.3798076923076923,0.168229052724726,0.5913863318906586,FALSE
+2,male-Etanercept,male,Etanercept,methylation + transcriptomics (integrated),DIABLO,sparse_supervised,13,0.6666666666666666,0.4600683225651463,0.8732650107681872,FALSE
+2,male-Etanercept,male,Etanercept,methylation + transcriptomics (integrated),RandomForest,-,13,0.8095238095238095,0.5593788212027755,1,TRUE
+2,male-Etanercept,male,Etanercept,methylation + transcriptomics (integrated),SNF,response_informed,13,0.619047619047619,0.2788883326249529,0.959206905470285,FALSE
+2,male-Etanercept,male,Etanercept,methylation + transcriptomics (integrated),SNF,unsupervised,13,0.5952380952380951,0.24353760921603201,0.9469385812601584,FALSE
+3,pooled(F+M)-Adalimumab,pooled,Adalimumab,methylation,RandomForest,-,37,0.3026315789473684,0.1269588433148778,0.478304314579859,TRUE
+3,pooled(F+M)-Adalimumab,pooled,Adalimumab,transcriptomics,RandomForest,-,37,0.3801169590643275,0.19512604591642677,0.5651078722122281,FALSE
+3,pooled(F+M)-Adalimumab,pooled,Adalimumab,methylation,elastic net,-,37,0.27777777777777785,0.11140514437032964,0.4441504111852259,TRUE
+3,pooled(F+M)-Adalimumab,pooled,Adalimumab,transcriptomics,elastic net,-,37,0.4619883040935672,0.2667732213143448,0.6572033868727898,FALSE
+4,pooled(F+M)-Etanercept,pooled,Etanercept,methylation,RandomForest,-,42,0.4965675057208238,0.315491687523531,0.6776433239181165,FALSE
+4,pooled(F+M)-Etanercept,pooled,Etanercept,transcriptomics,RandomForest,-,42,0.2620137299771167,0.11027427941527962,0.41375318053895377,TRUE
+4,pooled(F+M)-Etanercept,pooled,Etanercept,methylation,elastic net,-,42,0.4073226544622426,0.22760520284884583,0.5870401060756392,FALSE
+4,pooled(F+M)-Etanercept,pooled,Etanercept,transcriptomics,elastic net,-,42,0.39359267734553766,0.21582763145274209,0.5713577232383334,FALSE
+5,female-response,female,pooled(ADA+ETN),methylation + transcriptomics (integrated),DIABLO,-,56,0.46615581098339715,0.3149665802727803,0.617345041694014,FALSE
+5,female-response,female,pooled(ADA+ETN),methylation + transcriptomics (integrated),RandomForest,-,56,0.5632183908045978,0.4095636754710043,0.716873106138191,FALSE
+6,male-response,male,pooled(ADA+ETN),methylation + transcriptomics (integrated),DIABLO,-,23,0.5227272727272727,0.27342157647960597,0.7720329689749394,FALSE
+6,male-response,male,pooled(ADA+ETN),methylation + transcriptomics (integrated),RandomForest,-,23,0.5757575757575757,0.3212897645032318,0.8302253870119198,FALSE

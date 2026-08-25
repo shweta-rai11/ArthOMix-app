@@ -1,17 +1,53 @@
 # Getting Started
 
+## Installation
+
+ArthOMix Explorer is a classic Shiny app (not a package), with dependencies
+pinned via [renv](https://rstudio.github.io/renv/).
+
+### Requirements
+
+- R (version ≥ 4.4, matching the Bioconductor release used in `renv.lock`)
+- [renv](https://rstudio.github.io/renv/) for reproducible package installation
+
+### Steps
+
+1. Clone the repository and open it in R (or RStudio) at the repo root.
+2. Install `renv` if you don't already have it:
+
+   ```r
+   install.packages("renv")
+   ```
+
+3. Restore the exact package versions recorded in `ArthOMix/renv.lock`:
+
+   ```r
+   renv::restore(project = "ArthOMix")
+   ```
+
+   This installs all CRAN and Bioconductor dependencies listed in
+   `ArthOMix/DESCRIPTION` (shiny, DT, plotly, limma, minfi, WGCNA, MOFA2,
+   and the rest of the transcriptomics/methylomics/multiomics stack) at the
+   pinned versions.
+
+4. Launch the app (see [Running the app](#running-the-app)).
+
+[Note any system-level dependencies here once confirmed — e.g. Bioconductor
+data packages that download large annotation files on first use, or system
+libraries needed by `ragg`/`tinytex`.]
+
 ## Running the app
 
 [Describe how a user launches ArthOMix Explorer in your actual deployment — e.g. a hosted URL, or running locally with:]
 
 ```r
 # From the repository root
-shiny::runApp("shiny_app")
+shiny::runApp("ArthOMix")
 ```
 
 ### Requirements
 
-[List the R version and key packages the app depends on. Pull this from shiny_app/global.R's library()/require() calls once finalized, e.g.:]
+[List the R version and key packages the app depends on. Pull this from ArthOMix/global.R's library()/require() calls once finalized, e.g.:]
 
 - R (version ≥ [x.y])
 - shiny, shinydashboard / shinydashboardPlus, DT, plotly

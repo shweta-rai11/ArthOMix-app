@@ -1,5 +1,5 @@
 ## run_wgcna_paper_defaults.R - standalone replication of exactly what
-## shiny_app/R/mod_wgcna.R does when its "uploaded dataset" paper-default
+## ArthOMix/R/mod_wgcna.R does when its "uploaded dataset" paper-default
 ## settings are used (Step1 gene_filter_method = "topmedian" n = 5000,
 ## Step2 network_type = "signed" / power_mode = "manual" power = 7,
 ## Step3 min_module_size = 66 / merge_cut_height = 0.3 / deep_split = 2 /

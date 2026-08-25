@@ -1,0 +1,58 @@
+sex,gene,eQTL_MR_OR,eQTL_MR_FDR,MHC,DEG_dir,DEG_sig,DMP_dir,DMP_sig,DMR_dir,DMR_sig,mQTL_MR_cpg,mQTL_MR_OR,mQTL_MR_FDR,mQTL_steiger_pass,mQTL_credible,tier
+male,AIF1,0.56,1.4292697550379801e-21,True,Up in RA,True,hypo,False,no overlapping DMR,False,cg14694191,0.067,4.2536733320588106e-61,True,False,TIER3: DEG only / directional only
+female,AIF1,0.56,1.4292697550379801e-21,True,Up in RA,True,hypo,False,no overlapping DMR,False,cg14694191,0.067,4.2536733320588106e-61,True,False,TIER3: DEG only / directional only
+male,AP4B1,1.42,3.1459258926516005e-10,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg16599770,0.124,3.18188165562022e-44,True,True,TIER2: DEG + credible mQTL-MR
+female,AP4B1,1.42,3.1459258926516005e-10,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg16599770,0.124,3.18188165562022e-44,True,True,TIER2: DEG + credible mQTL-MR
+male,BRD2,1.55,1.39746857214733e-06,True,Down in RA,True,hypo,False,hyper,True,cg02462443,0.019,5.17149538680164e-146,False,False,TIER2: DEG + DMP/DMR significant
+female,BRD2,1.55,1.39746857214733e-06,True,Down in RA,True,hyper,False,hyper,True,cg02462443,0.019,5.17149538680164e-146,False,False,TIER2: DEG + DMP/DMR significant
+male,C6orf136,0.54,1.56363267265606e-06,True,Down in RA,True,hypo,False,hypo,True,cg13016528,3.501,3.04639476523651e-22,True,False,TIER2: DEG + DMP/DMR significant
+female,C6orf136,0.54,1.56363267265606e-06,True,Down in RA,True,hypo,False,hyper,True,cg13016528,3.501,3.04639476523651e-22,True,False,TIER2: DEG + DMP/DMR significant
+male,CDC37,0.75,0.0217797307436833,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg15203429,1.075,0.562639877290791,True,False,TIER3: DEG only / directional only
+female,CDC37,0.75,0.0217797307436833,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg15203429,1.075,0.562639877290791,True,False,TIER3: DEG only / directional only
+male,CSNK2B,0.55,2.44648185666735e-09,True,Down in RA,True,hypo,False,hyper,True,cg04465120,0.305,6.97890204511796e-52,True,False,TIER2: DEG + DMP/DMR significant
+female,CSNK2B,0.55,2.44648185666735e-09,True,Down in RA,True,hypo,False,hypo,True,cg04465120,0.305,6.97890204511796e-52,True,False,TIER2: DEG + DMP/DMR significant
+male,DAXX,0.48,0.0002967197676837,True,Down in RA,True,hyper,False,hyper,False,cg07607074,3.911,6.6035957173165e-32,True,False,TIER3: DEG only / directional only
+female,DAXX,0.48,0.0002967197676837,True,Down in RA,True,hyper,False,hyper,True,cg07607074,3.911,6.6035957173165e-32,True,False,TIER2: DEG + DMP/DMR significant
+male,ESYT1,0.67,0.040092008434677,False,Down in RA,True,hypo,False,hyper,False,,,,,False,TIER3: DEG only / directional only
+female,ESYT1,0.67,0.040092008434677,False,Down in RA,True,hyper,False,no overlapping DMR,False,,,,,False,TIER3: DEG only / directional only
+female,FCGR2B,1.09,0.0528075407871727,False,Up in RA,True,hypo,False,no overlapping DMR,False,,,,,False,TIER3: DEG only / directional only
+female,GNL1,4.63,3.04881549222049e-15,True,Down in RA,True,hyper,False,hypo,True,cg12785643,3.222,1.36425486557407e-22,True,False,TIER2: DEG + DMP/DMR significant
+male,HLA-DMA,0.56,7.41053753487371e-10,True,Down in RA,True,hypo,False,hypo,False,cg09146459,0.003,0.0,False,False,TIER3: DEG only / directional only
+female,HLA-DMA,0.56,7.41053753487371e-10,True,Down in RA,True,hypo,False,hyper,True,cg09146459,0.003,0.0,False,False,TIER2: DEG + DMP/DMR significant
+female,HLA-DPA1,1.77,2.33216215054262e-08,True,Down in RA,True,hyper,False,hyper,True,cg08898074,0.434,1.70205435354762e-80,True,False,TIER2: DEG + DMP/DMR significant
+male,HLA-DRB1,0.34,1.69376530106944e-247,True,Down in RA,True,hyper,False,hyper,False,cg09949906,1796.566,0.0,False,False,TIER3: DEG only / directional only
+female,HLA-DRB1,0.34,1.69376530106944e-247,True,Down in RA,True,hyper,False,hyper,True,cg09949906,1796.566,0.0,False,False,TIER2: DEG + DMP/DMR significant
+male,IKZF3,1.17,4.87446435516264e-06,False,Down in RA,True,hypo,False,hyper,True,cg13432737,0.589,2.58988048842249e-09,True,True,"TIER1: DEG + DMP/DMR + credible mQTL-MR (non-MHC, Steiger-pass)"
+female,IKZF3,1.17,4.87446435516264e-06,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg13432737,0.589,2.58988048842249e-09,True,True,TIER2: DEG + credible mQTL-MR
+female,IKZF4,0.61,0.0200755049201189,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg20359445,0.708,9.17924251580943e-05,True,True,TIER2: DEG + credible mQTL-MR
+male,INPP5B,1.1,0.0046198357695711,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg02632792,2.365,7.59702954583324e-05,True,True,TIER2: DEG + credible mQTL-MR
+female,INPP5B,1.1,0.0046198357695711,False,Down in RA,True,hyper,False,hyper,True,cg02632792,2.365,7.59702954583324e-05,True,True,"TIER1: DEG + DMP/DMR + credible mQTL-MR (non-MHC, Steiger-pass)"
+male,KLF2,0.54,0.0274539749229144,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg05906166,1.088,0.0057823626549461,True,True,TIER2: DEG + credible mQTL-MR
+female,KLF2,0.54,0.0274539749229144,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg05906166,1.088,0.0057823626549461,True,True,TIER2: DEG + credible mQTL-MR
+female,LAX1,1.08,0.0499253650087988,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg17711527,0.835,0.000113871508333,True,True,TIER2: DEG + credible mQTL-MR
+male,LPCAT2,1.1,0.0126152389178218,False,Up in RA,True,hyper,False,no overlapping DMR,False,cg07627639,0.54,0.0051733949561665,True,True,TIER2: DEG + credible mQTL-MR
+female,LPCAT2,1.1,0.0126152389178218,False,Up in RA,True,hyper,False,no overlapping DMR,False,cg07627639,0.54,0.0051733949561665,True,True,TIER2: DEG + credible mQTL-MR
+female,LSM2,1.74,5.928855325174371e-09,True,Down in RA,True,hyper,False,no overlapping DMR,False,cg24198896,0.243,6.60654183538912e-35,True,False,TIER3: DEG only / directional only
+male,MED1,0.73,0.003549219284818,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg03013999,1.064,0.199652006945158,True,False,TIER3: DEG only / directional only
+female,MED1,0.73,0.003549219284818,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg03013999,1.064,0.199652006945158,True,False,TIER3: DEG only / directional only
+male,NCOA5,0.42,0.0001270453312036,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg12177539,1.194,0.0667024387909065,True,False,TIER3: DEG only / directional only
+female,NCOA5,0.42,0.0001270453312036,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg12177539,1.194,0.0667024387909065,True,False,TIER3: DEG only / directional only
+male,PGAP3,0.86,0.0003670610829184,False,Down in RA,True,hyper,False,hyper,True,cg17633523,1.994,0.0005109512529267,True,True,"TIER1: DEG + DMP/DMR + credible mQTL-MR (non-MHC, Steiger-pass)"
+female,PGAP3,0.86,0.0003670610829184,False,Down in RA,True,hypo,False,hyper,True,cg17633523,1.994,0.0005109512529267,True,True,"TIER1: DEG + DMP/DMR + credible mQTL-MR (non-MHC, Steiger-pass)"
+male,PHF19,0.79,3.57548842485889e-06,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg14425045,1.169,1.41879410570768e-07,True,True,TIER2: DEG + credible mQTL-MR
+female,PHF19,0.79,3.57548842485889e-06,False,Down in RA,True,hyper,False,hyper,True,cg14425045,1.169,1.41879410570768e-07,True,True,"TIER1: DEG + DMP/DMR + credible mQTL-MR (non-MHC, Steiger-pass)"
+female,RETSAT,0.92,0.0528075407871727,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg09468902,1.239,0.0010751485548381,True,True,TIER2: DEG + credible mQTL-MR
+male,SH2B1,0.49,0.0101644034895042,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg08761264,0.871,0.0012968660305223,True,True,TIER2: DEG + credible mQTL-MR
+female,SH2B1,0.49,0.0101644034895042,False,Down in RA,True,hyper,False,hyper,False,cg08761264,0.871,0.0012968660305223,True,True,TIER2: DEG + credible mQTL-MR
+male,SMARCC2,0.76,0.007764223334675,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg01982788,0.953,0.852832606272287,True,False,TIER3: DEG only / directional only
+female,SMARCC2,0.76,0.007764223334675,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg01982788,0.953,0.852832606272287,True,False,TIER3: DEG only / directional only
+male,TAB1,0.43,0.0013551434941344,False,Down in RA,True,not annotated,False,no overlapping DMR,False,,,,,False,TIER3: DEG only / directional only
+male,VARS2,1.2,3.06306915810575e-14,True,Down in RA,True,hypo,False,no overlapping DMR,False,cg10661769,0.502,8.599045198809051e-73,True,False,TIER3: DEG only / directional only
+female,VARS2,1.2,3.06306915810575e-14,True,Down in RA,True,hypo,False,no overlapping DMR,False,cg10661769,0.502,8.599045198809051e-73,True,False,TIER3: DEG only / directional only
+male,VPS52,0.41,1.7783732036493902e-21,True,Down in RA,True,hyper,False,hyper,True,cg24536691,1.609,3.3036901633660398e-49,True,False,TIER2: DEG + DMP/DMR significant
+female,VPS52,0.41,1.7783732036493902e-21,True,Down in RA,True,hyper,False,hyper,True,cg24536691,1.609,3.3036901633660398e-49,True,False,TIER2: DEG + DMP/DMR significant
+male,WDR46,4.53,4.40542470161898e-39,True,Down in RA,True,hyper,False,no overlapping DMR,False,cg10966235,0.196,1.63324522295082e-49,True,False,TIER3: DEG only / directional only
+female,WDR46,4.53,4.40542470161898e-39,True,Down in RA,True,hyper,False,hyper,True,cg10966235,0.196,1.63324522295082e-49,True,False,TIER2: DEG + DMP/DMR significant
+female,ZBTB9,1.59,0.0004100971115112,True,Down in RA,True,hyper,False,no overlapping DMR,False,cg25192717,5.297,1.04514473235843e-27,True,False,TIER3: DEG only / directional only
+male,ZNF785,1.9,0.0073652302418446,False,Down in RA,True,hyper,False,no overlapping DMR,False,cg16489547,1.8,7.11695838544165e-05,True,True,TIER2: DEG + credible mQTL-MR
+female,ZNF785,1.9,0.0073652302418446,False,Down in RA,True,hypo,False,no overlapping DMR,False,cg16489547,1.8,7.11695838544165e-05,True,True,TIER2: DEG + credible mQTL-MR

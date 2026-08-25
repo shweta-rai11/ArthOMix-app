@@ -1,0 +1,3 @@
+id.exposure,id.outcome,outcome,exposure,method,nsnp,b,se,pval,n_snp_tier
+Puqh4x,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg10186232,Inverse variance weighted,2,0.0158814762340421,0.0483343518507353,0.742476687658161,2
+VBiIv7,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg23881902,Wald ratio,1,0.262984217596827,0.23785833693471,0.26888505273988,1

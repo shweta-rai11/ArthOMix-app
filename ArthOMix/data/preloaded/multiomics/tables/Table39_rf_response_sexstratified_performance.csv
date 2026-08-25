@@ -1,0 +1,3 @@
+item,sex,drug,method,n,auroc,ci_lo,ci_hi,excludes_chance
+5,female,pooled(ADA+ETN),RandomForest,56,0.5632183908045978,0.40956367547100436,0.716873106138191,FALSE
+6,male,pooled(ADA+ETN),RandomForest,23,0.5757575757575757,0.3212897645032318,0.8302253870119198,FALSE

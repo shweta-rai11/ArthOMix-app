@@ -1,0 +1,33 @@
+gene,direction,MR_OR,MR_pval,MR_FDR_stratum,nSNP,method
+HLA-DRB1,protective (OR<1),0.337,1e-250,1.48e-247,1,Wald ratio
+WDR46,risk (OR>1),4.531,5.2e-42,3.84e-39,1,Wald ratio
+AIF1,protective (OR<1),0.556,2.53e-24,1.25e-21,2,Inverse variance weighted
+VPS52,protective (OR<1),0.414,4.2e-24,1.55e-21,1,Wald ratio
+GNL1,risk (OR>1),4.629,9e-18,2.66e-15,1,Wald ratio
+VARS2,risk (OR>1),1.203,1.08e-16,2.67e-14,3,Inverse variance weighted
+AP4B1,risk (OR>1),1.424,1.3e-12,2.74e-10,1,Wald ratio
+HLA-DMA,protective (OR<1),0.559,3.5e-12,6.46e-10,1,Wald ratio
+CSNK2B,protective (OR<1),0.546,1.3e-11,2.13e-09,1,Wald ratio
+LSM2,risk (OR>1),1.739,3.5e-11,5.17e-09,1,Wald ratio
+HLA-DPA1,risk (OR>1),1.768,1.51e-10,2.03e-08,2,Inverse variance weighted
+BRD2,risk (OR>1),1.554,9.9e-09,1.22e-06,1,Wald ratio
+C6orf136,protective (OR<1),0.537,1.2e-08,1.36e-06,1,Wald ratio
+PHF19,protective (OR<1),0.791,2.95e-08,3.12e-06,2,Inverse variance weighted
+IKZF3,risk (OR>1),1.174,4.32e-08,4.25e-06,2,Inverse variance weighted
+NCOA5,protective (OR<1),0.422,1.2e-06,0.000111,1,Wald ratio
+DAXX,protective (OR<1),0.484,2.98e-06,0.000259,2,Inverse variance weighted
+PGAP3,protective (OR<1),0.861,3.9e-06,0.00032,1,Wald ratio
+ZBTB9,risk (OR>1),1.589,4.6e-06,0.000358,1,Wald ratio
+MED1,protective (OR<1),0.732,4.4e-05,0.00325,1,Wald ratio
+INPP5B,risk (OR>1),1.104,6e-05,0.00422,1,Wald ratio
+ZNF785,risk (OR>1),1.895,1e-04,0.00671,1,Wald ratio
+SMARCC2,protective (OR<1),0.76,0.00011,0.00706,1,Wald ratio
+SH2B1,protective (OR<1),0.494,0.00015,0.00923,1,Wald ratio
+LPCAT2,risk (OR>1),1.097,0.000194,0.0114,3,Inverse variance weighted
+IKZF4,protective (OR<1),0.607,0.00032,0.0182,1,Wald ratio
+CDC37,protective (OR<1),0.752,0.00036,0.0197,1,Wald ratio
+KLF2,protective (OR<1),0.54,0.00047,0.0248,1,Wald ratio
+ESYT1,protective (OR<1),0.67,0.00071,0.0362,1,Wald ratio
+LAX1,risk (OR>1),1.084,0.000914,0.045,2,Inverse variance weighted
+RETSAT,protective (OR<1),0.921,0.00102,0.0475,3,Inverse variance weighted
+FCGR2B,risk (OR>1),1.094,0.00103,0.0475,2,Inverse variance weighted

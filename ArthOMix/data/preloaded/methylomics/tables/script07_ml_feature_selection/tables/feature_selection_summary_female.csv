@@ -1,0 +1,5 @@
+method,n_selected
+LASSO,6
+Boruta,37
+SVM-RFE,40
+Consensus (all three),1

@@ -1,0 +1,7 @@
+id.exposure,id.outcome,outcome,exposure,method,nsnp,b,se,pval,n_snp_tier
+zxC2m1,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg25598086,Inverse variance weighted,2,-0.0374881722540957,0.0449917548299167,0.404718881607305,2
+dmwgde,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg00322319,Wald ratio,1,-0.00745598730692721,0.114822204526679,0.948225701716544,1
+TDQAsV,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg12089985,Wald ratio,1,-0.0764133502283498,0.149117314523285,0.608344633990177,1
+5Jynrx,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg08212230,Wald ratio,1,0.0680344985679754,0.0939282256348913,0.46886664701175,1
+tMrVm2,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg18924222,Wald ratio,1,0.00325314599549927,0.0662828496582977,0.960855737448379,1
+zIn7vW,GCST90132223,Rheumatoid arthritis || Ishigaki et al. 2022 (European) || GCST90132223,cg15478005,Wald ratio,1,-0.00395833457031289,0.144974003637709,0.978217462514775,1

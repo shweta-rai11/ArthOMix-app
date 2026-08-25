@@ -1,0 +1,4 @@
+cell_type,n_samples,n_genes_raw,n_genes_retained,n_female,n_male,n_responder,n_nonresponder,median_lib_size
+PBMC,79,18333,18146,56,23,38,41,19743105
+CD14,78,15358,14703,55,23,37,41,19462405
+CD4,78,17840,17320,55,23,37,41,17458972.5
