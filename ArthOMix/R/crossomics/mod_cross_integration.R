@@ -4,13 +4,12 @@
 ## output (CpG, gene, Δβ, FDR) at gene level to answer "how does DNA
 ## methylation relate to gene expression" - the four regulatory quadrants
 ## (hyper+down, hypo+up, hyper+up, hypo+down) plus a not-significant/
-## discordant bucket. Fully self-contained: Preloaded mode reads this
-## project's own precomputed DEG/DMP tables directly (cx_load_default_deg()/
-## cx_load_default_methylation(), crossomics_integration_helpers.R) rather
-## than depending on whatever is currently loaded in the live Transcriptomics/
-## Methylomics tabs, so this module never touches those tabs' reactive state.
-## Upload mode is fully independent CSV/TSV/TXT/XLSX with auto-detected +
-## manually overridable column mapping (crossomics_integration_upload.R).
+## discordant bucket. There is no data-input UI in this module: `raw` is a
+## live mirror of whatever the Cross-Omics "Dataset" tab (mod_cross_dataset.R)
+## has published into the shared `cross_dataset` store (its "Example data" or
+## "Upload your own data" mode, both standardized to the same shape) - load,
+## replace, or clear on the Dataset tab and this module reflects it
+## immediately, with no re-upload or manual hand-off step here.
 ##
 ## Every statistical/biological framing follows the "association, not
 ## causality" requirement throughout: category labels say "potential
@@ -21,13 +20,25 @@
 ## the correlation feeds the Evidence Level tier (Strong/Moderate candidate)
 ## carried in the Expression data/Methylation data/Export tables instead.
 ##
-## Result tabs, in order: Expression data, Methylation data, Overlapping,
-## Quadrant plot, Heatmap, Network analysis, Export.
+## No sidebar: everything (setup, thresholds, filters, provenance) lives
+## inside the result tabs themselves. Tabs, in order: Expression data,
+## Methylation data, Integration (setup + Advanced Filters + Run button),
+## Quadrant plot, Heatmap, Network analysis, Export (downloads + provenance).
 
 mod_cross_integration_config <- list(
   id = "integration", title = "Expression x Methylation", icon = "dna", group = "Data",
-  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - expression data, methylation data, overlap, quadrant plot, heatmap, network analysis, and exportable results."
+  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - expression data, methylation data, integration setup, quadrant plot, heatmap, network analysis, and exportable results."
 )
+
+## Sex stratum for Export's per-group downloads, detected from the loaded
+## data's own source label rather than a dedicated selector - this module has
+## no "Analysis group" input of its own, since that choice already lives on
+## the Dataset tab (whose "Example data" source text carries FEMALE/MALE).
+## Uploaded data with no sex stratification falls back to "all".
+.cx_detect_sex_stratum <- function(expr_source, meth_source) {
+  s <- toupper(paste(expr_source %||% "", meth_source %||% ""))
+  if (grepl("FEMALE", s)) "female" else if (grepl("MALE", s)) "male" else "all"
+}
 
 ## ---------------------------------------------------------------------------
 ## UI
@@ -35,124 +46,53 @@ mod_cross_integration_config <- list(
 
 mod_cross_integration_ui <- function(id) {
   ns <- NS(id)
-  fluidRow(
-    column(
-      4,
-      box(
-        width = NULL, title = "1. Data Input", status = "primary", solidHeader = FALSE,
-        radioButtons(ns("sex_stratum"), "Analysis group",
-                     choices = c("ALL" = "all", "FEMALE" = "female", "MALE" = "male"),
-                     selected = "female", inline = TRUE),
-        radioButtons(ns("mode"), "Input type",
-                     choices = c("Preloaded data" = "preloaded", "From Dataset tab" = "fromdataset", "Load from app" = "fromapp", "Upload your data" = "upload"),
-                     selected = "preloaded"),
-        conditionalPanel(
-          condition = sprintf("input['%s'] == 'preloaded'", ns("mode")),
-          p(class = "empty-note", icon("circle-info"),
-            "Reads this project's own precomputed, sex-stratified DEG (Transcriptomics) and DMP (Methylomics) tables - independent of whatever is currently loaded on the Transcriptomics/Methylomics tabs."),
-          actionButton(ns("load_preloaded"), "Load preloaded data", icon = icon("database"), class = "btn-primary btn-sm")
+  tagList(
+    uiOutput(ns("status_bar")),
+    uiOutput(ns("summary_cards")),
+    tabsetPanel(
+      id = ns("result_tabs"), type = "tabs",
+      tabPanel("Expression data", br(), uiOutput(ns("expr_data_ui"))),
+      tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
+      tabPanel("Integration", br(), tagList(
+        h4("Integration Setup"),
+        fluidRow(
+          column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 1, min = 0, step = 0.1)),
+          column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
         ),
-        conditionalPanel(
-          condition = sprintf("input['%s'] == 'fromdataset'", ns("mode")),
-          uiOutput(ns("fromdataset_ui"))
+        fluidRow(
+          column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.10, min = 0, max = 1, step = 0.01)),
+          column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
         ),
-        conditionalPanel(
-          condition = sprintf("input['%s'] == 'fromapp'", ns("mode")),
-          uiOutput(ns("fromapp_ui"))
-        ),
-        conditionalPanel(
-          condition = sprintf("input['%s'] == 'upload'", ns("mode")),
-          fileInput(ns("expr_file"), "Transcriptomics file", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
-                    placeholder = "CSV / TSV / TXT / XLSX"),
-          p(class = "empty-note", icon("circle-info"), "Differentially Expressed Genes (DEG) format - one row per gene, with a gene symbol/ID and a log2 fold-change column."),
-          fileInput(ns("meth_file"), "Methylomics file", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
-                     placeholder = "CSV / TSV / TXT / XLSX"),
-          p(class = "empty-note", icon("circle-info"), "Differentially Methylated Position/Region (DMP/DMR) format - one row per CpG or region, with a gene symbol/ID and a Δβ (methylation change) column.")
-        )
-      ),
-      box(
-        width = NULL, title = "2. Map Your Data", status = "primary", solidHeader = FALSE,
-        uiOutput(ns("mapping_ui"))
-      ),
-      box(
-        width = NULL, title = "3. Advanced Filters", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
+        selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
+                    choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
+        radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
+        radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
+        tags$hr(),
+        checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
+        checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
+        checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
+        checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
+        tags$hr(),
+        actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm"),
+        tags$hr(),
+        h4("Advanced Filters"),
         selectizeInput(ns("filter_region"), "Genomic region", choices = CX_REGION_FINE_VOCAB, multiple = TRUE, options = list(placeholder = "Any region")),
         selectizeInput(ns("filter_island"), "CpG island status", choices = CX_ISLAND_VOCAB, multiple = TRUE, options = list(placeholder = "Any island status")),
         selectizeInput(ns("filter_evidence"), "Evidence level", choices = CX_EVIDENCE_LEVELS, multiple = TRUE, options = list(placeholder = "Any evidence level")),
         numericInput(ns("filter_min_cpg"), "Minimum CpG count", value = 0, min = 0, step = 1),
         radioButtons(ns("filter_cor_direction"), "Correlation direction (where computed)", choices = c("Any" = "any", "Positive" = "pos", "Negative" = "neg"), inline = TRUE)
-      ),
-      box(
-        width = NULL, title = "Analysis Settings / Reproducibility", status = "primary", solidHeader = FALSE,
+      )),
+      tabPanel("Quadrant plot", br(), uiOutput(ns("quadrant_ui"))),
+      tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
+      tabPanel("Network analysis", br(), uiOutput(ns("network_ui"))),
+      tabPanel("Export", br(), tagList(
+        uiOutput(ns("downloads_ui")),
+        tags$hr(),
+        h4("Analysis Settings / Reproducibility"),
         uiOutput(ns("provenance_ui"))
-      )
-    ),
-    column(
-      8,
-      uiOutput(ns("status_bar")),
-      uiOutput(ns("summary_cards")),
-      tabsetPanel(
-        id = ns("result_tabs"), type = "tabs",
-        tabPanel("Expression data", br(), uiOutput(ns("expr_data_ui"))),
-        tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
-        tabPanel("Integration", br(), tagList(
-          h4("Integration Setup"),
-          fluidRow(
-            column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 1, min = 0, step = 0.1)),
-            column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
-          ),
-          fluidRow(
-            column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.10, min = 0, max = 1, step = 0.01)),
-            column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
-          ),
-          selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
-                      choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
-          radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
-          radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
-          tags$hr(),
-          checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
-          checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
-          checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
-          checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
-          tags$hr(),
-          actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm")
-        )),
-        tabPanel("Quadrant plot", br(), uiOutput(ns("quadrant_ui"))),
-        tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
-        tabPanel("Network analysis", br(), uiOutput(ns("network_ui"))),
-        tabPanel("Export", br(), uiOutput(ns("downloads_ui")))
-      )
+      ))
     )
   )
-}
-
-## ---------------------------------------------------------------------------
-## Small UI-building helpers (module-local, not shared elsewhere)
-## ---------------------------------------------------------------------------
-
-.cx_field_label <- function(field) {
-  labels <- c(gene = "Gene ID / Gene Symbol", cpg = "CpG ID / Probe ID", log2fc = "log2 Fold Change",
-              dbeta = "Δβ (methylation change)", beta = "Beta value", pvalue = "P-value", fdr = "Adjusted P-value (FDR)",
-              chr = "Chromosome", pos = "Genomic position", region = "Region / Feature",
-              island = "CpG Island / Relation to Island", sample_id = "Sample ID")
-  labels[[field]] %||% field
-}
-
-.cx_mapping_selects <- function(ns, prefix, df, mapping, fields) {
-  cols <- colnames(df)
-  lapply(fields, function(f) {
-    selectInput(ns(paste0(prefix, f)), .cx_field_label(f),
-                choices = c("(none)" = "", setNames(cols, cols)),
-                selected = if (!is.na(mapping[[f]])) mapping[[f]] else "")
-  })
-}
-
-.cx_read_mapping <- function(input, prefix, fields) {
-  vals <- vapply(fields, function(f) {
-    v <- input[[paste0(prefix, f)]]
-    if (is.null(v) || !nzchar(v)) NA_character_ else v
-  }, character(1))
-  setNames(vals, fields)
 }
 
 ## ---------------------------------------------------------------------------
@@ -180,210 +120,25 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     active_filter <- reactiveVal("All")
     network_hint <- reactiveVal(NULL)
 
-    expr_upload <- reactiveVal(NULL)
-    meth_upload <- reactiveVal(NULL)
-
-    ## ---- Data Input: Preloaded ------------------------------------------
-
-    observeEvent(input$load_preloaded, {
-      sex <- input$sex_stratum
-      deg <- cx_load_default_deg(sex = sex)
-      if (is.null(deg)) {
-        showNotification("Could not read the preloaded Transcriptomics (DEG) table for this sex stratum.", type = "error")
-        return()
-      }
-      std <- cx_standardize_expression(deg, mapping = c(gene = "gene", log2fc = "logFC", pvalue = "P.Value", fdr = "adj.P.Val"))
-      if (!std$ok) { showNotification(std$error, type = "error"); return() }
-      raw$expr_df <- std$df
-      raw$expr_source <- sprintf("Preloaded DEG table (%s, sex-stratified)", toupper(sex))
-      raw$expr_sample_cols <- character(0)
-      raw$expr_wide <- NULL
-
-      meth <- cx_load_default_methylation(sex = sex)
-      if (!meth$ok) {
-        showNotification(meth$error, type = "warning", duration = 10)
-        raw$meth_df <- NULL
-        raw$meth_source <- NULL
-        raw$meth_unavailable_reason <- meth$error
-      } else {
-        raw$meth_df <- meth$df
-        raw$meth_source <- sprintf("Preloaded DMP table (%s, sex-stratified, SVA/bacon-adjusted)", toupper(sex))
-        raw$meth_unavailable_reason <- NULL
-      }
-      raw$meth_sample_cols <- character(0)
-      raw$meth_wide <- NULL
-      showNotification("Preloaded data loaded.", type = "message")
-    })
-
-    ## ---- Data Input: From Dataset tab --------------------------------------
-    ## Reads whatever the Dataset tab's "Upload your own data" mode published
-    ## into the shared `cross_dataset` store - already standardized and
-    ## auto-mapped there, so this is a direct hand-off, not a re-parse.
-
-    output$fromdataset_ui <- renderUI({
-      has_expr <- !is.null(cross_dataset$user_expr_df)
-      has_meth <- !is.null(cross_dataset$user_meth_df)
-      tagList(
-        if (has_expr) div(class = "empty-note", icon("check"),
-          sprintf("Transcriptomics ready: %s (%s genes).", cross_dataset$user_expr_source, format(nrow(cross_dataset$user_expr_df), big.mark = ","))
-        ) else div(class = "empty-note", icon("circle-info"), "No Transcriptomics file uploaded yet."),
-        if (has_meth) div(class = "empty-note", icon("check"),
-          sprintf("Methylomics ready: %s (%s records).", cross_dataset$user_meth_source, format(nrow(cross_dataset$user_meth_df), big.mark = ","))
-        ) else div(class = "empty-note", icon("circle-info"), "No Methylomics file uploaded yet."),
-        if (!has_expr || !has_meth) div(class = "empty-note", icon("triangle-exclamation"),
-          "Go to the Dataset tab (above) and upload the missing file(s) under \"Upload your own data\", then come back here."),
-        actionButton(ns("load_from_dataset"), "Use this data", icon = icon("share-from-square"), class = "btn-primary btn-sm")
-      )
-    })
-
-    observeEvent(input$load_from_dataset, {
-      validate(need(!is.null(cross_dataset$user_expr_df) || !is.null(cross_dataset$user_meth_df),
-                    "Upload a file on the Dataset tab first."))
-      if (!is.null(cross_dataset$user_expr_df)) {
-        raw$expr_df <- cross_dataset$user_expr_df
-        raw$expr_source <- cross_dataset$user_expr_source
-        raw$expr_wide <- cross_dataset$user_expr_wide
-        raw$expr_mapping <- cross_dataset$user_expr_mapping
-        raw$expr_sample_cols <- cross_dataset$user_expr_sample_cols %||% character(0)
-      }
-      if (!is.null(cross_dataset$user_meth_df)) {
-        raw$meth_df <- cross_dataset$user_meth_df
-        raw$meth_source <- cross_dataset$user_meth_source
-        raw$meth_wide <- cross_dataset$user_meth_wide
-        raw$meth_mapping <- cross_dataset$user_meth_mapping
-        raw$meth_sample_cols <- cross_dataset$user_meth_sample_cols %||% character(0)
-        raw$meth_unavailable_reason <- NULL
-      }
-      showNotification("Loaded your data from the Dataset tab.", type = "message")
-    })
-
-    ## ---- Data Input: Load from app (spec section 4, Option A) -------------
-    ## "Load from Transcriptomics" reads results$dge_runs, which DOES carry a
-    ## full per-gene table (gene, logFC, adj.P.Val, direction - mod_dge.R) so
-    ## this fully works. "Load from Methylomics" is honestly limited: every
-    ## place Methylomics publishes into methyl_results/results
-    ## (mod_methyl_dmp.R, mod_methyl_candidates.R) exposes only summary
-    ## counts (comparison label, n_probes, n_sig) - never the full per-CpG
-    ## table, which stays local to that module. Per the non-negotiable rule
-    ## that Methylomics module files are read-only, this module cannot
-    ## reach that table, so the button surfaces the summary honestly and
-    ## points to Preloaded/Upload instead of fabricating rows.
-
-    output$fromapp_ui <- renderUI({
-      runs <- results$dge_runs
-      tx_choices <- if (!is.null(results) && length(runs) > 0) {
-        setNames(names(runs), vapply(runs, function(r) sprintf("%s (%s, n=%s)", r$contrast, r$method, r$n_samples), character(1)))
-      } else character(0)
-      tagList(
-        h5("Transcriptomics"),
-        if (length(tx_choices) == 0) {
-          div(class = "empty-note", icon("circle-info"), "No Transcriptomics run available yet - run a contrast in the Transcriptomics → Differential Expression tab first.")
-        } else tagList(
-          selectInput(ns("tx_run_pick"), "Contrast run", choices = tx_choices),
-          actionButton(ns("load_from_tx"), "Load from Transcriptomics", icon = icon("share-from-square"), class = "btn-primary btn-sm")
-        ),
-        tags$hr(),
-        h5("Methylomics"),
-        if (is.null(methyl_results) || is.null(methyl_results$dmp)) {
-          div(class = "empty-note", icon("circle-info"), "No Methylomics run available yet - run a comparison in the Methylomics → Differential Methylation tab first.")
-        } else tagList(
-          p(class = "submodule-desc", sprintf(
-            "Live Methylomics session: %s (%s probes tested, %s significant).",
-            methyl_results$dmp$comparison %||% "(unnamed)",
-            format(methyl_results$dmp$n_probes %||% 0, big.mark = ","), format(methyl_results$dmp$n_sig %||% 0, big.mark = ","))),
-          div(class = "empty-note", icon("triangle-exclamation"),
-              "The live Methylomics session only shares summary statistics (comparison, probes tested, significant count) with other tabs - not the full per-CpG table, so it cannot be imported here for gene/CpG-level integration. Use \"Preloaded data\" (this project's own precomputed DMP tables) or \"Upload your data\" (export the Methylomics tab's own results table as CSV) instead.")
-        )
-      )
-    })
-
-    observeEvent(input$load_from_tx, {
-      req(results, results$dge_runs, input$tx_run_pick)
-      run <- results$dge_runs[[input$tx_run_pick]]
-      validate(need(!is.null(run), "Selected Transcriptomics run is no longer available."))
-      tbl <- run$table
-      mapping <- c(gene = "gene", log2fc = "logFC", pvalue = NA_character_, fdr = "adj.P.Val", sample_id = NA_character_)
-      std <- cx_standardize_expression(tbl, mapping)
-      if (!std$ok) { showNotification(std$error, type = "error"); return() }
-      raw$expr_df <- std$df
-      raw$expr_source <- sprintf("Live Transcriptomics run: %s (%s)", run$contrast, run$method)
-      raw$expr_sample_cols <- character(0)
-      raw$expr_wide <- NULL
-      showNotification(sprintf("Loaded %s genes from the Transcriptomics tab's \"%s\" run.", format(nrow(std$df), big.mark = ","), run$contrast), type = "message")
-    })
-
-    ## ---- Data Input: Upload ------------------------------------------
-
-    observeEvent(input$expr_file, {
-      res <- cx_read_and_detect(input$expr_file$datapath, input$expr_file$name, kind = "expression")
-      if (!res$ok) { showNotification(res$error, type = "error"); expr_upload(NULL); return() }
-      expr_upload(list(df = res$df, mapping = res$mapping, filename = input$expr_file$name))
-    })
-    observeEvent(input$meth_file, {
-      res <- cx_read_and_detect(input$meth_file$datapath, input$meth_file$name, kind = "methylation")
-      if (!res$ok) { showNotification(res$error, type = "error"); meth_upload(NULL); return() }
-      meth_upload(list(df = res$df, mapping = res$mapping, filename = input$meth_file$name))
-    })
-
-    output$mapping_ui <- renderUI({
-      if (!identical(input$mode, "upload")) {
-        return(div(class = "empty-note", icon("circle-info"), "Column mapping applies to Upload mode - switch \"Input type\" above to Upload."))
-      }
-      if (is.null(expr_upload()) && is.null(meth_upload())) {
-        return(div(class = "empty-note", icon("circle-info"), "Upload both files in step 1 to map their columns here."))
-      }
-      tagList(
-        if (!is.null(expr_upload())) tagList(
-          h5("Transcriptomics"),
-          p(class = "submodule-desc", sprintf("%s - %s rows, %s columns.", expr_upload()$filename, format(nrow(expr_upload()$df), big.mark = ","), ncol(expr_upload()$df))),
-          .cx_mapping_selects(ns, "map_expr_", expr_upload()$df, expr_upload()$mapping, CX_EXPRESSION_FIELDS)
-        ),
-        if (!is.null(meth_upload())) tagList(
-          h5("Methylomics"),
-          p(class = "submodule-desc", sprintf("%s - %s rows, %s columns.", meth_upload()$filename, format(nrow(meth_upload()$df), big.mark = ","), ncol(meth_upload()$df))),
-          .cx_mapping_selects(ns, "map_meth_", meth_upload()$df, meth_upload()$mapping, CX_METHYLATION_FIELDS)
-        ),
-        actionButton(ns("confirm_mapping"), "Confirm mapping & standardize", icon = icon("check"), class = "btn-primary btn-sm")
-      )
-    })
-
-    observeEvent(input$confirm_mapping, {
-      eu <- expr_upload()
-      if (!is.null(eu)) {
-        mapping <- .cx_read_mapping(input, "map_expr_", CX_EXPRESSION_FIELDS)
-        std <- cx_standardize_expression(eu$df, mapping)
-        if (!std$ok) {
-          showNotification(paste("Transcriptomics:", std$error), type = "error")
-        } else {
-          raw$expr_df <- std$df
-          raw$expr_source <- sprintf("Uploaded: %s", eu$filename)
-          raw$expr_mapping <- mapping
-          raw$expr_wide <- eu$df
-          raw$expr_sample_cols <- cx_detect_sample_columns(eu$df, mapping)
-        }
-      }
-      mu <- meth_upload()
-      if (!is.null(mu)) {
-        mapping <- .cx_read_mapping(input, "map_meth_", CX_METHYLATION_FIELDS)
-        std <- cx_standardize_methylation(mu$df, mapping)
-        if (!std$ok) {
-          showNotification(paste("Methylomics:", std$error), type = "error")
-        } else {
-          raw$meth_df <- std$df
-          raw$meth_source <- sprintf("Uploaded: %s", mu$filename)
-          raw$meth_mapping <- mapping
-          raw$meth_wide <- mu$df
-          raw$meth_sample_cols <- cx_detect_sample_columns(mu$df, mapping)
-        }
-      }
-      if (!is.null(raw$expr_df) && !is.null(raw$meth_df)) {
-        n_overlap <- length(intersect(raw$expr_df$gene, unique(raw$meth_df$gene)))
-        showNotification(sprintf(
-          "%s genes detected - %s methylation-associated genes detected - %s overlapping genes - integration ready.",
-          format(nrow(raw$expr_df), big.mark = ","), format(length(unique(raw$meth_df$gene)), big.mark = ","),
-          format(n_overlap, big.mark = ",")
-        ), type = "message", duration = 8)
-      }
+    ## ---- Data Input: wired directly from the Cross-Omics Dataset tab ------
+    ## No mode picker, no re-upload here: `raw` is a live mirror of whatever
+    ## the Dataset tab (mod_cross_dataset.R) has published into the shared
+    ## `cross_dataset` store (its "Example data" or "Upload your own data"
+    ## mode - both produce the identical standardized shape). Load/replace/
+    ## clear on the Dataset tab and this module picks it up automatically,
+    ## with no separate action required here.
+    observe({
+      raw$expr_df <- cross_dataset$user_expr_df
+      raw$expr_source <- cross_dataset$user_expr_source
+      raw$expr_wide <- cross_dataset$user_expr_wide
+      raw$expr_mapping <- cross_dataset$user_expr_mapping
+      raw$expr_sample_cols <- cross_dataset$user_expr_sample_cols %||% character(0)
+      raw$meth_df <- cross_dataset$user_meth_df
+      raw$meth_source <- cross_dataset$user_meth_source
+      raw$meth_wide <- cross_dataset$user_meth_wide
+      raw$meth_mapping <- cross_dataset$user_meth_mapping
+      raw$meth_sample_cols <- cross_dataset$user_meth_sample_cols %||% character(0)
+      raw$meth_unavailable_reason <- NULL
     })
 
     ## ---- Status bar (spec section 30) ------------------------------------
@@ -412,8 +167,8 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     ## ---- Run Integration --------------------------------------------------
 
     observeEvent(input$run_integration, {
-      if (is.null(raw$expr_df)) { showNotification("Load or upload a Transcriptomics dataset first.", type = "error"); return() }
-      if (is.null(raw$meth_df)) { showNotification("Load or upload a Methylomics dataset first.", type = "error"); return() }
+      if (is.null(raw$expr_df)) { showNotification("No Transcriptomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
+      if (is.null(raw$meth_df)) { showNotification("No Methylomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
 
       ## Gene identifier harmonization (spec section 7) - applied to both
       ## sides before the join, so e.g. an Ensembl ID on one side and its
@@ -467,12 +222,18 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       integ$df <- classified
       integ$pairing <- pairing
       integ$validation <- cx_validate_dataset(raw$expr_df, raw$meth_df, id_harm)
-      integ_by_sex[[input$sex_stratum]] <- classified
+      ## Sex stratum has no dedicated selector here anymore - it's whatever
+      ## the Dataset tab's "Analysis group" choice already baked into its
+      ## source label (e.g. "Example data (FEMALE, sex-stratified DEG)").
+      ## Detected from that text so per-sex Export downloads still work;
+      ## falls back to "all" for uploaded data with no sex stratification.
+      sex_key <- .cx_detect_sex_stratum(raw$expr_source, raw$meth_source)
+      integ_by_sex[[sex_key]] <- classified
       integ$universe <- classified$gene
       integ$run_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       integ$params <- list(
-        sex_stratum = toupper(input$sex_stratum),
-        input_mode = switch(input$mode, preloaded = sprintf("Preloaded (%s)", toupper(input$sex_stratum)), fromdataset = "From Dataset tab", fromapp = "Load from app", "Upload"),
+        sex_stratum = toupper(sex_key),
+        input_mode = "From Dataset tab",
         expr_source = raw$expr_source, meth_source = raw$meth_source,
         expr_thresh = input$expr_thresh, expr_fdr_thresh = input$expr_fdr_thresh,
         meth_thresh = input$meth_thresh, meth_fdr_thresh = input$meth_fdr_thresh,
@@ -480,10 +241,10 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         padj_method = input$padj_method,
         sample_matching = if (isTRUE(pairing$paired)) sprintf("Paired (%d common samples)", pairing$n_common) else "Not available (unpaired datasets)",
         gene_annotation_source = if (isTRUE(id_harm$ok)) "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching" else "Not available - matched on exact provided text only",
-        ## Keyed off the methylation source's own text, not `input$mode` -
-        ## "From Dataset tab" can carry this exact same cx_load_default_
-        ## methylation() output (its "Example data" mode calls the identical
-        ## loader), so a mode-only check mislabeled that path as "uploaded".
+        ## Keyed off the methylation source's own text - the Dataset tab's
+        ## "Example data" mode calls the same cx_load_default_methylation()
+        ## loader as this project's bundled panel, so its source label
+        ## carries the "bacon-adjusted" marker either way.
         methylation_platform = if (grepl("bacon-adjusted", raw$meth_source %||% "", fixed = TRUE)) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
         run_at = integ$run_at
       )
@@ -573,9 +334,12 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     ## also reflects the category/advanced filters and the summary-card clicks.
 
     output$expr_data_ui <- renderUI({
-      if (is.null(raw$expr_df) && is.null(integ$df)) return(cx_empty_state())
+      if (is.null(raw$expr_df) && is.null(integ$df)) {
+        return(div(class = "empty-note", icon("circle-info"),
+          "No Transcriptomics data loaded yet - go to the Cross-Omics \"Dataset\" tab and load or upload it there. It will appear here automatically."))
+      }
       n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$expr_df)
-      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" on the left" else "genes analyzed"
+      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" in the Integration tab" else "genes analyzed"
       tagList(
         p(class = "submodule-desc", sprintf("%s - %s %s.", raw$expr_source %||% "(unknown source)", format(n, big.mark = ","), status)),
         DT::dataTableOutput(ns("expr_data_table"))
@@ -602,9 +366,12 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     ## to the methylation-side columns.
 
     output$meth_data_ui <- renderUI({
-      if (is.null(raw$meth_df) && is.null(integ$df)) return(cx_empty_state())
+      if (is.null(raw$meth_df) && is.null(integ$df)) {
+        return(div(class = "empty-note", icon("circle-info"),
+          "No Methylomics data loaded yet - go to the Cross-Omics \"Dataset\" tab and load or upload it there. It will appear here automatically."))
+      }
       n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$meth_df)
-      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" on the left" else "genes analyzed"
+      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" in the Integration tab" else "genes analyzed"
       tagList(
         p(class = "submodule-desc", sprintf("%s - %s %s.", raw$meth_source %||% "(unknown source)", format(n, big.mark = ","), status)),
         DT::dataTableOutput(ns("meth_data_table"))

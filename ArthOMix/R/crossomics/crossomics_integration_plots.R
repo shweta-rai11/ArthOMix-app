@@ -8,7 +8,7 @@
 ## and PNG/PDF/SVG export, so there is exactly one place that draws it.
 
 cx_empty_state <- function() {
-  div(class = "empty-note", icon("circle-info"), "Run an integration (step 3, left) to see results here.")
+  div(class = "empty-note", icon("circle-info"), "Click \"Run Integration\" in the Integration tab to see results here.")
 }
 
 cx_fmt_num <- function(x, digits = 3, sci = FALSE) {
