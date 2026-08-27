@@ -53,44 +53,49 @@ mod_cross_integration_ui <- function(id) {
       id = ns("result_tabs"), type = "tabs",
       tabPanel("Expression data", br(), uiOutput(ns("expr_data_ui"))),
       tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
-      tabPanel("Integration", br(), tagList(
-        h4("Integration Setup"),
-        ## Defaults calibrated to this app's own preloaded sex-stratified
-        ## data, not picked arbitrarily: 0.585 log2FC = the standard 1.5-fold
-        ## convention (0.05 adj.P.Val alone already flags ~5-6k genes here,
-        ## so a fold-change floor still matters); 0.02 mean Δβ is a realistic
-        ## gene-level EWAS effect-size floor for this data, where 0.10 (a
-        ## single-CpG-scale cutoff) exceeds the largest gene-level mean |Δβ|
-        ## in the entire dataset (~0.083) and so was mathematically
-        ## unreachable - it silently guaranteed zero significant DMGs on
-        ## every run regardless of any other setting. Both are still
-        ## user-editable per run.
-        fluidRow(
-          column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 0.585, min = 0, step = 0.1)),
-          column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
+      tabPanel("Integration", br(), fluidRow(
+        column(
+          7,
+          h4("Integration Setup"),
+          ## Defaults calibrated to this app's own preloaded sex-stratified
+          ## data, not picked arbitrarily: 0.585 log2FC = the standard
+          ## 1.5-fold convention (0.05 adj.P.Val alone already flags ~5-6k
+          ## genes here, so a fold-change floor still matters); 0.02 mean Δβ
+          ## is a realistic gene-level EWAS effect-size floor for this data,
+          ## where 0.10 (a single-CpG-scale cutoff) exceeds the largest
+          ## gene-level mean |Δβ| in the entire dataset (~0.083) and so was
+          ## mathematically unreachable - it silently guaranteed zero
+          ## significant DMGs on every run regardless of any other setting.
+          ## Both are still user-editable per run.
+          fluidRow(
+            column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 0.585, min = 0, step = 0.1)),
+            column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
+          ),
+          fluidRow(
+            column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.02, min = 0, max = 1, step = 0.01)),
+            column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
+          ),
+          selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
+                      choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
+          radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
+          radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
+          tags$hr(),
+          checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
+          checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
+          checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
+          checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
+          tags$hr(),
+          actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm")
         ),
-        fluidRow(
-          column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.02, min = 0, max = 1, step = 0.01)),
-          column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
-        ),
-        selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
-                    choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
-        radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
-        radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
-        tags$hr(),
-        checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
-        checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
-        checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
-        checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
-        tags$hr(),
-        actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm"),
-        tags$hr(),
-        h4("Advanced Filters"),
-        selectizeInput(ns("filter_region"), "Genomic region", choices = CX_REGION_FINE_VOCAB, multiple = TRUE, options = list(placeholder = "Any region")),
-        selectizeInput(ns("filter_island"), "CpG island status", choices = CX_ISLAND_VOCAB, multiple = TRUE, options = list(placeholder = "Any island status")),
-        selectizeInput(ns("filter_evidence"), "Evidence level", choices = CX_EVIDENCE_LEVELS, multiple = TRUE, options = list(placeholder = "Any evidence level")),
-        numericInput(ns("filter_min_cpg"), "Minimum CpG count", value = 0, min = 0, step = 1),
-        radioButtons(ns("filter_cor_direction"), "Correlation direction (where computed)", choices = c("Any" = "any", "Positive" = "pos", "Negative" = "neg"), inline = TRUE)
+        column(
+          5,
+          h4("Advanced Filters"),
+          selectizeInput(ns("filter_region"), "Genomic region", choices = CX_REGION_FINE_VOCAB, multiple = TRUE, options = list(placeholder = "Any region")),
+          selectizeInput(ns("filter_island"), "CpG island status", choices = CX_ISLAND_VOCAB, multiple = TRUE, options = list(placeholder = "Any island status")),
+          selectizeInput(ns("filter_evidence"), "Evidence level", choices = CX_EVIDENCE_LEVELS, multiple = TRUE, options = list(placeholder = "Any evidence level")),
+          numericInput(ns("filter_min_cpg"), "Minimum CpG count", value = 0, min = 0, step = 1),
+          radioButtons(ns("filter_cor_direction"), "Correlation direction (where computed)", choices = c("Any" = "any", "Positive" = "pos", "Negative" = "neg"), inline = TRUE)
+        )
       )),
       tabPanel("Quadrant plot", br(), uiOutput(ns("quadrant_ui"))),
       tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
