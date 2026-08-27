@@ -658,12 +658,19 @@ cx_load_default_deg <- function(sex = c("female", "male", "all")) {
 ## fdr_bacon) carries no gene column at all. Fail-soft: list(ok, df, error).
 cx_load_default_methylation <- function(sex = c("female", "male", "all"), array_type = "450K") {
   sex <- match.arg(sex)
-  ## No combined-sex DMP table exists in this deployment - only
-  ## dmp_female_full.csv/dmp_male_full.csv (confirmed on disk; there is no
-  ## dmp_all_full.csv). Per spec section 25, this is reported explicitly
-  ## rather than approximated from a female+male union.
+  ## No combined-sex DMP table exists in this deployment, and this is
+  ## deliberate, not a missing file: METHODS_dmp_sexstratified.md section
+  ## 2.Z.1 explicitly chose sex-stratified models over a pooled/sex-adjusted
+  ## one because "a sex-adjusted, pooled analysis can obscure" sex-specific
+  ## methylation associations (citing Tesfaye et al. 2024) - fabricating an
+  ## ALL panel here, whether by pooling the two stratified tables or by
+  ## fitting a new pooled model, would contradict that documented rationale.
+  ## The Integration module's own Sex Comparison tab is the methodologically
+  ## honest way to see "both sexes" - it runs Female and Male independently,
+  ## exactly as designed, and reports shared vs. sex-specific significance
+  ## rather than a pooled statistic.
   if (identical(sex, "all")) {
-    return(list(ok = FALSE, df = NULL, error = "No combined-sex (ALL) methylation dataset is available in this deployment - only sex-stratified DMP tables (Female/Male) exist. Methylation integration for the ALL stratum is not available here; run Female and Male separately, or upload a combined-sex methylation file."))
+    return(list(ok = FALSE, df = NULL, error = "No combined-sex (ALL) methylation dataset exists - this is deliberate: the underlying pipeline chose sex-stratified models specifically because a pooled analysis can obscure sex-specific methylation effects (see Methodology & References). Run Female and Male separately (each already works), then use the \"Sex Comparison\" tab above for a combined view across both sexes - or upload your own combined-sex methylation file if you have one with a valid pooled design."))
   }
   if (!METH_DATA_AVAILABLE) {
     return(list(ok = FALSE, df = NULL, error = "Methylomics preloaded data is not available in this deployment."))
@@ -881,7 +888,7 @@ cx_apply_harmonization <- function(genes, harm_df) {
 cx_compare_sexes <- function(runs) {
   strata <- names(runs)[!vapply(runs, is.null, logical(1))]
   if (length(strata) < 2) {
-    return(list(ok = FALSE, error = "Run at least two strata (e.g. Female and Male) before comparing.", table = NULL, summary = NULL))
+    return(list(ok = FALSE, error = "Run Female and Male separately above (each already works), then come back here for a combined view across both sexes - this is the recommended way to see \"all samples,\" since no pooled/ALL methylation dataset exists (see Methodology & References).", table = NULL, summary = NULL))
   }
   all_genes <- Reduce(union, lapply(runs[strata], function(d) d$gene))
   out <- data.frame(gene = all_genes, stringsAsFactors = FALSE)

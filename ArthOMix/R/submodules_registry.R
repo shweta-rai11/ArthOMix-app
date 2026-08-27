@@ -48,6 +48,7 @@ MX_MODULES <- list(
   list(config = mod_methyl_mr_config,              ui = mod_methyl_mr_ui,              server = mod_methyl_mr_server),
   list(config = mod_methyl_coloc_config,           ui = mod_methyl_coloc_ui,           server = mod_methyl_coloc_server),
   list(config = mod_methyl_diagnostic_config,      ui = mod_methyl_diagnostic_ui,      server = mod_methyl_diagnostic_server),
+  list(config = mod_methyl_validation_config,      ui = mod_methyl_validation_ui,      server = mod_methyl_validation_server),
   list(config = mod_methyl_biomarkercard_config,   ui = mod_methyl_biomarkercard_ui,   server = mod_methyl_biomarkercard_server)
 )
 
@@ -57,12 +58,10 @@ MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config
 ## MX_MODULES above (see ui.R's crossomicsUI(), which reuses
 ## build_submodule_grid() against this list instead of TX_MODULES/MX_MODULES).
 ##
-## Order follows the cross-omics pipeline's own two scripts
-## (Research_Q4_cross_Omics_sexstratified_COPY/cross_Omics_Sexstratified_COPY/
-## scripts/01_*, 02_*): both are registry-only placeholder scaffolds
-## (mod_cross_<id>_ui() renders a "not built yet" box) queued up to be built
-## out one at a time, same convention MX_MODULES used while Methylomics was
-## still partway built.
+## All three are fully built (see mod_cross_integration.R, mod_cross_biomarker_conv.R,
+## mod_cross_mr_stage.R for their real UI/server implementations) - this list
+## no longer holds registry-only placeholder scaffolds, unlike when it followed
+## the same convention MX_MODULES used while Methylomics was still partway built.
 CX_MODULES <- list(
   list(config = mod_cross_integration_config,    ui = mod_cross_integration_ui,    server = mod_cross_integration_server),
   list(config = mod_cross_biomarker_conv_config, ui = mod_cross_biomarker_conv_ui, server = mod_cross_biomarker_conv_server),
@@ -94,31 +93,55 @@ MULTI_MODULES <- list(
 MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m) m$config$id, character(1)))
 
 ## ---------------------------------------------------------------------------
-## AI assistant context
+## AI assistant context - module-scoped
 ## ---------------------------------------------------------------------------
-## Turns the shared `dataset` reactiveValues + `results` reactiveValues into a
-## flat text block for ArthOChat's system prompt. Modules that haven't
-## published a results$<id> yet (never run this session) render as
-## "not yet run" rather than being silently omitted, so the assistant can
-## tell the user what to go compute instead of guessing.
+## Turns each vertical's shared dataset/results reactiveValues into a flat
+## text block for ArthOChat's system prompt. Modules that haven't published a
+## results$<id> yet (never run this session) render as "not yet run" rather
+## than being silently omitted, so the assistant can tell the user what to go
+## compute instead of guessing.
+##
+## Every build_*_context() below takes an optional `focus_id`: a single
+## TX_MODULES/MX_MODULES/CX_MODULES/MULTI_MODULES config$id narrows the loop
+## to just that one sub-module - this is what lets ArthOChat's default
+## per-message context be scoped to whatever sub-module the user is actually
+## looking at (see mod_arthochat.R's `current_context`), instead of always
+## dumping every sub-module of every vertical regardless of what's on screen.
+## `focus_id = NULL` (the fallback used for the Dataset/Sub-modules-picker
+## tabs, the Home/Modules landing pages, and the other_module_context() tool
+## an explicit cross-module question can call) dumps every sub-module of that
+## vertical, same as this file's original single build_assistant_context().
 ##
 ## Lives here, not in global.R, because it reads TX_MODULES/TX_MODULES_BY_ID
-## above: shiny:::loadSupport() sources global.R into .GlobalEnv but every
+## etc above: shiny:::loadSupport() sources global.R into .GlobalEnv but every
 ## R/*.R file (this one included) into a separate child environment, so a
 ## global.R-defined function can never see a binding made in R/*.R - only
 ## the other way around. Defining it here instead keeps it in the same
-## environment as the TX_MODULES it depends on.
+## environment as the *_MODULES lists it depends on.
 
-## `cross_results` is optional (defaults to NULL, so every existing call site
-## keeps producing byte-identical output) - only mod_arthochat_server()'s
-## Cross-Omics-aware call site passes it, appending a section grounded in
-## cross_results$integration (set by mod_cross_integration_server() once an
-## "Expression x Methylation" integration has actually been run).
-build_assistant_context <- function(dataset, results, cross_results = NULL) {
+## Renders one sub-module's results block - shared by every build_*_context()
+## below so "not yet run" / key-value formatting stays identical everywhere.
+.format_results_block <- function(title, res) {
+  if (is.null(res)) {
+    return(c(
+      sprintf("### %s", title),
+      "NOT YET RUN IN THIS SESSION - no numbers exist for this sub-module yet.",
+      "If asked for a result from it, say it hasn't been run in this session -",
+      "do not answer with a number from methodology/literature instead."
+    ))
+  }
+  kv <- vapply(names(res), function(nm) {
+    v <- res[[nm]]
+    sprintf("- %s: %s", nm, paste(utils::head(as.character(v), 20), collapse = ", "))
+  }, character(1))
+  c(sprintf("### %s", title), kv)
+}
+
+build_tx_context <- function(dataset, results, focus_id = NULL) {
   meta <- dataset$meta
   grp_tbl <- table(meta$group)
   lines <- c(
-    "## Currently loaded dataset",
+    "## Transcriptomics: currently loaded dataset",
     sprintf("- Source: %s", dataset$source),
     sprintf("- %s genes x %s samples", format(nrow(dataset$expr), big.mark = ","), ncol(dataset$expr)),
     sprintf("- Groups: %s", paste(sprintf("%s (n=%d)", names(grp_tbl), grp_tbl), collapse = ", ")),
@@ -129,42 +152,115 @@ build_assistant_context <- function(dataset, results, cross_results = NULL) {
     "",
     "## Computed analysis results (this session)"
   )
-
-  module_ids <- vapply(TX_MODULES, function(m) m$config$id, character(1))
-  for (mid in module_ids) {
-    title <- TX_MODULES_BY_ID[[mid]]$config$title
-    res <- results[[mid]]
-    if (is.null(res)) {
-      lines <- c(lines, sprintf("### %s", title), "(not yet run in this session)")
-    } else {
-      kv <- vapply(names(res), function(nm) {
-        v <- res[[nm]]
-        sprintf("- %s: %s", nm, paste(utils::head(as.character(v), 20), collapse = ", "))
-      }, character(1))
-      lines <- c(lines, sprintf("### %s", title), kv)
-    }
-  }
-
-  cx <- cross_results$integration
-  lines <- c(lines, "", "## Cross-Omics: Expression x Methylation integration")
-  if (is.null(cx)) {
-    lines <- c(lines, "(not yet run in this session)")
-  } else {
-    s <- cx$summary
-    counts <- s$counts
-    lines <- c(
-      lines,
-      sprintf("- Dataset: %s", cx$params$input_mode %||% "(unknown)"),
-      sprintf("- Genes analyzed: %s", format(s$n_genes, big.mark = ",")),
-      sprintf("- Significant DEGs: %s, Significant DMGs: %s, Significant in both: %s",
-              format(s$n_deg, big.mark = ","), format(s$n_dmg, big.mark = ","), format(s$n_integrated, big.mark = ",")),
-      sprintf("- Hyper + Down (potential methylation-associated repression): %s", counts[["Hyper + Down"]] %||% 0),
-      sprintf("- Hypo + Up (potential methylation-associated activation): %s", counts[["Hypo + Up"]] %||% 0),
-      sprintf("- Hyper + Up (concordant-direction/noncanonical): %s", counts[["Hyper + Up"]] %||% 0),
-      sprintf("- Hypo + Down (concordant-direction/noncanonical): %s", counts[["Hypo + Down"]] %||% 0),
-      sprintf("- Sample matching: %s", cx$params$sample_matching %||% "Not available"),
-      "- These are statistical associations, not established causal relationships - never state that methylation \"causes\" an expression change."
-    )
+  ids <- focus_id %||% vapply(TX_MODULES, function(m) m$config$id, character(1))
+  for (mid in ids) {
+    lines <- c(lines, .format_results_block(TX_MODULES_BY_ID[[mid]]$config$title, results[[mid]]))
   }
   paste(lines, collapse = "\n")
+}
+
+build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
+  if (is.null(methyl_dataset$source)) {
+    return("## Methylomics: no dataset loaded yet in this session (visit the Methylomics Dataset tab).")
+  }
+  lines <- c(
+    "## Methylomics: currently loaded dataset",
+    sprintf("- Source: %s", methyl_dataset$source),
+    sprintf("- Array type: %s", methyl_dataset$array_type %||% "(unknown)"),
+    if (!is.null(methyl_dataset$beta)) {
+      sprintf("- %s probes x %s samples", format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta))
+    },
+    "",
+    "## Computed analysis results (this session)"
+  )
+  ids <- focus_id %||% vapply(MX_MODULES, function(m) m$config$id, character(1))
+  for (mid in ids) {
+    lines <- c(lines, .format_results_block(MX_MODULES_BY_ID[[mid]]$config$title, methyl_results[[mid]]))
+  }
+  paste(lines, collapse = "\n")
+}
+
+## The "integration" sub-module gets the bespoke summary-stats formatting it
+## always had (cx$summary's counts aren't a flat named vector, so the generic
+## .format_results_block() key-value loop can't render it usefully); every
+## other Cross-Omics sub-module falls back to that generic loop.
+.format_cx_integration <- function(cx) {
+  if (is.null(cx)) return("(not yet run in this session)")
+  s <- cx$summary
+  counts <- s$counts
+  c(
+    sprintf("- Dataset: %s", cx$params$input_mode %||% "(unknown)"),
+    sprintf("- Genes analyzed: %s", format(s$n_genes, big.mark = ",")),
+    sprintf("- Significant DEGs: %s, Significant DMGs: %s, Significant in both: %s",
+            format(s$n_deg, big.mark = ","), format(s$n_dmg, big.mark = ","), format(s$n_integrated, big.mark = ",")),
+    sprintf("- Hyper + Down (potential methylation-associated repression): %s", counts[["Hyper + Down"]] %||% 0),
+    sprintf("- Hypo + Up (potential methylation-associated activation): %s", counts[["Hypo + Up"]] %||% 0),
+    sprintf("- Hyper + Up (concordant-direction/noncanonical): %s", counts[["Hyper + Up"]] %||% 0),
+    sprintf("- Hypo + Down (concordant-direction/noncanonical): %s", counts[["Hypo + Down"]] %||% 0),
+    sprintf("- Sample matching: %s", cx$params$sample_matching %||% "Not available"),
+    "- These are statistical associations, not established causal relationships - never state that methylation \"causes\" an expression change."
+  )
+}
+
+build_cx_context <- function(cross_results, focus_id = NULL) {
+  ids <- focus_id %||% vapply(CX_MODULES, function(m) m$config$id, character(1))
+  lines <- character(0)
+  for (mid in ids) {
+    title <- CX_MODULES_BY_ID[[mid]]$config$title
+    if (identical(mid, "integration")) {
+      lines <- c(lines, sprintf("## Cross-Omics: %s", title), .format_cx_integration(cross_results$integration))
+    } else {
+      lines <- c(lines, .format_results_block(paste("Cross-Omics:", title), cross_results[[mid]]))
+    }
+  }
+  paste(lines, collapse = "\n")
+}
+
+build_mo_context <- function(multi_dataset, multi_results, focus_id = NULL) {
+  if (!isTRUE(multi_dataset$active)) {
+    return("## Multi-Omics: no active dataset loaded yet in this session (visit the Multi-Omics Dataset Workspace tab).")
+  }
+  lines <- c(
+    "## Multi-Omics: currently loaded dataset",
+    sprintf("- Source: %s", multi_dataset$source %||% "(unknown)"),
+    sprintf("- Layers: %s", if (length(multi_dataset$layers)) paste(names(multi_dataset$layers), collapse = ", ") else "(none)"),
+    sprintf("- Samples: %s", if (!is.null(multi_dataset$sample_meta)) nrow(multi_dataset$sample_meta) else "(unknown)"),
+    "",
+    "## Computed analysis results (this session)"
+  )
+  ids <- focus_id %||% vapply(MULTI_MODULES, function(m) m$config$id, character(1))
+  for (mid in ids) {
+    lines <- c(lines, .format_results_block(MULTI_MODULES_BY_ID[[mid]]$config$title, multi_results[[mid]]))
+  }
+  paste(lines, collapse = "\n")
+}
+
+## Whole-app fallback context - every Transcriptomics sub-module plus the
+## Cross-Omics integration summary. Used when no single omics module is in
+## view (Home/Modules landing pages) and kept under its original name since
+## FEATURE_SELECTION_GUIDE.md and the thesis chapter already cite it by name
+## as ArthOChat's context builder.
+build_assistant_context <- function(dataset, results, cross_results = NULL) {
+  paste(build_tx_context(dataset, results), "", build_cx_context(cross_results %||% list(), focus_id = "integration"), sep = "\n")
+}
+
+## Dispatches to the one build_*_context() matching whichever top-level
+## module (server.R's `input$sidebar_tabs` value) is currently open, scoped
+## to `submodule_id` (that vertical's own tx_menu/mx_menu/cx_menu/mo_menu
+## selection, resolved back to a config$id - NULL when the user is on that
+## vertical's Dataset/Sub-modules-picker tab rather than inside one specific
+## sub-module). Anything outside the four omics verticals (Home, Modules,
+## the ArthOChat drawer's own tab id) falls back to the whole-app view.
+build_scoped_assistant_context <- function(module, submodule_id,
+                                            dataset, results,
+                                            methyl_dataset, methyl_results,
+                                            cross_dataset, cross_results,
+                                            multi_dataset, multi_results) {
+  switch(module,
+    transcriptomics = build_tx_context(dataset, results, focus_id = submodule_id),
+    methylomics = build_mx_context(methyl_dataset, methyl_results, focus_id = submodule_id),
+    crossomics = build_cx_context(cross_results, focus_id = submodule_id),
+    multiomics = build_mo_context(multi_dataset, multi_results, focus_id = submodule_id),
+    build_assistant_context(dataset, results, cross_results)
+  )
 }

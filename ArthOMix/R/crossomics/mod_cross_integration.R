@@ -40,13 +40,17 @@ mod_cross_integration_ui <- function(id) {
                      choices = c("ALL" = "all", "FEMALE" = "female", "MALE" = "male"),
                      selected = "female", inline = TRUE),
         radioButtons(ns("mode"), "Input type",
-                     choices = c("Preloaded data" = "preloaded", "Load from app" = "fromapp", "Upload your data" = "upload"),
+                     choices = c("Preloaded data" = "preloaded", "From Dataset tab" = "fromdataset", "Load from app" = "fromapp", "Upload your data" = "upload"),
                      selected = "preloaded"),
         conditionalPanel(
           condition = sprintf("input['%s'] == 'preloaded'", ns("mode")),
           p(class = "empty-note", icon("circle-info"),
             "Reads this project's own precomputed, sex-stratified DEG (Transcriptomics) and DMP (Methylomics) tables - independent of whatever is currently loaded on the Transcriptomics/Methylomics tabs."),
           actionButton(ns("load_preloaded"), "Load preloaded data", icon = icon("database"), class = "btn-primary btn-sm")
+        ),
+        conditionalPanel(
+          condition = sprintf("input['%s'] == 'fromdataset'", ns("mode")),
+          uiOutput(ns("fromdataset_ui"))
         ),
         conditionalPanel(
           condition = sprintf("input['%s'] == 'fromapp'", ns("mode")),
@@ -56,8 +60,10 @@ mod_cross_integration_ui <- function(id) {
           condition = sprintf("input['%s'] == 'upload'", ns("mode")),
           fileInput(ns("expr_file"), "Transcriptomics file", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
                     placeholder = "CSV / TSV / TXT / XLSX"),
+          p(class = "empty-note", icon("circle-info"), "Differentially Expressed Genes (DEG) format - one row per gene, with a gene symbol/ID and a log2 fold-change column."),
           fileInput(ns("meth_file"), "Methylomics file", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
-                     placeholder = "CSV / TSV / TXT / XLSX")
+                     placeholder = "CSV / TSV / TXT / XLSX"),
+          p(class = "empty-note", icon("circle-info"), "Differentially Methylated Position/Region (DMP/DMR) format - one row per CpG or region, with a gene symbol/ID and a Δβ (methylation change) column.")
         )
       ),
       box(
@@ -212,6 +218,48 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       raw$meth_sample_cols <- character(0)
       raw$meth_wide <- NULL
       showNotification("Preloaded data loaded.", type = "message")
+    })
+
+    ## ---- Data Input: From Dataset tab --------------------------------------
+    ## Reads whatever the Dataset tab's "Upload your own data" mode published
+    ## into the shared `cross_dataset` store - already standardized and
+    ## auto-mapped there, so this is a direct hand-off, not a re-parse.
+
+    output$fromdataset_ui <- renderUI({
+      has_expr <- !is.null(cross_dataset$user_expr_df)
+      has_meth <- !is.null(cross_dataset$user_meth_df)
+      tagList(
+        if (has_expr) div(class = "empty-note", icon("check"),
+          sprintf("Transcriptomics ready: %s (%s genes).", cross_dataset$user_expr_source, format(nrow(cross_dataset$user_expr_df), big.mark = ","))
+        ) else div(class = "empty-note", icon("circle-info"), "No Transcriptomics file uploaded yet."),
+        if (has_meth) div(class = "empty-note", icon("check"),
+          sprintf("Methylomics ready: %s (%s records).", cross_dataset$user_meth_source, format(nrow(cross_dataset$user_meth_df), big.mark = ","))
+        ) else div(class = "empty-note", icon("circle-info"), "No Methylomics file uploaded yet."),
+        if (!has_expr || !has_meth) div(class = "empty-note", icon("triangle-exclamation"),
+          "Go to the Dataset tab (above) and upload the missing file(s) under \"Upload your own data\", then come back here."),
+        actionButton(ns("load_from_dataset"), "Use this data", icon = icon("share-from-square"), class = "btn-primary btn-sm")
+      )
+    })
+
+    observeEvent(input$load_from_dataset, {
+      validate(need(!is.null(cross_dataset$user_expr_df) || !is.null(cross_dataset$user_meth_df),
+                    "Upload a file on the Dataset tab first."))
+      if (!is.null(cross_dataset$user_expr_df)) {
+        raw$expr_df <- cross_dataset$user_expr_df
+        raw$expr_source <- cross_dataset$user_expr_source
+        raw$expr_wide <- cross_dataset$user_expr_wide
+        raw$expr_mapping <- cross_dataset$user_expr_mapping
+        raw$expr_sample_cols <- cross_dataset$user_expr_sample_cols %||% character(0)
+      }
+      if (!is.null(cross_dataset$user_meth_df)) {
+        raw$meth_df <- cross_dataset$user_meth_df
+        raw$meth_source <- cross_dataset$user_meth_source
+        raw$meth_wide <- cross_dataset$user_meth_wide
+        raw$meth_mapping <- cross_dataset$user_meth_mapping
+        raw$meth_sample_cols <- cross_dataset$user_meth_sample_cols %||% character(0)
+        raw$meth_unavailable_reason <- NULL
+      }
+      showNotification("Loaded your data from the Dataset tab.", type = "message")
     })
 
     ## ---- Data Input: Load from app (spec section 4, Option A) -------------
@@ -429,7 +477,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       integ$run_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       integ$params <- list(
         sex_stratum = toupper(input$sex_stratum),
-        input_mode = switch(input$mode, preloaded = sprintf("Preloaded (%s)", toupper(input$sex_stratum)), fromapp = "Load from app", "Upload"),
+        input_mode = switch(input$mode, preloaded = sprintf("Preloaded (%s)", toupper(input$sex_stratum)), fromdataset = "From Dataset tab", fromapp = "Load from app", "Upload"),
         expr_source = raw$expr_source, meth_source = raw$meth_source,
         expr_thresh = input$expr_thresh, expr_fdr_thresh = input$expr_fdr_thresh,
         meth_thresh = input$meth_thresh, meth_fdr_thresh = input$meth_fdr_thresh,
@@ -437,7 +485,11 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         padj_method = input$padj_method,
         sample_matching = if (isTRUE(pairing$paired)) sprintf("Paired (%d common samples)", pairing$n_common) else "Not available (unpaired datasets)",
         gene_annotation_source = if (isTRUE(id_harm$ok)) "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching" else "Not available - matched on exact provided text only",
-        methylation_platform = if (identical(input$mode, "preloaded")) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
+        ## Keyed off the methylation source's own text, not `input$mode` -
+        ## "From Dataset tab" can carry this exact same cx_load_default_
+        ## methylation() output (its "Example data" mode calls the identical
+        ## loader), so a mode-only check mislabeled that path as "uploaded".
+        methylation_platform = if (grepl("bacon-adjusted", raw$meth_source %||% "", fixed = TRUE)) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
         run_at = integ$run_at
       )
       integ$provenance <- cx_build_provenance(integ$params)
