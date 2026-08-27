@@ -75,29 +75,7 @@ mod_cross_integration_ui <- function(id) {
         uiOutput(ns("mapping_ui"))
       ),
       box(
-        width = NULL, title = "3. Integration Setup", status = "primary", solidHeader = FALSE,
-        fluidRow(
-          column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 1, min = 0, step = 0.1)),
-          column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
-        ),
-        fluidRow(
-          column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.10, min = 0, max = 1, step = 0.01)),
-          column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
-        ),
-        selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
-                    choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
-        radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
-        radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
-        tags$hr(),
-        checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
-        checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
-        checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
-        checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
-        tags$hr(),
-        actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm", width = "100%")
-      ),
-      box(
-        width = NULL, title = "4. Advanced Filters", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
+        width = NULL, title = "3. Advanced Filters", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
         selectizeInput(ns("filter_region"), "Genomic region", choices = CX_REGION_FINE_VOCAB, multiple = TRUE, options = list(placeholder = "Any region")),
         selectizeInput(ns("filter_island"), "CpG island status", choices = CX_ISLAND_VOCAB, multiple = TRUE, options = list(placeholder = "Any island status")),
         selectizeInput(ns("filter_evidence"), "Evidence level", choices = CX_EVIDENCE_LEVELS, multiple = TRUE, options = list(placeholder = "Any evidence level")),
@@ -117,7 +95,28 @@ mod_cross_integration_ui <- function(id) {
         id = ns("result_tabs"), type = "tabs",
         tabPanel("Expression data", br(), uiOutput(ns("expr_data_ui"))),
         tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
-        tabPanel("Overlapping", br(), uiOutput(ns("overlap_ui"))),
+        tabPanel("Integration", br(), tagList(
+          h4("Integration Setup"),
+          fluidRow(
+            column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 1, min = 0, step = 0.1)),
+            column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
+          ),
+          fluidRow(
+            column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.10, min = 0, max = 1, step = 0.01)),
+            column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
+          ),
+          selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
+                      choices = setNames(names(CX_AGGREGATION_METHODS), CX_AGGREGATION_METHODS), selected = "mean"),
+          radioButtons(ns("cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), inline = TRUE),
+          radioButtons(ns("padj_method"), "Multiple-testing adjustment", choices = c("Benjamini-Hochberg" = "BH", "Bonferroni" = "bonferroni"), inline = TRUE),
+          tags$hr(),
+          checkboxInput(ns("show_sig_only"), "Show significant genes only (plots)", value = FALSE),
+          checkboxInput(ns("show_labels"), "Show gene labels", value = FALSE),
+          checkboxInput(ns("show_nonsig"), "Show non-significant genes", value = TRUE),
+          checkboxInput(ns("show_quadrant_lines"), "Show quadrant boundaries", value = TRUE),
+          tags$hr(),
+          actionButton(ns("run_integration"), "Run Integration", icon = icon("play"), class = "btn-primary btn-sm")
+        )),
         tabPanel("Quadrant plot", br(), uiOutput(ns("quadrant_ui"))),
         tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
         tabPanel("Network analysis", br(), uiOutput(ns("network_ui"))),
@@ -740,31 +739,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
                           fontsize_row = if (nrow(m) > 60) 5 else 8)
     })
 
-    ## ---- Overlap (Venn) ----------------------------------------------------
-
-    output$overlap_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      tagList(
-        fluidRow(column(6, plotOutput(ns("venn_plot"), height = "380px")),
-                 column(6, plotOutput(ns("overlap_bars"), height = "380px")))
-      )
-    })
-    output$venn_plot <- renderPlot({
-      df <- integ$df
-      sets <- list(DEGs = df$gene[df$sig_expression], DMGs = df$gene[df$sig_methylation])
-      validate(need(length(sets$DEGs) > 0 || length(sets$DMGs) > 0, "No significant genes to compare at the current thresholds."))
-      ggVennDiagram::ggVennDiagram(sets, label = "count") +
-        ggplot2::scale_fill_gradient(low = "white", high = ARTHOMIX_COLORS$blue) + theme_arthomix() +
-        ggplot2::theme(axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(), panel.grid = ggplot2::element_blank())
-    })
-    output$overlap_bars <- renderPlot({
-      df <- integ$df
-      counts <- data.frame(category = CX_CATEGORY_ORDER, n = as.integer(table(factor(df$category, levels = CX_CATEGORY_ORDER))))
-      ggplot2::ggplot(counts, ggplot2::aes(x = stats::reorder(category, n), y = n, fill = category)) +
-        ggplot2::geom_col() + ggplot2::coord_flip() +
-        ggplot2::scale_fill_manual(values = CX_CATEGORY_COLORS, guide = "none") +
-        ggplot2::labs(x = NULL, y = "Genes", title = "Category counts") + theme_arthomix()
-    })
 
     ## ---- Network (static, best-effort) -------------------------------------
 
