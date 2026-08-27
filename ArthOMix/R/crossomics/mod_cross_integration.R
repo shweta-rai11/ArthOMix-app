@@ -55,12 +55,22 @@ mod_cross_integration_ui <- function(id) {
       tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
       tabPanel("Integration", br(), tagList(
         h4("Integration Setup"),
+        ## Defaults calibrated to this app's own preloaded sex-stratified
+        ## data, not picked arbitrarily: 0.585 log2FC = the standard 1.5-fold
+        ## convention (0.05 adj.P.Val alone already flags ~5-6k genes here,
+        ## so a fold-change floor still matters); 0.02 mean Δβ is a realistic
+        ## gene-level EWAS effect-size floor for this data, where 0.10 (a
+        ## single-CpG-scale cutoff) exceeds the largest gene-level mean |Δβ|
+        ## in the entire dataset (~0.083) and so was mathematically
+        ## unreachable - it silently guaranteed zero significant DMGs on
+        ## every run regardless of any other setting. Both are still
+        ## user-editable per run.
         fluidRow(
-          column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 1, min = 0, step = 0.1)),
+          column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 0.585, min = 0, step = 0.1)),
           column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
         ),
         fluidRow(
-          column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.10, min = 0, max = 1, step = 0.01)),
+          column(6, numericInput(ns("meth_thresh"), "Min |Δβ|", value = 0.02, min = 0, max = 1, step = 0.01)),
           column(6, numericInput(ns("meth_fdr_thresh"), "Max methylation FDR", value = 0.05, min = 0, max = 1, step = 0.01))
         ),
         selectInput(ns("agg_method"), "Methylation aggregation (multiple CpGs/gene)",
