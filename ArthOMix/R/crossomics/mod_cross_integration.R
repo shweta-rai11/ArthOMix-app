@@ -16,13 +16,17 @@
 ## causality" requirement throughout: category labels say "potential
 ## methylation-associated repression/activation", never "causes silencing",
 ## and sample-level correlation is only ever computed when a real, paired
-## sample-level match is detected (see cx_detect_sample_pairing()) -
-## otherwise the UI shows the mandated "Unpaired datasets detected" banner
-## rather than quietly faking it.
+## sample-level match is detected (see cx_detect_sample_pairing()) - never
+## inferred or faked when it isn't. There's no dedicated Correlation tab;
+## the correlation feeds the Evidence Level tier (Strong/Moderate candidate)
+## carried in the Expression data/Methylation data/Export tables instead.
+##
+## Result tabs, in order: Expression data, Methylation data, Overlapping,
+## Quadrant plot, Heatmap, Network analysis, Export.
 
 mod_cross_integration_config <- list(
   id = "integration", title = "Expression x Methylation", icon = "dna", group = "Data",
-  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - quadrant plot, heatmap, correlation, pathways, and downloadable results."
+  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - expression data, methylation data, overlap, quadrant plot, heatmap, network analysis, and exportable results."
 )
 
 ## ---------------------------------------------------------------------------
@@ -111,20 +115,13 @@ mod_cross_integration_ui <- function(id) {
       uiOutput(ns("summary_cards")),
       tabsetPanel(
         id = ns("result_tabs"), type = "tabs",
-        tabPanel("Validation", br(), uiOutput(ns("validation_ui"))),
-        tabPanel("Results Table", br(), uiOutput(ns("results_table_ui"))),
-        tabPanel("CpG-Level", br(), uiOutput(ns("cpg_level_ui"))),
-        tabPanel("Quadrant Plot", br(), uiOutput(ns("quadrant_ui"))),
+        tabPanel("Expression data", br(), uiOutput(ns("expr_data_ui"))),
+        tabPanel("Methylation data", br(), uiOutput(ns("meth_data_ui"))),
+        tabPanel("Overlapping", br(), uiOutput(ns("overlap_ui"))),
+        tabPanel("Quadrant plot", br(), uiOutput(ns("quadrant_ui"))),
         tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
-        tabPanel("Volcano Plots", br(), uiOutput(ns("volcano_ui"))),
-        tabPanel("Correlation", br(), uiOutput(ns("correlation_ui"))),
-        tabPanel("Overlap", br(), uiOutput(ns("overlap_ui"))),
-        tabPanel("Pathways", br(), uiOutput(ns("pathway_ui"))),
-        tabPanel("Network", br(), uiOutput(ns("network_ui"))),
-        tabPanel("Genomic View", br(), uiOutput(ns("genomic_ui"))),
-        tabPanel("Sex Comparison", br(), uiOutput(ns("sex_comparison_ui"))),
-        tabPanel("Downloads", br(), uiOutput(ns("downloads_ui"))),
-        tabPanel("Methodology & References", br(), cx_methodology_references_ui())
+        tabPanel("Network analysis", br(), uiOutput(ns("network_ui"))),
+        tabPanel("Export", br(), uiOutput(ns("downloads_ui")))
       )
     )
   )
@@ -182,7 +179,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     ## forcing a re-run or a tripled UI.
     integ_by_sex <- reactiveValues(all = NULL, female = NULL, male = NULL)
     active_filter <- reactiveVal("All")
-    pathway_result <- reactiveVal(NULL)
     network_hint <- reactiveVal(NULL)
 
     expr_upload <- reactiveVal(NULL)
@@ -570,131 +566,76 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       tags$ul(style = "padding-left: 18px; font-size: 0.85em;", lapply(integ$provenance, tags$li))
     })
 
-    ## ---- Validation panel (spec section 6) --------------------------------
+    ## ---- Expression data -----------------------------------------------------
+    ## Pre-integration: whatever is currently loaded into `raw$expr_df` (from
+    ## any of the Data Input modes, including "From Dataset tab"). Once "Run
+    ## Integration" has produced `integ$df`, switches to the expression-side
+    ## columns of the integrated, filtered result (filtered_df()) so this tab
+    ## also reflects the category/advanced filters and the summary-card clicks.
 
-    output$validation_ui <- renderUI(cx_validation_checklist_ui(integ$validation))
-
-    ## ---- CpG-Level table (Level 2, spec section 9) ------------------------
-
-    output$cpg_level_ui <- renderUI({
-      if (is.null(integ$cpg_level)) return(cx_empty_state())
+    output$expr_data_ui <- renderUI({
+      if (is.null(raw$expr_df) && is.null(integ$df)) return(cx_empty_state())
+      n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$expr_df)
+      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" on the left" else "genes analyzed"
       tagList(
-        p(class = "submodule-desc", "Every individual CpG mapped to an analyzed gene - not collapsed to the gene level. Joined here with that gene's expression direction for context."),
-        fluidRow(
-          ## A plain text filter, not a selectizeInput with all ~19k gene
-          ## names as choices - a client-side selectize list that large is a
-          ## well-known browser-freezing anti-pattern (confirmed directly:
-          ## an earlier version of this UI made screenshotting/interacting
-          ## with this tab time out on this app's own real preloaded data).
-          column(6, textInput(ns("cpg_level_gene_pick"), "Filter to gene(s)", placeholder = "Comma-separated symbols, e.g. TP53, BRCA1")),
-          column(6, checkboxInput(ns("cpg_level_sig_only"), "Significant CpGs only", value = FALSE))
-        ),
-        DT::dataTableOutput(ns("cpg_level_table"))
+        p(class = "submodule-desc", sprintf("%s - %s %s.", raw$expr_source %||% "(unknown source)", format(n, big.mark = ","), status)),
+        DT::dataTableOutput(ns("expr_data_table"))
       )
     })
 
-    cpg_level_display <- reactive({
-      req(integ$cpg_level)
-      df <- integ$cpg_level
+    expr_data_display <- reactive({
       if (!is.null(integ$df)) {
-        exp_lookup <- stats::setNames(integ$df$expression_direction, integ$df$gene)
-        df$expression_direction <- unname(exp_lookup[df$gene])
+        df <- filtered_df()
+        cols <- intersect(c("gene", "log2fc", "expr_pvalue", "expr_fdr", "expression_direction", "sig_expression"), colnames(df))
+        return(df[, cols, drop = FALSE])
       }
-      gene_filter <- trimws(strsplit(input$cpg_level_gene_pick %||% "", ",")[[1]])
-      gene_filter <- gene_filter[nzchar(gene_filter)]
-      if (length(gene_filter) > 0) df <- df[toupper(df$gene) %in% toupper(gene_filter), , drop = FALSE]
-      if (isTRUE(input$cpg_level_sig_only)) df <- df[df$sig_cpg %in% TRUE, , drop = FALSE]
-      df
+      req(raw$expr_df)
+      raw$expr_df
     })
 
-    ## Deliberately NOT suspendWhenHidden = FALSE, unlike results_table below -
-    ## this table can have hundreds of thousands of rows (spec section 39:
-    ## don't render/serialize large tables that aren't even being looked at),
-    ## and nothing outside this tab reads its row-selection state, so there's
-    ## no reason to force it to compute before the user opens the CpG-Level tab.
-    output$cpg_level_table <- DT::renderDataTable({
-      req(cpg_level_display())
-      DT::datatable(cpg_level_display(), rownames = FALSE,
-                     options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
-    }, server = TRUE)
-
-    ## ---- Sex Comparison (spec section 14) ---------------------------------
-
-    sex_comparison_result <- reactive({
-      runs <- list(all = integ_by_sex$all, female = integ_by_sex$female, male = integ_by_sex$male)
-      cx_compare_sexes(runs)
+    output$expr_data_table <- DT::renderDataTable({
+      req(expr_data_display())
+      DT::datatable(expr_data_display(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
     })
 
-    output$sex_comparison_ui <- renderUI({
-      cmp <- sex_comparison_result()
+    ## ---- Methylation data ------------------------------------------------------
+    ## Same pre-/post-integration split as Expression data above, restricted
+    ## to the methylation-side columns.
+
+    output$meth_data_ui <- renderUI({
+      if (is.null(raw$meth_df) && is.null(integ$df)) return(cx_empty_state())
+      n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$meth_df)
+      status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" on the left" else "genes analyzed"
       tagList(
-        cx_sex_comparison_summary_ui(cmp),
-        if (isTRUE(cmp$ok)) DT::dataTableOutput(ns("sex_comparison_table"))
+        p(class = "submodule-desc", sprintf("%s - %s %s.", raw$meth_source %||% "(unknown source)", format(n, big.mark = ","), status)),
+        DT::dataTableOutput(ns("meth_data_table"))
       )
     })
-    output$sex_comparison_table <- DT::renderDataTable({
-      cmp <- sex_comparison_result()
-      req(isTRUE(cmp$ok))
-      DT::datatable(cmp$table, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+
+    meth_data_display <- reactive({
+      if (!is.null(integ$df)) {
+        df <- filtered_df()
+        cols <- intersect(c("gene", "dbeta_mean", "dbeta_median", "meth_pvalue", "meth_fdr", "methylation_direction",
+                             "sig_methylation", "primary_region", "region", "n_island",
+                             "n_cpg_total", "n_cpg_significant", "cpg"), colnames(df))
+        return(df[, cols, drop = FALSE])
+      }
+      req(raw$meth_df)
+      raw$meth_df
     })
 
-    ## ---- Results Table ------------------------------------------------------
-
-    output$results_table_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      display_cols <- c("gene", "log2fc", "expr_fdr", "expression_direction",
-                         "n_cpg_total", "n_cpg_significant", "n_cpg_hyper_sig", "n_cpg_hypo_sig",
-                         "dbeta_mean", "dbeta_median", "primary_region", "region",
-                         "n_island", "methylation_direction", "meth_fdr",
-                         "correlation_r", "correlation_fdr", "category", "evidence_level", "cpg")
-      display_cols <- intersect(display_cols, colnames(integ$df))
-      tagList(
-        fluidRow(
-          column(6, selectInput(ns("filter_category"), "Filter by category", choices = CX_FILTER_CHOICES, selected = "All")),
-          column(6, selectizeInput(ns("visible_cols"), "Visible columns", choices = display_cols, selected = display_cols, multiple = TRUE))
-        ),
-        div(class = "table-toolbar",
-            downloadButton(ns("dl_table_csv"), "CSV", class = "btn-sm"),
-            downloadButton(ns("dl_table_tsv"), "TSV", class = "btn-sm"),
-            downloadButton(ns("dl_table_xlsx"), "XLSX", class = "btn-sm"),
-            actionButton(ns("view_gene_btn"), "View selected gene", icon = icon("magnifying-glass"), class = "btn-sm")),
-        DT::dataTableOutput(ns("results_table"))
-      )
+    output$meth_data_table <- DT::renderDataTable({
+      req(meth_data_display())
+      DT::datatable(meth_data_display(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
     })
-    observeEvent(input$filter_category, active_filter(input$filter_category), ignoreInit = TRUE)
-
-    table_df <- reactive({
-      req(integ$df)
-      df <- filtered_df()
-      cols <- intersect(input$visible_cols %||% colnames(df), colnames(df))
-      if (length(cols) == 0) cols <- colnames(df)
-      df[, cols, drop = FALSE]
-    })
-
-    output$results_table <- DT::renderDataTable({
-      req(table_df())
-      DT::datatable(table_df(), rownames = FALSE, selection = "single",
-                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
-    })
-    outputOptions(output, "results_table", suspendWhenHidden = FALSE)
 
     ## Individual CpG rows for one gene, for the detail modal (Level 2 data,
-    ## never collapsed - spec section 17).
+    ## never collapsed - spec section 17). Still used by the Quadrant plot's
+    ## click-to-open-modal handler below.
     gene_cpg_rows <- function(gene) {
       if (is.null(integ$cpg_level)) return(NULL)
       integ$cpg_level[integ$cpg_level$gene == gene, , drop = FALSE]
     }
-
-    observeEvent(input$view_gene_btn, {
-      sel <- input$results_table_rows_selected
-      validate(need(length(sel) == 1, "Select exactly one row in the table first."))
-      ## Indexes into filtered_df() (not the possibly column-subsetted
-      ## table_df()) so the modal always has every field regardless of which
-      ## "Visible columns" the user picked - row order/count is identical
-      ## between the two since column selection never reorders/drops rows.
-      row <- filtered_df()[sel, , drop = FALSE]
-      showModal(cx_gene_detail_modal(row, integ$pairing, gene_cpg_rows(row$gene[1])))
-    })
 
     ## ---- Quadrant Plot -------------------------------------------------------
 
@@ -799,69 +740,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
                           fontsize_row = if (nrow(m) > 60) 5 else 8)
     })
 
-    ## ---- Volcano Plots -----------------------------------------------------
-
-    output$volcano_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      tagList(
-        checkboxInput(ns("highlight_hits"), "Highlight cross-omics hits", value = TRUE),
-        fluidRow(
-          column(6, downloadButton(ns("dl_volcano_expr"), "Download expression volcano (PNG)", class = "btn-sm")),
-          column(6, downloadButton(ns("dl_volcano_meth"), "Download methylation volcano (PNG)", class = "btn-sm"))
-        ),
-        fluidRow(
-          column(6, plotOutput(ns("volcano_expr"), height = "440px")),
-          column(6, plotOutput(ns("volcano_meth"), height = "440px"))
-        )
-      )
-    })
-    output$volcano_expr <- renderPlot(cx_volcano_expr_plot(integ$df, input$expr_thresh, input$expr_fdr_thresh, isTRUE(input$highlight_hits)))
-    output$volcano_meth <- renderPlot(cx_volcano_meth_plot(integ$df, input$meth_thresh, input$meth_fdr_thresh, isTRUE(input$highlight_hits)))
-
-    ## ---- Correlation -------------------------------------------------------
-
-    output$correlation_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      if (!isTRUE(integ$pairing$paired)) {
-        return(div(class = "empty-note", icon("triangle-exclamation"),
-          "Unpaired datasets detected - gene-level differential-change integration is available above, but sample-level correlation is disabled unless matched samples are provided. Upload per-sample expression and methylation matrices that share at least 3 sample identifiers to enable this."))
-      }
-      tagList(
-        p(class = "submodule-desc", sprintf("%d samples matched between the two uploaded datasets.", integ$pairing$n_common)),
-        fluidRow(
-          column(4, numericInput(ns("cor_min_r"), "Min |r|", value = 0, min = 0, max = 1, step = 0.05)),
-          column(4, numericInput(ns("cor_max_fdr"), "Max FDR", value = 1, min = 0, max = 1, step = 0.05)),
-          column(4, radioButtons(ns("cor_direction"), "Direction", choices = c("Any" = "any", "Positive" = "pos", "Negative" = "neg"), inline = TRUE))
-        ),
-        DT::dataTableOutput(ns("correlation_table")),
-        tags$hr(),
-        ## Plain text, not a selectizeInput with every gene as a choice - see
-        ## the CpG-Level tab's comment for why.
-        textInput(ns("cor_gene_pick"), "Gene-level correlation plot", placeholder = "Gene symbol, e.g. TP53"),
-        plotOutput(ns("correlation_scatter"), height = "380px")
-      )
-    })
-
-    correlation_filtered <- reactive({
-      req(integ$df, "correlation_r" %in% colnames(integ$df))
-      df <- integ$df[!is.na(integ$df$correlation_r), c("gene", "correlation_r", "correlation_p", "correlation_fdr"), drop = FALSE]
-      df <- df[abs(df$correlation_r) >= (input$cor_min_r %||% 0) & df$correlation_fdr <= (input$cor_max_fdr %||% 1), , drop = FALSE]
-      if (identical(input$cor_direction, "pos")) df <- df[df$correlation_r > 0, , drop = FALSE]
-      if (identical(input$cor_direction, "neg")) df <- df[df$correlation_r < 0, , drop = FALSE]
-      df[order(-abs(df$correlation_r)), , drop = FALSE]
-    })
-    output$correlation_table <- DT::renderDataTable({
-      req(correlation_filtered())
-      DT::datatable(correlation_filtered(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
-    })
-
-    output$correlation_scatter <- renderPlot({
-      gene <- trimws(input$cor_gene_pick %||% "")
-      req(nzchar(gene), integ$pairing$paired)
-      cx_gene_correlation_plot(raw$expr_wide, raw$meth_wide, raw$expr_mapping, raw$meth_mapping,
-                                gene, integ$pairing$common_samples, input$cor_method %||% "pearson")
-    })
-
     ## ---- Overlap (Venn) ----------------------------------------------------
 
     output$overlap_ui <- renderUI({
@@ -888,43 +766,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         ggplot2::labs(x = NULL, y = "Genes", title = "Category counts") + theme_arthomix()
     })
 
-    ## ---- Pathways ----------------------------------------------------------
-
-    output$pathway_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      tagList(
-        fluidRow(
-          column(4, selectInput(ns("pathway_category"), "Gene set", choices = c("All significant (both)" = "sig_both", CX_CATEGORY_ORDER[CX_CATEGORY_ORDER != "Not significant"]))),
-          column(4, selectInput(ns("pathway_ontology"), "Ontology", choices = c("GO Biological Process" = "BP", "GO Molecular Function" = "MF", "GO Cellular Component" = "CC", "KEGG" = "KEGG"))),
-          column(4, div(style = "padding-top: 24px;", actionButton(ns("run_pathway"), "Run pathway analysis", icon = icon("diagram-project"), class = "btn-primary btn-sm")))
-        ),
-        p(class = "submodule-desc", "Reactome is not available in this deployment (ReactomePA is not installed); GO and KEGG use clusterProfiler against the current integrated gene list as the universe."),
-        DT::dataTableOutput(ns("pathway_table")),
-        plotOutput(ns("pathway_dotplot"), height = "460px")
-      )
-    })
-
-    observeEvent(input$run_pathway, {
-      df <- integ$df
-      genes <- if (identical(input$pathway_category, "sig_both")) df$gene[df$sig_expression & df$sig_methylation] else df$gene[df$category == input$pathway_category]
-      genes <- unique(stats::na.omit(genes))
-      if (length(genes) < 3) { showNotification("Need at least 3 genes in the selected set to run pathway enrichment.", type = "error"); return() }
-      withProgress(message = "Running pathway enrichment...", {
-        res <- tryCatch(cx_run_pathway_enrichment(genes, integ$universe, input$pathway_ontology), error = function(e) list(ok = FALSE, error = conditionMessage(e)))
-        if (!isTRUE(res$ok)) { showNotification(res$error, type = "error"); pathway_result(NULL); return() }
-        pathway_result(res)
-      })
-    })
-    output$pathway_table <- DT::renderDataTable({
-      req(pathway_result())
-      DT::datatable(pathway_result()$table, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
-    })
-    output$pathway_dotplot <- renderPlot({
-      req(pathway_result())
-      validate(need(!is.null(pathway_result()$table) && nrow(pathway_result()$table) > 0, "No enriched terms at the default significance cutoff."))
-      enrichplot::dotplot(pathway_result()$enrich_obj, showCategory = 15) + theme_arthomix()
-    })
-
     ## ---- Network (static, best-effort) -------------------------------------
 
     output$network_ui <- renderUI({
@@ -946,17 +787,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       validate(need(nrow(sub) >= 2, "Not enough genes in this set to draw a network."))
       cx_gene_cpg_network_plot(sub)
     })
-
-    ## ---- Genomic View --------------------------------------------------------
-
-    output$genomic_ui <- renderUI({
-      if (is.null(integ$df)) return(cx_empty_state())
-      if (!any(!is.na(integ$df$chr))) {
-        return(div(class = "empty-note", icon("circle-info"), "No chromosome/position information is available for this dataset - genomic view is optional and skipped when coordinates aren't present."))
-      }
-      plotOutput(ns("genomic_plot"), height = "460px")
-    })
-    output$genomic_plot <- renderPlot(cx_genomic_view_plot(integ$df))
 
     ## ---- Downloads -----------------------------------------------------------
 
@@ -1005,9 +835,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
 
     output$dl_heatmap_png <- downloadHandler(paste0("heatmap_", Sys.Date(), ".png"), function(file) { grDevices::png(file, width = 7, height = 7, units = "in", res = 300); pheatmap::pheatmap(cx_heatmap_matrix(), cluster_rows = isTRUE(input$heatmap_cluster), cluster_cols = FALSE, scale = input$heatmap_scale %||% "none"); grDevices::dev.off() })
     output$dl_heatmap_pdf <- downloadHandler(paste0("heatmap_", Sys.Date(), ".pdf"), function(file) { grDevices::pdf(file, width = 7, height = 7); pheatmap::pheatmap(cx_heatmap_matrix(), cluster_rows = isTRUE(input$heatmap_cluster), cluster_cols = FALSE, scale = input$heatmap_scale %||% "none"); grDevices::dev.off() })
-
-    output$dl_volcano_expr <- downloadHandler(paste0("volcano_expression_", Sys.Date(), ".png"), function(file) ggplot2::ggsave(file, cx_volcano_expr_plot(integ$df, input$expr_thresh, input$expr_fdr_thresh, isTRUE(input$highlight_hits)), width = 7, height = 6, dpi = 300))
-    output$dl_volcano_meth <- downloadHandler(paste0("volcano_methylation_", Sys.Date(), ".png"), function(file) ggplot2::ggsave(file, cx_volcano_meth_plot(integ$df, input$meth_thresh, input$meth_fdr_thresh, isTRUE(input$highlight_hits)), width = 7, height = 6, dpi = 300))
 
     output$dl_report <- downloadHandler(paste0("cross_omics_report_", Sys.Date(), ".md"), function(file) writeLines(cx_build_report(integ$df, integ$provenance), file))
 
