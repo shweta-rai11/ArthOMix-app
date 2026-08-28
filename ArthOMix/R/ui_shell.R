@@ -63,8 +63,17 @@ app_header <- function() {
          });
          $(document).on('shown.bs.tab', 'a[data-toggle=\"tab\"]', function(e){
            var shownText = $(e.target).text().trim();
-           $('.sidebar-nav-item').removeClass('active');
-           $('.sidebar-nav-item[data-match=\"' + shownText.replace(/\"/g, '') + '\"]').addClass('active');
+           // Every module's sidebar stays in the DOM at once (Shiny keeps
+           // every tabsetPanel pane mounted, just display:none-d when not
+           // the active one) - data-match values like \"Sub-modules\"/
+           // \"Dataset\" repeat across Transcriptomics/Methylomics/
+           // Cross-Omics/Multi-Omics, so an unscoped match highlighted the
+           // same-named item in every other module's sidebar too, not just
+           // the module actually on screen. :visible (which correctly
+           // accounts for a display:none ancestor) restricts both the
+           // reset and the highlight to whichever sidebar is actually shown.
+           $('.sidebar-nav-item:visible').removeClass('active');
+           $('.sidebar-nav-item[data-match=\"' + shownText.replace(/\"/g, '') + '\"]:visible').addClass('active');
          });
        });"
     ))
@@ -88,7 +97,16 @@ app_header <- function() {
 ## slot empty.
 ## ---------------------------------------------------------------------------
 
-omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_content = NULL) {
+## `dynamic_nav_output_id` (optional - only Transcriptomics passes it, see
+## transcriptomicsUI()) names a server-side renderUI() that appends one more
+## shortcut per already-added sub-module, so picking a sub-module from the
+## Sub-modules grid also gives it a permanent sidebar link, not just the
+## fixed nav_items every module already has. Rendered as its own
+## <ul class="sidebar-nav"> (via uiOutput's `container`) immediately after
+## the static one rather than nested inside it - a <div> (uiOutput's normal
+## wrapper) isn't valid directly inside a <ul>, and two adjacent same-class
+## lists still read as one continuous list, so nothing looks different.
+omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_content = NULL, dynamic_nav_output_id = NULL) {
   tags$div(
     class = "omics-sidebar",
     tags$div(class = "omics-sidebar-heading", toupper(module_label)),
@@ -105,6 +123,9 @@ omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_cont
         )
       })
     ),
+    if (!is.null(dynamic_nav_output_id)) {
+      uiOutput(dynamic_nav_output_id, container = function(...) tags$ul(class = "sidebar-nav", ...))
+    },
     tags$div(class = "omics-sidebar-heading", "QUICK LINKS"),
     tags$div(
       class = "sidebar-quicklinks",

@@ -1,28 +1,18 @@
-## R/mod_enrichment.R
-## Submodule: Functional Enrichment (Section 2.13)
-## "Your analysis" runs live GO/KEGG/Reactome over-representation analysis on
-## a user-supplied gene list, or on one of this project's own pre-identified
-## biomarker panels, with the currently loaded dataset's genes as the
-## statistical background. Also surfaces live gene-card summaries
-## (MyGene.info) and a STRING protein-interaction network for the same list.
+## Functional Enrichment submodule: live GO/KEGG/Reactome over-representation
+## analysis on a user gene list or a bundled biomarker panel, plus MyGene.info
+## gene cards and a STRING PPI network for the same genes.
 
 mod_enrichment_config <- list(
   id = "enrichment", group = "Interpretation",
   title = "Functional Enrichment",
-  description = "Run live GO, KEGG or Reactome over-representation analysis on a gene list you provide (or one of this project's own biomarker panels), using the currently loaded dataset as the background.",
+  description = "Perform GO, KEGG or Reactome over-representation analysis on a gene list either uploaded or pre-loaded.",
   icon = "diagram-project"
 )
 
-## ---------------------------------------------------------------------------
-## Live external-database lookups, called once per "Run enrichment" click and
-## wrapped so a slow/unreachable service degrades to an empty result rather
-## than failing the whole analysis (the enrichment table itself never depends
-## on either of these).
-## ---------------------------------------------------------------------------
+## Live external lookups (called once per "Run enrichment" click); wrapped so
+## an unreachable service degrades to an empty result rather than failing.
 
-## Gene Cards: one batched MyGene.info query for the whole list (free, no API
-## key) instead of one request per gene. Mirrors the fields a GeneCards.org
-## page leads with - official name, aliases, locus, NCBI RefSeq summary.
+## Batched MyGene.info query for the whole gene list; returns GeneCards-style fields.
 fetch_gene_cards <- function(genes) {
   tryCatch({
     resp <- httr::POST(
@@ -50,13 +40,11 @@ fetch_gene_cards <- function(genes) {
   }, error = function(e) list())
 }
 
-## STRING protein-protein interaction network, rendered as STRING's own PNG
-## (https://string-db.org/api) rather than re-implemented locally - STRING
-## already lays the graph out and colours/labels nodes.
+## Fetches the STRING PPI network as a pre-rendered PNG from string-db.org.
 fetch_string_network_png <- function(genes) {
   tryCatch({
     ids <- utils::URLencode(paste(genes, collapse = "\r"), reserved = TRUE)
-    url <- sprintf("https://string-db.org/api/image/network?identifiers=%s&species=9606&required_score=150", ids)
+    url <- sprintf("https://string-db.org/api/image/network?identifiers=%s&species=9606&required_score=400", ids)
     tmp <- tempfile(fileext = ".png")
     resp <- httr::GET(url, httr::write_disk(tmp, overwrite = TRUE), httr::timeout(20))
     if (httr::http_error(resp) || !file.exists(tmp) || file.info(tmp)$size < 500) return(NULL)
@@ -64,26 +52,15 @@ fetch_string_network_png <- function(genes) {
   }, error = function(e) NULL)
 }
 
-## ---------------------------------------------------------------------------
-## Hub genes. Two independent, complementary definitions - each answers a
-## different question, and neither substitutes for the other:
-##
-##   1. Network-degree hub (live, this list only): among just the genes you
-##      entered, which ones interact (STRING PPI, confidence >= 0.15) with
-##      the most of the *others in the same list*? Reuses the STRING TSV
-##      network endpoint (the image endpoint above draws the same edges but
-##      doesn't expose them as data).
-##   2. Co-expression hub (this project's own WGCNA network, whole
-##      transcriptome): a gene with high intramodular connectivity (kME) in
-##      the disease-associated module of the project's precomputed WGCNA run
-##      - a property of the gene in the full 15,763-gene training-cohort
-##      network, independent of which genes you happen to have typed in.
-## ---------------------------------------------------------------------------
+## Hub genes: two independent measures - live STRING PPI degree within just
+## this gene list, vs. this project's precomputed WGCNA co-expression hub
+## status across the full training cohort (see build_wgcna_hub_lookup below).
 
+## STRING PPI degree of each submitted gene against the rest of the list (confidence >= 0.4).
 fetch_string_degrees <- function(genes) {
   tryCatch({
     ids <- utils::URLencode(paste(genes, collapse = "\r"), reserved = TRUE)
-    url <- sprintf("https://string-db.org/api/tsv/network?identifiers=%s&species=9606&required_score=150", ids)
+    url <- sprintf("https://string-db.org/api/tsv/network?identifiers=%s&species=9606&required_score=400", ids)
     resp <- httr::GET(url, httr::timeout(20))
     if (httr::http_error(resp)) return(list())
     txt <- httr::content(resp, "text", encoding = "UTF-8")
@@ -103,8 +80,7 @@ fetch_string_degrees <- function(genes) {
   }, error = function(e) list())
 }
 
-## Bundled, whole-network WGCNA hub status - loaded once per session (not per
-## click), same read_table_safe() convention as everything else here.
+## Loads the bundled WGCNA module/hub tables once per session, returns a per-gene lookup fn.
 build_wgcna_hub_lookup <- function() {
   modules <- read_table_safe("WGCNA_05_gene_module_assignment.csv")
   hubs    <- read_table_safe("WGCNA_07_hub_genes_only.csv")
@@ -129,9 +105,7 @@ mod_enrichment_ui <- function(id) {
   ns <- NS(id)
   wrap_id <- ns("wrap")
 
-  ## Built with gsub() rather than sprintf() - the CSS below contains literal
-  ## "%" (percentage widths) that sprintf would otherwise try to parse as
-  ## format specifiers.
+  ## gsub() instead of sprintf() - the CSS below has literal "%" widths.
   enrichment_css <- gsub("__WRAP__", wrap_id, fixed = TRUE, "
       #__WRAP__ .gene-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
       #__WRAP__ .gene-chip {
@@ -144,13 +118,7 @@ mod_enrichment_ui <- function(id) {
         padding: 14px 16px; margin-bottom: 14px;
       }
       #__WRAP__ .preset-panel .btn-group.btn-group-justified { margin-top: 8px; }
-      /* shinyWidgets' radioGroupButtons(justified=TRUE) forces equal-width
-         buttons in one flex row via Bootstrap's .btn-group-justified - fine
-         for 2 short labels (Female/Male) but 4 labels including
-         'Cross-ancestry' clip in this sidebar's ~280px width. Reflow the
-         4-way gene-source picker into a 2x2 grid with wrapping text instead;
-         the 2-way sex picker inside .preset-panel keeps the single-row
-         default, it only ever has two short labels. */
+      /* 4-way gene-source picker wraps into a 2x2 grid; labels clip in a single row at this sidebar width. */
       #__WRAP__ .source-picker-grid .btn-group-justified {
         display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
       }
@@ -223,14 +191,9 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ---------------------------------------------------------------------
-    ## Gene-source panels: same-tissue (blood train+test) diagnostic panel,
-    ## cross-tissue (blood-train, synovium-test) panel, cross-ancestry
-    ## replicated-biomarker panel - each sex-stratified, live-session-first
-    ## with this project's own bundled result as fallback, same convention
-    ## mod_diagnostic.R and mod_crosstissue.R already use for
-    ## results$featureselection. Loaded once, not per-click.
-    ## ---------------------------------------------------------------------
+    ## Gene-source panels (same-tissue, cross-tissue, cross-ancestry), each
+    ## sex-stratified and preferring this session's live results over the
+    ## bundled fallback, same convention as mod_diagnostic.R/mod_crosstissue.R.
     bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
     bundled_venn <- read_table_safe("FS_venn_membership.csv")
     wgcna_hub_lookup <- build_wgcna_hub_lookup()
@@ -260,7 +223,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
-      bundled <- if (identical(sex_label, "female")) bundled_synovium$fsig else bundled_synovium$msig
+      bundled <- switch(sex_label, female = bundled_synovium$fsig, male = bundled_synovium$msig, NULL)
       bundled <- unique(as.character(bundled))
       if (length(bundled) >= 2) {
         return(list(genes = bundled, is_live = FALSE,
@@ -298,9 +261,8 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       cross_ancestry = "Genes whose Mendelian-randomisation causal signal replicates in both European and East-Asian ancestry GWAS."
     )
 
-    ## Single dynamic panel above the (always-present) gene_list textarea -
-    ## avoids the classic Shiny race of updating an input that has just been
-    ## conditionally removed/re-added to the DOM in the same reactive tick.
+    ## Dynamic panel above the always-present gene_list textarea; avoids the
+    ## race of updating an input just removed/re-added to the DOM.
     output$preset_panel_ui <- renderUI({
       src <- input$gene_source %||% "own"
       if (identical(src, "own")) return(NULL)
@@ -312,17 +274,13 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         div(class = "card-title", style = "font-size: 13.5px;", panel_labels[[src]]),
         div(class = "card-subtitle", panel_blurbs[[src]]),
         shinyWidgets::radioGroupButtons(
-          ns("panel_sex"), NULL, choices = c("Female" = "female", "Male" = "male"),
+          ns("panel_sex"), NULL, choices = c("Pooled (all)" = "pooled", "Female" = "female", "Male" = "male"),
           selected = sex_label, status = "default", size = "xs", justified = TRUE
         ),
         if (!length(panel$genes)) {
           div(class = "empty-note", style = "margin-top: 10px;", icon("circle-info"), panel$note)
         } else {
-          tagList(
-            div(class = "gene-chip-row", lapply(panel$genes, function(g) span(class = "gene-chip", g))),
-            div(class = "empty-note", style = "margin-top: 0;",
-                icon(if (isTRUE(panel$is_live)) "check" else "circle-info"), panel$note)
-          )
+          div(class = "gene-chip-row", lapply(panel$genes, function(g) span(class = "gene-chip", g)))
         },
         div(style = "margin-top: 10px;",
             actionButton(ns("load_panel"), "Load these genes into the list below", icon = icon("arrow-down"), class = "btn-sm"))
@@ -337,39 +295,85 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       updateTextAreaInput(session, "gene_list", value = paste(p$genes, collapse = "\n"))
     })
 
-    result <- eventReactive(input$run_btn, {
-      genes <- unique(trimws(unlist(strsplit(input$gene_list, "[,\n\t ]+"))))
-      genes <- genes[nzchar(genes)]
-      validate(need(length(genes) >= 5, "Provide at least 5 gene symbols."))
+    ontology_labels <- c(GO_BP = "GO Biological Process", KEGG = "KEGG pathways", REACTOME = "Reactome pathways")
 
+    result <- eventReactive(input$run_btn, {
+      genes_raw <- trimws(unlist(strsplit(input$gene_list, "[,\n\t ]+")))
+      genes_raw <- genes_raw[nzchar(genes_raw)]
+      validate(need(length(genes_raw) > 0, "Paste gene symbols below (one per line or comma separated), or load a panel above."))
+
+      ## Normalize to uppercase HGNC and dedupe; genes_raw is kept for the submitted-count report.
+      genes <- unique(toupper(genes_raw))
+      validate(need(length(genes) >= 3, sprintf(
+        "Provide at least 3 distinct gene symbols (got %d after removing duplicates).", length(genes)
+      )))
+
+      ## Map symbols via this app's shared HGNC harmonizer (cx_harmonize_gene_ids(),
+      ## also used by Multi-Omics Pathways) so aliases resolve and unmatched IDs are reported.
+      harm <- cx_harmonize_gene_ids(genes)
+      validate(need(isTRUE(harm$ok), harm$error %||% "Gene identifier mapping is unavailable in this deployment."))
+      mapped_mask <- harm$df$match_type %in% c("exact_symbol", "exact_entrez", "exact_ensembl", "alias_resolved")
+      unmapped_genes <- sort(harm$df$input_id[!mapped_mask])
+      mapped_df <- harm$df[mapped_mask, , drop = FALSE]
+      validate(need(nrow(mapped_df) >= 3, sprintf(
+        "Fewer than 3 of the %d submitted gene symbol(s) could be mapped to a valid Entrez gene ID (%d unmapped: %s).",
+        length(genes), length(unmapped_genes), paste(utils::head(unmapped_genes, 10), collapse = ", ")
+      )))
+
+      ## Background/universe is genes measured in the loaded dataset, not the whole genome.
       universe_symbols <- rownames(dataset$expr)
       map <- suppressMessages(AnnotationDbi::select(
         org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
       ))
       map <- map[!is.na(map$ENTREZID) & !duplicated(map$SYMBOL), ]
+      universe_entrez <- unique(map$ENTREZID)
+      validate(need(length(universe_entrez) > 0, "The currently loaded dataset has no genes that map to an Entrez ID - cannot build a background/universe."))
 
-      gene_entrez <- map$ENTREZID[map$SYMBOL %in% genes]
-      validate(need(length(gene_entrez) >= 3, "Fewer than 3 of these gene symbols could be mapped to Entrez IDs in the current dataset's background."))
+      mapped_df$in_universe <- mapped_df$entrez_id %in% universe_entrez
+      excluded_not_measured <- sort(unique(mapped_df$input_id[!mapped_df$in_universe]))
+      gene_entrez <- unique(mapped_df$entrez_id[mapped_df$in_universe])
+      validate(need(length(gene_entrez) >= 3, sprintf(
+        "Fewer than 3 mapped genes are measured in the currently loaded dataset (the enrichment background) - %d mapped gene(s) excluded as not measured here: %s.",
+        length(excluded_not_measured), paste(utils::head(excluded_not_measured, 10), collapse = ", ")
+      )))
+
+      db_label <- ontology_labels[[input$ontology]] %||% input$ontology
 
       ego <- if (identical(input$ontology, "GO_BP")) {
-        clusterProfiler::enrichGO(
-          gene = gene_entrez, universe = map$ENTREZID, OrgDb = org.Hs.eg.db,
+        tryCatch(clusterProfiler::enrichGO(
+          gene = gene_entrez, universe = universe_entrez, OrgDb = org.Hs.eg.db,
           keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH",
-          pvalueCutoff = 1, qvalueCutoff = 1
-        )
+          pvalueCutoff = 1, qvalueCutoff = 1, readable = TRUE
+        ), error = function(e) e)
       } else if (identical(input$ontology, "KEGG")) {
-        clusterProfiler::enrichKEGG(
-          gene = gene_entrez, universe = map$ENTREZID, organism = "hsa",
+        tryCatch(clusterProfiler::enrichKEGG(
+          gene = gene_entrez, universe = universe_entrez, organism = "hsa",
           pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1
-        )
+        ), error = function(e) e)
+      } else if (!requireNamespace("ReactomePA", quietly = TRUE) || !requireNamespace("reactome.db", quietly = TRUE)) {
+        simpleError("Reactome pathway enrichment requires the ReactomePA and reactome.db packages, which are not installed in this deployment.")
       } else {
-        ReactomePA::enrichPathway(
-          gene = gene_entrez, universe = map$ENTREZID, organism = "human",
+        tryCatch(ReactomePA::enrichPathway(
+          gene = gene_entrez, universe = universe_entrez, organism = "human",
           pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1, readable = TRUE
-        )
+        ), error = function(e) e)
       }
+      ## need() forces its message arg eagerly, so conditionMessage(ego) must stay
+      ## conditional here - it has no method for a successful enrichResult object.
+      validate(need(!inherits(ego, "error"),
+        if (inherits(ego, "error")) sprintf("%s enrichment failed: %s", db_label, conditionMessage(ego)) else NULL
+      ))
+
+      ## enrichKEGG() has no `readable` arg, so convert its Entrez-keyed geneID column post hoc.
+      if (identical(input$ontology, "KEGG")) {
+        ego <- tryCatch(clusterProfiler::setReadable(ego, OrgDb = org.Hs.eg.db, keyType = "ENTREZID"), error = function(e) ego)
+      }
+
       df <- as.data.frame(ego)
-      validate(need(nrow(df) > 0, "No enriched terms were found for this gene list."))
+      validate(need(nrow(df) > 0, sprintf(
+        "%s returned no gene sets for these genes against this background (0 tested) - try a larger gene list or a different database.", db_label
+      )))
+      df <- df[order(df$pvalue, df$p.adjust, df$qvalue), , drop = FALSE]
 
       string_deg <- fetch_string_degrees(genes)
       hub_table <- do.call(rbind, lapply(genes, function(g) {
@@ -387,7 +391,13 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       hub_table <- hub_table[order(-hub_table$string_degree, -hub_table$wgcna_hub, -hub_table$wgcna_kme), ]
 
       list(
-        table = df, n_input = length(genes), n_mapped = length(gene_entrez),
+        table = df,
+        database_label = db_label,
+        n_submitted = length(genes_raw), n_unique = length(genes),
+        n_duplicates_removed = length(genes_raw) - length(genes),
+        n_mapped = nrow(mapped_df), n_tested = length(gene_entrez),
+        unmapped_genes = unmapped_genes, excluded_not_measured = excluded_not_measured,
+        universe_label = sprintf("%s gene(s) measured in the currently loaded dataset", format(length(universe_entrez), big.mark = ",")),
         gene_cards = fetch_gene_cards(genes),
         string_png = fetch_string_network_png(genes),
         hub_table = hub_table
@@ -397,9 +407,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     enrich_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, enrich_has_run(TRUE), ignoreInit = TRUE)
 
-    ## Results stay entirely out of the DOM (not just visually empty) until
-    ## "Run enrichment" is clicked once - two dynamic boxes standing in for
-    ## everything that used to be static UI below the gene-list column.
+    ## Result boxes stay out of the DOM until "Run enrichment" is clicked once.
     output$result_box_ui <- renderUI({
       if (!enrich_has_run()) {
         return(box(
@@ -428,7 +436,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
             7,
             box(
               width = NULL, title = tagList(icon("id-card"), "Gene cards"), status = "primary", solidHeader = FALSE,
-              p(class = "card-subtitle", "Live lookup from MyGene.info — the same fields GeneCards.org leads with."),
+              p(class = "card-subtitle", "Live lookup from MyGene.info - the same fields GeneCards.org leads with."),
               withSpinner(uiOutput(ns("gene_cards_ui")), color = "#2c6fbb", type = 6)
             )
           ),
@@ -436,7 +444,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
             5,
             box(
               width = NULL, title = tagList(icon("circle-nodes"), "Protein interaction network"), status = "primary", solidHeader = FALSE,
-              p(class = "card-subtitle", "Live network from STRING (string-db.org), confidence ≥ 0.15."),
+              p(class = "card-subtitle", "Live network from STRING (string-db.org), confidence ≥ 0.4."),
               div(class = "figure-card", withSpinner(imageOutput(ns("string_network"), height = 300), color = "#2c6fbb", type = 6))
             )
           )
@@ -446,10 +454,10 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
           p(class = "card-subtitle",
             "Two independent hub definitions, neither a substitute for the other. ",
             strong("STRING degree"), " counts, live, how many ", em("other genes in this list"),
-            " each gene interacts with (PPI confidence ≥ 0.15) — it only sees the genes you entered. ",
+            " each gene interacts with (PPI confidence ≥ 0.4) - it only sees the genes you entered. ",
             strong("WGCNA hub"), " is this project's own precomputed co-expression network across the full ",
             "15,763-gene training cohort: a gene with intramodular connectivity (kME) above the module average ",
-            "in the RA disease-associated module — a property of the gene in the whole transcriptome, independent of your list."),
+            "in the RA disease-associated module - a property of the gene in the whole transcriptome, independent of your list."),
           withSpinner(DT::dataTableOutput(ns("hub_table_ui")), color = "#2c6fbb", type = 6)
         )
       )
@@ -463,7 +471,18 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       res <- result()
       df <- res$table %>% filter(qvalue < input$qval_cut)
       tagList(
-        p(strong(res$n_mapped), " of ", res$n_input, " genes mapped to Entrez IDs and used in the test."),
+        p(strong(res$n_submitted), " gene(s) submitted",
+          if (res$n_duplicates_removed > 0) sprintf(" (%d duplicate(s) removed, %d unique)", res$n_duplicates_removed, res$n_unique) else "",
+          "."),
+        p(strong(res$n_mapped), " of ", res$n_unique, " unique gene symbol(s) mapped to a valid Entrez gene ID; ",
+          strong(res$n_tested), " are measured in the currently loaded dataset and used in the test."),
+        if (length(res$unmapped_genes) > 0)
+          p(class = "empty-note", icon("triangle-exclamation"),
+            sprintf(" %d unmapped/invalid gene symbol(s): ", length(res$unmapped_genes)), paste(res$unmapped_genes, collapse = ", ")),
+        if (length(res$excluded_not_measured) > 0)
+          p(class = "empty-note", icon("circle-info"),
+            sprintf(" %d gene(s) mapped but not measured in the current dataset (excluded from the test): ", length(res$excluded_not_measured)), paste(res$excluded_not_measured, collapse = ", ")),
+        p(strong("Database: "), res$database_label, " · ", strong("Q-value cutoff: "), input$qval_cut, " · ", strong("Background/universe: "), res$universe_label),
         p(strong(nrow(df)), " terms significant at q < ", input$qval_cut, " (", nrow(res$table), " tested in total).")
       )
     })

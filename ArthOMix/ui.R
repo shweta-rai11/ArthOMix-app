@@ -1324,18 +1324,16 @@ build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_G
 
 ## Left sidebar nav items for the Transcriptomics module (see
 ## R/ui_shell.R::omics_sidebar()). `match` is the exact visible tab title
-## each item navigates to / highlights against - Overview and Datasets is
-## one outer tx_menu tab; Preprocessing/Batch Correction/Merge Datasets are
-## the three inner tabs of the "Preprocessing and Batch Correction"
-## sub-module (see mod_preprocessing_ui's workflow stepper). The
-## corresponding "sidebar_nav_transcriptomics_<id>" click observers live in
-## server.R.
+## each item navigates to / highlights against - "Dataset" is tx_menu's own
+## built-in tab (mod_dataset_ui), always present regardless of which
+## sub-modules have been added. Every actual sub-module (Overview,
+## Preprocessing, Differential Expression, ...) gets its own sidebar
+## shortcut dynamically, only once added from the Sub-modules grid - see
+## "tx_sidebar_dynamic_nav" (server.R), rendered right after this static
+## list by omics_sidebar()'s `dynamic_nav_output_id`. The corresponding
+## "sidebar_nav_transcriptomics_<id>" click observers live in server.R.
 TRANSCRIPTOMICS_SIDEBAR_NAV <- list(
-  list(id = "overview", label = "Overview", icon = "table-cells", match = "Overview and Datasets"),
-  list(id = "dataset", label = "Datasets", icon = "database", match = "Overview and Datasets"),
-  list(id = "preprocessing", label = "Preprocessing", icon = "broom", match = "Preprocessing"),
-  list(id = "batchcorrection", label = "Batch Correction", icon = "wand-magic-sparkles", match = "Batch correction"),
-  list(id = "mergedatasets", label = "Merge Datasets", icon = "code-merge", match = "Merge datasets"),
+  list(id = "dataset", label = "Datasets", icon = "database", match = "Dataset"),
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
 )
 
@@ -1343,7 +1341,8 @@ transcriptomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
       "transcriptomics", "Transcriptomics", TRANSCRIPTOMICS_SIDEBAR_NAV,
-      extra_sidebar_content = arthochat_shortcut_ui("Questions about this dataset or analysis? Ask ArthOChat.", compact = TRUE)
+      extra_sidebar_content = uiOutput("tx_sidebar_arthochat_hint"),
+      dynamic_nav_output_id = "tx_sidebar_dynamic_nav"
     ))),
     column(
       9,
@@ -1390,33 +1389,33 @@ transcriptomicsUI <- function() {
 ## the two Sub-modules tabs read consistently; groups with no module yet
 ## registered in MX_MODULES are simply skipped by build_submodule_grid()'s
 ## intersect().
-MX_SUBMODULE_GROUP_ORDER <- c("Data", "Network", "Genetics", "Biomarker modeling")
+MX_SUBMODULE_GROUP_ORDER <- c("Data", "Network", "Genetics", "Biomarker modeling", "Interpretation")
 MX_SUBMODULE_GROUP_BLURB <- c(
   "Data" = "Load, quality-control, and prepare the methylation dataset.",
   "Network" = "Co-methylation structure and the candidate CpGs it points to.",
   "Genetics" = "Causal evidence from mQTL and GWAS summary statistics.",
-  "Biomarker modeling" = "Turn candidate CpGs into a panel and a diagnostic model."
+  "Biomarker modeling" = "Turn candidate CpGs into a panel and a diagnostic model.",
+  "Interpretation" = "Profile a single candidate biomarker in depth."
 )
 
+## Quality Control/Normalization/Differential Methylation are NOT listed
+## here - same reason TRANSCRIPTOMICS_SIDEBAR_NAV above only has
+## dataset/submodules: those three only get a sidebar shortcut once
+## actually added from the Sub-modules grid, rendered by
+## mx_sidebar_dynamic_nav (server.R), the same dynamic-nav mechanism
+## tx_sidebar_dynamic_nav already uses for every Transcriptomics
+## sub-module - see dynamic_nav_output_id below.
 METHYLOMICS_SIDEBAR_NAV <- list(
   list(id = "dataset", label = "Dataset", icon = "database", match = "Dataset"),
-  list(id = "qc", label = "Quality Control", icon = "magnifying-glass-chart", match = "Sub-modules"),
-  list(id = "normalization", label = "Normalization", icon = "wave-square", match = "Sub-modules"),
-  list(id = "dmp", label = "Differential Methylation", icon = "chart-scatter", match = "Sub-modules"),
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
 )
-
-## Short, concise module description (replaces the earlier long,
-## AI-generated paragraph) - shown once under the "Methylomics" heading,
-## same style as the Modules landing page's tagline for this module
-## (MODULE_REGISTRY, global.R).
-METHYLOMICS_DESCRIPTION <- "Analyze DNA methylation data to identify differentially methylated sites and regions, discover methylation patterns, perform feature selection and network analysis, and generate biologically relevant insights."
 
 methylomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
       "methylomics", "Methylomics", METHYLOMICS_SIDEBAR_NAV,
-      extra_sidebar_content = arthochat_shortcut_ui("Questions about DMPs, DMRs, WGCNA, or this dataset? Ask ArthOChat.", compact = TRUE)
+      extra_sidebar_content = uiOutput("mx_sidebar_arthochat_hint"),
+      dynamic_nav_output_id = "mx_sidebar_dynamic_nav"
     ))),
     column(
       9,
@@ -1424,7 +1423,6 @@ methylomicsUI <- function() {
         class = "page-header page-header-tight",
         div(class = "page-header-pattern"),
         h2(icon("circle-nodes"), " Methylomics"),
-        p(class = "sm-group-blurb", METHYLOMICS_DESCRIPTION),
         uiOutput("mx_page_subtitle")
       ),
       div(
@@ -1473,13 +1471,15 @@ CROSSOMICS_SIDEBAR_NAV <- list(
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
 )
 
-CROSSOMICS_DESCRIPTION <- "Line up the Transcriptomics and Methylomics pipelines' own causal biomarker panels - eQTL-MR genes, mQTL-MR CpGs - against each other and against the raw DEG/DMP tables they were drawn from."
-
 crossomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
       "crossomics", "Cross-Omics", CROSSOMICS_SIDEBAR_NAV,
-      extra_sidebar_content = arthochat_shortcut_ui("Questions about how the two panels converge? Ask ArthOChat.", compact = TRUE)
+      ## Rendered server-side (uiOutput, not a static call) so the hint text
+      ## can change with input$cx_menu - see server.R's output$cx_arthochat_hint -
+      ## specifically so Cross-Omics MR gets its own hint about selecting MR
+      ## data, instead of every Cross-Omics tab sharing one static blurb.
+      extra_sidebar_content = uiOutput("cx_arthochat_hint")
     ))),
     column(
       9,
@@ -1487,7 +1487,6 @@ crossomicsUI <- function() {
         class = "page-header page-header-tight",
         div(class = "page-header-pattern"),
         h2(icon("arrows-left-right"), " Cross-Omics"),
-        p(class = "sm-group-blurb", CROSSOMICS_DESCRIPTION),
         uiOutput("cx_page_subtitle")
       ),
       div(

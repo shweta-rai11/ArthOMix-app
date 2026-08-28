@@ -1,18 +1,13 @@
 ## R/methylomics/annotation.R
-## Illumina manifest-based probe annotation (chromosome, SNP overlap), used
-## by the probe-filtering options in mod_methyl_qc.R (ArthOMix/). Only
-## covers array types with an installed Bioconductor annotation package -
-## 450K and EPIC (v1). EPICv2/WGBS/RRBS/Custom array don't have one
-## available in this deployment, so every annotation-dependent filter
-## degrades to list(ok = FALSE, reason = ...) instead of guessing at probe
-## positions or SNP overlap.
+## Illumina manifest-based probe annotation (chromosome, SNP overlap) for
+## mod_methyl_qc.R's probe filters. Only 450K and EPIC(v1) have an installed
+## Bioconductor annotation package; other array types degrade to
+## list(ok = FALSE, reason = ...) instead of guessing.
 
 METHYL_ARRAY_TYPES <- c("450K", "EPIC", "EPICv2", "WGBS", "RRBS", "Custom array")
 
-## Array types where Illumina probe-ID conventions (cg.../ch.../rs... prefixes,
-## a manifest keyed by those IDs) apply at all - WGBS/RRBS probe "IDs" are
-## typically genomic coordinates, not Illumina probe IDs, so manifest- and
-## prefix-based filters are meaningless for them and are hidden in the UI.
+## Array types where Illumina probe-ID prefixes (cg.../ch.../rs...) apply - WGBS/RRBS
+## probe "IDs" are genomic coordinates, so prefix/manifest filters are hidden for them.
 METHYL_ARRAY_TYPES_ILLUMINA <- c("450K", "EPIC", "EPICv2", "Custom array")
 
 METHYL_ANNOTATION_PACKAGES <- list(
@@ -20,31 +15,20 @@ METHYL_ANNOTATION_PACKAGES <- list(
   "EPIC" = "IlluminaHumanMethylationEPICanno.ilm10b4.hg19"
 )
 
-## Cached per array type for the life of the R process - not cheap to
-## rebuild on every QC/normalization run (EPIC's Manifest data.frame alone
-## is ~866k rows).
+## Cached per array type for the process lifetime - EPIC's Manifest alone is ~866k rows.
 .methyl_anno_cache <- new.env(parent = emptyenv())
 
-## dbSNP build shared by both the 450K and EPIC (v1) annotation packages -
-## see METHYL_ANNOTATION_PACKAGES; there's no need to chase the newest
-## build (each package also exports 132/135/.../147CommonSingle variants)
-## since this is only used for a probe-overlaps-any-known-SNP flag, not an
-## exact allele-frequency filter.
+## dbSNP build shared by the 450K/EPIC annotation packages - used only as a
+## probe-overlaps-known-SNP flag, not an allele-frequency filter, so no need for the newest build.
 METHYL_ANNOTATION_SNP_OBJECT <- "SNPs.147CommonSingle"
 
-## Returns list(ok, anno, reason) - `anno` a data.frame keyed by probe ID
-## (rownames) with chr/pos/Type/Probe_rs/CpG_rs/SBE_rs columns when ok.
+## Returns list(ok, anno, reason) - `anno` keyed by probe ID with
+## chr/pos/Type/Probe_rs/CpG_rs/SBE_rs columns.
 ##
-## Deliberately does NOT go through minfi::getAnnotation() on the
-## packages' own IlluminaMethylationAnnotation wrapper object - loading
-## that wrapper via get(pkg, envir = asNamespace(pkg)) triggers an internal
-## Biobase::updateObject() step that fails unless the package is
-## library()-attached (not just namespace-loaded), and attaching it pulls
-## in Biostrings, which masks base::strsplit() for the entire R session -
-## a real risk to every OTHER module in this app that calls strsplit()
-## unqualified. Reading the package's own underlying Locations/Manifest/
-## SNPs.*CommonSingle data objects directly (which is genuinely all
-## getAnnotation() assembles internally anyway) avoids both problems.
+## Deliberately avoids minfi::getAnnotation(): loading its wrapper object
+## requires library()-attaching the package, which pulls in Biostrings and
+## masks base::strsplit() app-wide. Reading the underlying Locations/Manifest/
+## SNPs.*CommonSingle objects directly avoids that while getting the same data.
 methyl_get_annotation <- function(array_type) {
   pkg <- METHYL_ANNOTATION_PACKAGES[[array_type]]
   if (is.null(pkg)) {
@@ -69,11 +53,8 @@ methyl_get_annotation <- function(array_type) {
     snp <- as.data.frame(e[[METHYL_ANNOTATION_SNP_OBJECT]])
     oth <- as.data.frame(e$Other)
     ids <- rownames(loc)
-    ## One representative gene symbol per probe (first token of the
-    ## semicolon-separated UCSC_RefGene_Name list, which repeats once per
-    ## overlapping transcript) - "a single nearest/overlapping RefGene
-    ## symbol per probe", the same simplification this project's own
-    ## methylomics pipeline uses (ChAMPdata::probe.features$gene).
+    ## One representative gene symbol per probe: first token of the semicolon-
+    ## separated UCSC_RefGene_Name list (same simplification as ChAMPdata::probe.features$gene).
     gene <- vapply(strsplit(oth[ids, "UCSC_RefGene_Name"], ";"), function(g) {
       if (length(g) == 0 || !nzchar(g[1])) NA_character_ else g[1]
     }, character(1))
@@ -92,10 +73,8 @@ methyl_get_annotation <- function(array_type) {
   list(ok = TRUE, anno = anno, reason = NULL)
 }
 
-## Standard Illumina probe-ID prefixes: "cg" = CpG probe, "ch" = non-CpG
-## (CpH) probe, "rs"/"nv" = built-in SNP genotyping control probes. Works
-## from the probe ID alone, no manifest needed - but only means something
-## for an actual Illumina array (see METHYL_ARRAY_TYPES_ILLUMINA above).
+## "cg" prefix = CpG probe. Works from the probe ID alone, no manifest needed - but
+## only meaningful for an actual Illumina array (see METHYL_ARRAY_TYPES_ILLUMINA).
 methyl_probe_is_cpg <- function(probe_ids) {
   grepl("^cg", probe_ids, ignore.case = TRUE)
 }

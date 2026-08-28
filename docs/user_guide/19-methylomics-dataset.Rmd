@@ -2,36 +2,205 @@
 
 **Location:** Methylomics \> Dataset &nbsp;|&nbsp; **Group:** Data
 
-_Status: [built / in progress / not yet built] — update once this module is finalized in the app, and delete this line before publishing._
-
 ## Purpose
 
-[One or two sentences: what question does this module answer, and when should a user reach for it? See Chapter \@ref(mx-qc), "Quality Control", for a fully worked example of how a chapter in this guide should read once finished.]
+The **Dataset** tab is the entry point for the Methylomics track. It exists to get a DNA-methylation dataset — either the app's preloaded whole-blood cohort or a dataset you upload yourself — into a shared, in-memory object (`methyl_dataset`) that every other Methylomics sub-module (Quality Control, Normalization, Differential Methylation, Differentially Methylated Regions, and the rest) reads from. Nothing downstream can run until this tab has loaded something.
 
-## Getting there
+Opening the tab shows three data-source choices — the preloaded dataset, a beta/M-value matrix upload, or a raw IDAT upload — and, for either upload path, a form to attach that data. Selecting a source and clicking its **load** button is what actually populates `methyl_dataset`; nothing loads automatically just by opening the tab or choosing a radio option.
 
-Open **ArthOMix Explorer**, go to the **Methylomics** tab, and select **Dataset** from the left-hand module sidebar (grouped under "Data").
+The Dataset tab's job is narrowly **loading and format-parsing**, not analysis. It reads the file(s) you provide, checks that they are structurally well-formed (a real numeric matrix, or a valid IDAT pair), and — for IDAT uploads only — derives raw beta values, detection p-values, and bead counts as a direct byproduct of reading the array intensities (`minfi::preprocessRaw()`), since those quantities are cheap to compute once the raw data is in memory and every array-level QC check downstream needs them. It does **not** perform quality control, normalization, or any biological validation (e.g., it does not check that beta values are plausible methylation values, that CpG IDs are real Illumina probes, or that a sample sheet's rows actually correspond to the matrix's samples). Those checks happen in the QC and Normalization sub-modules, which run only when you explicitly open them and click their own controls.
 
-## Inputs
+After a successful load, the tab shows a short confirmation message (probe count × sample count, and for IDAT uploads, which QC metrics came along for free) — this is the only "dataset summary" the tab itself displays. Sample composition, PCA, and QC status only appear once you visit the Quality Control sub-module (Chapter \@ref(mx-qc)).
 
-- [Describe every input control: dropdowns, sliders, file uploads, thresholds. State defaults and valid ranges.]
+## Available Dataset
 
-## Walkthrough
+The preloaded dataset offered on this tab is a **whole-blood methylomics dataset**.
 
-### [Name the first sub-panel or sub-tab]
+## Supported Data Formats
 
-```{r methylomics-dataset-fig1, echo=FALSE, fig.cap="[One-line caption describing what this screenshot shows]"}
-knitr::include_graphics("Figures/f-methylomics-dataset-1.png")
-```
+The Dataset tab reads exactly three kinds of files. No other format (Excel, RDS, JSON, etc.) is parsed by this tab's code, regardless of what a file's extension claims.
 
-[Explain what the user is looking at, what they can change, and what happens when they do.]
+### Beta/M-value matrix (`matrix` mode)
 
-### [Name the next sub-panel or sub-tab, repeat as needed]
+- **Extensions accepted by the upload control:** `.csv`, `.tsv`, `.txt`.
+- **What it should contain:** a single numeric methylation matrix — one probe (CpG) per row, one sample per column.
+- **How it's read:** `data.table::fread()`, which auto-detects the delimiter (comma or tab) regardless of the file's extension, then treats the first column as row identifiers and every remaining column as numeric.
+- **Headers:** expected. The first row must contain a header for every column (a probe-ID column header plus one header per sample); `fread()`'s own default header detection is used, not a fixed row count.
+- **Row identifiers (feature IDs):** required. The first column is always taken as the probe/CpG ID and becomes the matrix's row names. Every value in that column must be unique — a duplicated ID in the first column is rejected outright, with a message naming how many duplicates were found.
+- **Orientation:** probes/CpGs as rows, samples as columns (see "Expected Data Structure" below) — this is fixed by the code, not a user choice.
+- **Numeric requirement:** every column after the first must convert cleanly to a numeric (double) type; if any column doesn't, the whole file is rejected with "Every column after the first must be numeric."
+- **Scale:** you separately tell the app whether the matrix holds beta values (0–1 scale) or M-values, via a radio button next to the upload control. The Dataset tab does not inspect the numbers to infer this — it takes your selection at face value and records it alongside the matrix.
+- **Metadata:** not read from this file. Sample metadata is a **separate, optional** upload (see below) — a matrix file cannot carry phenotype columns in the same file.
 
-## Outputs
+### Sample sheet / phenotype metadata (optional, either upload path)
 
-[What results/plots/tables does this module produce? Can they be downloaded? In what format?]
+- **Extensions accepted:** `.csv`, `.tsv`, `.txt`.
+- **What it should contain:** one row per sample, with whatever phenotype/clinical columns you want available to later group-aware analyses (e.g. disease/control status, sex, batch).
+- **How it's read:** `data.table::fread()`, same delimiter auto-detection as above. The only requirement enforced at load time is that the file parses to at least one row — no specific column names, and no specific set of variables, are required or validated by the Dataset tab itself.
+- **Row-to-sample matching:** the Dataset tab does **not** attempt to line up sample-sheet rows against the matrix's columns when you load it — it simply stores whatever `fread()` returns. That resolution happens later, downstream (in the Quality Control module's stratum filter), which looks for a `sample`/`Sample`/`sample_id`/`Sample_ID` column to match by ID, and only falls back to assuming row order matches the matrix's column order if no such column exists. If your sheet has neither a recognizable ID column nor the same row count as your matrix, group-aware filtering downstream will not resolve correctly — the Dataset tab gives no warning about this at load time.
 
-## Notes and troubleshooting
+### Raw IDAT files (`idat` mode)
 
-[Known caveats, edge cases, or common mistakes worth flagging.]
+- **Extensions accepted:** `.idat`, `.idat.gz` (multi-file upload — select every file for every sample at once).
+- **What it should contain:** the paired raw intensity files Illumina methylation arrays produce per sample — one `_Grn.idat` (green channel) and one `_Red.idat` (red channel) file per sample.
+- **How it's read:** every selected file is copied (under its own original filename, sanitized to strip any path component) into one temporary folder, then handed to `minfi::read.metharray.exp()`, which pairs `_Grn`/`_Red` files by matching filename prefix and reads them into an `RGChannelSet`.
+- **Validation performed:** the upload must contain at least one `.idat`/`.idat.gz` file, and at least one file whose name matches `_Grn.idat` and at least one matching `_Red.idat` — otherwise the upload is rejected before `minfi` is even called. If the `minfi` package isn't installed in the deployment, IDAT upload is disabled with an explicit message instead of failing silently.
+- **Array type:** the array type is auto-detected from the IDAT files' own recorded chip annotation (via `minfi::annotation()`) whenever possible, overriding whatever you had selected in the "Dataset type" dropdown — the dropdown selection is only used as a fallback if detection fails.
+- **Metadata:** same optional sample sheet mechanism as the matrix path — a separate CSV/TSV/TXT file, not embedded in the IDAT upload itself.
+
+### Not supported
+
+- Excel (`.xlsx`/`.xls`), RDS, JSON, or any other file type — not accepted by either `fileInput()` control and not parsed by any function in this tab.
+- A raw Illumina manifest file (e.g. a manifest CSV) is never uploaded or parsed here — array annotation (chromosome position, SNP overlap) instead comes from installed Bioconductor annotation packages (`IlluminaHumanMethylation450kanno.*` / `IlluminaHumanMethylationEPICanno.*`) keyed off the array type, not from anything you upload.
+- Metadata embedded inside the same file as the methylation matrix — the sample sheet is always a second, separate file.
+
+## Expected Data Structure
+
+For a matrix upload, think of the file as a spreadsheet shaped like this:
+
+| Probe_ID (row) | Sample_1 | Sample_2 | Sample_3 |
+| -------------- | -------: | -------: | -------: |
+| cg00000029     |     0.42 |     0.51 |     0.39 |
+| cg00000108     |     0.88 |     0.91 |     0.85 |
+| cg00000109     |     0.12 |     0.09 |     0.15 |
+
+- **Rows = probes/CpGs** — each row is one methylation feature (an Illumina probe ID such as `cg…`, or, for non-Illumina array types, whatever feature identifier your platform uses). The first column's values become the matrix's row names.
+- **Columns = samples** — every column after the first is one biological sample; the column header in that first row is that sample's identifier.
+- **Cell values** — the methylation measurement for that probe in that sample, on whichever scale (beta or M-value) you declared with the "Input scale" radio button.
+- **Sample identifiers** live only in the matrix's column headers (and, for the optional sheet, in whichever column that sheet uses to identify samples — see the matching rule above). There is no separate sample-ID input field.
+- **Metadata** (disease/control status, sex, batch, etc.) is not part of this matrix at all — it lives in the optional sample sheet, one row per sample, associated to matrix columns as described above.
+
+An IDAT upload has no equivalent "table" to look at directly — `minfi` reads the raw per-probe intensities into an `RGChannelSet`, and the app derives a probe × sample beta matrix from that (`minfi::preprocessRaw()` + `minfi::getBeta()`) with the same probes-as-rows, samples-as-columns orientation once loaded.
+
+## Required and Optional Inputs
+
+**Required**
+
+- Preloaded path: nothing beyond clicking the load button (the dataset is bundled with the deployment).
+- Matrix path: the methylation matrix file itself, and a choice of input scale (beta or M-value — defaults to beta).
+- IDAT path: at least one matched `_Grn.idat`/`_Red.idat` pair.
+
+**Optional**
+
+- Sample sheet / phenotype metadata file, on either upload path.
+- Array type / "Dataset type" dropdown, on either upload path — used for annotation lookups; for IDAT uploads it is overridden by file-detected array type when detection succeeds.
+
+**Not currently supported by this tab**
+
+- No embedded metadata within the matrix or IDAT files themselves.
+- No validation that uploaded values are biologically plausible beta values (0–1) or M-values, that probe IDs are real Illumina/array identifiers, or that a sample sheet's clinical columns (sex, disease status, etc.) contain expected values — the app does not inspect the *meaning* of any column, only its structural shape (numeric matrix, non-empty table, matched IDAT pairs).
+- No automatic CpG-to-gene annotation, probe filtering, or normalization at load time — those live in later sub-modules.
+
+## Loading the Dataset
+
+1. Pick a data source with the **"1. Data source"** radio button: the preloaded whole-blood dataset, a beta/M-value matrix upload, or a raw IDAT upload.
+2. For either upload path, first choose the **"Dataset type"** (array type) dropdown, which controls what annotation is available downstream.
+3. Attach your file(s) using the upload control(s) shown for the chosen source — the methylation matrix (or IDAT files) and, optionally, a sample sheet.
+4. Review the inline preview that appears once a file is selected (probe × sample count for a matrix; file count and Grn/Red breakdown for IDAT) — reading/parsing for the preview happens as soon as a file is chosen, but nothing is loaded into the shared dataset yet.
+5. Click the corresponding blue **load** button — **"Load preloaded dataset"**, or **"Load dataset"** on either upload panel.
+6. Wait for the confirmation message below the form, then proceed to any Methylomics analysis tab (Quality Control, Normalization, Differential Methylation, etc.).
+
+## What Happens When the Blue Button Is Clicked
+
+**Before clicking:** a file (or, for the preloaded option, nothing) has been selected and its structural preview is shown; no data has been written to the shared `methyl_dataset` object yet, and no analysis results exist for this dataset — every downstream sub-module still shows whatever the *previous* dataset (or no dataset at all) left behind.
+
+**After clicking — preloaded dataset:** the app reads the preloaded cohort's phenotype table, and, if the deployment bundles the underlying raw beta matrix, that matrix too (this large file is fetched via a background task where available, so the rest of the app stays responsive while it loads). `methyl_dataset$beta`, `$sample_sheet`, `$array_type`, and `$preloaded` are set; `$rg_set`/`$mset`/`$detp`/`$beadcount` are cleared, since no raw IDAT intensities exist for this path. If the raw matrix isn't bundled, `$beta` stays `NULL` and only the metadata loads — in that case, the QC/Normalization/DMP/DMR sub-modules fall back to showing their own precomputed, already-completed pipeline results for this cohort rather than a live recomputation, and the confirmation message says so explicitly.
+
+**After clicking — matrix upload:** the previously-parsed matrix and (if provided) sample sheet are written into `methyl_dataset$beta`/`$sample_sheet`; `$input_scale` and `$array_type` are set from your selections; `$rg_set`/`$mset`/`$detp`/`$beadcount` are cleared (a matrix upload has no raw intensities behind it); `$preloaded` is set to `FALSE`.
+
+**After clicking — IDAT upload:** the IDAT files are re-read (the earlier preview only counted files; it did not parse them), raw beta values are derived via `minfi::preprocessRaw()`/`getBeta()`, and detection p-values / bead counts are computed alongside as a direct byproduct. The array type is taken from the files' own chip annotation when it can be detected, overriding the dropdown if the two disagree (with a note in the confirmation message). `methyl_dataset$beta`, `$rg_set`, `$mset`, `$detp`, `$beadcount`, `$sample_sheet`, and `$array_type` are all set; `$preloaded` is `FALSE`.
+
+**Does it recompute anything?** No normalization, differential-methylation testing, or QC filtering runs as part of this click on any path — those all require separately opening their own sub-module and running their own controls. Loading a new dataset here does, however, invalidate/reset any stale results a downstream sub-module was showing for a previous dataset, since those modules key their state off `methyl_dataset$beta`'s identity.
+
+## What the Dataset Tab Does Internally
+
+### `methyl_parse_matrix()`
+
+**What it does technically:** Reads a file with `data.table::fread()`, takes the first column as probe IDs (checking for duplicates), coerces every remaining column to numeric, and assembles a matrix with probe IDs as row names.
+
+**Plain-English meaning:** Turns a CSV/TSV file into the actual probe × sample number grid the rest of the app works with, and catches the two most common ways such a file is malformed (duplicate probe IDs, non-numeric data) before they cause confusing errors later.
+
+**Input:** a file path and its original filename.
+
+**Processing:** delimiter-agnostic parse → duplicate-ID check → numeric coercion → row-name assignment.
+
+**Output:** `list(ok = TRUE, mat = <matrix>)` on success, or `list(ok = FALSE, error = <message>)` on failure — never throws.
+
+**Why it matters in methylomics:** Every downstream method (QC, normalization, differential methylation) assumes a clean, purely numeric probe × sample matrix with unambiguous row identifiers; catching malformed input here means those methods don't have to re-check for it themselves.
+
+### `methyl_parse_sample_sheet()`
+
+**What it does technically:** Reads a file with `data.table::fread()` and returns it as a data frame, with no column-name or content requirements enforced.
+
+**Plain-English meaning:** Loosely captures whatever phenotype/clinical table you provide, without assuming which columns it contains — the app decides later (in QC) how to use it.
+
+**Input:** a file path and filename.
+
+**Processing:** parse only — no validation of column names or values.
+
+**Output:** `list(ok = TRUE, df = <data.frame>)` or `list(ok = FALSE, error = <message>)`.
+
+**Why it matters in methylomics:** Group-aware analyses (e.g. comparing disease vs. control, or stratifying by sex) need per-sample covariates; this function is what makes such a table available to the rest of the app at all, even though it does not itself do the matching to samples.
+
+### `methyl_read_idat()`
+
+**What it does technically:** Filters the uploaded file list down to `.idat`/`.idat.gz` files, confirms at least one `_Grn` and one `_Red` file are present, stages sanitized copies of them in a throwaway temp directory (so `minfi` can pair them by filename), and calls `minfi::read.metharray.exp()` to read them into an `RGChannelSet`.
+
+**Plain-English meaning:** Takes the raw, per-color-channel intensity files an Illumina scanner produces and assembles them into the object `minfi` uses to represent "one array run," which is the starting point for every raw-intensity QC metric.
+
+**Input:** the `fileInput()` upload data frame (name/datapath per file).
+
+**Processing:** filter → filename sanitization (strips any path component from the client-supplied name) → Grn/Red presence check → copy to temp dir → `minfi::read.metharray.exp()`.
+
+**Output:** `list(ok = TRUE, rg = <RGChannelSet>)` or `list(ok = FALSE, error = <message>)`.
+
+**Why it matters in methylomics:** Several QC metrics (detection p-value, bead count, bisulfite conversion, the raw-intensity sex check) are only computable from raw intensities — they do not exist once data has already been converted to a beta-value matrix, so this function is the only entry point in the app that makes them possible.
+
+### `methyl_idat_derive()`
+
+**What it does technically:** Runs `minfi::preprocessRaw()` on the `RGChannelSet` to get methylated/unmethylated intensities, then `minfi::getBeta()` for raw beta values, and separately computes detection p-values (`minfi::detectionP()`) and bead counts (`minfi::beadcount()`).
+
+**Plain-English meaning:** Converts the raw two-channel intensities into the beta-value matrix (unnormalized) that the rest of the app expects, while keeping the per-probe quality metrics that only exist at the raw-intensity stage.
+
+**Input:** an `RGChannelSet` (from `methyl_read_idat()`).
+
+**Processing:** `preprocessRaw()` → `getBeta()`; `detectionP()`; `beadcount()` — each wrapped so a failure in one doesn't block the others.
+
+**Output:** `list(ok = TRUE, mset, beta, detp, beadcount)`, or `list(ok = FALSE, reason = <message>)` if the core beta derivation fails.
+
+**Why it matters in methylomics:** This is the boundary between "raw array data" and "a methylation matrix" — everything after this point in the app (QC, normalization, DMP/DMR) works off the beta matrix and, where available, these accompanying raw-intensity metrics.
+
+## How the Dataset Moves Through the Methylomics Workflow
+
+The implementation's actual sequence is: **Load dataset (this tab) → Quality Control → Normalization → Differential Methylation (DMP) → Differentially Methylated Regions (DMR) → downstream feature-selection / biomarker / cross-omics modules**, each reading `methyl_dataset` (and, once computed, each other's results) rather than re-loading anything.
+
+The Dataset tab is responsible for:
+
+- Presenting the three data-source choices and their upload forms.
+- Structurally parsing whatever file(s) are provided (or fetching the preloaded cohort).
+- Populating the shared `methyl_dataset` object other modules read from.
+- Deriving the raw-intensity QC byproducts (beta, detection p-value, bead count) that only exist at IDAT-read time.
+
+The Dataset tab is **not** responsible for — and does not perform:
+
+- Sample- or probe-level QC filtering (Quality Control sub-module).
+- Normalization (Normalization sub-module).
+- Any differential-methylation testing (DMP/DMR sub-modules).
+- Matching sample-sheet rows to matrix columns (deferred to Quality Control's stratum filter).
+- Any biological plausibility checks on the values it loads.
+
+## User-Facing Description
+
+> The **Dataset** tab is where you load a DNA-methylation dataset for this Methylomics workflow. The built-in preloaded option is a whole-blood methylomics dataset; you can also upload your own beta/M-value matrix or raw IDAT files. Pick a source, attach a file if needed, and click the blue load button below — once loaded, the dataset becomes available to Quality Control, Normalization, and every other Methylomics analysis tab.
+
+## Implementation Notes
+
+- The Methylomics dataset (`methyl_dataset`) is entirely independent of the Transcriptomics `dataset` object — loading one never affects the other.
+- Choosing "beta values" vs. "M-values" for a matrix upload is a user declaration, not something the app infers from the data.
+- For IDAT uploads, the array type actually used for annotation is read from the files themselves when possible, which can silently differ from the "Dataset type" dropdown selection — the app surfaces this as a note in the load confirmation rather than as a blocking error.
+- Array types outside 450K/EPIC (EPICv2, WGBS, RRBS, Custom array) have no installed Bioconductor manifest in this deployment, so manifest-dependent features (SNP/sex-chromosome probe filters, the manifest-based sex check) are unavailable for them, even though the file itself loads normally.
+- When the deployment does not bundle the preloaded cohort's raw beta matrix, clicking "Load preloaded dataset" still succeeds (loading only the sample metadata), and the QC/Normalization/DMP/DMR sub-modules fall back to their own precomputed result tables for that cohort rather than a live, rerunnable tool — this is a deployment-size limitation (the underlying matrix is several gigabytes), not a Dataset-tab validation step.
+
+---
+
+**Scope check:** Only this file (`docs/user_guide/19-methylomics-dataset.Rmd`) and the Dataset-tab UI text in `ArthOMix/R/methylomics/mod_methyl_dataset.R` (replacing the 689-sample/pipeline-provenance paragraph with a concise "whole-blood methylomics dataset" line, per the request) were changed. No other Methylomics sub-module, no other omics track, and no shared application structure, styling, button, control, or workflow was modified.

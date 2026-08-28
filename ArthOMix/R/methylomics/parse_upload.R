@@ -1,13 +1,10 @@
 ## R/methylomics/parse_upload.R
-## Upload parsing for the Methylomics Dataset tab (ArthOMix/R/mod_methyl_dataset.R).
-## Matrix/sample-sheet parsing never throws - each returns
-## list(ok = FALSE, error = <message>) instead, the same fail-soft sentinel
-## pattern ArthOMix/R/mod_dataset.R and mod_preprocessing_explore.R already
-## use elsewhere in this app, so a bad upload shows a clean message instead
-## of a raw Shiny error screen.
+## Upload parsing for the Methylomics Dataset tab. Never throws - each parser
+## returns list(ok = FALSE, error = <message>) instead, same fail-soft pattern
+## used elsewhere in the app.
 
-## One probe-by-sample matrix (beta or M-values): CSV/TSV, first column the
-## probe ID, everything else numeric.
+## Probe-by-sample matrix (beta or M-values): CSV/TSV, first column probe ID,
+## rest numeric.
 methyl_parse_matrix <- function(datapath, filename) {
   df <- tryCatch(
     as.data.frame(data.table::fread(datapath, showProgress = FALSE,
@@ -45,8 +42,7 @@ methyl_parse_sample_sheet <- function(datapath, filename) {
   list(ok = TRUE, df = df)
 }
 
-## Optional cross-reactive/custom probe-exclusion list: one probe ID per
-## line (plain text, or the first column of a CSV/TSV).
+## Optional probe-exclusion list: one probe ID per line, or first column of a CSV/TSV.
 methyl_parse_probe_list <- function(datapath, filename) {
   lines <- tryCatch(readLines(datapath, warn = FALSE), error = function(e) NULL)
   if (is.null(lines)) return(list(ok = FALSE, error = "Could not read this file.", ids = character(0)))
@@ -56,12 +52,9 @@ methyl_parse_probe_list <- function(datapath, filename) {
   list(ok = TRUE, ids = ids)
 }
 
-## `files` is a fileInput() data.frame (name/datapath/...) for a multi-file
-## IDAT upload. Shiny stores each upload under a randomized tmp path, not
-## its original name, but minfi pairs *_Grn.idat/*_Red.idat by matching
-## basename prefix - so every file is first copied into one throwaway temp
-## directory under its own (path-sanitized) original name before minfi ever
-## sees it.
+## `files` is a fileInput() data.frame for a multi-file IDAT upload. Shiny stores
+## uploads under randomized tmp paths, but minfi pairs *_Grn.idat/*_Red.idat by
+## basename prefix - so each file is copied into a temp dir under its original name first.
 methyl_read_idat <- function(files) {
   if (!requireNamespace("minfi", quietly = TRUE)) {
     return(list(ok = FALSE, error = "The minfi package is not installed in this deployment - IDAT processing is unavailable; upload a beta or M-value matrix instead."))
@@ -71,8 +64,7 @@ methyl_read_idat <- function(files) {
     return(list(ok = FALSE, error = "No .idat files found in this upload."))
   }
   files <- files[is_idat, , drop = FALSE]
-  ## basename() strips any client-supplied path component (path-traversal
-  ## protection - fileInput's reported `name` is client-controlled text).
+  ## basename() strips any client-supplied path component (path-traversal protection).
   safe_names <- basename(files$name)
   has_grn <- any(grepl("_Grn\\.idat", safe_names, ignore.case = TRUE))
   has_red <- any(grepl("_Red\\.idat", safe_names, ignore.case = TRUE))

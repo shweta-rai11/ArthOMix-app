@@ -1,49 +1,28 @@
 ## R/methylomics/mod_methyl_diagnostic.R
-## Submodule: Diagnostic Classifier (script09_diagnostic_classifier).
+## Diagnostic Classifier submodule (script09_diagnostic_classifier). Methylomics only -
+## transcriptomics' mod_diagnostic.R is a separate, unrelated tab.
 ##
-## Scope note: this file only builds the Methylomics Diagnostic Classifier.
-## Transcriptomics' own mod_diagnostic.R (Advanced ML registry / per-sex
-## engine) is used only as a UI/workflow convention reference and is never
-## touched - see that file for the analogous transcriptomics tab.
+## Preloaded Data reproduces script09's train/test workflow, not the main pipeline's
+## beta_raw.rds/pheno.rds (methyl_dataset$beta): a separate panel-CpG-only reprocessing
+## of GSE42861 (Noob-renormalized, granulocyte-adjusted), loaded via
+## load_default_diagnostic_train_test() (see global.R for provenance).
 ##
-## "Preloaded Data" reproduces script09's own train/test workflow exactly,
-## NOT the main pipeline's beta_raw.rds/pheno.rds matrix that
-## mod_methyl_wgcna.R/mod_methyl_featureselection.R read (methyl_dataset$beta)
-## - script09 trains/evaluates on a *different*, panel-CpG-only reprocessing
-## of the same GSE42861 cohort (Noob-renormalized + granulocyte-adjusted, to
-## be comparable with an independent external cohort), loaded here via
-## load_default_diagnostic_train_test() (global.R). See that function's own
-## comment for the full provenance chain. The UI never names the underlying
-## GEO accessions - both cohorts are always labelled "Test Data" /
-## "External Test Data".
-##
-## Feature Source: neither mod_methyl_wgcna.R nor mod_methyl_featureselection.R
-## writes into the shared `results` reactiveValues (unlike transcriptomics'
-## mod_wgcna.R/mod_featureselection.R, which do) - confirmed by reading both
-## files; there is no live in-session bridge to reach their outputs today,
-## and this module must not add one by modifying them. So "WGCNA" candidates
-## come from the same published-reference tables mod_methyl_wgcna.R's own
-## "Compare with published results" panel already reads
-## (load_default_wgcna_module_assignment()), or an upload of that module's
-## own CSV download; "Feature Selection" candidates come from
-## load_default_diagnostic_ensemble_votes() (script07's majority-vote panel -
-## the actual provenance script09 itself uses) for Preloaded, or an upload of
-## the Feature Selection module's own sanctioned RDS export
-## (fs_model_export(), schema module == "mod_methyl_featureselection") for
-## Upload - simply consuming each module's own already-existing outputs.
+## WGCNA/Feature Selection candidates are read from those modules' own published-reference
+## tables/exports (load_default_wgcna_module_assignment(),
+## load_default_diagnostic_ensemble_votes(), fs_model_export()) since neither module
+## writes into the shared `results` reactiveValues.
 
 mod_methyl_diagnostic_config <- list(
   id = "diagnostic", title = "Diagnostic Classifier", icon = "stethoscope", group = "Biomarker modeling",
-  description = "Trains diagnostic classifiers (logistic regression, elastic net, SVM, random forest, XGBoost, kNN) on single CpGs or a panel, with cross-validated tuning. Works on the preloaded dataset or your own upload."
+  description = "Diagnostic classifiers (logistic regression, elastic net, SVM, random forest, XGBoost, kNN) on single CpGs or a panel, with cross-validated tuning."
 )
 
 ## =============================================================================
 ## Small shared utilities
 ## =============================================================================
 
-## beta -> M-value, clipped exactly as script09 does before fitting (never
-## the covariate-adjusted residuals used upstream for CpG selection - see
-## this file's header comment).
+## beta -> M-value, clipped as script09 does before fitting (not the covariate-adjusted
+## residuals used upstream for CpG selection).
 dxm_beta_to_m <- function(beta) {
   b <- pmin(pmax(beta, 1e-6), 1 - 1e-6)
   log2(b / (1 - b))
@@ -56,19 +35,37 @@ dxm_parse_num_list <- function(txt, default) {
   if (length(v) == 0) default else v
 }
 
-dxm_parse_id_list <- function(txt) {
-  ids <- unique(trimws(strsplit(txt %||% "", "[,\n\t ]+")[[1]]))
-  ids[nzchar(ids)]
+## Sex stratum selector shared by preloaded and uploaded data: "all", "female", or "male".
+dxm_sex_label <- function(sex_sel) switch(sex_sel %||% "female", all = "All samples", female = "Female", male = "Male", tools::toTitleCase(as.character(sex_sel)))
+
+## Normalizes free-text sex-column values ("Female"/"female"/"F"/"f" -> "F", same for M) so
+## uploaded sample sheets can be filtered by sex without dictating an exact label convention.
+dxm_normalize_sex <- function(x) {
+  v <- toupper(substr(trimws(as.character(x)), 1, 1))
+  ifelse(v %in% c("F", "M"), v, NA_character_)
 }
 
-## "Class1" is always the comparison/disease group internally (dxm$comp_level
-## is only ever used for display) - sidesteps every syntactic-validity
-## question caret's twoClassSummary would otherwise raise for arbitrary
-## user-typed phenotype labels (e.g. containing spaces).
+## The preloaded WGCNA/Feature-Selection reference tables are published per sex only (no "all"
+## file); "all" unions the female+male tables here rather than requiring a new published export.
+dxm_load_wgcna_for_sex <- function(sex_sel) {
+  if (!identical(sex_sel, "all")) return(tryCatch(load_default_wgcna_module_assignment(sex_sel), error = function(e) NULL))
+  parts <- Filter(Negate(is.null), lapply(c("female", "male"), function(s) tryCatch(load_default_wgcna_module_assignment(s), error = function(e) NULL)))
+  if (length(parts) == 0) NULL else do.call(rbind, parts)
+}
+
+dxm_load_fs_votes_for_sex <- function(sex_sel) {
+  if (!identical(sex_sel, "all")) return(tryCatch(load_default_diagnostic_ensemble_votes(sex_sel), error = function(e) NULL))
+  parts <- Filter(Negate(is.null), lapply(c("female", "male"), function(s) tryCatch(load_default_diagnostic_ensemble_votes(s), error = function(e) NULL)))
+  if (length(parts) == 0) return(NULL)
+  tbl <- do.call(rbind, parts)
+  tbl[order(-tbl$n_votes), ][!duplicated(tbl$cpg), ]
+}
+
+## "Class1" is always the comparison/disease group internally (dxm$comp_level is
+## display-only) - avoids caret::twoClassSummary's syntactic-validity checks on
+## arbitrary user-typed phenotype labels.
 DXM_POS <- "Class1"
 DXM_NEG <- "Class0"
-
-dxm_disp <- function(dxm, cls) if (identical(cls, DXM_POS)) dxm$comp_level else dxm$ref_level
 
 ## =============================================================================
 ## Data / validation helpers
@@ -79,8 +76,7 @@ dxm_validate_checklist <- function(dxm) {
   add <- function(check, status, detail) rows[[length(rows) + 1]] <<- data.frame(Check = check, Status = status, Detail = detail, stringsAsFactors = FALSE)
 
   n_train <- nrow(dxm$train_X); n_test <- nrow(dxm$test_internal_X)
-  add("Sample counts", "OK", sprintf("%d training samples, %d test samples%s", n_train, n_test,
-                                      if (isTRUE(dxm$has_external)) sprintf(", %d external test samples", nrow(dxm$test_external_X)) else ""))
+  add("Sample counts", "OK", sprintf("%d training samples, %d test samples", n_train, n_test))
   dup_train <- sum(duplicated(rownames(dxm$train_X)))
   add("Duplicated samples", if (dup_train == 0) "OK" else "WARN", sprintf("%d duplicate sample ID(s) in training data", dup_train))
   dup_cpg <- sum(duplicated(colnames(dxm$train_X)))
@@ -102,11 +98,6 @@ dxm_validate_checklist <- function(dxm) {
   shared <- intersect(colnames(dxm$train_X), colnames(dxm$test_internal_X))
   add("Train/test feature compatibility", if (length(shared) == ncol(dxm$train_X)) "OK" else "WARN",
       sprintf("%d of %d training features present in the test data", length(shared), ncol(dxm$train_X)))
-  if (isTRUE(dxm$has_external)) {
-    shared_e <- intersect(colnames(dxm$train_X), colnames(dxm$test_external_X))
-    add("External test feature compatibility", if (length(shared_e) == ncol(dxm$train_X)) "OK" else "WARN",
-        sprintf("%d of %d training features present in the external test data", length(shared_e), ncol(dxm$train_X)))
-  }
   add("Minimum class size for cross-validation", if (min(cls_tbl) >= 10) "OK" else "WARN",
       sprintf("Smallest training class has %d sample(s)", min(cls_tbl)))
   do.call(rbind, rows)
@@ -118,8 +109,8 @@ dxm_intersect_features <- function(train_ids, test_ids) {
 }
 
 ## =============================================================================
-## CV / imbalance handling (all fold-safe: sampling functions run inside
-## caret's own resampling, never on the held-out test data)
+## CV / imbalance handling - fold-safe: sampling runs inside caret's own
+## resampling, never on the held-out test data.
 ## =============================================================================
 
 dxm_smote_fold <- function(x, y) {
@@ -148,10 +139,9 @@ dxm_cv_control <- function(input) {
 }
 
 ## =============================================================================
-## Model fitting - one generic caret wrapper for LR/Elastic Net/SVM/RF/kNN,
-## plus a native xgboost path (script09 itself deliberately avoids caret's
-## xgbTree, which returns NA ROC under the installed xgboost >=3.2's
-## objective-in-params API break - same version is installed here).
+## Model fitting - generic caret wrapper for LR/Elastic Net/SVM/RF/kNN, plus a
+## native xgboost path (caret's xgbTree returns NA ROC under xgboost >=3.2's
+## objective-in-params API break).
 ## =============================================================================
 
 dxm_fit_caret <- function(method, X, y, tune_grid, tune_length, ctrl, seed, preProcess = NULL, extra = list()) {
@@ -173,6 +163,10 @@ dxm_xgb_grid <- function(input, mid) {
 }
 
 dxm_fit_xgb_native <- function(X, y, input, mid, ctrl, seed) {
+  ## This native xgboost path never goes through caret's trainControl(sampling=)
+  ## hook, so SMOTE would silently have no effect - fail loudly instead.
+  validate(need(!identical(input$imbalance_mode, "smote"),
+                "SMOTE imbalance handling isn't available for Gradient Boosting/XGBoost (this model trains via its own native cross-validation path, not caret's fold-safe sampling hook) - choose \"None\" or \"Class weighting\" on the Filters & Parameters tab instead."))
   grid <- dxm_xgb_grid(input, mid)
   if (identical(ctrl$search, "random") && nrow(grid) > 12) grid <- grid[sample(nrow(grid), 12), , drop = FALSE]
   nrounds_max <- input[[paste0(mid, "_nrounds")]] %||% 200
@@ -232,9 +226,8 @@ dxm_roc_bundle <- function(y, prob) {
   list(roc = r, auc = as.numeric(r$auc), ci_lo = ci[1], ci_hi = ci[3], n = length(y), coords = co)
 }
 
-## Reuses caret's own out-of-fold predictions at the best tune (genuinely
-## held-out within each fold, already leakage-safe) rather than re-running a
-## parallel CV loop.
+## Reuses caret's own out-of-fold predictions at the best tune rather than
+## re-running a separate CV loop.
 dxm_cv_roc_from_fit <- function(fit) {
   pred <- fit$pred
   if (is.null(pred)) return(NULL)
@@ -271,16 +264,24 @@ dxm_xgb_cv_roc <- function(X, y, params, nrounds, folds_n, seed) {
 }
 
 ## Threshold strategies - always computed from train/CV, never from test.
+## "sensitivity"/"specificity" fall back to 0.5 when no threshold reaches the
+## 0.90 target (which.max() on an all-FALSE condition would otherwise return
+## the first coordinate instead of signaling "not found").
 dxm_pick_threshold <- function(strategy, roc_bundle) {
   if (is.null(roc_bundle)) return(0.5)
   co <- roc_bundle$coords
+  pick_first_meeting <- function(cond) {
+    ok <- cond & !is.infinite(co$threshold)
+    if (!any(ok)) return(0.5)
+    as.numeric(co$threshold[which.max(ok)])
+  }
   switch(strategy,
     "youden" = {
       j <- co$sensitivity + co$specificity - 1
       as.numeric(co$threshold[which.max(j)])
     },
-    "sensitivity" = as.numeric(co$threshold[which.max(co$sensitivity >= 0.9 & !is.infinite(co$threshold))] %||% 0.5),
-    "specificity" = as.numeric(co$threshold[which.max(co$specificity >= 0.9 & !is.infinite(co$threshold))] %||% 0.5),
+    "sensitivity" = pick_first_meeting(co$sensitivity >= 0.9),
+    "specificity" = pick_first_meeting(co$specificity >= 0.9),
     0.5
   )
 }
@@ -321,18 +322,18 @@ dxm_calibration <- function(y, prob, bins = 10) {
        intercept = if (!is.null(fit)) unname(stats::coef(fit)[1]) else NA_real_)
 }
 
-dxm_platt_fit <- function(prob, y) stats::glm(y ~ p, data = data.frame(p = prob, y = as.integer(y == DXM_POS)), family = stats::binomial())
-dxm_platt_apply <- function(fit, prob) stats::predict(fit, newdata = data.frame(p = prob), type = "response")
-
-dxm_overfitting_note <- function(train_auc, cv_auc, test_auc) {
+## test_label defaults to "independent test" for the Validation submodule's external-cohort
+## reuse of this helper; the Diagnostic Classifier's own internal-test call site below passes
+## "internal validation" instead, since that comparison is never against an external cohort.
+dxm_overfitting_note <- function(train_auc, cv_auc, test_auc, test_label = "independent test") {
   if (is.na(train_auc) || is.na(test_auc)) return("Not enough completed evaluations yet to assess overfitting.")
   gap <- train_auc - test_auc
   if (gap > 0.15) {
-    sprintf("Training discrimination (AUC = %.3f) is substantially higher than independent test discrimination (AUC = %.3f), suggesting possible overfitting or limited generalization to new samples.", train_auc, test_auc)
+    sprintf("Training discrimination (AUC = %.3f) is substantially higher than %s discrimination (AUC = %.3f), suggesting possible overfitting or limited generalization to new samples.", train_auc, test_label, test_auc)
   } else if (!is.na(cv_auc) && (train_auc - cv_auc) > 0.15) {
     sprintf("Training discrimination (AUC = %.3f) is substantially higher than cross-validated discrimination (AUC = %.3f), suggesting the model may be fitting noise in the training split.", train_auc, cv_auc)
   } else {
-    sprintf("Training (AUC = %.3f) and independent test (AUC = %.3f) discrimination are broadly consistent, with no strong evidence of overfitting in this comparison.", train_auc, test_auc)
+    sprintf("Training (AUC = %.3f) and %s (AUC = %.3f) discrimination are broadly consistent, with no strong evidence of overfitting in this comparison.", train_auc, test_label, test_auc)
   }
 }
 
@@ -428,10 +429,9 @@ dxm_plot_roc_compare <- function(bundles_named, title) {
 ## =============================================================================
 ## Model registry - one entry per sub-tab. Each `fit` closure has the
 ## signature function(X, y, input, mid, ctrl, seed) and returns
-## list(model=, kind="caret"|"xgb", ...); every other UI/server behaviour
-## (Setup/Parameters/Results/ROC/Diagnostics layout, Run/Test/ROC/
-## Calibration/Learning-curve buttons) is generic across all six models -
-## see dxm_register_model_server()/dxm_render_model_panel() below.
+## list(model=, kind="caret"|"xgb", ...); the rest of the UI/server behavior
+## is generic across all six models (dxm_register_model_server()/
+## dxm_render_model_panel() below).
 ## =============================================================================
 
 DXM_MODEL_SPECS <- list(
@@ -542,15 +542,12 @@ dxm_metrics_display <- function(m) {
 }
 
 ## =============================================================================
-## Per-model tab: one generic UI builder + one generic server registration,
-## shared by all six DXM_MODEL_SPECS entries so the Setup/Parameters/Results/
-## ROC-AUC/Diagnostics layout isn't hand-duplicated six times, while each
-## model still gets its own physical tabPanel (requirement: every model has
-## its own sub-tab).
+## Per-model tab: one generic UI builder + server registration shared by all
+## six DXM_MODEL_SPECS entries; each model still gets its own tabPanel.
 ## =============================================================================
 
 dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
-  if (!isTRUE(dxm$validated)) return(p(class = "text-muted", "Validate your data on the Data & Setup tab first."))
+  if (!isTRUE(dxm$validated)) return(p(class = "text-muted", "Validate your data on the Datasets tab first."))
   single <- identical(input$analysis_type, "single")
 
   setup_box <- box(width = 12, status = "primary", solidHeader = TRUE, title = "Setup",
@@ -561,8 +558,7 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
       tags$li(sprintf("Analysis type: %s", if (single) sprintf("Single CpG (%s)", input$single_cpg %||% "none selected")
                        else sprintf("Combined panel (%d CpG%s)", length(feat$selected), if (length(feat$selected) == 1) "" else "s"))),
       tags$li(sprintf("Phenotype: %s (reference) vs %s (comparison/positive class)", dxm$ref_level, dxm$comp_level)),
-      tags$li(sprintf("Test data: %s%s", if (!is.null(ms$test_internal_prob)) "evaluated" else "not yet evaluated",
-                       if (isTRUE(dxm$has_external)) sprintf(" | External Test Data: %s", if (!is.null(ms$test_external_prob)) "evaluated" else "not yet evaluated") else ""))
+      tags$li(sprintf("Test data: %s", if (!is.null(ms$test_internal_prob)) "evaluated" else "not yet evaluated"))
     ))
 
   params_box <- box(width = 12, status = "primary", solidHeader = TRUE, title = "Parameters",
@@ -584,10 +580,15 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
   out <- list(setup_box, params_box, results_box)
 
   if (!is.null(ms$test_internal_prob)) {
-    out <- c(out, list(box(width = 12, status = "success", solidHeader = TRUE, title = "Results: Test Data",
-      h5("Test Data"), DT::dataTableOutput(ns(paste0(mid, "_test_metrics_table"))),
-      if (!is.null(ms$test_external_metrics)) tagList(hr(), h5("External Test Data"), DT::dataTableOutput(ns(paste0(mid, "_ext_metrics_table")))),
-      hr(), p(class = "submodule-desc", dxm_overfitting_note(ms$train_metrics$auc, ms$cv_roc$mean_auc, ms$test_internal_metrics$auc)))))
+    out <- c(out, list(box(width = 12, status = "success", solidHeader = TRUE, title = "Results: Test Internal Data",
+      fluidRow(
+        valueBox(sprintf("%.3f", ms$test_internal_metrics$auc), sprintf("Test AUC (95%% CI %.3f-%.3f)", ms$test_internal_metrics$auc_ci_lo, ms$test_internal_metrics$auc_ci_hi), icon = icon("chart-area"), color = "blue", width = 3),
+        valueBox(sprintf("%.3f", ms$test_internal_metrics$sensitivity), "Sensitivity", icon = icon("check"), color = "light-blue", width = 3),
+        valueBox(sprintf("%.3f", ms$test_internal_metrics$specificity), "Specificity", icon = icon("shield"), color = "light-blue", width = 3),
+        valueBox(ms$test_internal_metrics$n, "Test N", icon = icon("users"), color = "teal", width = 3)
+      ),
+      h5("Test Internal Data"), DT::dataTableOutput(ns(paste0(mid, "_test_metrics_table"))),
+      hr(), p(class = "submodule-desc", dxm_overfitting_note(ms$train_metrics$auc, ms$cv_roc$mean_auc, ms$test_internal_metrics$auc, test_label = "internal validation")))))
 
     out <- c(out, list(box(width = 12, status = "primary", solidHeader = TRUE, title = "ROC / AUC",
       actionButton(ns(paste0(mid, "_roc_btn")), "Generate ROC/AUC", icon = icon("chart-area"), class = "btn-primary"),
@@ -598,8 +599,7 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
         column(6, plotOutput(ns(paste0(mid, "_roc_cv_plot"))))
       ),
       if (isTRUE(ms$roc_generated)) fluidRow(
-        column(6, plotOutput(ns(paste0(mid, "_roc_test_plot")))),
-        column(6, if (!is.null(ms$test_external_roc)) plotOutput(ns(paste0(mid, "_roc_ext_plot"))))
+        column(6, plotOutput(ns(paste0(mid, "_roc_test_plot"))))
       ))))
 
     out <- c(out, list(box(width = 12, status = "primary", solidHeader = TRUE, title = "Diagnostics",
@@ -617,10 +617,8 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
   tagList(out)
 }
 
-## Shared by each model tab's own "Run Model" button AND the "Run Model"
-## dispatcher on the Filters & Parameters tab (which lets a user run without
-## first navigating into that model's own tab) - same effect either way, so
-## behaviour never depends on which button was clicked.
+## Shared by each model tab's own "Run Model" button and the dispatcher on the
+## Filters & Parameters tab - same effect either way.
 dxm_do_run_model <- function(mid, spec, input, dxm, feat, ms) {
   ids <- intersect(dxm_active_ids(mid, input, feat), colnames(dxm$train_X))
   validate(need(length(ids) > 0, "No selected CpG(s) are present in the training data - pick a CpG (single mode) or load a feature panel (combined mode) on the Filters & Parameters / Feature Source tabs first."))
@@ -647,7 +645,6 @@ dxm_do_run_model <- function(mid, spec, input, dxm, feat, ms) {
   ms$confusion_train <- dxm_confusion(ytr, prob_train, ms$threshold)
 
   ms$test_internal_prob <- NULL; ms$test_internal_roc <- NULL; ms$test_internal_metrics <- NULL; ms$confusion_test <- NULL
-  ms$test_external_prob <- NULL; ms$test_external_roc <- NULL; ms$test_external_metrics <- NULL
   ms$roc_generated <- FALSE; ms$calib <- NULL; ms$calib_generated <- FALSE; ms$lc <- NULL; ms$lc_generated <- FALSE
 
   showNotification(sprintf("%s: trained on %d feature(s), %d training samples (train AUC = %.3f, mean CV AUC = %.3f). See the %s tab for full results.",
@@ -692,24 +689,42 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
     ms$test_internal_metrics <- dxm_metrics_bundle(yte, ms$test_internal_prob, ms$threshold, ms$test_internal_roc)
     ms$confusion_test <- dxm_confusion(yte, ms$test_internal_prob, ms$threshold)
 
-    if (isTRUE(dxm$has_external) && !is.null(dxm$test_external_X) && all(ids %in% colnames(dxm$test_external_X))) {
-      Xe <- dxm$test_external_X[, ids, drop = FALSE]; ye <- dxm$test_external_y
-      ms$test_external_prob <- dxm_predict_prob(ms$fit$model, Xe)
-      ms$test_external_roc <- dxm_roc_bundle(ye, ms$test_external_prob)
-      ms$test_external_metrics <- dxm_metrics_bundle(ye, ms$test_external_prob, ms$threshold, ms$test_external_roc)
-    }
-
     key <- paste(mid, ms$analysis_type, paste(ids, collapse = "|"))
     runs[[key]] <- list(model_id = mid, label = spec$label, analysis_type = ms$analysis_type, feature_ids = ids,
                          threshold = ms$threshold, train_roc = ms$train_roc, cv_roc = ms$cv_roc,
-                         test_internal_roc = ms$test_internal_roc, test_external_roc = ms$test_external_roc, ran_at = ms$ran_at)
+                         test_internal_roc = ms$test_internal_roc, ran_at = ms$ran_at)
 
     if (!is.null(results)) {
       results$diagnostic <- list(last_model = spec$label, analysis_type = ms$analysis_type, n_features = length(ids),
                                   stratum = dxm$sex, mode = dxm$mode,
                                   train_auc = round(ms$train_roc$auc, 3), cv_auc = round(ms$cv_roc$mean_auc, 3),
-                                  test_auc = round(ms$test_internal_roc$auc, 3),
-                                  external_auc = if (!is.null(ms$test_external_roc)) round(ms$test_external_roc$auc, 3) else NA)
+                                  test_auc = round(ms$test_internal_roc$auc, 3))
+
+      ## Publishes the actual trained-model artifact (fitted object, exact feature
+      ## order, training-derived threshold) for the Validation submodule
+      ## (mod_methyl_validation.R) to apply as-is - never refit, never re-tuned,
+      ## never re-thresholded there. External-cohort evaluation lives only in
+      ## that submodule - this file only ever produces internal-test results.
+      ## Every distinct model/feature-panel combination is kept (keyed the same
+      ## way as `runs`), not just the most recently tested one, so the Validation
+      ## submodule can evaluate every trained model against the external cohort.
+      model_entry <- list(
+        model_id = mid, label = spec$label, kind = ms$fit$kind,
+        fit = ms$fit, feature_ids = ids, threshold = ms$threshold,
+        analysis_type = ms$analysis_type,
+        ref_level = dxm$ref_level, comp_level = dxm$comp_level,
+        sex_stratum = dxm$sex, mode = dxm$mode, seed = input$dxm_seed %||% 42,
+        train_sample_ids = rownames(dxm$train_X),
+        train_X = dxm$train_X[, ids, drop = FALSE],
+        train_n = nrow(dxm$train_X), train_class_table = table(dxm$train_y),
+        train_metrics = ms$train_metrics, train_roc = ms$train_roc, confusion_train = ms$confusion_train,
+        cv_roc = ms$cv_roc,
+        test_internal_metrics = ms$test_internal_metrics,
+        ran_at = ms$ran_at
+      )
+      all_models <- results$diagnostic_models %||% list()
+      all_models[[key]] <- model_entry
+      results$diagnostic_models <- all_models
     }
     showNotification(sprintf("%s: test evaluation complete (n=%d, test AUC = %.3f).", spec$label, nrow(Xte), ms$test_internal_roc$auc), type = "message")
   })
@@ -751,9 +766,6 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
   output[[paste0(mid, "_test_metrics_table")]] <- DT::renderDataTable({
     req(ms$test_internal_metrics); DT::datatable(dxm_metrics_display(ms$test_internal_metrics), rownames = FALSE, options = list(dom = "t", paging = FALSE))
   })
-  output[[paste0(mid, "_ext_metrics_table")]] <- DT::renderDataTable({
-    req(ms$test_external_metrics); DT::datatable(dxm_metrics_display(ms$test_external_metrics), rownames = FALSE, options = list(dom = "t", paging = FALSE))
-  })
   output[[paste0(mid, "_confusion_train_table")]] <- DT::renderDataTable({
     req(ms$confusion_train); DT::datatable(as.data.frame.matrix(ms$confusion_train$table), options = list(dom = "t", paging = FALSE))
   })
@@ -769,9 +781,6 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
   })
   output[[paste0(mid, "_roc_test_plot")]] <- renderPlot({
     req(ms$roc_generated, ms$test_internal_roc); dxm_plot_roc(list(Test = ms$test_internal_roc), sprintf("%s - Test ROC", spec$label))
-  })
-  output[[paste0(mid, "_roc_ext_plot")]] <- renderPlot({
-    req(ms$roc_generated, ms$test_external_roc); dxm_plot_roc(list(`External Test` = ms$test_external_roc), sprintf("%s - External Test ROC", spec$label))
   })
   output[[paste0(mid, "_calib_plot")]] <- renderPlot({
     req(ms$calib_generated, ms$calib); p <- dxm_plot_calibration(ms$calib, sprintf("%s - Calibration (cross-validated predictions)", spec$label)); ms$last_calib_plot <- p; p
@@ -801,13 +810,13 @@ mod_methyl_diagnostic_ui <- function(id) {
   })
   do.call(tabsetPanel, c(
     list(id = ns("main_tabs"), type = "tabs",
-      tabPanel("Data & Setup", br(), withSpinner(uiOutput(ns("setup_ui")), color = "#2563EB", type = 6)),
+      tabPanel("Datasets", br(), withSpinner(uiOutput(ns("setup_ui")), color = "#2563EB", type = 6)),
       tabPanel("Feature Source", br(), withSpinner(uiOutput(ns("feature_ui")), color = "#2563EB", type = 6)),
       tabPanel("Filters & Parameters", br(), withSpinner(uiOutput(ns("filters_ui")), color = "#2563EB", type = 6))),
     unname(model_tabs),
     list(
       tabPanel("Model Comparison", br(), withSpinner(uiOutput(ns("compare_ui")), color = "#2563EB", type = 6)),
-      tabPanel("Test Data", br(), withSpinner(uiOutput(ns("testdata_ui")), color = "#2563EB", type = 6)),
+      tabPanel("Test Internal Data", br(), withSpinner(uiOutput(ns("testdata_ui")), color = "#2563EB", type = 6)),
       tabPanel("Export", br(), withSpinner(uiOutput(ns("export_ui")), color = "#2563EB", type = 6))
     )
   ))
@@ -822,14 +831,14 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     ns <- session$ns
 
     dxm <- reactiveValues(train_X = NULL, train_y = NULL, test_internal_X = NULL, test_internal_y = NULL,
-                           test_external_X = NULL, test_external_y = NULL, all_cpgs = character(0),
+                           all_cpgs = character(0),
                            ref_level = "Control", comp_level = "RA", sex = "female", mode = "preloaded",
-                           has_external = FALSE, validated = FALSE, validation_report = NULL)
+                           validated = FALSE, validation_report = NULL)
     feat <- reactiveValues(source = NULL, table = NULL, selected = character(0))
     runs <- reactiveValues()
     compare_state <- reactiveValues(generated = FALSE, bundles = NULL)
 
-    ## ---- Data & Setup ------------------------------------------------------
+    ## ---- Datasets ------------------------------------------------------
 
     output$setup_ui <- renderUI({
       tagList(
@@ -839,15 +848,17 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
             selected = if (METH_DIAG_DATA_AVAILABLE) "preloaded" else "upload"),
           conditionalPanel(sprintf("input['%s'] == 'preloaded'", ns("data_mode")),
             if (METH_DIAG_DATA_AVAILABLE) tagList(
-              radioButtons(ns("sex_stratum"), "Sex stratum", choices = c("Female" = "female", "Male" = "male"), selected = "female", inline = TRUE),
-              helpText("Matches script09's own sex-stratified panels. External Test Data is only available for the female stratum.")
+              radioButtons(ns("sex_stratum"), "Sex stratum", choices = c("All samples" = "all", "Female" = "female", "Male" = "male"), selected = "female", inline = TRUE),
+              helpText("Female/Male match script09's own sex-stratified panels; All samples combines both.")
             ) else p(class = "text-muted", "The preloaded diagnostic train/test data isn't available in this deployment - switch to Upload Data instead.")
           ),
           conditionalPanel(sprintf("input['%s'] == 'upload'", ns("data_mode")),
             fileInput(ns("upload_matrix"), "Methylation matrix (CSV/TSV: CpG rows x sample columns)"),
             radioButtons(ns("upload_scale"), "Input scale", choices = c("Beta-value" = "beta", "M-value" = "m"), selected = "beta", inline = TRUE),
             fileInput(ns("upload_sheet"), "Sample sheet (CSV/TSV: one row per sample)"),
-            uiOutput(ns("upload_col_ui"))
+            uiOutput(ns("upload_col_ui")),
+            radioButtons(ns("upload_sex_stratum"), "Sex stratum", choices = c("All samples" = "all", "Female" = "female", "Male" = "male"), selected = "all", inline = TRUE),
+            uiOutput(ns("upload_sex_col_ui"))
           ),
           fluidRow(
             column(4, textInput(ns("ref_level"), "Reference (control) class label", value = "Control")),
@@ -860,10 +871,9 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         if (isTRUE(dxm$validated)) box(width = 12, status = if (any(dxm$validation_report$Status == "FAIL")) "danger" else "primary",
           solidHeader = TRUE, title = "Validation summary",
           DT::dataTableOutput(ns("validation_table")), hr(),
-          p(class = "submodule-desc", sprintf("Active dataset: %s. %d training samples, %d test samples%s, %d candidate CpG(s).",
-              if (identical(dxm$mode, "preloaded")) sprintf("Preloaded whole-blood dataset (%s)", tools::toTitleCase(dxm$sex)) else "Uploaded dataset",
+          p(class = "submodule-desc", sprintf("Active dataset: %s. %d training samples, %d test samples, %d candidate CpG(s).",
+              if (identical(dxm$mode, "preloaded")) sprintf("Preloaded whole-blood dataset (%s)", dxm_sex_label(dxm$sex)) else sprintf("Uploaded dataset (%s)", dxm_sex_label(dxm$sex)),
               nrow(dxm$train_X), nrow(dxm$test_internal_X),
-              if (isTRUE(dxm$has_external)) sprintf(" (+%d external test)", nrow(dxm$test_external_X)) else "",
               length(dxm$all_cpgs))))
       )
     })
@@ -877,6 +887,15 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       selectInput(ns("upload_pheno_col"), "Phenotype / class column", choices = cols, selected = guess %||% cols[1])
     })
 
+    output$upload_sex_col_ui <- renderUI({
+      req(input$upload_sheet)
+      ps <- methyl_parse_sample_sheet(input$upload_sheet$datapath, input$upload_sheet$name)
+      if (!isTRUE(ps$ok)) return(NULL)
+      cols <- colnames(ps$df)
+      guess <- cols[which(grepl("sex|gender", cols, ignore.case = TRUE))[1]]
+      selectInput(ns("upload_sex_col"), "Sex column (used when Sex stratum is Female/Male)", choices = cols, selected = guess %||% cols[1])
+    })
+
     observeEvent(input$validate_btn, {
       mode <- input$data_mode %||% "preloaded"
       ref_lab <- trimws(input$ref_level %||% "Control"); comp_lab <- trimws(input$comp_level %||% "RA")
@@ -888,9 +907,11 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         validate(need(METH_DIAG_DATA_AVAILABLE, "The preloaded diagnostic train/test data isn't available in this deployment - switch to Upload Data instead."))
         dd <- load_default_diagnostic_train_test()
         validate(need(!is.null(dd), "Could not load the preloaded diagnostic train/test data."))
-        sex_code <- if (identical(input$sex_stratum, "male")) "M" else "F"
+        sex_sel <- input$sex_stratum %||% "female"
+        sex_code <- switch(sex_sel, male = "M", female = "F", NA_character_)
         internal <- dd$internal
-        keep <- internal$pheno$sex == sex_code & internal$pheno$group %in% c(ref_lab, comp_lab)
+        sex_keep <- if (is.na(sex_code)) rep(TRUE, nrow(internal$pheno)) else internal$pheno$sex == sex_code
+        keep <- sex_keep & internal$pheno$group %in% c(ref_lab, comp_lab)
         validate(need(sum(keep) > 20, "Fewer than 20 samples match this sex stratum and class labels - check the reference/comparison class labels (default: Control / RA)."))
         beta_sub <- internal$beta[, keep, drop = FALSE]
         pheno_sub <- internal$pheno[keep, , drop = FALSE]
@@ -901,18 +922,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         dxm$train_X <- Xm[train_idx, , drop = FALSE]; dxm$train_y <- y_all[train_idx]
         dxm$test_internal_X <- Xm[-train_idx, , drop = FALSE]; dxm$test_internal_y <- y_all[-train_idx]
         dxm$all_cpgs <- colnames(Xm)
-
-        if (identical(input$sex_stratum %||% "female", "female")) {
-          ext <- dd$external
-          keep_e <- ext$pheno$sex == "F" & ext$pheno$group %in% c(ref_lab, comp_lab)
-          if (sum(keep_e) > 5) {
-            Xe <- as.data.frame(t(dxm_beta_to_m(ext$beta[, keep_e, drop = FALSE]))); rownames(Xe) <- ext$pheno$gsm[keep_e]
-            dxm$test_external_X <- Xe
-            dxm$test_external_y <- factor(ifelse(ext$pheno$group[keep_e] == comp_lab, DXM_POS, DXM_NEG), levels = c(DXM_NEG, DXM_POS))
-            dxm$has_external <- TRUE
-          } else { dxm$test_external_X <- NULL; dxm$test_external_y <- NULL; dxm$has_external <- FALSE }
-        } else { dxm$test_external_X <- NULL; dxm$test_external_y <- NULL; dxm$has_external <- FALSE }
-        dxm$mode <- "preloaded"; dxm$sex <- input$sex_stratum %||% "female"
+        dxm$mode <- "preloaded"; dxm$sex <- sex_sel
       } else {
         req(input$upload_matrix, input$upload_sheet)
         pm <- methyl_parse_matrix(input$upload_matrix$datapath, input$upload_matrix$name)
@@ -928,7 +938,18 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         validate(need(!is.null(pheno_col) && nzchar(pheno_col) && pheno_col %in% colnames(sheet), "Select a phenotype/class column from the uploaded sample sheet."))
         grp_raw <- trimws(as.character(sheet[[pheno_col]]))
         validate(need(all(c(ref_lab, comp_lab) %in% grp_raw), "The chosen reference/comparison labels were not both found in the phenotype column - check spelling/case."))
-        keep <- grp_raw %in% c(ref_lab, comp_lab)
+        sex_sel <- input$upload_sex_stratum %||% "all"
+        sex_keep <- rep(TRUE, nrow(sheet))
+        if (!identical(sex_sel, "all")) {
+          sex_col <- input$upload_sex_col
+          validate(need(!is.null(sex_col) && nzchar(sex_col) && sex_col %in% colnames(sheet),
+                        "Select a sex column from the uploaded sample sheet to filter by Female/Male, or choose \"All samples\"."))
+          sex_norm <- dxm_normalize_sex(sheet[[sex_col]])
+          target <- if (identical(sex_sel, "male")) "M" else "F"
+          sex_keep <- !is.na(sex_norm) & sex_norm == target
+          validate(need(sum(sex_keep) > 0, sprintf("No samples matched sex = %s in the selected sex column.", dxm_sex_label(sex_sel))))
+        }
+        keep <- sex_keep & (grp_raw %in% c(ref_lab, comp_lab))
         mat <- mat[, keep, drop = FALSE]; grp_raw <- grp_raw[keep]
         validate(need(sum(duplicated(rownames(mat))) == 0, "Uploaded matrix has duplicated CpG IDs."))
         m_vals <- if (identical(input$upload_scale, "m")) mat else dxm_beta_to_m(mat)
@@ -940,8 +961,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         dxm$train_X <- Xm[train_idx, , drop = FALSE]; dxm$train_y <- y_all[train_idx]
         dxm$test_internal_X <- Xm[-train_idx, , drop = FALSE]; dxm$test_internal_y <- y_all[-train_idx]
         dxm$all_cpgs <- colnames(Xm)
-        dxm$test_external_X <- NULL; dxm$test_external_y <- NULL; dxm$has_external <- FALSE
-        dxm$mode <- "upload"; dxm$sex <- NA_character_
+        dxm$mode <- "upload"; dxm$sex <- sex_sel
       }
 
       dxm$ref_level <- ref_lab; dxm$comp_level <- comp_lab
@@ -968,7 +988,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
             selected = "featureselection", inline = TRUE),
           conditionalPanel(sprintf("input['%s'] == 'wgcna'", ns("feature_source")),
             if (identical(dxm$mode, "preloaded")) {
-              mt <- tryCatch(load_default_wgcna_module_assignment(dxm$sex), error = function(e) NULL)
+              mt <- dxm_load_wgcna_for_sex(dxm$sex)
               mod_col <- if (!is.null(mt)) intersect(c("module", "Module", "color"), colnames(mt))[1] else NA_character_
               mod_choices <- if (!is.null(mt) && !is.na(mod_col)) c("All modules" = "__all__", stats::setNames(sort(unique(as.character(mt[[mod_col]]))), sort(unique(as.character(mt[[mod_col]]))))) else c("All modules" = "__all__")
               tagList(selectInput(ns("wgcna_module"), "Module", choices = mod_choices, selected = "__all__"),
@@ -1006,7 +1026,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     observeEvent(input$wgcna_load_btn, {
       req(dxm$validated)
       if (identical(dxm$mode, "preloaded")) {
-        mt <- load_default_wgcna_module_assignment(dxm$sex)
+        mt <- dxm_load_wgcna_for_sex(dxm$sex)
         validate(need(!is.null(mt), "Published WGCNA module assignment isn't available in this deployment."))
         cpg_col <- intersect(c("cpg", "CpG", "probe", "ID"), colnames(mt))[1]
         mod_col <- intersect(c("module", "Module", "color"), colnames(mt))[1]
@@ -1036,7 +1056,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     observeEvent(input$fs_load_btn, {
       req(dxm$validated)
       if (identical(dxm$mode, "preloaded")) {
-        tbl <- load_default_diagnostic_ensemble_votes(dxm$sex)
+        tbl <- dxm_load_fs_votes_for_sex(dxm$sex)
         validate(need(!is.null(tbl), "Published Feature Selection ensemble-vote table isn't available in this deployment."))
         min_votes <- input$fs_min_votes %||% 2
         sub <- tbl[tbl$n_votes >= min_votes, , drop = FALSE]
@@ -1139,7 +1159,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
                             train_prob = NULL, train_roc = NULL, train_metrics = NULL, confusion_train = NULL,
                             cv_roc = NULL, threshold = NULL,
                             test_internal_prob = NULL, test_internal_roc = NULL, test_internal_metrics = NULL, confusion_test = NULL,
-                            test_external_prob = NULL, test_external_roc = NULL, test_external_metrics = NULL,
                             roc_generated = FALSE, calib = NULL, calib_generated = FALSE, lc = NULL, lc_generated = FALSE,
                             last_roc_plot = NULL, last_calib_plot = NULL, last_lc_plot = NULL)
       dxm_register_model_server(spec$id, spec, input, output, session, ns, dxm, feat, ms, runs, results)
@@ -1164,7 +1183,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       tagList(
         box(width = 12, status = "primary", solidHeader = TRUE, title = "Model Comparison",
           p(class = "submodule-desc", icon("triangle-exclamation"),
-            " \"Test AUC\" (internal) is drawn from the same cohort the WGCNA- and Feature-Selection-derived CpG panels were originally selected on, so it can be optimistically biased for those two feature sources. \"External AUC\", where available, is a fully independent held-out cohort and is the more trustworthy headline number."),
+            " \"Test AUC\" is drawn from the same cohort the WGCNA- and Feature-Selection-derived CpG panels were originally selected on, so it can be optimistically biased for those two feature sources - it is internal-test performance only. For a fully independent held-out cohort, evaluate the trained model in the Validation sub-module (External Validation)."),
           DT::dataTableOutput(ns("compare_table")),
           downloadButton(ns("compare_download"), "Download comparison (CSV)", class = "btn-sm")
         ),
@@ -1191,7 +1210,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         Model = r$label, `Feature set` = sprintf("%s (%d)", r$analysis_type, length(r$feature_ids)),
         `Train AUC` = round(r$train_roc$auc, 3), `CV AUC` = round(r$cv_roc$mean_auc, 3),
         `Test AUC` = round(r$test_internal_roc$auc, 3),
-        `External AUC` = if (!is.null(r$test_external_roc)) round(r$test_external_roc$auc, 3) else NA,
         Threshold = round(r$threshold, 3), `Ran at` = r$ran_at, check.names = FALSE)))
       DT::datatable(tbl, rownames = FALSE, filter = "top", options = list(pageLength = 10))
     })
@@ -1208,7 +1226,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     output$compare_roc_plot <- renderPlot({
       req(compare_state$generated)
       dxm_plot_roc_compare(compare_state$bundles, sprintf("ROC Comparison (%s)",
-        switch(input$compare_curve, test = "Test Data", train = "Training", cv = "Cross-Validated")))
+        switch(input$compare_curve, test = "Test Internal Data", train = "Training", cv = "Cross-Validated")))
     })
     output$compare_download <- downloadHandler(
       filename = function() "methylomics_diagnostic_classifier_comparison.csv",
@@ -1218,8 +1236,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
           model = r$label, analysis_type = r$analysis_type, n_features = length(r$feature_ids),
           features = paste(r$feature_ids, collapse = ";"), threshold = r$threshold,
           train_auc = r$train_roc$auc, cv_auc = r$cv_roc$mean_auc, cv_auc_sd = r$cv_roc$sd_auc,
-          test_auc = r$test_internal_roc$auc,
-          external_auc = if (!is.null(r$test_external_roc)) r$test_external_roc$auc else NA, ran_at = r$ran_at)))
+          test_auc = r$test_internal_roc$auc, ran_at = r$ran_at)))
         utils::write.csv(tbl, file, row.names = FALSE)
       }
     )
@@ -1236,21 +1253,15 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(tbl, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Test Data ------------------------------------------------------
+    ## ---- Test Internal Data ------------------------------------------------------
 
     output$testdata_ui <- renderUI({
       req(dxm$validated)
       intr <- dxm_intersect_features(colnames(dxm$train_X), colnames(dxm$test_internal_X))
-      out <- list(box(width = 12, status = "primary", solidHeader = TRUE, title = "Test Data",
+      out <- list(box(width = 12, status = "primary", solidHeader = TRUE, title = "Test Internal Data",
         p(sprintf("%d training samples; %d test samples.", nrow(dxm$train_X), nrow(dxm$test_internal_X))),
         tags$ul(tags$li(sprintf("Training features: %d", length(intr$train))), tags$li(sprintf("Test features: %d", length(intr$test))),
                 tags$li(sprintf("Shared features: %d", length(intr$shared))), tags$li(sprintf("Unmatched (dropped) features: %d", length(intr$unmatched))))))
-      if (isTRUE(dxm$has_external)) {
-        intr_e <- dxm_intersect_features(colnames(dxm$train_X), colnames(dxm$test_external_X))
-        out <- c(out, list(box(width = 12, status = "primary", solidHeader = TRUE, title = "External Test Data",
-          p(sprintf("%d external test samples (an independent cohort - female stratum only).", nrow(dxm$test_external_X))),
-          tags$ul(tags$li(sprintf("Shared features: %d", length(intr_e$shared))), tags$li(sprintf("Unmatched (dropped) features: %d", length(intr_e$unmatched)))))))
-      }
       tagList(out)
     })
 
@@ -1271,8 +1282,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
           model = r$label, analysis_type = r$analysis_type, n_features = length(r$feature_ids),
           features = paste(r$feature_ids, collapse = ";"), threshold = r$threshold,
           train_auc = r$train_roc$auc, cv_auc = r$cv_roc$mean_auc, cv_auc_sd = r$cv_roc$sd_auc,
-          test_auc = r$test_internal_roc$auc,
-          external_auc = if (!is.null(r$test_external_roc)) r$test_external_roc$auc else NA, ran_at = r$ran_at)))
+          test_auc = r$test_internal_roc$auc, ran_at = r$ran_at)))
         utils::write.csv(tbl, file, row.names = FALSE)
       }
     )

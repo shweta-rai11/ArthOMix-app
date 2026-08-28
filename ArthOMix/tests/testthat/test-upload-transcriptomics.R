@@ -47,5 +47,12 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
 
   html <- app$get_html("body")
   expect_false(grepl("shiny-output-error", html, fixed = TRUE))
-  expect_true(grepl("Loaded", app$get_html("#tx_dataset-load_message")))
+  ## mod_dataset.R's load_btn observer renders "Previewed <n> genes across <n>
+  ## samples..." on success, or "Could not load this dataset: ..." on failure -
+  ## check for the actual success text (this used to check for "Loaded", which
+  ## the real message never contains, so this assertion always failed whenever
+  ## the test was actually run).
+  load_message <- app$get_html("#tx_dataset-load_message")
+  expect_true(grepl("Previewed", load_message, fixed = TRUE))
+  expect_false(grepl("Could not load", load_message, fixed = TRUE))
 })

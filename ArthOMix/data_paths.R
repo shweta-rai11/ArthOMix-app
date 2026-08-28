@@ -121,8 +121,8 @@ CX_DATA_AVAILABLE <- dir.exists(CX_DATA_ROOT)
 CX_RESULTS_DIR <- file.path(CX_DATA_ROOT, "tables")
 
 CX_TABLE_REGISTRY <- list(
-  "Master convergence table (all layers, both sexes)" = file.path(CX_RESULTS_DIR, "MASTER_cross_omics_all_layers.csv"),
-  "Tier 1 verified biomarkers" = file.path(CX_RESULTS_DIR, "TIER1_MASTER_verified.csv"),
+  "Combined convergence table (all layers, both sexes)" = file.path(CX_RESULTS_DIR, "MASTER_cross_omics_all_layers.csv"),
+  "Tier 1 candidate biomarkers" = file.path(CX_RESULTS_DIR, "TIER1_MASTER_verified.csv"),
   "eQTL x mQTL combined" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_combined.csv"),
   "eQTL x mQTL - female" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_female.csv"),
   "eQTL x mQTL - male" = file.path(CX_RESULTS_DIR, "cross_omics_eQTL_mQTL_male.csv"),

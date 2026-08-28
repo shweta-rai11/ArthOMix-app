@@ -43,7 +43,7 @@
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Validation",
   title = "Cross-Ancestry Validation",
-  description = "Run-triggered replication (European) and transferability (East Asian) calls for the prioritised MR genes, with a headline count of validated cross-ancestry biomarkers per sex - or upload your own replacement replication/transfer GWAS.",
+  description = "Validation of the diagnostic model based on different ancestral type and sex. Either work on preloaded data or upload your own data.",
   icon = "earth-americas"
 )
 
@@ -103,10 +103,6 @@ mod_crossancestry_ui <- function(id) {
     fluidRow(
       column(
         3,
-        arthochat_shortcut_ui(
-          "Questions about cross-ancestry validation? Ask ArthOChat.",
-          compact = TRUE
-        ),
         box(
           width = NULL, title = "Ancestry GWAS", status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Applies to both Female and Male tabs (sex-combined GWAS)."),

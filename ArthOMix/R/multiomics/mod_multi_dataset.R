@@ -146,8 +146,15 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
   mode <- match.arg(mode)
   bid <- mo_block_id(i, mode)
   box(
-    width = NULL, title = sprintf("Dataset %d%s", i, if (i <= 2) " (required)" else " (optional)"),
-    status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = i > 2,
+    width = NULL, title = sprintf("Dataset %d%s", i, if (i <= 2) " (required)" else ""),
+    ## Boxes here are inserted dynamically via renderUI (mo_block_ui() is
+    ## called from output$upload_blocks_ui / output$geo_blocks_ui, which
+    ## re-render as a whole every time n_upload_blocks()/n_geo_blocks()
+    ## changes) - shinydashboard's collapse click handler never binds to
+    ## content added this way, so a block that started collapsed could
+    ## never be expanded. Always render expanded to avoid depending on
+    ## that broken toggle.
+    status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
     selectInput(ns(paste0(bid, "_type")), "Omics type", choices = MULTI_LIVE_OMICS_TYPES,
                 selected = if (i == 1) "rnaseq" else if (i == 2) "methylation" else "other"),
     textInput(ns(paste0(bid, "_label")), "Display label", value = sprintf("Dataset %d", i)),
@@ -155,6 +162,13 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
     if (identical(mode, "upload")) tagList(
       fileInput(ns(paste0(bid, "_file")), "File (CSV, TSV, TXT, XLSX, or RDS)",
                 accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+      ## Per-dataset metadata (optional) - merged by sample ID into the
+      ## session's combined sample metadata alongside every other dataset's
+      ## own upload here and the shared "Sample Metadata" file below, via
+      ## the same mo_merge_sample_meta() union-of-IDs logic (spec: no source
+      ## silently overwrites another).
+      fileInput(ns(paste0(bid, "_meta_file")), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
+                accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_orient_note"))),
       ## Wide (samples/features matrix) vs. long/tidy (one row per
       ## measurement) is auto-detected on upload (multi_live_detect_table_shape())
@@ -164,9 +178,13 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
       ## matrix the rest of this pipeline already consumes.
       uiOutput(ns(paste0(bid, "_shape_ui")))
     ) else tagList(
-      div(style = "display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;",
-          div(style = "flex:1 1 160px;", textInput(ns(paste0(bid, "_geo_acc")), "GEO accession", placeholder = "GSE12345")),
-          actionButton(ns(paste0(bid, "_geo_fetch")), "Search GEO", icon = icon("magnifying-glass"), class = "btn-primary btn-sm")),
+      textInput(ns(paste0(bid, "_geo_acc")), "GEO accession", placeholder = "GSE12345"),
+      ## GEO series already carry their own sample metadata (wired up
+      ## automatically below on fetch) - this lets a user layer on
+      ## additional columns of their own, same optional/merge semantics as
+      ## the Upload branch's per-dataset metadata file above.
+      fileInput(ns(paste0(bid, "_meta_file")), "Additional sample metadata for this dataset (optional, CSV, first column = sample ID)",
+                accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_geo_platform_ui"))),
       uiOutput(ns(paste0(bid, "_geo_status")))
     ),
@@ -215,10 +233,7 @@ mod_multi_dataset_ui <- function(id) {
           conditionalPanel(
             condition = sprintf("input['%s'] == 'upload'", ns("dataset_source")),
             uiOutput(ns("upload_blocks_ui")),
-            uiOutput(ns("add_upload_block_ui")),
-            box(width = NULL, title = "Sample Metadata (optional)", status = "primary", solidHeader = FALSE,
-                fileInput(ns("meta_file"), "Metadata (CSV, first column = sample ID)", accept = c(".csv")),
-                p(class = "submodule-desc", "Used for batch/phenotype diagnostics and Patient ID sample matching (if present)."))
+            uiOutput(ns("add_upload_block_ui"))
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'geo'", ns("dataset_source")),
@@ -330,6 +345,17 @@ mo_merge_sample_meta <- function(a, b) {
   for (cn in colnames(a)) out[[cn]] <- a[match(all_ids, rownames(a)), cn]
   for (cn in colnames(b)) out[[cn]] <- b[match(all_ids, rownames(b)), cn]
   out
+}
+
+## Reads one uploaded metadata CSV (first column = sample ID) into a
+## rowname-keyed data.frame, or NULL if unreadable/empty - shared by every
+## per-dataset metadata upload and the session-wide one below.
+mo_read_meta_file <- function(fi) {
+  if (is.null(fi)) return(NULL)
+  m <- tryCatch(as.data.frame(data.table::fread(fi$datapath, showProgress = FALSE)), error = function(e) NULL)
+  if (is.null(m) || ncol(m) < 1) return(NULL)
+  rownames(m) <- as.character(m[[1]])
+  m
 }
 
 mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
@@ -593,6 +619,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       mats <- list(); validations <- list(); labels <- list(); provenance <- list()
 
       long_group_dfs <- list()
+      explicit_meta_dfs <- list()
 
       if (identical(mode, "upload")) {
         for (i in seq_len(n_upload_blocks())) {
@@ -631,6 +658,8 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           }
           validations[[label]] <- multi_live_validate_matrix(mats[[label]], layer_label = label)
           labels[[ubid]] <- label
+          m <- mo_read_meta_file(input[[paste0(ubid, "_meta_file")]])
+          if (!is.null(m)) explicit_meta_dfs[[label]] <- m
         }
       } else if (identical(mode, "geo")) {
         for (i in seq_len(n_geo_blocks())) {
@@ -644,6 +673,8 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           labels[[gbid]] <- label
           provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           if (is.null(raw$meta) && !is.null(gf$meta)) raw$meta <- gf$meta
+          m <- mo_read_meta_file(input[[paste0(gbid, "_meta_file")]])
+          if (!is.null(m)) explicit_meta_dfs[[label]] <- m
         }
       }
 
@@ -656,18 +687,18 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
       ## Compose sample metadata rather than one source silently overwriting
       ## another: any group/condition columns detected from long-format
-      ## layers above, merged first, then an explicitly uploaded metadata
-      ## file layered on top (its own columns win on a name collision, since
-      ## it's the more deliberate source) - so a long-format file's own
-      ## Control/Treatment column and a separately uploaded metadata file
-      ## both remain available to every downstream dropdown.
+      ## layers above, merged first, then each dataset's own explicitly
+      ## uploaded metadata file (already merged in per-block above) can
+      ## still extend/override on a name collision - so a long-format
+      ## file's own Control/Treatment column and every per-dataset metadata
+      ## upload both remain available to every downstream dropdown.
       if (length(long_group_dfs) > 0) {
         merged_groups <- Reduce(mo_merge_sample_meta, long_group_dfs)
         raw$meta <- mo_merge_sample_meta(raw$meta, merged_groups)
       }
-      if (!is.null(input$meta_file)) {
-        m <- tryCatch(as.data.frame(data.table::fread(input$meta_file$datapath, showProgress = FALSE)), error = function(e) NULL)
-        if (!is.null(m) && ncol(m) >= 1) { rownames(m) <- as.character(m[[1]]); raw$meta <- mo_merge_sample_meta(raw$meta, m) }
+      if (length(explicit_meta_dfs) > 0) {
+        merged_explicit <- Reduce(mo_merge_sample_meta, explicit_meta_dfs)
+        raw$meta <- mo_merge_sample_meta(raw$meta, merged_explicit)
       }
 
       showNotification(sprintf("Validated %d dataset(s).", length(mats)), type = "message")

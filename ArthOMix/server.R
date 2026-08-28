@@ -96,20 +96,34 @@ function(input, output, session) {
 
   ## ---- Cross-Omics: shared dataset + computed-results store, separate
   ## from `dataset`/`methyl_dataset` above - starts NULL until the
-  ## Cross-Omics Dataset tab (mod_cross_dataset.R) loads one of the
-  ## pipeline's own precomputed convergence/MR tables.
-  cross_dataset <- reactiveValues(table_label = NULL, df = NULL, source = NULL)
+  ## Cross-Omics Dataset tab (mod_cross_dataset.R) publishes a standardized
+  ## user_expr_*/user_meth_* pair (either its own "Example data" or "Upload
+  ## your own data" mode - both produce the identical shape) for the
+  ## "Expression and Methylation" sub-module's "From Dataset tab" input mode
+  ## to read.
+  cross_dataset <- reactiveValues(
+    user_expr_df = NULL, user_expr_source = NULL, user_expr_wide = NULL, user_expr_mapping = NULL, user_expr_sample_cols = character(0),
+    user_meth_df = NULL, user_meth_source = NULL, user_meth_wide = NULL, user_meth_mapping = NULL, user_meth_sample_cols = character(0)
+  )
   cross_results <- reactiveValues()
   mod_cross_dataset_server("cx_dataset", cross_dataset)
   ## The "integration" sub-module additionally receives the already-in-scope
   ## `dataset`/`results`/`methyl_dataset`/`methyl_results` handles (read-only)
   ## so its "Load from Transcriptomics/Methylomics" buttons can reuse results
   ## already generated in those tabs, without those modules being edited or
-  ## their own tabs being affected. The other Cross-Omics sub-modules keep
-  ## their original (id, cross_dataset, cross_results) call signature.
+  ## their own tabs being affected. "mrstage" additionally receives this
+  ## top-level `session` (NOT its own moduleServer session) so its "Ask
+  ## ArthOChat for a suggested dataset" button can call
+  ## shinychat::update_chat_user_input("arthochat-chat", ..., session = ...)
+  ## against ArthOChat's actual unnamespaced id - passing the module's own
+  ## session there would wrongly prefix it (e.g. "cx_mrstage-arthochat-chat").
+  ## The other Cross-Omics sub-modules keep their original (id,
+  ## cross_dataset, cross_results) call signature.
   lapply(CX_MODULES, function(m) {
     if (identical(m$config$id, "integration")) {
       m$server(paste0("cx_", m$config$id), cross_dataset, cross_results, dataset, results, methyl_dataset, methyl_results)
+    } else if (identical(m$config$id, "mrstage")) {
+      m$server(paste0("cx_", m$config$id), cross_dataset, cross_results, app_session = session)
     } else {
       m$server(paste0("cx_", m$config$id), cross_dataset, cross_results)
     }
@@ -132,9 +146,76 @@ function(input, output, session) {
   mod_multi_dataset_server("mo_dataset", multi_dataset, multi_results)
   lapply(MULTI_MODULES, function(m) m$server(paste0("mo_", m$config$id), multi_dataset, multi_results))
 
-  ## ---- ArthOChat: one shared assistant session for the whole app, its own
-  ## top-level tab (see ui.R) rather than nested inside a sub-module ---------
-  mod_arthochat_server("arthochat", dataset, results, cross_results)
+  ## ---- ArthOChat: one shared assistant session for the whole app, living in
+  ## its own slide-out drawer (see ui.R) rather than nested inside a
+  ## sub-module - context-scoped to whichever module/sub-module is currently
+  ## open, via `current_module_context` below.
+  ##
+  ## Resolves a tx_menu/mx_menu/cx_menu/mo_menu tab title (an existing input
+  ## these tabsetPanels already produce - see the sidebar nav observers
+  ## above) back to that vertical's own config$id, or NULL when the title
+  ## doesn't match any sub-module (the vertical's "Dataset"/"Sub-modules"
+  ## picker tab) - build_scoped_assistant_context() then falls back to that
+  ## vertical's whole-module view.
+  title_to_module_id <- function(modules_list, title) {
+    hit <- Find(function(m) identical(m$config$title, title), modules_list)
+    if (is.null(hit)) NULL else hit$config$id
+  }
+
+  ## Reads only the app's existing navigation inputs (sidebar_tabs is the
+  ## same tabsetPanel the sidebar itself navigates with; tx_menu/mx_menu/
+  ## cx_menu/mo_menu are each vertical's own sub-module tabset) - no second
+  ## navigation system. Recomputes only when one of those inputs actually
+  ## changes, so ArthOChat's context (mod_arthochat.R's system_prompt_r)
+  ## refreshes automatically on navigation without polling.
+  current_module_context <- reactive({
+    top <- input$sidebar_tabs %||% "home"
+    switch(top,
+      transcriptomics = list(
+        module = "transcriptomics",
+        submodule_id = title_to_module_id(TX_MODULES, input$tx_menu),
+        view_label = if (is.null(input$tx_menu)) "Transcriptomics" else sprintf("Transcriptomics / %s", input$tx_menu)
+      ),
+      methylomics = list(
+        module = "methylomics",
+        submodule_id = title_to_module_id(MX_MODULES, input$mx_menu),
+        view_label = if (is.null(input$mx_menu)) "Methylomics" else sprintf("Methylomics / %s", input$mx_menu)
+      ),
+      crossomics = list(
+        module = "crossomics",
+        submodule_id = title_to_module_id(CX_MODULES, input$cx_menu),
+        view_label = if (is.null(input$cx_menu)) "Cross-Omics" else sprintf("Cross-Omics / %s", input$cx_menu)
+      ),
+      multiomics = list(
+        module = "multiomics",
+        submodule_id = title_to_module_id(MULTI_MODULES, input$mo_menu),
+        view_label = if (is.null(input$mo_menu)) "Multi-Omics" else sprintf("Multi-Omics / %s", input$mo_menu)
+      ),
+      list(module = "app", submodule_id = NULL, view_label = "ArthOMix Explorer (no specific module open)")
+    )
+  })
+
+  ## Cross-Omics sidebar's "Ask ArthOChat" hint (ui.R's crossomicsUI()) -
+  ## Cross-Omics MR gets its own hint about selecting MR data (sex, or
+  ## preloaded vs. uploaded) instead of the generic panels-convergence blurb
+  ## every other Cross-Omics tab shows. No auto-open - same click-to-open
+  ## behavior as every other "Ask ArthOChat" trigger in the app.
+  output$cx_arthochat_hint <- renderUI({
+    hint <- if (identical(input$cx_menu, "Cross-Omics MR")) {
+      "Need help selecting MR data - which sex's evidence, or preloaded vs. your own upload? Ask ArthOChat."
+    } else {
+      "Questions about how the panels converge, or which sex/data source to select? Ask ArthOChat."
+    }
+    arthochat_shortcut_ui(hint, compact = TRUE)
+  })
+
+  mod_arthochat_server(
+    "arthochat", dataset, results,
+    methyl_dataset, methyl_results,
+    cross_dataset, cross_results,
+    multi_dataset, multi_results,
+    current_context = current_module_context
+  )
 
   ## ---- Instantiate every submodule server once; visibility is controlled --
   ## by insertTab()/removeTab() below, not by when the server is created.
@@ -345,23 +426,160 @@ function(input, output, session) {
     }
   }
 
-  observeEvent(input$sidebar_nav_transcriptomics_overview, {
-    jump_to_submodule("overview", sm_filter = "Overview")
-  }, ignoreInit = TRUE)
   observeEvent(input$sidebar_nav_transcriptomics_dataset, {
-    jump_to_submodule("overview", inner_tab = "Datasets", sm_filter = "Overview")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_transcriptomics_preprocessing, {
-    jump_to_submodule("preprocessing", inner_tab = "Preprocessing", sm_filter = "Preprocessing")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_transcriptomics_batchcorrection, {
-    jump_to_submodule("preprocessing", inner_tab = "Batch correction", sm_filter = "Preprocessing")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_transcriptomics_mergedatasets, {
-    jump_to_submodule("preprocessing", inner_tab = "Merge datasets", sm_filter = "Preprocessing")
+    updateTabsetPanel(session, "tx_menu", selected = "Dataset")
   }, ignoreInit = TRUE)
   observeEvent(input$sidebar_nav_transcriptomics_submodules, {
     updateTabsetPanel(session, "tx_menu", selected = "Sub-modules")
+  }, ignoreInit = TRUE)
+
+  ## Keeps the Transcriptomics sidebar's own "active" highlight in sync with
+  ## input$tx_menu (the actual source of truth for which tab is showing -
+  ## the same input every jump_to_submodule()/dynamic-nav observer above
+  ## already drives via updateTabsetPanel()). R/ui_shell.R's app_header()
+  ## used to do this purely client-side, listening for Bootstrap's
+  ## "shown.bs.tab" event - confirmed live (chromote) that this bslib/
+  ## Bootstrap-5 build never actually dispatches that event at all, on
+  ## either the outer module nav or tx_menu, so highlighting silently never
+  ## worked. Driving it server-side off input$tx_menu instead (via
+  ## shinyjs::runjs(), the same mechanism this app already uses for the
+  ## "Ask ArthOChat" drawer toggle) sidesteps that entirely: it only needs
+  ## the input value Shiny already guarantees is current, not a DOM event
+  ## that may or may not fire. Scoped to `:visible` for the same reason as
+  ## the old client-side version - Methylomics/Cross-Omics/Multi-Omics
+  ## sidebars share `data-match` values like "Sub-modules"/"Dataset" and
+  ## stay mounted (just hidden) while not the active top-level module.
+  highlight_tx_sidebar <- function() {
+    req(input$tx_menu)
+    ## Confirmed live (chromote): the exact same jQuery below, run manually
+    ## a moment later, DOES work - so the selectors are right, but this
+    ## message can arrive at the client and run before the just-clicked
+    ## tab's pane has actually finished becoming :visible (whatever
+    ## mechanism swaps it - not a fixed, predictable delay). Rather than
+    ## guess a setTimeout() duration, retry every 50ms until the
+    ## Transcriptomics sidebar column is actually visible (or give up after
+    ## ~1s, same as doing nothing today).
+    shinyjs::runjs(sprintf(
+      "(function retry(n){
+         var col = $('.omics-sidebar-col:visible');
+         if (col.length) {
+           col.find('.sidebar-nav-item').removeClass('active');
+           col.find('.sidebar-nav-item[data-match=\"%s\"]').addClass('active');
+         } else if (n > 0) {
+           setTimeout(function(){ retry(n - 1); }, 50);
+         }
+       })(20);",
+      gsub('(["\\\\])', "\\\\\\1", input$tx_menu)
+    ))
+  }
+  observeEvent(input$tx_menu, highlight_tx_sidebar())
+  ## Also re-run on arriving at Transcriptomics itself: tx_menu may not have
+  ## changed value at all (e.g. its default "Dataset" tab is still selected
+  ## from last visit), so the observer above alone wouldn't fire again.
+  observeEvent(input$sidebar_tabs, {
+    if (identical(input$sidebar_tabs, "transcriptomics")) highlight_tx_sidebar()
+  }, ignoreInit = TRUE)
+
+  ## Dynamic per-added-sub-module sidebar shortcuts (ui.R's
+  ## TRANSCRIPTOMICS_SIDEBAR_NAV comment, R/ui_shell.R's omics_sidebar()):
+  ## one click observer per TX_MODULES entry, registered upfront since
+  ## TX_MODULES itself is fixed at app start - the <li> that would trigger
+  ## it only actually exists in the DOM once tx_sidebar_dynamic_nav below
+  ## renders it (i.e. once that sub-module is in `added$ids`), so this is
+  ## inert, not wrong, for every not-yet-added sub-module in the meantime.
+  lapply(TX_MODULES, function(m) {
+    hid <- m$config$id
+    observeEvent(input[[paste0("sidebar_nav_transcriptomics_dyn_", hid)]], {
+      updateTabsetPanel(session, "tx_menu", selected = m$config$title)
+    }, ignoreInit = TRUE)
+  })
+
+  ## Renders one shortcut per sub-module currently in `added$ids` - the same
+  ## reactiveValues the Sub-modules grid's own Add/Remove toggles above
+  ## already maintain, so adding/removing a sub-module there grows/shrinks
+  ## this list automatically, with no separate tracking of its own.
+  output$tx_sidebar_dynamic_nav <- renderUI({
+    tagList(lapply(TX_MODULES, function(m) {
+      hid <- m$config$id
+      if (!hid %in% added$ids) return(NULL)
+      tags$li(
+        tags$a(
+          id = paste0("sidebar_nav_transcriptomics_dyn_", hid), href = "#",
+          class = "sidebar-nav-item action-button",
+          `data-match` = m$config$title,
+          icon(m$config$icon), m$config$title
+        )
+      )
+    }))
+  })
+  ## Same pre-existing suspendWhenHidden bug this app already works around
+  ## dozens of times elsewhere (e.g. mod_methyl_dmp.R's "default_table" -
+  ## see its own comment): this output sits inside the Transcriptomics
+  ## sidebar column, itself nested inside the outer sidebar_tabs tab-pane -
+  ## Shiny's client-side "is this element visible yet" detection never
+  ## correctly fires in that layout, so without this the sidebar never
+  ## picks up any added sub-module at all, confirmed live (the <ul> stays
+  ## permanently empty and stuck "recalculating").
+  outputOptions(output, "tx_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
+
+  ## ArthOChat sidebar hint, retitled per whichever tx_menu tab is open -
+  ## title_to_module_id() returns NULL for "Dataset"/"Sub-modules" (not a
+  ## real sub-module), so those fall back to the generic hint below.
+  output$tx_sidebar_arthochat_hint <- renderUI({
+    mod_id <- title_to_module_id(TX_MODULES, input$tx_menu)
+    hint <- if (is.null(mod_id)) {
+      "Ask ArthOChat about any module title or your dataset."
+    } else {
+      cfg <- TX_MODULES_BY_ID[[mod_id]]$config
+      paste0("Ask ArthOChat about ", cfg$title, ".")
+    }
+    arthochat_shortcut_ui(hint, compact = TRUE)
+  })
+  outputOptions(output, "tx_sidebar_arthochat_hint", suspendWhenHidden = FALSE)
+
+  ## ArthOChat sidebar hint, retitled per whichever mx_menu tab is open -
+  ## same mechanism as tx_sidebar_arthochat_hint above, against MX_MODULES/
+  ## MX_MODULES_BY_ID/"mx_menu" instead of TX_MODULES/TX_MODULES_BY_ID/
+  ## "tx_menu". Was a fixed string before (ui.R's methylomicsUI() passed
+  ## arthochat_shortcut_ui() a literal "Questions about DMPs, DMRs, WGCNA,
+  ## or this dataset?" every time), so unlike Transcriptomics's hint it
+  ## never actually named the sub-module you were looking at.
+  output$mx_sidebar_arthochat_hint <- renderUI({
+    mod_id <- title_to_module_id(MX_MODULES, input$mx_menu)
+    hint <- if (is.null(mod_id)) {
+      "Ask ArthOChat about any module title or your dataset."
+    } else {
+      cfg <- MX_MODULES_BY_ID[[mod_id]]$config
+      paste0("Ask ArthOChat about ", cfg$title, ".")
+    }
+    arthochat_shortcut_ui(hint, compact = TRUE)
+  })
+  outputOptions(output, "mx_sidebar_arthochat_hint", suspendWhenHidden = FALSE)
+
+  ## Keeps the Methylomics sidebar's own "active" highlight in sync with
+  ## input$mx_menu - same mechanism, and same reason, as
+  ## highlight_tx_sidebar() above (see its own comment for why this is
+  ## driven server-side via shinyjs::runjs() rather than the client-side
+  ## "shown.bs.tab" listener in R/ui_shell.R::app_header(), which never
+  ## fires on this build).
+  highlight_mx_sidebar <- function() {
+    req(input$mx_menu)
+    shinyjs::runjs(sprintf(
+      "(function retry(n){
+         var col = $('.omics-sidebar-col:visible');
+         if (col.length) {
+           col.find('.sidebar-nav-item').removeClass('active');
+           col.find('.sidebar-nav-item[data-match=\"%s\"]').addClass('active');
+         } else if (n > 0) {
+           setTimeout(function(){ retry(n - 1); }, 50);
+         }
+       })(20);",
+      gsub('(["\\\\])', "\\\\\\1", input$mx_menu)
+    ))
+  }
+  observeEvent(input$mx_menu, highlight_mx_sidebar())
+  observeEvent(input$sidebar_tabs, {
+    if (identical(input$sidebar_tabs, "methylomics")) highlight_mx_sidebar()
   }, ignoreInit = TRUE)
 
   ## Methylomics sidebar nav - same jump-or-fall-back-to-picker pattern as
@@ -379,15 +597,6 @@ function(input, output, session) {
   observeEvent(input$sidebar_nav_methylomics_dataset, {
     updateTabsetPanel(session, "mx_menu", selected = "Dataset")
   }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_methylomics_qc, {
-    jump_to_mx_submodule("qc", sm_filter = "Quality Control")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_methylomics_normalization, {
-    jump_to_mx_submodule("normalization", sm_filter = "Normalization")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_methylomics_dmp, {
-    jump_to_mx_submodule("dmp", sm_filter = "Differential Methylation")
-  }, ignoreInit = TRUE)
   ## Cell-Type Deconvolution has no dedicated sidebar entry of its own (it's
   ## still an unbuilt stub, only reachable via the Sub-modules grid) - this
   ## lets Quality Control's Cell Composition tab link out to it with the
@@ -399,6 +608,50 @@ function(input, output, session) {
   observeEvent(input$sidebar_nav_methylomics_submodules, {
     updateTabsetPanel(session, "mx_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
+
+  ## Dynamic per-added-sub-module sidebar shortcuts - same mechanism as
+  ## Transcriptomics's tx_sidebar_dynamic_nav above (ui.R's
+  ## METHYLOMICS_SIDEBAR_NAV comment, R/ui_shell.R's omics_sidebar()),
+  ## restricted to Quality Control/Normalization/Differential Methylation
+  ## rather than every MX_MODULES entry: those three are the only
+  ## sub-modules Methylomics's sidebar has ever surfaced a shortcut for:
+  ## celltype/dmr/wgcna/... stay reachable only from the Sub-modules grid,
+  ## same as before. Each only shows up here - and only becomes clickable -
+  ## once actually added from that grid, exactly like every Transcriptomics
+  ## sub-module shortcut.
+  MX_DYNAMIC_NAV_IDS <- c("qc", "normalization", "dmp")
+  lapply(MX_DYNAMIC_NAV_IDS, function(hid) {
+    m <- MX_MODULES_BY_ID[[hid]]
+    observeEvent(input[[paste0("sidebar_nav_methylomics_dyn_", hid)]], {
+      updateTabsetPanel(session, "mx_menu", selected = m$config$title)
+    }, ignoreInit = TRUE)
+  })
+
+  ## Renders one shortcut per MX_DYNAMIC_NAV_IDS entry currently in
+  ## `mx_added$ids` - same reactiveValues the Sub-modules grid's own
+  ## Add/Remove toggles above already maintain, so adding/removing one of
+  ## these three there grows/shrinks this list automatically, with no
+  ## separate tracking of its own.
+  output$mx_sidebar_dynamic_nav <- renderUI({
+    tagList(lapply(MX_DYNAMIC_NAV_IDS, function(hid) {
+      if (!hid %in% mx_added$ids) return(NULL)
+      m <- MX_MODULES_BY_ID[[hid]]
+      tags$li(
+        tags$a(
+          id = paste0("sidebar_nav_methylomics_dyn_", hid), href = "#",
+          class = "sidebar-nav-item action-button",
+          `data-match` = m$config$title,
+          icon(m$config$icon), m$config$title
+        )
+      )
+    }))
+  })
+  ## Same pre-existing suspendWhenHidden bug tx_sidebar_dynamic_nav already
+  ## works around above (see its own comment) - this output sits inside the
+  ## Methylomics sidebar column, itself nested inside the outer
+  ## sidebar_tabs tab-pane, so without this the sidebar never picks up any
+  ## added sub-module at all.
+  outputOptions(output, "mx_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
 
   ## Cross-Omics sidebar nav - same jump-or-fall-back-to-picker pattern as
   ## jump_to_mx_submodule() above, against CX_MODULES/"cx_menu"/cx_added$ids.
@@ -520,7 +773,7 @@ function(input, output, session) {
   output$cx_page_subtitle <- renderUI({
     sel <- input$cx_menu %||% "Dataset"
     txt <- switch(sel,
-      "Dataset" = "Browse the pipeline's biomarker-convergence tables",
+      "Dataset" = "Load example or your own DEG/DMP data",
       "Sub-modules" = "Add or remove pipeline analyses",
       sel
     )

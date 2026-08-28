@@ -27,6 +27,14 @@ CX_MR_DATA_AVAILABLE <- CX_DATA_AVAILABLE && file.exists(CX_MR_PRECOMPUTED_FILE)
 CX_MR_OUTCOME_ID <- "GCST90132223"
 CX_MR_OUTCOME_NAME <- "Rheumatoid arthritis (Ishigaki et al. 2022, GCST90132223)"
 
+## Volcano-plot direction levels (mod_cross_mr_stage.R's build_volcano_plot()) -
+## b is the MR log-odds estimate, so b > 0 means the exposure increases RA
+## risk ("Up") and b < 0 means it's protective ("Down"), the same up/down
+## framing as a differential-expression volcano. Direction is only
+## meaningful among significant points; every non-significant point is
+## grouped as "Not significant" regardless of its sign.
+CX_MR_VOLCANO_LEVELS <- c("Up (risk, b > 0)", "Down (protective, b < 0)", "Not significant")
+
 ## ---------------------------------------------------------------------------
 ## Precomputed MR results (the module's only data source) - the pipeline's
 ## own already-run Wald-ratio output, one row per CpG-instrument: cpg,
@@ -42,108 +50,173 @@ cx_mr_load_precomputed <- function() {
   if (inherits(df, "error")) return(list(ok = FALSE, df = NULL, error = paste("Could not read the precomputed MR results:", conditionMessage(df))))
   if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "The precomputed MR results file has no rows."))
   ## steiger_dir is stored as a string ("TRUE"/"FALSE") in the CSV; every
-  ## downstream comparison (cx_mr_classify_tier()) expects a logical.
+  ## downstream comparison expects a logical.
   if (!is.logical(df$steiger_dir)) df$steiger_dir <- as.logical(df$steiger_dir)
   list(ok = TRUE, df = df, error = NULL)
 }
 
 ## ---------------------------------------------------------------------------
-## Tier classification - NOT computed by either pipeline script; implemented
-## here from the exact rule stated in
-## cross_Omics_Sexstratified_COPY/results/CROSS_OMICS_REPORT.md sections
-## 4.2.6-4.2.7:
-##
-##   "credible" mQTL-MR = BH-FDR significant AND gene not MHC-flagged AND
-##   Steiger filtering supports the intended (methylation -> disease)
-##   direction.
-##
-##   Tier 1 = DEG significant AND (DMP or DMR significant) AND credible
-##   mQTL-MR.
-##   Tier 2 = DEG significant AND exactly one of {(DMP or DMR significant),
-##   credible mQTL-MR}.
-##   Tier 3 = everything else.
-##
-## This is quoted verbatim in the module's own UI (never a black box).
+## "Upload your own data" - MR instrument results, as an alternative to the
+## precomputed file above. Same list(ok, df, error) contract, same
+## cx_read_table() (crossomics_integration_upload.R) parser every other
+## upload path in this app uses. Only "gene" and "pval" are required - every
+## other column (cpg, SNP, nsnp, b, se, OR, OR_lo, OR_hi, FDR, steiger_dir,
+## steiger_pval) is optional and simply reads as unavailable if omitted,
+## never fabricated. FDR is recomputed via BH from pval when not supplied -
+## a standard multiple-testing correction on the caller's own p-values, not
+## a new statistical test.
 ## ---------------------------------------------------------------------------
 
-CX_MR_TIER_LEVELS <- c("Tier 1", "Tier 2", "Tier 3")
+CX_MR_REQUIRED_UPLOAD_COLS <- c("gene", "pval")
 
-CX_MR_TIER_DEFAULT_FILTERS <- list(fdr_cutoff = 0.05, require_steiger = TRUE, exclude_mhc = TRUE)
+cx_mr_load_upload <- function(datapath, filename) {
+  res <- cx_read_table(datapath, filename)
+  if (!res$ok) return(list(ok = FALSE, df = NULL, error = res$error))
+  df <- res$df
+  missing <- setdiff(CX_MR_REQUIRED_UPLOAD_COLS, colnames(df))
+  if (length(missing) > 0) {
+    return(list(ok = FALSE, df = NULL, error = sprintf(
+      "This MR results file is missing required column(s): %s. One row per CpG-instrument; \"gene\" and \"pval\" are required.",
+      paste(missing, collapse = ", "))))
+  }
+  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "The uploaded MR results file has no rows."))
+  df$gene <- as.character(df$gene)
+  df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
+  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No row in the uploaded MR results file has a non-empty gene value."))
+  df$pval <- suppressWarnings(as.numeric(df$pval))
+  for (cl in intersect(c("b", "se", "OR", "OR_lo", "OR_hi", "FDR", "nsnp", "steiger_pval"), colnames(df))) {
+    df[[cl]] <- suppressWarnings(as.numeric(df[[cl]]))
+  }
+  if (!"FDR" %in% colnames(df) || all(is.na(df$FDR))) {
+    ok <- !is.na(df$pval)
+    df$FDR <- NA_real_
+    df$FDR[ok] <- stats::p.adjust(df$pval[ok], method = "BH")
+  }
+  if (!"steiger_dir" %in% colnames(df)) df$steiger_dir <- NA
+  else if (!is.logical(df$steiger_dir)) df$steiger_dir <- as.logical(df$steiger_dir)
+  if (!"cpg" %in% colnames(df)) df$cpg <- NA_character_
+  if (!"SNP" %in% colnames(df)) df$SNP <- NA_character_
+  list(ok = TRUE, df = df, error = NULL)
+}
 
-## Rendered from the actual filter values in use, not a fixed string - so
-## the UI always shows the rule that was really applied, not just the
-## report's own original defaults.
-cx_mr_tier_rule_text <- function(filters = CX_MR_TIER_DEFAULT_FILTERS) {
-  f <- utils::modifyList(CX_MR_TIER_DEFAULT_FILTERS, filters %||% list())
-  c(
-    sprintf("\"Credible\" mQTL-MR evidence = FDR < %s (Benjamini-Hochberg, as computed by the pipeline's own MR run)%s%s.",
-            f$fdr_cutoff,
-            if (isTRUE(f$exclude_mhc)) " AND the gene is not MHC-flagged (per the eQTL-MR panel's own MHC_gene flag)" else " (MHC-flagged genes are NOT excluded at this setting)",
-            if (isTRUE(f$require_steiger)) " AND Steiger filtering supports the methylation -> disease direction" else " (Steiger direction is NOT required at this setting)"),
-    "Tier 1: DEG significant AND (DMP genome-wide-significant OR DMR significant) AND credible mQTL-MR evidence.",
-    "Tier 2: DEG significant AND exactly one of - (DMP or DMR significant), credible mQTL-MR evidence.",
-    "Tier 3: every other gene in the join (including genes with DEG evidence only, or with methylation evidence but no qualifying mQTL-MR support).",
-    "Source: cross_Omics_Sexstratified_COPY/results/CROSS_OMICS_REPORT.md, sections 4.2.6-4.2.7. Implemented here in code for the first time - neither pipeline script computes Tier; this module reproduces the documented rule, on whichever filter values are currently set (defaults match the report's own)."
+## ---------------------------------------------------------------------------
+## Evidence-combination categories - replaces this module's original Tier
+## 1/2/3 priority ranking (which followed cross_Omics_Sexstratified_COPY/
+## results/CROSS_OMICS_REPORT.md sections 4.2.6-4.2.7) with 5 independently-
+## checked evidence combinations, one per tab, requested explicitly rather
+## than derived from the pipeline report. A gene can match more than one
+## category (e.g. both DEG-eQTL and DMP-mQTL at once) - these are NOT
+## mutually exclusive tiers, unlike the scheme they replace.
+##
+## Every significance flag used below (DEG_significant, DMP_genomewide_
+## significant, DMR_significant, mQTL_MR_significant, eQTL_MR_significant)
+## is join_df's own column, already computed by cx_bc_relabel()
+## (crossomics_biomarkerconv_helpers.R) at Biomarker Convergence's own
+## default thresholds (CX_BC_DEFAULT_PARAMS) - the exact same flags that
+## module's own eQTL-MR/mQTL-MR/eQTL-mQTL tabs use, including the mQTL-MR
+## panel-membership backfill documented there. There is no separate
+## "credible" mQTL-MR definition here anymore (that lived behind this
+## module's old FDR/MHC/Steiger filter inputs, removed along with Tier
+## 1/2/3) - every category below is pure relabeling of join_df, so it's
+## just as instant as the scheme it replaces, but reconfigured from the
+## Biomarker Convergence tab's thresholds, not from filters on this page.
+## ---------------------------------------------------------------------------
+
+CX_MR_CATEGORIES <- list(
+  list(id = "deg_dmp_qtl", tab = "DEG-DMP-QTL",
+       rule_text = "DEG significant AND DMP genome-wide-significant AND mQTL-MR significant AND eQTL-MR significant.",
+       cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "DMP_top_cpg", "DMP_dbeta", "DMP_direction", "DMP_fdr_bacon",
+                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+  list(id = "deg_dmr_qtl", tab = "DEG-DMR-QTL",
+       rule_text = "DEG significant AND DMR significant AND mQTL-MR significant AND eQTL-MR significant.",
+       cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "DMR_id", "DMR_meandiff", "DMR_direction", "DMR_fdr",
+                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+  list(id = "deg_eqtl", tab = "DEG-eQTL",
+       rule_text = "DEG significant AND eQTL-MR significant.",
+       cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+  list(id = "dmp_mqtl", tab = "DMP-mQTL",
+       rule_text = "DMP genome-wide-significant AND mQTL-MR significant.",
+       cols = c("gene", "DMP_top_cpg", "DMP_dbeta", "DMP_direction", "DMP_fdr_bacon", "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval")),
+  list(id = "dmr_mqtl", tab = "DMR-mQTL",
+       rule_text = "DMR significant AND mQTL-MR significant.",
+       cols = c("gene", "DMR_id", "DMR_meandiff", "DMR_direction", "DMR_fdr", "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval"))
+)
+
+## ---------------------------------------------------------------------------
+## "Upload your own data" - a gene-level evidence table, as an alternative
+## to Biomarker Convergence's own precomputed table (either instead of, or
+## even when Biomarker Convergence itself has no upload option for DEG/DMP/
+## DMR). Only "gene" is required; every DEG/DMP/DMR/mQTL-MR/eQTL-MR column
+## below is optional and defaults to NA (never fabricated) if omitted -
+## missing columns simply mean that layer reads as "not significant/not
+## evaluated" once run through cx_bc_relabel() (crossomics_biomarkerconv_
+## helpers.R, reused unchanged here - same column names, same default
+## thresholds, so an uploaded table plugs into cx_mr_classify_categories()
+## exactly like the preloaded one does).
+## ---------------------------------------------------------------------------
+
+CX_MR_EVIDENCE_UPLOAD_NUMERIC_COLS <- c("DEG_logFC", "DEG_adjP", "DMP_dbeta", "DMP_fdr_bacon", "DMR_meandiff", "DMR_fdr",
+                                         "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_FDR")
+CX_MR_EVIDENCE_UPLOAD_TEXT_COLS <- c("DEG_direction", "DMP_top_cpg", "DMP_direction", "DMR_id", "DMR_direction",
+                                      "mQTL_candidate_cpg", "eQTL_MR_direction")
+
+cx_mr_load_evidence_upload <- function(datapath, filename) {
+  res <- cx_read_table(datapath, filename)
+  if (!res$ok) return(list(ok = FALSE, df = NULL, error = res$error))
+  df <- res$df
+  if (!"gene" %in% colnames(df)) {
+    return(list(ok = FALSE, df = NULL, error = "This evidence file is missing the required \"gene\" column. One row per gene."))
+  }
+  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "The uploaded evidence file has no rows."))
+  df$gene <- as.character(df$gene)
+  df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
+  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No row in the uploaded evidence file has a non-empty gene value."))
+  for (cl in intersect(CX_MR_EVIDENCE_UPLOAD_NUMERIC_COLS, colnames(df))) df[[cl]] <- suppressWarnings(as.numeric(df[[cl]]))
+  for (cl in CX_MR_EVIDENCE_UPLOAD_NUMERIC_COLS) if (!cl %in% colnames(df)) df[[cl]] <- NA_real_
+  for (cl in CX_MR_EVIDENCE_UPLOAD_TEXT_COLS) if (!cl %in% colnames(df)) df[[cl]] <- NA_character_
+  ## No panel-membership column to read (unlike Biomarker Convergence's own
+  ## eQTL upload path, and unlike the preloaded pipeline table where
+  ## in_eQTL_MR_panel was already FDR<0.05-filtered upstream before this
+  ## app ever saw it - see cx_bc_relabel()'s own comment on
+  ## eQTL_MR_significant). cx_bc_relabel() reads in_eQTL_MR_panel directly
+  ## as "eQTL-MR significant" with no threshold of its own, so it has to be
+  ## computed AT that same 0.05 threshold here - merely having a non-NA
+  ## eQTL_MR_FDR value is not enough (a gene with eQTL_MR_FDR = 0.9 must
+  ## NOT count as "in panel").
+  df$in_eQTL_MR_panel <- !is.na(df$eQTL_MR_FDR) & df$eQTL_MR_FDR < 0.05
+  list(ok = TRUE, df = df, error = NULL)
+}
+
+## `join_df` is cx_bc_relabel()'d Biomarker Convergence data for the
+## selected sex. Returns NULL if join_df is NULL (evidence not available -
+## matches every other cx_*() loader's fail-soft contract). Otherwise
+## returns a named list (by CX_MR_CATEGORIES id) of data.frames, each
+## pre-filtered to the genes matching that category's rule and restricted
+## to that category's own relevant columns (only columns actually present
+## in join_df are kept - never fabricates a column the data doesn't have).
+cx_mr_classify_categories <- function(join_df) {
+  if (is.null(join_df)) return(NULL)
+  df <- join_df
+  flags <- list(
+    deg  = df$DEG_significant %in% TRUE,
+    dmp  = df$DMP_genomewide_significant %in% TRUE,
+    dmr  = df$DMR_significant %in% TRUE,
+    mqtl = df$mQTL_MR_significant %in% TRUE,
+    eqtl = df$eQTL_MR_significant %in% TRUE
+  )
+  matches <- list(
+    deg_dmp_qtl = flags$deg & flags$dmp & flags$mqtl & flags$eqtl,
+    deg_dmr_qtl = flags$deg & flags$dmr & flags$mqtl & flags$eqtl,
+    deg_eqtl    = flags$deg & flags$eqtl,
+    dmp_mqtl    = flags$dmp & flags$mqtl,
+    dmr_mqtl    = flags$dmr & flags$mqtl
+  )
+  setNames(
+    lapply(CX_MR_CATEGORIES, function(cat) {
+      cols <- intersect(cat$cols, colnames(df))
+      df[matches[[cat$id]] %in% TRUE, cols, drop = FALSE]
+    }),
+    vapply(CX_MR_CATEGORIES, function(cat) cat$id, character(1))
   )
 }
 
-## `mr_df` is cx_mr_load_precomputed()$df (needs gene, FDR, steiger_dir -
-## `mr_significant` is recomputed here at `filters$fdr_cutoff` rather than
-## trusted as-is, so relabeling significance is instant). `join_df` is
-## cx_bc_load_precomputed()$df (optionally cx_bc_relabel()'d) for the SAME
-## sex (needs gene, DEG_significant, methylation_significant,
-## eQTL_MHC_region) - if NULL, DEG/methylation evidence is reported "Not
-## available" rather than guessed, and every gene falls back to Tier 3 (the
-## only tier reachable without that evidence). `filters` lets the "credible
-## mQTL-MR" definition itself be reconfigured (FDR cutoff, whether
-## MHC-flagged genes are excluded, whether Steiger direction is required) -
-## all cheap relabeling of already-computed values, so this whole function
-## is fast enough to call on every filter change, no "Run" button needed.
-cx_mr_classify_tier <- function(mr_df, join_df = NULL, filters = CX_MR_TIER_DEFAULT_FILTERS) {
-  f <- utils::modifyList(CX_MR_TIER_DEFAULT_FILTERS, filters %||% list())
-  mr_best <- cx_bc_dedup_min(mr_df, "gene", "pval")  ## best (lowest-p) instrument per gene, matching the pipeline's own per-gene summary
-  mr_best$mr_significant <- !is.na(mr_best$FDR) & mr_best$FDR < f$fdr_cutoff
-  mr_best$credible_mQTL_MR <- mr_best$mr_significant
-  if (isTRUE(f$require_steiger)) mr_best$credible_mQTL_MR <- mr_best$credible_mQTL_MR & !(mr_best$steiger_dir %in% FALSE)
-
-  if (is.null(join_df)) {
-    out <- data.frame(gene = mr_best$gene, DEG_significant = NA, methylation_significant = NA,
-                       credible_mQTL_MR = mr_best$credible_mQTL_MR, tier = "Tier 3",
-                       tier_evidence_available = FALSE, stringsAsFactors = FALSE)
-    return(out)
-  }
-  if (isTRUE(f$exclude_mhc)) {
-    eqtl_mhc <- unique(join_df[, c("gene", "eQTL_MHC_region"), drop = FALSE])
-    mr_best <- merge(mr_best, eqtl_mhc, by = "gene", all.x = TRUE)
-    mr_best$credible_mQTL_MR <- mr_best$credible_mQTL_MR & !(mr_best$eQTL_MHC_region %in% TRUE)
-  }
-
-  ev <- unique(join_df[, c("gene", "DEG_significant", "methylation_significant"), drop = FALSE])
-  out <- merge(ev, mr_best[, c("gene", "credible_mQTL_MR"), drop = FALSE], by = "gene", all.x = TRUE)
-  out$credible_mQTL_MR[is.na(out$credible_mQTL_MR)] <- FALSE
-
-  n_secondary <- rowSums(cbind(out$methylation_significant %in% TRUE, out$credible_mQTL_MR %in% TRUE))
-  out$tier <- "Tier 3"
-  out$tier[out$DEG_significant %in% TRUE & n_secondary == 1] <- "Tier 2"
-  out$tier[out$DEG_significant %in% TRUE & n_secondary >= 2] <- "Tier 1"
-  out$tier <- factor(out$tier, levels = CX_MR_TIER_LEVELS)
-  out$tier_evidence_available <- TRUE
-  out
-}
-
-cx_mr_build_provenance <- function(filters, n_instruments, join_sex, run_at) {
-  f <- utils::modifyList(CX_MR_TIER_DEFAULT_FILTERS, filters %||% list())
-  c(
-    sprintf("Source: cross_Omics_Sexstratified_COPY/results/%s - the pipeline's own already-run MR results (no re-computation performed here).", basename(CX_MR_PRECOMPUTED_FILE)),
-    "Exposure: GoDMC (Min et al. 2021) cis-mQTL summary statistics, one lead cis-SNP per CpG.",
-    sprintf("Outcome: %s.", CX_MR_OUTCOME_NAME),
-    "Method: single-instrument Wald ratio (TwoSampleMR::mr_wald_ratio) - one lead cis-SNP per CpG; not IVW/MR-Egger, which need >=2 instruments per exposure.",
-    sprintf("Instruments in the precomputed table: %s", format(n_instruments, big.mark = ",")),
-    sprintf("\"Credible\" evidence FDR threshold: %s", f$fdr_cutoff),
-    sprintf("MHC-flagged genes excluded from \"credible\": %s", if (isTRUE(f$exclude_mhc)) "yes" else "no"),
-    sprintf("Steiger direction required for \"credible\": %s", if (isTRUE(f$require_steiger)) "yes" else "no"),
-    sprintf("DEG/DMP/DMR evidence joined from: Biomarker Convergence's %s precomputed table.", toupper(join_sex %||% "(not available)")),
-    "These are Mendelian randomization estimates, valid under the standard instrumental-variable assumptions (relevance, independence, exclusion restriction). A single instrument per exposure cannot be tested for validity via heterogeneity - interpret individual estimates cautiously, as an association consistent with a causal effect, not as proof of one.",
-    sprintf("Run at: %s", run_at %||% "(not run yet)")
-  )
-}

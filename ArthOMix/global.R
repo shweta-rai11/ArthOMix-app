@@ -310,7 +310,7 @@ METH_QC_PROBE_CASCADE <- data.frame(
 ## METHODS_dmp_sva_sexstratified.md). Returns NULL rather than erroring if
 ## METH_DATA_AVAILABLE is FALSE, so mod_methyl_dmp.R can show an empty
 ## state instead of crashing when this folder hasn't been copied in.
-load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male")) {
+load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male", "all")) {
   stage <- match.arg(stage); sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
   dir <- if (stage == "plain") METH_DMP_PLAIN_DIR else METH_DMP_SVA_DIR
@@ -326,7 +326,7 @@ load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male"
 ## Benjamini-Hochberg region-level FDR (dmr_fdr, on the Stouffer statistic)
 ## already computed; see METHODS_dmr_sexstratified.md. Returns NULL rather
 ## than erroring if METH_DATA_AVAILABLE is FALSE, mirroring load_default_dmp().
-load_default_dmr <- function(sex = c("female", "male")) {
+load_default_dmr <- function(sex = c("female", "male", "all")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
   path <- file.path(METH_DMR_DIR, sprintf("dmr_%s_full.csv", sex))
@@ -742,9 +742,31 @@ eset_harmonize_meta <- function(eset, name) {
   data.frame(sample = rownames(pd), dataset = name, group = grp, sex = sx, stringsAsFactors = FALSE)
 }
 
+## Falls back to the merged/batch-corrected training cohort's own per-sample
+## `dataset` column when a source's raw ExpressionSet isn't on disk (see
+## SELF_CONTAINED_DATA_MIGRATION.md: the raw GEO ExpressionSets were never
+## part of this app's self-contained data bundle and aren't recoverable on
+## this machine). Only ever returns something for the two GSEs actually
+## merged into the default cohort (GSE93272, GSE110169) - GSE15573/GSE89408
+## are validation-only and were never part of any merge, so this correctly
+## returns NULL for them and they stay genuinely unavailable.
+merged_training_subset <- function(gse_id) {
+  d <- load_default_dataset()
+  keep <- d$meta$dataset == gse_id
+  if (!any(keep)) return(NULL)
+  samples <- d$meta$sample[keep]
+  list(
+    expr = d$expr[, samples, drop = FALSE],
+    meta = d$meta[keep, , drop = FALSE],
+    label = paste0(gse_id, " (from the merged, batch-corrected training cohort - source-level raw probe data is not available in this deployment)")
+  )
+}
+
 ## Loads one individual raw GEO dataset (not merged, not batch-corrected) as
 ## a plain expr/meta pair, for QC that looks at each source dataset on its
-## own instead of the already-merged/batch-corrected working dataset.
+## own instead of the already-merged/batch-corrected working dataset. Falls
+## back to merged_training_subset() above when the raw file itself isn't
+## available, for the two sources that fallback can actually serve.
 ## Cached after first read, same as get_raw_eset(), since these matrices are
 ## large and read-only.
 load_individual_dataset <- function(gse_id) {
@@ -775,7 +797,7 @@ load_individual_dataset <- function(gse_id) {
   } else {
     eset <- get_raw_eset(gse_id)
     if (is.null(eset) || nrow(Biobase::exprs(eset)) == 0) {
-      NULL
+      merged_training_subset(gse_id)
     } else {
       expr <- Biobase::exprs(eset)
       meta <- eset_harmonize_meta(eset, gse_id)
@@ -794,6 +816,21 @@ load_individual_dataset <- function(gse_id) {
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
+## Guesses which uploaded column a mapping dropdown should default to, by
+## name rather than position: exact match (case-insensitive) first, then a
+## substring match, then a positional fallback. Generic counterpart of
+## mod_dataset.R's own local guess_col() (kept as-is, unchanged, inside that
+## module's server closure) - used by the standalone Differential Gene
+## Expression tab (mod_dge_standalone.R) so its own upload column-mapping
+## doesn't duplicate that same three-tier logic from scratch.
+guess_column_by_name <- function(cols, exact, contains = exact, fallback = cols[1]) {
+  hit <- cols[tolower(cols) %in% tolower(exact)]
+  if (length(hit) > 0) return(hit[1])
+  hit <- cols[grepl(paste(contains, collapse = "|"), cols, ignore.case = TRUE)]
+  if (length(hit) > 0) return(hit[1])
+  fallback
+}
+
 ## AI research assistant runs against a local Ollama server instead of the
 ## Anthropic API - no API key, no per-token billing. Set OLLAMA_BASE_URL to
 ## point at a non-default Ollama host; otherwise localhost:11434 is assumed.
@@ -801,16 +838,26 @@ load_individual_dataset <- function(gse_id) {
 ## qwen2.5-coder returns tool calls as free-text JSON it invents (never
 ## populates the structured `tool_calls` field), so PubMed lookups would
 ## silently never fire.
-## qwen2.5:1.5b (current default, chosen for speed/size over qwen3:8b) DOES
-## populate real structured tool_calls - verified directly - but is
-## noticeably less consistent about choosing to call a tool at all: a
-## casually-phrased question ("search PubMed for X") got a plain chat reply
-## asking for clarification instead of a tool call, while a more directive
-## prompt matching this app's actual system prompt ("search before
-## answering") correctly triggered pubmed_search. Worth re-testing this way
-## against /api/chat before changing the model again - small models vary a
-## lot here.
-ARTHOMIX_OLLAMA_MODEL <- "qwen2.5:1.5b"
+## qwen2.5:1.5b (a former default, chosen for speed/size) DOES populate real
+## structured tool_calls - verified directly - but is noticeably less
+## consistent about choosing to call a tool at all, or which tool: a
+## casually-phrased question ("search PubMed for X") sometimes got a plain
+## chat reply asking for clarification instead of a tool call; a live
+## Cross-Omics MR "suggest a dataset" request (5 registered tools + this
+## app's full system prompt) called the wrong tool entirely
+## (project_methods, with a nonsense module argument) and let a leftover
+## JSON fragment leak into the visible reply.
+## qwen3:8b (current default) - re-verified directly against /api/chat with
+## the actual gwas_catalog_search tool schema, both a directive prompt and a
+## casual one ("search for a diabetes GWAS dataset"): both correctly
+## produced empty text content plus a real structured tool_calls entry
+## naming gwas_catalog_search with the right query argument - no invented
+## free-text JSON, no wrong-tool selection. Slower per response (8.2B vs
+## 1.5B params) but the reliability trade was judged worth it here. Worth
+## re-testing this way against /api/chat before changing the model again -
+## small models vary a lot, and "tools" in /api/tags' capabilities list is
+## not sufficient evidence on its own (qwen2.5-coder has it too, and fails).
+ARTHOMIX_OLLAMA_MODEL <- "qwen3:8b"
 ollama_base_url <- function() Sys.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 ## Reachability + model-pulled check in one request: /api/tags lists every
@@ -1435,8 +1482,12 @@ compute_sample_qc <- function(expr, mad_k = 3, top_n_cor = 2000) {
 
   gene_var <- apply(expr, 1, stats::var, na.rm = TRUE)
   top_idx  <- order(gene_var, decreasing = TRUE)[seq_len(min(top_n_cor, nrow(expr)))]
-  sample_cor <- cor(expr[top_idx, , drop = FALSE])
-  mean_cor <- (colSums(sample_cor) - 1) / (ncol(sample_cor) - 1)
+  ## use="pairwise.complete.obs": the default use="everything" makes a
+  ## single NA anywhere in the top-variance subset propagate to every
+  ## pairwise correlation, silently NA-ing out (and so disabling) the
+  ## cohort-correlation outlier flag below with no warning to the user.
+  sample_cor <- cor(expr[top_idx, , drop = FALSE], use = "pairwise.complete.obs")
+  mean_cor <- (colSums(sample_cor, na.rm = TRUE) - 1) / (ncol(sample_cor) - 1)
 
   is_outlier <- function(x, low_only = FALSE) {
     m <- stats::median(x); s <- stats::mad(x)
@@ -1951,7 +2002,7 @@ MODULE_REGISTRY <- list(
   list(
     id = "methylomics", tab = "methylomics",
     title = "Methylomics",
-    tagline = "Analyze DNA methylation data to identify differentially methylated sites and regions, discover methylation patterns, perform feature selection and network analysis, and generate biologically relevant insights.",
+    tagline = "Analyze methylation data to identify potential methylomics biomarker.",
     icon = "circle-nodes", status = "available", kind = "Single-omics"
   ),
   list(
@@ -1969,7 +2020,7 @@ MODULE_REGISTRY <- list(
   list(
     id = "arthochat", tab = "arthochat",
     title = "ArthOChat",
-    tagline = "Ask anything about your dataset, your results so far, or the underlying methodology, grounded in a live PubMed search with citations. Sees every omics module, not just one.",
+    tagline = "Ask anything about your dataset, your results so far, or the underlying methodology, grounded in a live PubMed search with citations. Automatically scoped to whichever module/sub-module you have open, with other modules available on request.",
     icon = "comments", status = "available", kind = "Assistant"
   )
 )

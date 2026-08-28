@@ -285,7 +285,7 @@ multi_active_dataset_banner <- function(multi_dataset) {
   }
   div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
       tags$strong(sprintf("Data source: %s.", if (identical(source, "geo")) "NCBI GEO" else "User Upload")),
-      " No previous results for this dataset. Panels below show the bundled RA anti-TNF cohort - see Integrated Analysis (MOFA2) for your own data.")
+      " No stored results for this dataset yet - select \"Active Multi-Omics Dataset\" above to run this module's analysis on it directly.")
 }
 
 ## ---------------------------------------------------------------------------

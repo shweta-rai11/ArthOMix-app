@@ -1,12 +1,10 @@
-## R/mod_interaction.R
-## Submodule: Sex Interaction Analysis (Section 2.10)
-## "Your analysis" fits a live limma group*sex interaction model on the
-## currently loaded dataset.
+## Sex Interaction Analysis submodule (Section 2.10): live limma
+## group*sex interaction model on the currently loaded dataset.
 
 mod_interaction_config <- list(
   id = "interaction", group = "Biomarker modeling",
   title = "Sex Interaction Analysis",
-  description = "Fit a live diagnosis-by-sex interaction model on the currently loaded dataset: which genes respond to the group difference differently in each sex.",
+  description = "Diagnosis-by-sex interaction model on the preloaded or uploaded data, showing which genes respond to the group difference differently in each sex.",
   icon = "venus-mars"
 )
 

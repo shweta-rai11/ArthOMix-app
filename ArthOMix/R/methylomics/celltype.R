@@ -1,29 +1,20 @@
 ## R/methylomics/celltype.R
-## Non-UI helpers for the Methylomics Cell-Type Deconvolution submodule
-## (mod_methyl_celltype.R): reference-library registry, marker-CpG ranking
-## off reference centroids, EpiDISH::epidish()/hepidish() wrappers,
-## reference/working-matrix overlap QC, reconstruction validation,
-## cross-method comparison, group-comparison stats, and this module's own
-## ggplot builders (reusing theme_arthomix()/ARTHOMIX_COLORS/arthomix_pair()
-## from global.R). Isolated strictly to this module - nothing here is
-## called from any other Methylomics or Transcriptomics tab, and this file
-## never touches ArthOMix/R/transcriptomics/mod_deconvolution.R.
+## Non-UI helpers for the Cell-Type Deconvolution submodule (mod_methyl_celltype.R):
+## reference-library registry, marker-CpG ranking, EpiDISH epidish()/hepidish()
+## wrappers, overlap QC, reconstruction validation, cross-method comparison,
+## group stats, and ggplot builders. Isolated to this module only.
 ##
-## Backend honesty: only EpiDISH (installed) is used for real estimation.
-## MethylResolver / IDOL-optimized libraries / true reference-free
-## deconvolution would need packages that are NOT installed in this
-## deployment (FlowSorted.Blood.EPIC, IDOLOptimizedCpGs, ENmix, TOAST/
-## RefFreeEWAS) - see methyl_ct_unavailable_methods() below, which the UI
-## renders as disabled options with an explanatory reason rather than
-## faking a result.
+## Only EpiDISH (installed) is used for real estimation. MethylResolver /
+## IDOL-optimized / reference-free deconvolution need packages not installed
+## in this deployment - see methyl_ct_unavailable_methods() below, shown in
+## the UI as disabled options with a reason rather than faking a result.
 
 ## =============================================================================
 ## Reference library registry
 ## =============================================================================
 
-## Every entry maps to a real EpiDISH data object. ncpg/celltypes are read
-## off the actual installed object (not hardcoded), so this can't silently
-## drift from whatever EpiDISH version is installed.
+## Every entry maps to a real EpiDISH data object; ncpg/celltypes are read off
+## the installed object rather than hardcoded.
 methyl_ct_reference_registry <- function() {
   specs <- list(
     list(id = "blood7",       label = "Blood - 7 cell type (Reinius/Houseman)",       object = "centDHSbloodDMC.m", tissue = "blood"),
@@ -35,15 +26,9 @@ methyl_ct_reference_registry <- function() {
     list(id = "blood19",      label = "Blood - extended 19-subtype panel",            object = "centCAB100i.m",     tissue = "blood")
   )
   lapply(specs, function(s) {
-    ## getExportedValue(), not get(..., envir = asNamespace(...)): EpiDISH's
-    ## reference matrices are LazyData objects, registered in a lazy-load
-    ## database that plain get() against the namespace environment does not
-    ## see until something has "touched" it via :: or data() first - this
-    ## bit even after requireNamespace("EpiDISH") succeeded, confirmed via
-    ## get("centDHSbloodDMC.m", envir=asNamespace("EpiDISH")) throwing
-    ## "object not found" in a fresh session where EpiDISH was never
-    ## library()'d. getExportedValue() (what the :: operator itself calls)
-    ## resolves lazy data correctly without requiring library(EpiDISH).
+    ## getExportedValue() (not get(..., envir=asNamespace(...))): EpiDISH's
+    ## reference matrices are LazyData objects not yet touched via :: or
+    ## data(), which plain get() against the namespace env can't resolve.
     mat <- tryCatch({
       if (!requireNamespace("EpiDISH", quietly = TRUE)) stop("EpiDISH not installed")
       getExportedValue("EpiDISH", s$object)
@@ -60,11 +45,9 @@ methyl_ct_get_reference <- function(ref_id) {
   getExportedValue("EpiDISH", spec$object)
 }
 
-## Methods the spec asks for that this deployment cannot honestly implement -
-## the UI shows these as disabled selector entries with the reason attached,
-## per this app's own "explain why, don't fake it" convention (see
-## qc.R's methyl_filter_cross_reactive()/methyl_filter_maf() for the same
-## pattern applied to probe filters).
+## Methods this deployment can't honestly implement - shown in the UI as
+## disabled selector entries with the reason attached (same convention as
+## qc.R's methyl_filter_cross_reactive()/methyl_filter_maf()).
 methyl_ct_unavailable_methods <- function() {
   list(
     list(id = "methylresolver", label = "MethylResolver",
@@ -81,12 +64,9 @@ methyl_ct_unavailable_methods <- function() {
 ## =============================================================================
 
 ## Distinguishes beta (0-1), percent methylation (0-100), and M-values
-## (unbounded log2 ratio) from a sampled quantile range - a three-way
-## extension of mod_methyl_featureselection.R's methyl_fs_detect_scale(),
-## which only distinguishes beta vs. M. Never transforms silently - the
-## caller surfaces `note` and requires an explicit "Apply Transformation"
-## click before touching the working matrix (spec's methylation-scale
-## requirement).
+## (unbounded log2 ratio) from a sampled quantile range. Never transforms
+## silently - caller surfaces `note` and requires an explicit "Apply
+## Transformation" click.
 methyl_ct_detect_scale <- function(mat) {
   v <- mat[is.finite(mat)]
   if (length(v) == 0) return(list(scale = "beta", note = "No finite values found - assuming beta scale."))
@@ -108,10 +88,8 @@ methyl_ct_pct_to_beta <- function(mat) mat / 100
 ## Inverse of qc.R's methyl_beta_to_mvalue() logit transform.
 methyl_ct_m_to_beta <- function(m) 2^m / (1 + 2^m)
 
-## Compact "Data & QC" preview card summary - reuses methyl_get_annotation()
-## (annotation.R) for the chromosome count, degrading to NA (not an error)
-## when no manifest annotation resolves for the array type, same convention
-## every other manifest-dependent feature in this app already follows.
+## Compact "Data & QC" preview card summary; chromosome count degrades to NA
+## (not an error) when no manifest annotation resolves for the array type.
 methyl_ct_working_summary <- function(mat, array_type = NULL) {
   finite_v <- mat[is.finite(mat)]
   rng <- if (length(finite_v) > 0) range(finite_v) else c(NA_real_, NA_real_)
@@ -128,10 +106,8 @@ methyl_ct_working_summary <- function(mat, array_type = NULL) {
 }
 
 ## Custom reference-matrix upload: CpG x cell-type mean-beta CSV/TSV, first
-## column CpG ID - reuses parse_upload.R's methyl_parse_matrix() (same
-## probe-rows/sample-columns shape, "samples" here being cell types) rather
-## than a bespoke parser, then validates it actually looks like a
-## methylation reference (finite, in [0,1], >=2 cell-type columns).
+## column CpG ID. Reuses methyl_parse_matrix(), then validates it looks like
+## a methylation reference (finite, in [0,1], >=2 cell-type columns).
 methyl_ct_parse_custom_reference <- function(datapath, filename) {
   p <- methyl_parse_matrix(datapath, filename)
   if (!isTRUE(p$ok)) return(p)
@@ -146,17 +122,11 @@ methyl_ct_parse_custom_reference <- function(datapath, filename) {
 ## Marker-CpG ranking (off reference centroids - no fabricated p-values)
 ## =============================================================================
 
-## For every CpG, assigns the cell type it's the strongest marker for and
-## records an effect size (its centroid beta vs. the most extreme of the
-## OTHER cell types' centroids, whichever direction is larger) and a
-## specificity score (that effect normalized by the spread of the other
-## cell types' centroids - a CpG that is merely "somewhat different" from a
-## tight cluster of others scores lower than one that's cleanly separated).
-## Deliberately does NOT produce a p-value/FDR: reference centroids are
-## single mean-beta values per cell type with no per-sample replicates, so
-## a real significance test isn't available here - see
-## methyl_ct_select_markers()'s docs for how the UI's FDR control is
-## disabled for this reason rather than fed a made-up number.
+## For every CpG, assigns the cell type it's the strongest marker for: effect
+## size (centroid beta vs. the most extreme other cell type's centroid) and a
+## specificity score (effect normalized by spread of the other centroids).
+## Deliberately no p-value/FDR - centroids are single mean-beta values with no
+## per-sample replicates, so a real significance test isn't available.
 methyl_ct_marker_rank <- function(ref_mat) {
   ct <- colnames(ref_mat)
   n_ct <- length(ct)
@@ -192,14 +162,10 @@ methyl_ct_marker_rank <- function(ref_mat) {
              centroid_beta = centroid_beta, row.names = NULL, stringsAsFactors = FALSE)
 }
 
-## Applies the spec's CpG Feature Selection filters on top of
-## methyl_ct_marker_rank()'s per-CpG table. `sort_by` is "effect" for the
-## "Reference-library markers" method (the default, and the one this
-## function's effect/specificity columns were built for) or "btw_type_var"
-## for "Variance-based CpGs" (ranks the SAME reference-restricted candidate
-## set by between-cell-type variance instead - deliberately not bulk-sample
-## variance across conditions, which would be gene-expression-style
-## phenotype feature selection, not cell-type marker selection).
+## Applies CpG feature-selection filters on top of methyl_ct_marker_rank()'s
+## per-CpG table. `sort_by` is "effect" for reference-library markers or
+## "btw_type_var" for variance-based CpGs (between-cell-type variance, not
+## bulk-sample variance across conditions).
 methyl_ct_select_markers <- function(rank_df, dbeta_min = 0, effect_min = 0, direction = "both",
                                       specificity_mode = "all", chr_allowed_ids = NULL) {
   df <- rank_df
@@ -217,11 +183,8 @@ methyl_ct_select_markers <- function(rank_df, dbeta_min = 0, effect_min = 0, dir
 }
 
 ## Balances a top-N cap roughly evenly across cell types (rather than one
-## cell type's larger effect sizes crowding out every other type's markers
-## entirely), then trims any overshoot from the globally weakest picks -
-## this is what makes spec Figure 1's "CpGs retained per cell type" bar
-## chart show every cell type rather than just the one or two with the
-## biggest centroid separations.
+## type's larger effect sizes crowding out the rest), then trims any
+## overshoot from the globally weakest picks.
 methyl_ct_top_n_balanced <- function(df, sort_col = "effect", top_n = NULL) {
   if (is.null(top_n) || is.na(top_n) || top_n <= 0 || nrow(df) <= top_n) {
     return(df[order(-df[[sort_col]]), , drop = FALSE])
@@ -239,10 +202,8 @@ methyl_ct_top_n_balanced <- function(df, sort_col = "effect", top_n = NULL) {
 }
 
 ## Chromosome-scope restriction for marker selection (autosomes only /
-## autosomes+X / all) - reuses methyl_get_annotation() (annotation.R); a
-## CpG with no manifest match is kept rather than dropped (absence of
-## annotation isn't evidence it's on a sex chromosome), matching
-## qc.R's methyl_filter_maf()'s same "unresolved = kept" convention.
+## autosomes+X / all). A CpG with no manifest match is kept rather than
+## dropped (unresolved = kept, same convention as qc.R's methyl_filter_maf()).
 methyl_ct_chr_allowed_ids <- function(cpg_ids, array_type, scope = c("all", "autosomes", "autosomes_x")) {
   scope <- match.arg(scope)
   if (identical(scope, "all")) return(list(ids = cpg_ids, note = "No chromosome restriction applied."))
@@ -289,13 +250,10 @@ methyl_ct_overlap_by_type <- function(marker_df, working_ids) {
 ## =============================================================================
 
 ## Thin, validated wrapper around EpiDISH::epidish() - method is one of
-## "CP" (Houseman constrained projection), "RPC" (EpiDISH robust partial
+## "CP" (Houseman constrained projection), "RPC" (robust partial
 ## correlations), "CBS" (CIBERSORT-style support vector regression).
-## Confirmed against a synthetic known-mixture test (see this module's
-## verification notes) that estF recovers true fractions with per-cell-type
-## correlation > 0.99 and is already non-negative/sum-to-one for all three
-## methods - no extra clipping/renormalization is applied here since
-## EpiDISH's own constraint already guarantees it.
+## No extra clipping/renormalization here - EpiDISH's own constraint already
+## guarantees non-negative/sum-to-one fractions.
 methyl_ct_run_epidish <- function(beta_mat, ref_mat, method = c("RPC", "CBS", "CP"),
                                    maxit = 50, nu.v = c(0.25, 0.5, 0.75), constraint = c("inequality", "equality")) {
   method <- match.arg(method)
@@ -318,14 +276,10 @@ methyl_ct_run_epidish <- function(beta_mat, ref_mat, method = c("RPC", "CBS", "C
   list(ok = TRUE, fractions = res$estF, method = method, n_markers_used = nrow(bm), ref_used = rm_)
 }
 
-## Two-stage hierarchical EpiDISH: `ref1` splits the tissue into its top-
-## level components (e.g. Epi/Fib/IC), then `ref2` further decomposes
-## whichever `ref1` column is named in `ic_column` (e.g. "IC") into its own
-## cell subtypes (e.g. the 7 blood types) - Zheng et al. 2018's hepidish(),
-## a real bonus method for epithelial-type tissue references. Confirmed
-## against a synthetic two-level mixture (tissue-level Epi/Fib/IC combined
-## with an independent immune-subtype mixture within IC) that hepidish()
-## exactly recovers both levels.
+## Two-stage hierarchical EpiDISH: `ref1` splits the tissue into top-level
+## components (e.g. Epi/Fib/IC), then `ref2` decomposes whichever `ref1`
+## column is named in `ic_column` into its own cell subtypes (e.g. the 7
+## blood types). Zheng et al. 2018's hepidish().
 methyl_ct_run_hepidish <- function(beta_mat, ref1_mat, ref2_mat, ic_column,
                                     method = c("RPC", "CBS", "CP"), maxit = 50,
                                     nu.v = c(0.25, 0.5, 0.75), constraint = c("inequality", "equality")) {
@@ -438,10 +392,9 @@ methyl_ct_method_agreement_summary <- function(fractions_by_method) {
 
 ## Two-group Wilcoxon (rank-biserial effect size) or multi-group
 ## Kruskal-Wallis (epsilon-squared effect size), one test per cell type,
-## BH-adjusted across cell types - the same auto-selected-by-group-count
-## logic as transcriptomics' mod_deconvolution.R's compute_group_stats()
-## (mod_deconvolution.R:242-282), reimplemented locally rather than shared
-## since that module is not to be touched or imported from.
+## BH-adjusted across cell types. Reimplemented locally rather than shared
+## with transcriptomics' compute_group_stats() since that module isn't to
+## be touched or imported from.
 methyl_ct_group_stats <- function(fractions, group) {
   group <- as.character(group)
   lv <- sort(unique(stats::na.omit(group)))
@@ -475,12 +428,10 @@ methyl_ct_group_stats <- function(fractions, group) {
 ## Cell-composition ordination (PCA / MDS on the fraction matrix itself)
 ## =============================================================================
 
-## Deliberately NOT qc.R's methyl_pca_scores()/methyl_mds_scores(): those
-## operate on CpG-scale data and enforce a >=10-row minimum (meant for
-## probes), which would wrongly reject a 3-4 cell-type reference (e.g.
-## Epi/Fib/IC). These operate directly on the small samples x cell-types
-## fraction matrix instead - no top-variance-feature subsetting needed
-## since every cell type is already a meaningful "feature."
+## Deliberately not qc.R's methyl_pca_scores()/methyl_mds_scores(): those
+## enforce a >=10-row minimum (meant for probes) that would wrongly reject a
+## 3-4 cell-type reference. These operate directly on the small samples x
+## cell-types fraction matrix instead.
 methyl_ct_composition_pca <- function(fractions, n_pcs = 10) {
   m <- stats::na.omit(fractions)
   if (nrow(m) < 3 || ncol(m) < 2) return(list(ok = FALSE, reason = "Not enough samples/cell types for PCA."))
@@ -655,10 +606,8 @@ methyl_ct_plot_bland_altman <- function(frac_a, frac_b, label_a, label_b) {
     theme_arthomix()
 }
 
-## Boxplot with significance-star annotation, same idea as
-## mod_deconvolution.R's render_group_boxplot() (mod_deconvolution.R:295-320)
-## but reimplemented locally, not imported - that module is not to be
-## touched or depended on.
+## Boxplot with significance-star annotation, reimplemented locally rather
+## than importing mod_deconvolution.R's render_group_boxplot().
 methyl_ct_plot_group_diff <- function(fractions, group, stats_df) {
   df <- as.data.frame(as.table(fractions))
   colnames(df) <- c("sample", "cell_type", "fraction")

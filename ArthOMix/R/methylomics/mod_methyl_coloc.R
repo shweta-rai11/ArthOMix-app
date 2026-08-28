@@ -1,55 +1,31 @@
 ## R/methylomics/mod_methyl_coloc.R
-## Submodule: Colocalisation (methylomics)
+## Bayesian colocalisation (coloc.abf, optionally coloc.susie) between an
+## mQTL/CpG signal and a GWAS trait signal in one region: shared causal
+## variant (PP.H4) vs distinct LD-linked variants (PP.H3). Methylomics
+## counterpart to R/transcriptomics/mod_coloc.R (eQTL colocalisation).
 ##
-## Bayesian colocalisation (coloc.abf, optionally coloc.susie for multiple
-## causal signals) between a methylation-associated genetic signal
-## (mQTL/CpG) and a GWAS trait's signal at one genomic region: do the two
-## association patterns share a single causal variant (PP.H4) or reflect
-## two distinct, LD-linked variants (PP.H3)? This is the methylomics
-## counterpart to R/transcriptomics/mod_coloc.R (eQTL colocalisation,
-## untouched by this file) - it is NOT that module and does not implement
-## eQTL/eGene colocalisation.
+## Two data routes: Preloaded reproduces script08's completed coloc.abf()
+## run (08d_mr_coloc.R: GoDMC cis-mQTL vs Ishigaki et al. 2022 RA GWAS,
+## CpGs with >=10 candidate SNPs). Only per-CpG PP.H0-H4 summaries are
+## bundled, not per-SNP data, so this route is lookup-only - no SNP-level
+## results, regional plots, or sensitivity analysis. Upload Data runs the
+## full live pipeline (format_data()/harmonise_data(), region/association
+## filters, coloc.abf()/coloc.susie(), plots, sensitivity) on user files.
 ##
-## Two data routes, chosen first and nothing else shown until then:
-##  - "Preloaded Data" reproduces script08_mendelian_randomization's own
-##    completed coloc.abf() run (08d_mr_coloc.R): the GoDMC cis-mQTL signal
-##    vs the Ishigaki et al. (2022) RA GWAS signal, at each CpG carried
-##    into MR that had >=10 GoDMC candidate SNPs in its +/-1Mb cis window.
-##    Only the per-CpG PP.H0-H4 summary is bundled with this deployment -
-##    the underlying per-SNP GoDMC/RA-GWAS region data is not (see
-##    global.R's load_default_meth_coloc_results() and 08d_mr_coloc.R's own
-##    header comment) - so coloc.abf() itself cannot be re-run live for
-##    these CpGs, only looked up, and SNP-level results, regional plots and
-##    prior-sensitivity analysis are unavailable for this route (no
-##    per-SNP Bayes factors are stored to recompute them from - nothing is
-##    fabricated or approximated to fill that gap).
-##  - "Upload Data" is a fully live pipeline on the user's own
-##    methylation/mQTL and GWAS summary-statistic files: column mapping,
-##    validation/harmonisation (TwoSampleMR::format_data()/harmonise_data(),
-##    the SAME functions mod_methyl_mr.R's own upload mode uses), genomic-
-##    region/association/variant filters, live coloc.abf() (and, only when
-##    the user additionally supplies an LD matrix for both datasets,
-##    coloc.susie()), SNP-level results, regional/comparison/posterior
-##    plots, and prior/parameter sensitivity all run live.
-##
-## Nothing computes or renders ahead of an explicit click: Validate Data ->
-## Run Colocalisation -> Generate Regional Plot / Run Sensitivity Analysis,
-## each gated behind a has-run flag exactly like mod_methyl_mr.R. Changing
-## a stage's own defining inputs invalidates every stage after it.
+## Stage-gated UI: Validate Data -> Run Colocalisation -> Plot/Sensitivity,
+## each behind a has-run flag like mod_methyl_mr.R; changing a stage's
+## inputs invalidates everything downstream.
 
 ## ---------------------------------------------------------------------------
-## Small local helpers (deliberately NOT shared with R/transcriptomics/
-## mod_coloc.R - this module owns its own UI/compute helpers end to end)
+## Small local helpers (not shared with R/transcriptomics/mod_coloc.R)
 ## ---------------------------------------------------------------------------
 
 .mcol_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
 .mcol_stage_order <- c("validate", "run", "plot", "sensitivity")
 
-## coloc's own package defaults (coloc.abf()'s formals) - used as the
-## pre-filled Upload-route defaults, and echoed (read-only) for the
-## Preloaded route, per the same "use the pipeline's own default" idiom
-## mod_methyl_mr.R follows for its cis window/F-stat/clumping defaults.
+## coloc.abf()'s own package defaults; pre-filled for the Upload route,
+## echoed read-only for the Preloaded route.
 MCOL_DEFAULT_P1 <- 1e-4
 MCOL_DEFAULT_P2 <- 1e-4
 MCOL_DEFAULT_P12 <- 1e-5
@@ -58,12 +34,9 @@ MCOL_DEFAULT_WINDOW_KB <- 1000 ## 08d_mr_coloc.R's own CIS_WINDOW_BP = 1e6
 MCOL_DEFAULT_MIN_SHARED_SNPS <- 10 ## matches 08d's own ">=10 GoDMC SNPs" cutoff
 MCOL_DEFAULT_PP_THRESHOLD <- 0.8 ## matches 08d's own verdict threshold
 
-## Aligns an uploaded LD (SNP x SNP correlation) matrix to a target SNP set.
-## Expects a delimited file whose first column holds SNP IDs and whose
-## header row is also SNP IDs (a square, labelled correlation matrix) -
-## the standard shape an LD reference tool would export. Returns NULL
-## (never a guessed/simulated matrix) if fewer than 2 SNPs from `snp_ids`
-## are found labelled on both axes.
+## Aligns an uploaded LD (SNP x SNP correlation) matrix to a target SNP
+## set. Expects first column and header row to both be SNP IDs. Returns
+## NULL if fewer than 2 SNPs from `snp_ids` are found labelled on both axes.
 .mcol_prep_ld <- function(raw_df, snp_ids) {
   if (is.null(raw_df) || nrow(raw_df) == 0 || ncol(raw_df) < 3) return(NULL)
   df <- as.data.frame(raw_df)
@@ -75,9 +48,8 @@ MCOL_DEFAULT_PP_THRESHOLD <- 0.8 ## matches 08d's own verdict threshold
   mat[common, common, drop = FALSE]
 }
 
-## Cautious-language interpretation panel shared by both routes (Preloaded:
-## one row of coloc_results.csv; Upload: a coloc.abf()/coloc.susie() summary
-## vector) - same five named probabilities in, same tagList out.
+## Interpretation panel shared by both routes: five PP.H0-H4 probabilities
+## in, tagList out.
 .mcol_interpret <- function(h0, h1, h2, h3, h4) {
   hs <- c(H0 = h0, H1 = h1, H2 = h2, H3 = h3, H4 = h4)
   strongest <- names(hs)[which.max(hs)]
@@ -109,7 +81,7 @@ MCOL_DEFAULT_PP_THRESHOLD <- 0.8 ## matches 08d's own verdict threshold
 
 mod_methyl_coloc_config <- list(
   id = "coloc", title = "Colocalisation", icon = "bullseye", group = "Genetics",
-  description = "Tests whether an mQTL and a GWAS signal at a CpG's region share a causal variant, using coloc.abf/coloc.susie. Uses the bundled GoDMC/RA-GWAS data by default, or your own uploaded summary statistics."
+  description = "Tests whether an mQTL and a GWAS signal at a CpG's region share a causal variant"
 )
 
 ## ---------------------------------------------------------------------------
@@ -378,8 +350,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
                  invalidate_from("validate"), ignoreInit = TRUE, ignoreNULL = FALSE)
 
     ## ------------------------------------------------------------------
-    ## Preview (pre-validation - descriptive only, never the interpreted
-    ## PP.H0-H4/verdict results themselves)
+    ## Preview (pre-validation, descriptive only - not the PP.H0-H4 results)
     ## ------------------------------------------------------------------
     output$preview_ui <- renderUI({
       if (identical(input$data_source, "upload")) {
@@ -713,9 +684,8 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         error = function(e) e
       )
       if (inherits(rs, "shiny.silent.error")) {
-        ## A validate(need(...)) check failed (e.g. too few shared SNPs, no
-        ## MAF mapped) - this carries a genuinely actionable message, so
-        ## surface it rather than silently doing nothing.
+        ## validate(need()) failure carries an actionable message - surface
+        ## it rather than failing silently.
         showNotification(conditionMessage(rs), type = "warning", duration = 10)
         return()
       }
@@ -872,8 +842,8 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
     outputOptions(output, "susie_table", suspendWhenHidden = FALSE)
 
     ## ------------------------------------------------------------------
-    ## Visualisation tab (Generate Regional Plot - client-side gated,
-    ## same conditionalPanel idiom as R/transcriptomics/mod_coloc.R)
+    ## Visualisation tab (client-side gated via conditionalPanel, same
+    ## idiom as R/transcriptomics/mod_coloc.R)
     ## ------------------------------------------------------------------
     build_pp_bar_plot <- function(h0, h1, h2, h3, h4, title = NULL) {
       df <- data.frame(hypothesis = factor(c("H0", "H1", "H2", "H3", "H4"), levels = c("H0", "H1", "H2", "H3", "H4")),

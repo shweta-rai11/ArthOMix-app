@@ -1,29 +1,13 @@
 ## R/mod_coloc.R
 ## Submodule: Colocalization (Section 2.7)
-## "Your analysis" runs a live coloc.abf test for a chosen candidate gene's
-## region, using the same eQTL and RA GWAS summary statistics
-## (coloc_regions.rds) as the thesis pipeline - or, in "Upload your own GWAS
-## summary statistics" mode, the SAME bundled eQTL region tested against any
-## other trait's GWAS a user brings.
-##
-## The eQTL side is ALWAYS the bundled cis-window instrument for the chosen
-## gene, in both modes: coloc_regions.rds only has a prepared eQTL region for
-## 33 genes, and building an equivalent for an arbitrary gene needs the full
-## eQTLGen dataset this app doesn't otherwise load. Only the GWAS side is
-## swappable.
-##
-## Unlike the bundled path (both sides pre-aligned by the pipeline, so a
-## plain rsid intersection is safe), an uploaded GWAS has no guaranteed
-## allele coding relative to the bundled eQTL - the upload branch below runs
-## both through TwoSampleMR::format_data()/harmonise_data() (the SAME
-## functions mod_mr.R's own upload mode uses) to align alleles and flip beta
-## sign consistently before handing off to coloc.abf(), rather than assuming
-## an arbitrary upload's beta sign already matches.
+## Runs coloc.abf between the bundled eQTL cis-window instrument (33 genes) and
+## either the bundled RA GWAS or an uploaded GWAS for any trait. Uploaded GWAS
+## is harmonised against the eQTL alleles via TwoSampleMR before testing.
 
 mod_coloc_config <- list(
   id = "coloc", group = "Genetics",
   title = "Colocalization",
-  description = "Bayesian colocalisation (coloc.abf) testing whether the eQTL and a GWAS's disease-risk association at each candidate locus share a single causal variant - the bundled RA GWAS by default, or upload your own GWAS summary statistics for any trait.",
+  description = "Bayesian colocalisation testing whether the eQTL and a GWAS's disease-risk association at each candidate locus share a single causal variant.",
   icon = "map-location-dot"
 )
 
@@ -35,7 +19,7 @@ mod_coloc_ui <- function(id) {
           4,
           box(
             width = NULL, title = "Candidate region & GWAS", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "Runs coloc.abf testing whether the eQTL association and a GWAS's disease-risk association at one gene's region share a single causal variant. The eQTL side always uses this project's own bundled cis-window instrument for the gene picked below - only the GWAS side is swappable."),
+            p(class = "submodule-desc", "Overlapping eQTL and GWAS peaks at a locus can arise from two distinct causal variants that merely sit close together in linkage disequilibrium, rather than from a single variant driving both signals - so overlap alone can't tell you whether a candidate gene's expression is actually on the causal path to disease. This module tests that directly with coloc.abf (Bayesian colocalisation): for the chosen gene's cis-window, it compares the eQTL association pattern against a GWAS's disease-risk association pattern, taking per-SNP beta, standard error, effect allele frequency, and sample size from both sides, and returns posterior probabilities for five hypotheses - from no association on either side through a single variant driving both - alongside per-SNP evidence, a regional association plot, and a posterior-probability plot. The eQTL side is always this project's own bundled cis-window instrument, prepared in advance for 33 candidate genes, in every mode below; only the GWAS side can be swapped, between the bundled rheumatoid arthritis GWAS and a GWAS summary-statistics file you upload for any other trait."),
             radioButtons(
               ns("data_source"), NULL,
               choiceNames = list(
@@ -56,11 +40,7 @@ mod_coloc_ui <- function(id) {
             sliderInput(ns("case_frac"), "Assumed case fraction in the GWAS", value = 0.33, min = 0.05, max = 0.5, step = 0.01),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
           ),
-          ## Hidden (client-side, via conditionalPanel) until "Run
-          ## colocalisation" is clicked at least once - same pattern
-          ## mod_diagnostic.R's training/testing panels use, so the boxes
-          ## stay in the DOM (spinners keep working) but are invisible
-          ## pre-run instead of showing an empty "Not run yet" box.
+          ## Stays in the DOM (spinners work) but hidden until run_btn is clicked, as in mod_diagnostic.R.
           conditionalPanel(
             condition = sprintf("input['%s'] > 0", ns("run_btn")),
             box(
@@ -107,16 +87,11 @@ mod_coloc_server <- function(id, dataset, results) {
       )
     })
 
-    ## Upload-your-own-GWAS mode: parse + map the uploaded file with the
-    ## SAME shared helpers mod_mr.R's own upload mode uses (global.R), plus
-    ## a required "n" (sample size) column mod_mr.R's estimator never needed
-    ## but coloc.abf does.
+    ## Parse and map the uploaded GWAS file (shared helpers from global.R), plus the sample-size column coloc.abf needs.
     gwas_df_r <- reactive({ req(input$gwas_file); read_uploaded_table(input$gwas_file$datapath) })
     output$gwas_map_ui <- gwas_col_map_ui(ns, reactive(input$gwas_file), gwas_df_r, "gwas", "GWAS file", extra_fields = "n")
 
-    ## Bundled path - unchanged from before upload mode existed. Both sides
-    ## were pre-aligned by the pipeline, so a plain rsid intersection (no
-    ## allele harmonisation) is safe here.
+    ## Runs coloc.abf on the bundled eQTL/GWAS pair; both sides are pre-aligned so a plain rsid intersection suffices.
     coloc_result_project <- function() {
       req(input$gene)
       r <- coloc_regions[[input$gene]]
@@ -146,13 +121,8 @@ mod_coloc_server <- function(id, dataset, results) {
            snp_df = snp_df, n_snp = length(common), uploaded = FALSE)
     }
 
-    ## Upload path: format the bundled eQTL region and the uploaded GWAS as
-    ## TwoSampleMR exposure/outcome objects and harmonise them (allele
-    ## alignment + beta-sign flipping) before building coloc.abf's d1/d2 -
-    ## the harmonisation step the bundled path gets for free but an
-    ## arbitrary upload needs done live. `snp_df`'s shape matches the
-    ## bundled path exactly, so pp_plot/region_plot/snp_table/download below
-    ## need no branching of their own.
+    ## Harmonises the bundled eQTL region against the uploaded GWAS via TwoSampleMR (allele alignment, beta-sign
+    ## flipping) before running coloc.abf; output snp_df matches coloc_result_project's shape.
     coloc_result_uploaded <- function() {
       req(input$gene, input$gwas_file)
       req(input$gwas_snp, input$gwas_beta, input$gwas_se, input$gwas_pval, input$gwas_ea, input$gwas_oa, input$gwas_n)

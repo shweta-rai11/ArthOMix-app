@@ -1,5 +1,5 @@
 ## R/crossomics/crossomics_integration_helpers.R
-## Pure data-processing logic for the "Expression x Methylation" Cross-Omics
+## Pure data-processing logic for the "Expression and Methylation" Cross-Omics
 ## sub-module (mod_cross_integration.R) - column auto-detection, gene-level
 ## methylation aggregation, quadrant classification, sample-pairing/
 ## correlation, and provenance. No Shiny dependency, so this is unit-testable
@@ -658,20 +658,17 @@ cx_load_default_deg <- function(sex = c("female", "male", "all")) {
 ## fdr_bacon) carries no gene column at all. Fail-soft: list(ok, df, error).
 cx_load_default_methylation <- function(sex = c("female", "male", "all"), array_type = "450K") {
   sex <- match.arg(sex)
-  ## No combined-sex DMP table exists in this deployment, and this is
-  ## deliberate, not a missing file: METHODS_dmp_sexstratified.md section
-  ## 2.Z.1 explicitly chose sex-stratified models over a pooled/sex-adjusted
-  ## one because "a sex-adjusted, pooled analysis can obscure" sex-specific
-  ## methylation associations (citing Tesfaye et al. 2024) - fabricating an
-  ## ALL panel here, whether by pooling the two stratified tables or by
-  ## fitting a new pooled model, would contradict that documented rationale.
-  ## The Integration module's own Sex Comparison tab is the methodologically
-  ## honest way to see "both sexes" - it runs Female and Male independently,
-  ## exactly as designed, and reports shared vs. sex-specific significance
-  ## rather than a pooled statistic.
-  if (identical(sex, "all")) {
-    return(list(ok = FALSE, df = NULL, error = "No combined-sex (ALL) methylation dataset exists - this is deliberate: the underlying pipeline chose sex-stratified models specifically because a pooled analysis can obscure sex-specific methylation effects (see Methodology & References). Run Female and Male separately (each already works), then use the \"Sex Comparison\" tab above for a combined view across both sexes - or upload your own combined-sex methylation file if you have one with a valid pooled design."))
-  }
+  ## sex="all" reads dmp_all_full.csv (script03_dmp_sva_sexstratified/tables/),
+  ## a genuine pooled fit - group + sex + age + smoking + cell-type covariates
+  ## + surrogate variables from sva::sva(), bacon-corrected - not a merge of
+  ## the female/male tables. This mirrors cx_load_default_deg()'s "all", but
+  ## note the underlying pipeline's own methods notes
+  ## (METHODS_dmp_sexstratified.md, section 2.Z.1) chose sex-stratified models
+  ## as the primary analysis specifically because a pooled fit can obscure
+  ## sex-specific methylation effects (Tesfaye et al. 2024); this pooled panel
+  ## is a genuine, separately-fitted complement to the Female/Male panels for
+  ## workflows (like this one) that need a single sex-agnostic table, not a
+  ## replacement for the stratified analysis or a claim that it's superior.
   if (!METH_DATA_AVAILABLE) {
     return(list(ok = FALSE, df = NULL, error = "Methylomics preloaded data is not available in this deployment."))
   }
@@ -701,11 +698,50 @@ cx_load_default_methylation <- function(sex = c("female", "male", "all"), array_
   list(ok = TRUE, df = std$df, error = NULL)
 }
 
+## Region-level (DMR) counterpart to cx_load_default_methylation() above -
+## same contract, but reads the pipeline's own already-called differentially
+## methylated regions (DMRcate output, METH_DMR_DIR/dmr_{sex}_full.csv)
+## directly. No cx_get_region_annotation() lookup needed here: this table
+## already carries its own gene annotation (`overlapping.genes`), unlike the
+## per-CpG DMP table. sex="all" reads dmr_all_full.csv, DMRcate region
+## calling on the pooled per-CpG statistics from cx_load_default_methylation()'s
+## sex="all" - see that function's own comment. `dbeta` here is a
+## region's mean Δβ across its constituent CpGs (`meandiff`), `pvalue` is
+## the pre-FDR Stouffer combined-probability statistic, and `fdr` is the
+## already-BH-corrected region-level FDR (`dmr_fdr`) - see
+## METHODS_dmr_sexstratified.md section 2.BB.4 for how these were computed.
+cx_load_default_dmr <- function(sex = c("female", "male", "all")) {
+  sex <- match.arg(sex)
+  if (!METH_DATA_AVAILABLE) {
+    return(list(ok = FALSE, df = NULL, error = "Methylomics preloaded data is not available in this deployment."))
+  }
+  path <- file.path(METH_DMR_DIR, sprintf("dmr_%s_full.csv", sex))
+  if (!file.exists(path)) return(list(ok = FALSE, df = NULL, error = "Could not read the preloaded methylation (DMR) table for this sex stratum."))
+  dmr <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) e)
+  if (inherits(dmr, "error")) return(list(ok = FALSE, df = NULL, error = paste("Could not read the preloaded DMR table:", conditionMessage(dmr))))
+  df <- data.frame(
+    cpg = sprintf("%s:%s-%s", dmr$seqnames, dmr$start, dmr$end),
+    gene = trimws(as.character(dmr$overlapping.genes)),
+    dbeta = dmr$meandiff, pvalue = dmr$Stouffer, fdr = dmr$dmr_fdr,
+    chr = as.character(dmr$seqnames), pos = dmr$start,
+    region_raw = NA_character_, island_context = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
+  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No DMRs in the preloaded region table are annotated to a gene symbol."))
+  mapping <- c(cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
+               pvalue = "pvalue", fdr = "fdr", chr = "chr", pos = "pos", region = "region_raw",
+               island = "island_context", sample_id = NA_character_)
+  std <- cx_standardize_methylation(df, mapping)
+  if (!std$ok) return(list(ok = FALSE, df = NULL, error = std$error))
+  list(ok = TRUE, df = std$df, error = NULL)
+}
+
 ## ---------------------------------------------------------------------------
 ## Provenance
 ## ---------------------------------------------------------------------------
 
-CX_MODULE_VERSION <- "ArthOMix Cross-Omics Expression x Methylation v1.1"
+CX_MODULE_VERSION <- "ArthOMix Cross-Omics Expression and Methylation v1.1"
 
 cx_build_provenance <- function(params) {
   c(

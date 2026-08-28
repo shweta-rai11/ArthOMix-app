@@ -1,37 +1,27 @@
 ## R/methylomics/mod_methyl_biomarkercard.R
-## Submodule: Biomarker Card - a single-CpG epigenomic profile page.
+## Submodule: Biomarker Card - single-CpG epigenomic profile page.
 ##
-## CpG -> genomic location -> CpG island/regulatory context -> associated
-## gene(s) -> evidence from the loaded dataset (incl. sex-specific) ->
-## a cautious functional-interpretation chain -> a transparent evidence
-## checklist -> sources -> downloadable report.
+## CpG -> genomic location -> island/regulatory context -> associated gene(s)
+## -> evidence from the loaded dataset (incl. sex-specific) -> functional
+## interpretation -> evidence checklist -> sources -> downloadable report.
 ##
-## Everything here is grounded in data already installed/bundled in this
-## deployment (Illumina manifest annotation, ChAMPdata, TxDb/org.Hs.eg.db/
-## GO.db, a bundled UCSC cytoband table, and this app's own preloaded/
-## uploaded methylation results) - no live external-database calls (EWAS
-## Catalog / EWAS Atlas / MethBank / KEGG / Reactome / PubMed) are made in
-## this build; every place the full spec wants one of those, the UI shows
-## an explicit "Not yet connected" placeholder rather than a guess.
+## Local annotation only by default (Illumina manifest, ChAMPdata, TxDb/
+## org.Hs.eg.db/GO.db, bundled UCSC cytoband table, preloaded/uploaded
+## methylation results); external DB lookups (EWAS Catalog/Atlas, MethBank,
+## KEGG, Reactome, PubMed, etc.) are opt-in live calls, not part of the core.
 ##
-## Self-contained data intake, same convention mod_methyl_candidates.R
-## already established: this file does not read any other module's
-## reactive state, and does not modify annotation.R even though it needs a
-## richer extraction than methyl_get_annotation() - it reads the Illumina
-## annotation packages' Locations/Other/Islands.UCSC objects directly here
-## (same wrapper-avoidance rationale documented in annotation.R applies
-## regardless of which file calls it).
+## Self-contained data intake like mod_methyl_candidates.R: doesn't read
+## other modules' reactive state, and reads the Illumina annotation packages'
+## Locations/Other/Islands.UCSC objects directly rather than going through
+## annotation.R's methyl_get_annotation() (needs a richer extraction).
 
 ## ---- Illumina manifest annotation (chr/pos/strand/gene/island/regulatory) ----
 
 .bc_illumina_anno_cache <- new.env(parent = emptyenv())
 
-## 450K's Other object exposes plain Enhancer/DHS flag columns; EPIC's Other
-## object has no equivalent single column (it splits enhancer evidence
-## across Phantom4/Phantom5/X450k_Enhancer and DHS across
-## DNase_Hypersensitivity_NAME/_Evidence_Count) - verified directly against
-## both installed packages. Rather than guess an EPIC equivalent, those two
-## fields are only ever populated for 450K and are "Not available" for EPIC.
+## 450K's Other object has plain Enhancer/DHS columns; EPIC splits that
+## evidence across several columns instead, so Enhancer/DHS are only
+## populated for 450K here and reported "Not available" for EPIC.
 bc_illumina_full_annotation <- function(array_type) {
   pkg <- METHYL_ANNOTATION_PACKAGES[[array_type]]
   if (is.null(pkg)) {
@@ -68,9 +58,8 @@ bc_illumina_full_annotation <- function(array_type) {
   list(ok = TRUE, anno = anno, reason = NULL)
 }
 
-## Own copy of the ChAMPdata::probe.features extraction - deliberately not
-## shared with mod_methyl_candidates.R's mcd_champ_full_annotation(), same
-## "each module owns its own data intake" convention that file itself uses.
+## Own copy of ChAMPdata::probe.features extraction (not shared with
+## mod_methyl_candidates.R's mcd_champ_full_annotation()).
 .bc_champ_anno_cache <- new.env(parent = emptyenv())
 bc_champ_annotation <- function() {
   if (!is.null(.bc_champ_anno_cache$anno)) return(.bc_champ_anno_cache$anno)
@@ -101,8 +90,8 @@ bc_find_col <- function(cols, patterns) {
   NULL
 }
 
-## "chr16:53468284-53469209" -> list(chr,start,end,length) - the exact format
-## Islands_Name uses in the Illumina annotation packages (verified directly).
+## "chr16:53468284-53469209" -> list(chr,start,end,length), matching the
+## Islands_Name format in the Illumina annotation packages.
 bc_island_parse <- function(islands_name) {
   if (is.null(islands_name) || is.na(islands_name) || !nzchar(islands_name)) return(NULL)
   m <- regmatches(islands_name, regexec("^(chr[^:]+):([0-9]+)-([0-9]+)$", islands_name))[[1]]
@@ -142,10 +131,9 @@ bc_dhs_flag <- function(r, array_type) {
   "Yes - annotated DNase hypersensitive site (450K manifest)"
 }
 
-## Merges the Illumina manifest row and the ChAMP row for one probe -
-## primary source of truth for coordinates is the Illumina manifest when
-## available (it's the array-specific, build-time source); ChAMP fills in
-## chr/pos/gene/feature/island when the manifest package isn't available.
+## Merges the Illumina manifest row and ChAMP row for one probe; Illumina
+## manifest is the primary coordinate source, ChAMP fills gaps when it's
+## unavailable.
 bc_resolve_cpg <- function(cpg_id, array_type) {
   a <- bc_illumina_full_annotation(array_type)
   champ <- bc_champ_annotation()
@@ -169,9 +157,9 @@ bc_resolve_cpg <- function(cpg_id, array_type) {
   )
 }
 
-## Case-insensitive whole-token search ("(^|;)SYMBOL(;|$)") across the
-## semicolon-joined UCSC_RefGene_Name list - regex over the full ~485k/865k
-## row vector is fast; strsplit-per-row would not be.
+## Case-insensitive whole-token search over the semicolon-joined
+## UCSC_RefGene_Name list; regex over the full probe vector, not
+## strsplit-per-row, to stay fast at 450k/850k rows.
 bc_search_gene <- function(symbol, array_type, max_n = 300) {
   a <- bc_illumina_full_annotation(array_type)
   if (!isTRUE(a$ok)) return(list(ok = FALSE, reason = a$reason, df = NULL))
@@ -190,9 +178,8 @@ bc_search_gene <- function(symbol, array_type, max_n = 300) {
   list(ok = TRUE, df = out)
 }
 
-## For the multi-gene relationship table: UCSC_RefGene_Name and
-## UCSC_RefGene_Group are parallel semicolon-separated lists (one entry per
-## overlapping transcript) in the Illumina manifest's Other object.
+## UCSC_RefGene_Name and UCSC_RefGene_Group are parallel semicolon-separated
+## lists (one entry per overlapping transcript) in the manifest.
 bc_gene_relationship_table <- function(resolved) {
   names_str <- resolved$gene_names; group_str <- resolved$gene_group
   if (is.null(names_str) || is.na(names_str) || !nzchar(names_str)) return(NULL)
@@ -230,10 +217,9 @@ bc_txdb_exons_by_gene <- function() {
   ex
 }
 
-## symbol -> NCBI Gene ID / Ensembl ID / gene name (org.Hs.eg.db) + real
-## exon/gene-span/strand structure (TxDb.Hsapiens.UCSC.hg19.knownGene) -
-## fail-soft: any missing package/unmapped symbol returns ok=FALSE with a
-## reason, never a guessed coordinate.
+## symbol -> NCBI Gene ID / Ensembl ID / gene name (org.Hs.eg.db) + exon/
+## gene-span/strand structure (TxDb.Hsapiens.UCSC.hg19.knownGene); fail-soft
+## with a reason on any missing package or unmapped symbol.
 bc_gene_structure <- function(symbol) {
   if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, reason = "No associated gene symbol to resolve."))
   if (!requireNamespace("org.Hs.eg.db", quietly = TRUE)) return(list(ok = FALSE, reason = "org.Hs.eg.db is not installed in this deployment."))
@@ -258,7 +244,9 @@ bc_gene_structure <- function(symbol) {
   res
 }
 
-bc_go_terms <- function(entrez, n = 5) {
+## Returns data.frame(GOID, TERM) rather than a plain vector so GO subtab
+## links to QuickGO can be built from GOID.
+bc_go_terms <- function(entrez, n = 8) {
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(NULL)
   if (!requireNamespace("org.Hs.eg.db", quietly = TRUE) || !requireNamespace("GO.db", quietly = TRUE)) return(NULL)
   res <- tryCatch({
@@ -267,7 +255,7 @@ bc_go_terms <- function(entrez, n = 5) {
     ids <- unique(go$GOALL)
     if (length(ids) == 0) return(NULL)
     terms <- suppressMessages(AnnotationDbi::select(GO.db::GO.db, keys = ids, keytype = "GOID", columns = "TERM"))
-    utils::head(unique(stats::na.omit(terms$TERM)), n)
+    utils::head(unique(stats::na.omit(terms[, c("GOID", "TERM")])), n)
   }, error = function(e) NULL)
   if (inherits(res, "error")) return(NULL)
   res
@@ -365,10 +353,8 @@ bc_live_stats <- function(beta_row, group_vec, case_label, control_label) {
        case_label = case_label, control_label = control_label)
 }
 
-## Works identically whether `dataset` holds the preloaded live matrix or a
-## user-uploaded one - methyl_dataset$beta/$sample_sheet is the same shape
-## either way (see mod_methyl_dataset.R), so this needs no source-specific
-## branching.
+## Works for both preloaded and uploaded datasets - beta/sample_sheet share
+## the same shape either way (see mod_methyl_dataset.R).
 bc_dataset_evidence <- function(cpg, dataset) {
   beta <- dataset$beta; sheet <- dataset$sample_sheet
   if (is.null(beta) || is.null(sheet)) return(list(ok = FALSE, reason = "No beta matrix / sample sheet is currently loaded on the Dataset tab."))
@@ -410,29 +396,42 @@ bc_dataset_evidence <- function(cpg, dataset) {
 
 ## ---- External database lookups (EWAS Catalog, EWAS Atlas, KEGG, Reactome,
 ## PubMed) - live, keyless REST calls, each independently fail-soft. MethBank
-## has no public API (confirmed) and is handled as an outbound link only,
-## never a live query. Every one of these is opt-in (its own button, not part
-## of card_data()) so a slow/down external service never blocks the fully
-## local, already-working core of the card. ----------------------------------
+## has no public API and is an outbound link only. Every lookup is opt-in
+## (its own button, not part of card_data()) so a slow/down service never
+## blocks the local core of the card. -----------------------------------
 
-## Column names come from the response's own `fields` array (never hardcoded)
-## so a schema change on their end degrades to a parse failure, not silently
-## mislabeled data.
+## ---- Source/API transparency envelope: retrieval timestamp, query,
+## endpoint, status, record count. Attached as `meta` on every query_*
+## result so nothing reading $ok/$df/$data etc. breaks. -----------------
+bc_meta <- function(source, query, endpoint, status, n_records = NA_integer_) {
+  list(source = source, query = query, endpoint = endpoint, retrieved_at = Sys.time(), status = status, n_records = n_records)
+}
+
+## Column names come from the response's own `fields` array, not hardcoded,
+## so a schema change degrades to a parse failure, not mislabeled data.
 bc_ewascatalog_query <- function(type, value) {
-  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, df = NULL, reason = "httr2 is not installed."))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, df = NULL, reason = "httr2 is not installed.", meta = NULL))
   url <- sprintf("https://www.ewascatalog.org/api/?%s=%s", type, utils::URLencode(value, reserved = TRUE))
+  meta_base <- bc_meta("EWAS Catalog", sprintf("%s=%s", type, value), "www.ewascatalog.org/api/", NA_character_)
   res <- tryCatch({
     resp <- httr2::request(url) %>% httr2::req_timeout(15) %>% httr2::req_perform()
     httr2::resp_body_json(resp, simplifyVector = FALSE)
   }, error = function(e) e)
-  if (inherits(res, "error")) return(list(ok = FALSE, df = NULL, reason = sprintf("EWAS Catalog lookup failed: %s", conditionMessage(res))))
+  if (inherits(res, "error")) {
+    meta_base$status <- "Failed"
+    return(list(ok = FALSE, df = NULL, reason = sprintf("EWAS Catalog lookup failed: %s", conditionMessage(res)), meta = meta_base))
+  }
   fields <- unlist(res$fields)
   rows <- res$results
-  if (is.null(fields)) return(list(ok = FALSE, df = NULL, reason = "EWAS Catalog response did not include a field schema."))
+  if (is.null(fields)) {
+    meta_base$status <- "Failed (no field schema)"
+    return(list(ok = FALSE, df = NULL, reason = "EWAS Catalog response did not include a field schema.", meta = meta_base))
+  }
   if (length(rows) == 0) {
     empty <- as.data.frame(matrix(character(0), ncol = length(fields)), stringsAsFactors = FALSE)
     colnames(empty) <- fields
-    return(list(ok = TRUE, df = empty, reason = NULL))
+    meta_base$status <- "Success"; meta_base$n_records <- 0L
+    return(list(ok = TRUE, df = empty, reason = NULL, meta = meta_base))
   }
   mat <- do.call(rbind, lapply(rows, function(r) {
     r <- lapply(r, function(x) if (is.null(x)) NA_character_ else as.character(x))
@@ -441,26 +440,36 @@ bc_ewascatalog_query <- function(type, value) {
   df <- as.data.frame(mat, stringsAsFactors = FALSE)
   colnames(df) <- fields
   rownames(df) <- NULL
-  list(ok = TRUE, df = df, reason = NULL)
+  meta_base$status <- "Success"; meta_base$n_records <- nrow(df)
+  list(ok = TRUE, df = df, reason = NULL, meta = meta_base)
 }
 
 bc_ewasatlas_query <- function(endpoint, param, value) {
-  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, data = NULL, reason = "httr2 is not installed."))
+  meta_base <- bc_meta("EWAS Atlas", sprintf("%s=%s", param, value), sprintf("ngdc.cncb.ac.cn/ewas/rest/%s", endpoint), NA_character_)
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, data = NULL, reason = "httr2 is not installed.", meta = NULL))
   url <- sprintf("https://ngdc.cncb.ac.cn/ewas/rest/%s?%s=%s", endpoint, param, utils::URLencode(value, reserved = TRUE))
   res <- tryCatch({
     resp <- httr2::request(url) %>% httr2::req_timeout(15) %>% httr2::req_perform()
     httr2::resp_body_json(resp, simplifyVector = TRUE)
   }, error = function(e) e)
-  if (inherits(res, "error")) return(list(ok = FALSE, data = NULL, reason = sprintf("EWAS Atlas lookup failed: %s", conditionMessage(res))))
+  if (inherits(res, "error")) {
+    meta_base$status <- "Failed"
+    return(list(ok = FALSE, data = NULL, reason = sprintf("EWAS Atlas lookup failed: %s", conditionMessage(res)), meta = meta_base))
+  }
   code <- res$code
-  if (!is.null(code) && !identical(as.integer(code), 0L)) return(list(ok = FALSE, data = NULL, reason = res$msg %||% "EWAS Atlas returned an error."))
-  list(ok = TRUE, data = res$data, reason = NULL)
+  if (!is.null(code) && !identical(as.integer(code), 0L)) {
+    meta_base$status <- "Failed (API error)"
+    return(list(ok = FALSE, data = NULL, reason = res$msg %||% "EWAS Atlas returned an error.", meta = meta_base))
+  }
+  meta_base$status <- "Success"
+  meta_base$n_records <- tryCatch(if (is.data.frame(res$data)) nrow(res$data) else length(res$data), error = function(e) NA_integer_)
+  list(ok = TRUE, data = res$data, reason = NULL, meta = meta_base)
 }
 bc_ewasatlas_probe <- function(probe_id) bc_ewasatlas_query("probe", "probeId", probe_id)
 bc_ewasatlas_gene <- function(gene_symbol) bc_ewasatlas_query("gene", "geneSymbol", gene_symbol)
 
-## keggList("pathway","hsa") is a single ~370-row call, cached process-wide,
-## used to resolve pathway names without one keggGet() round trip per pathway.
+## Cached process-wide so pathway names resolve without a keggGet() round
+## trip per pathway.
 .bc_kegg_pathway_names_cache <- new.env(parent = emptyenv())
 bc_kegg_pathway_names <- function() {
   if (!is.null(.bc_kegg_pathway_names_cache$v)) return(.bc_kegg_pathway_names_cache$v)
@@ -470,8 +479,9 @@ bc_kegg_pathway_names <- function() {
   v
 }
 bc_kegg_pathways_for_gene <- function(entrez) {
-  if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, pathways = NULL, reason = "No NCBI Gene ID available for KEGG lookup."))
-  if (!requireNamespace("KEGGREST", quietly = TRUE)) return(list(ok = FALSE, pathways = NULL, reason = "KEGGREST is not installed in this deployment."))
+  meta_base <- bc_meta("KEGG", sprintf("hsa:%s", entrez %||% NA), "rest.kegg.jp/link/pathway/hsa:{entrez} (via KEGGREST)", NA_character_)
+  if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, pathways = NULL, reason = "No NCBI Gene ID available for KEGG lookup.", meta = meta_base))
+  if (!requireNamespace("KEGGREST", quietly = TRUE)) return(list(ok = FALSE, pathways = NULL, reason = "KEGGREST is not installed in this deployment.", meta = meta_base))
   res <- tryCatch({
     links <- KEGGREST::keggLink("pathway", sprintf("hsa:%s", entrez))
     key <- sub("^path:", "", unname(links))
@@ -480,15 +490,17 @@ bc_kegg_pathways_for_gene <- function(entrez) {
     nm <- sub(" - Homo sapiens.*$", "", nm)
     data.frame(id = key, name = nm, stringsAsFactors = FALSE)
   }, error = function(e) e)
-  if (inherits(res, "error")) return(list(ok = FALSE, pathways = NULL, reason = sprintf("KEGG lookup failed: %s", conditionMessage(res))))
-  list(ok = TRUE, pathways = res, reason = NULL)
+  if (inherits(res, "error")) {
+    meta_base$status <- "Failed"
+    return(list(ok = FALSE, pathways = NULL, reason = sprintf("KEGG lookup failed: %s", conditionMessage(res)), meta = meta_base))
+  }
+  meta_base$status <- "Success"; meta_base$n_records <- nrow(res)
+  list(ok = TRUE, pathways = res, reason = NULL, meta = meta_base)
 }
 
-## hsa05323's own gene list, fetched and parsed once (process-wide cache) -
-## direct membership check rather than trusting keggLink() (which in testing
-## returned empty for some genes that plausibly should show pathway links,
-## so the RA-specific spotlight section checks the pathway's own gene list
-## directly instead of relying solely on the general per-gene lookup above).
+## hsa05323's own gene list (cached) - direct membership check rather than
+## trusting keggLink(), which was seen returning empty for some genes that
+## plausibly belong on this pathway.
 .bc_kegg_ra_pathway_cache <- new.env(parent = emptyenv())
 bc_kegg_ra_pathway_genes <- function() {
   if (!is.null(.bc_kegg_ra_pathway_cache$obj)) return(.bc_kegg_ra_pathway_cache$obj)
@@ -514,21 +526,24 @@ bc_kegg_ra_pathway_check <- function(entrez, symbol) {
   list(ok = TRUE, in_pathway = in_by_id || in_by_symbol, pathway_name = ra$name, pathway_description = ra$description, genes = ra$df)
 }
 
-## org.Hs.eg.db's SYMBOL->UNIPROT mapping is 1:many (isoforms/entries); tries
-## each until one has Reactome pathway data. NOTE the inner `NULL` (not
-## `return(NULL)`) on a non-200 response - `return()` inside a tryCatch()
-## expression exits the *enclosing function*, not just that expression, which
-## would silently abort the whole loop on the first non-canonical UniProt ID.
+## SYMBOL->UNIPROT is 1:many; tries each ID until one has Reactome data.
+## Uses a bare `NULL` (not `return(NULL)`) on a non-200 response, since
+## `return()` inside tryCatch() would exit the whole function, not just
+## this iteration.
 bc_reactome_pathways_for_gene <- function(symbol) {
-  if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, pathways = NULL, reason = "No gene symbol available for Reactome lookup."))
+  meta_base <- bc_meta("Reactome", symbol %||% NA, "reactome.org/ContentService/data/mapping/UniProt/{id}/pathways", NA_character_)
+  if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, pathways = NULL, reason = "No gene symbol available for Reactome lookup.", meta = meta_base))
   if (!requireNamespace("org.Hs.eg.db", quietly = TRUE) || !requireNamespace("httr2", quietly = TRUE)) {
-    return(list(ok = FALSE, pathways = NULL, reason = "org.Hs.eg.db / httr2 not available in this deployment."))
+    return(list(ok = FALSE, pathways = NULL, reason = "org.Hs.eg.db / httr2 not available in this deployment.", meta = meta_base))
   }
   uniprot_ids <- tryCatch({
     m <- suppressMessages(AnnotationDbi::select(org.Hs.eg.db::org.Hs.eg.db, keys = symbol, keytype = "SYMBOL", columns = "UNIPROT"))
     unique(stats::na.omit(m$UNIPROT))
   }, error = function(e) character(0))
-  if (length(uniprot_ids) == 0) return(list(ok = FALSE, pathways = NULL, reason = sprintf("No UniProt ID found for gene symbol \"%s\".", symbol)))
+  if (length(uniprot_ids) == 0) {
+    meta_base$status <- "Failed (no UniProt ID)"
+    return(list(ok = FALSE, pathways = NULL, reason = sprintf("No UniProt ID found for gene symbol \"%s\".", symbol), meta = meta_base))
+  }
   for (uid in uniprot_ids) {
     res <- tryCatch({
       url <- sprintf("https://reactome.org/ContentService/data/mapping/UniProt/%s/pathways?species=9606", uid)
@@ -538,19 +553,22 @@ bc_reactome_pathways_for_gene <- function(symbol) {
     }, error = function(e) NULL)
     if (!is.null(res) && is.data.frame(res) && nrow(res) > 0) {
       out <- res[, intersect(c("stId", "displayName"), colnames(res)), drop = FALSE]
-      return(list(ok = TRUE, pathways = out, reason = NULL, uniprot = uid))
+      meta_base$status <- "Success"; meta_base$n_records <- nrow(out)
+      return(list(ok = TRUE, pathways = out, reason = NULL, uniprot = uid, meta = meta_base))
     }
   }
-  list(ok = TRUE, pathways = data.frame(stId = character(0), displayName = character(0)), reason = NULL)
+  meta_base$status <- "Success"; meta_base$n_records <- 0L
+  list(ok = TRUE, pathways = data.frame(stId = character(0), displayName = character(0)), reason = NULL, meta = meta_base)
 }
 
-## Same NCBI E-utilities pubmed_search() already uses (global.R) but keyed by
-## exact PMIDs (from EWAS Catalog/Atlas results) instead of a keyword search.
+## Same NCBI E-utilities endpoint as pubmed_search() (global.R), but keyed
+## by exact PMIDs from EWAS Catalog/Atlas results, not a keyword search.
 bc_pubmed_summaries <- function(pmids) {
   pmids <- unique(pmids[!is.na(pmids) & nzchar(pmids)])
   empty <- data.frame(pmid = character(0), title = character(0), journal = character(0), year = character(0), stringsAsFactors = FALSE)
-  if (length(pmids) == 0) return(list(ok = TRUE, table = empty, reason = NULL))
-  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, table = NULL, reason = "httr2 is not installed."))
+  meta_base <- bc_meta("PubMed (NCBI E-utilities)", paste(pmids, collapse = ","), "eutils.ncbi.nlm.nih.gov/esummary.fcgi?db=pubmed", NA_character_)
+  if (length(pmids) == 0) { meta_base$status <- "Success"; meta_base$n_records <- 0L; return(list(ok = TRUE, table = empty, reason = NULL, meta = meta_base)) }
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, table = NULL, reason = "httr2 is not installed.", meta = NULL))
   pmids <- utils::head(pmids, 20)
   res <- tryCatch({
     httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi") %>%
@@ -559,16 +577,21 @@ bc_pubmed_summaries <- function(pmids) {
       httr2::req_perform() %>%
       httr2::resp_body_json()
   }, error = function(e) e)
-  if (inherits(res, "error")) return(list(ok = FALSE, table = NULL, reason = sprintf("PubMed lookup failed: %s", conditionMessage(res))))
+  if (inherits(res, "error")) {
+    meta_base$status <- "Failed"
+    return(list(ok = FALSE, table = NULL, reason = sprintf("PubMed lookup failed: %s", conditionMessage(res)), meta = meta_base))
+  }
   ids <- unlist(res$result$uids)
-  if (is.null(ids)) return(list(ok = TRUE, table = empty, reason = NULL))
+  if (is.null(ids)) { meta_base$status <- "Success"; meta_base$n_records <- 0L; return(list(ok = TRUE, table = empty, reason = NULL, meta = meta_base)) }
   rows <- lapply(ids, function(id) {
     rec <- res$result[[id]]
     data.frame(pmid = id, title = rec$title %||% NA_character_,
                journal = rec$fulljournalname %||% rec$source %||% NA_character_,
                year = substr(rec$pubdate %||% "", 1, 4), stringsAsFactors = FALSE)
   })
-  list(ok = TRUE, table = do.call(rbind, rows), reason = NULL)
+  tbl <- do.call(rbind, rows)
+  meta_base$status <- "Success"; meta_base$n_records <- nrow(tbl)
+  list(ok = TRUE, table = tbl, reason = NULL, meta = meta_base)
 }
 
 ## No public API (confirmed) - outbound link only, never presented as a
@@ -634,6 +657,527 @@ bc_external_evidence <- function(cpg, gene_symbol, entrez) {
        kegg = kegg, kegg_ra = kegg_ra, reactome = reactome, combined_disease = combined, ra_rows = ra_rows,
        disease_counts = disease_counts, tissue_counts = tissue_counts, publications = pubs,
        methbank_link = bc_methbank_link())
+}
+
+## ---- Extended live API clients (Gene/Genome, Disease/Genetics, Pathways,
+## Expression, Regulatory/Epigenomics, External Datasets, Literature) - each
+## independently fail-soft (list(ok, ..., reason, meta)), keyless. Each is
+## opt-in (its own button server-side), never called from card_data(). -----
+
+## ---- NCBI Gene (live esummary, db=gene) - description/aliases/summary
+## text. Distinct from bc_gene_structure()'s local org.Hs.eg.db/TxDb
+## structural mapping above; this is the live NCBI record.
+bc_ncbi_gene_summary <- function(entrez) {
+  meta_base <- bc_meta("NCBI Gene", sprintf("db=gene&id=%s", entrez %||% NA), "eutils.ncbi.nlm.nih.gov/esummary.fcgi?db=gene", NA_character_)
+  if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, reason = "No NCBI Gene ID available.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed.", meta = meta_base))
+  res <- tryCatch({
+    resp <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi") %>%
+      httr2::req_url_query(db = "gene", id = entrez, retmode = "json", tool = "arthomix-explorer") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, reason = "NCBI Gene lookup failed (network error or timeout).", meta = meta_base)) }
+  rec <- res$result[[as.character(entrez)]]
+  if (is.null(rec)) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = FALSE, reason = sprintf("No NCBI Gene record found for Entrez ID %s.", entrez), meta = meta_base)) }
+  meta_base$status <- "Success"; meta_base$n_records <- 1L
+  list(ok = TRUE, reason = NULL,
+       name = rec$name %||% NA_character_, description = rec$description %||% NA_character_, summary = rec$summary %||% NA_character_,
+       aliases = if (!is.null(rec$otheraliases) && nzchar(rec$otheraliases)) rec$otheraliases else NA_character_,
+       other_designations = rec$otherdesignations %||% NA_character_,
+       chromosome = rec$chromosome %||% NA_character_, map_location = rec$maplocation %||% NA_character_, meta = meta_base)
+}
+
+## ---- Ensembl REST API (live, keyless) - gene lookup via the GRCh37/hg19
+## mirror (grch37.rest.ensembl.org) to match this app's build. The default
+## rest.ensembl.org serves GRCh38 and would mismatch every coordinate here.
+bc_ensembl_gene_lookup <- function(symbol) {
+  meta_base <- bc_meta("Ensembl (GRCh37)", symbol %||% NA, "grch37.rest.ensembl.org/lookup/symbol/homo_sapiens/{symbol}", NA_character_)
+  if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, reason = "No gene symbol given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed.", meta = meta_base))
+  url <- sprintf("https://grch37.rest.ensembl.org/lookup/symbol/homo_sapiens/%s", utils::URLencode(symbol, reserved = TRUE))
+  res <- tryCatch({
+    resp <- httr2::request(url) %>% httr2::req_url_query(`content-type` = "application/json") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(res)) {
+    meta_base$status <- "No results"; meta_base$n_records <- 0L
+    return(list(ok = FALSE, reason = sprintf("No Ensembl (GRCh37) record found for gene symbol \"%s\".", symbol), meta = meta_base))
+  }
+  meta_base$status <- "Success"; meta_base$n_records <- 1L
+  list(ok = TRUE, reason = NULL, ensembl_id = res$id %||% NA_character_, biotype = res$biotype %||% NA_character_,
+       chr = res$seq_region_name %||% NA_character_, start = res$start %||% NA_real_, end = res[["end"]] %||% NA_real_,
+       strand = res$strand %||% NA_integer_, description = sub("\\s*\\[Source.*$", "", res$description %||% NA_character_), meta = meta_base)
+}
+
+## ---- Ensembl regulatory-feature overlap, by the CpG's own coordinate (not
+## the gene's) - GRCh37 mirror. Distinct from the gene-level lookup above.
+## Response field names are feature_type/description/start/end/id (no
+## "name" field).
+bc_ensembl_regulatory_overlap <- function(chr, start, end = NULL) {
+  region_label <- if (!is.null(chr) && !is.na(chr) && !is.null(start) && !is.na(start)) sprintf("%s:%s-%s", chr, start, end %||% start) else NA_character_
+  meta_base <- bc_meta("Ensembl Regulatory Build (GRCh37)", region_label, "grch37.rest.ensembl.org/overlap/region/human/{region}?feature=regulatory", NA_character_)
+  if (is.null(chr) || is.na(chr) || is.null(start) || is.na(start)) return(list(ok = FALSE, reason = "No genomic coordinate available for this CpG.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed.", meta = meta_base))
+  chr_n <- sub("^chr", "", chr, ignore.case = TRUE)
+  win_start <- max(1, as.integer(start) - 1000); win_end <- as.integer(end %||% start) + 1000
+  url <- sprintf("https://grch37.rest.ensembl.org/overlap/region/human/%s:%s-%s", chr_n, win_start, win_end)
+  res <- tryCatch({
+    resp <- httr2::request(url) %>% httr2::req_url_query(feature = "regulatory", `content-type` = "application/json") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = TRUE)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, reason = "Ensembl regulatory-overlap lookup failed (network error or timeout).", meta = meta_base)) }
+  if (!is.data.frame(res) || nrow(res) == 0) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = TRUE, reason = NULL, features = NULL, window = c(win_start, win_end), meta = meta_base)) }
+  keep <- intersect(c("feature_type", "description", "start", "end", "id"), colnames(res))
+  df <- res[, keep, drop = FALSE]
+  df <- df[order(df$start), , drop = FALSE]
+  meta_base$status <- "Success"; meta_base$n_records <- nrow(df)
+  list(ok = TRUE, reason = NULL, features = df, window = c(win_start, win_end), meta = meta_base)
+}
+
+## ---- WikiPathways: pathway membership via the same msigdbr-cached term<->
+## gene table the Multi-Omics Pathways module loads
+## (mp_get_wikipathways_termgene(), R/multiomics/multiomics_pathway_helpers.R).
+## Ported from the transcriptomics Biomarker Card.
+bc_wikipathways_pathways_for_gene <- function(entrez) {
+  meta_base <- bc_meta("WikiPathways (msigdbr)", entrez %||% NA, "local msigdbr C2:CP:WIKIPATHWAYS cache (mp_get_wikipathways_termgene)", NA_character_)
+  if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, pathways = NULL, reason = "No NCBI Gene ID available for WikiPathways lookup.", meta = meta_base))
+  t2g <- tryCatch(mp_get_wikipathways_termgene(), error = function(e) NULL)
+  if (is.null(t2g)) { meta_base$status <- "Failed"; return(list(ok = FALSE, pathways = NULL, reason = "WikiPathways gene sets (msigdbr) are not available in this deployment.", meta = meta_base)) }
+  hit <- t2g$TERM2GENE[!is.na(t2g$TERM2GENE$ncbi_gene) & as.character(t2g$TERM2GENE$ncbi_gene) == as.character(entrez), , drop = FALSE]
+  if (nrow(hit) == 0) { meta_base$status <- "Success"; meta_base$n_records <- 0L; return(list(ok = TRUE, pathways = data.frame(id = character(0), name = character(0)), reason = NULL, meta = meta_base)) }
+  ids <- unique(hit$gs_exact_source)
+  nm <- t2g$TERM2NAME$gs_name[match(ids, t2g$TERM2NAME$gs_exact_source)]
+  meta_base$status <- "Success"; meta_base$n_records <- length(ids)
+  list(ok = TRUE, pathways = data.frame(id = ids, name = nm, stringsAsFactors = FALSE), reason = NULL, meta = meta_base)
+}
+
+## ---- Open Targets: genetic association (aggregates GWAS Catalog + other
+## sources) + druggability tractability, keyed by Ensembl Gene ID. Ported
+## from mod_biomarkercard.R::tbc_opentargets_evidence_for_gene().
+BC_OT_TRACTABILITY_TIERS <- c("Approved Drug", "Advanced Clinical", "Phase 1 Clinical")
+BC_OT_MODALITY_LABELS <- c(SM = "Small molecule", AB = "Antibody / biologic", PR = "PROTAC-type degrader", OC = "Other clinical modality")
+
+bc_opentargets_evidence_for_gene <- function(ensembl, top_n_diseases = 8) {
+  meta_base <- bc_meta("Open Targets", ensembl %||% NA, "api.platform.opentargets.org/api/v4/graphql", NA_character_)
+  if (is.null(ensembl) || is.na(ensembl) || !nzchar(ensembl)) return(list(ok = FALSE, reason = "No Ensembl Gene ID available for Open Targets lookup.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed.", meta = meta_base))
+  query <- 'query($id:String!, $size:Int!){ target(ensemblId:$id){ id approvedSymbol
+    tractability { label modality value }
+    associatedDiseases(page:{index:0,size:$size}){ count rows { score disease { id name } datatypeScores { id score } } } } }'
+  res <- tryCatch({
+    resp <- httr2::request("https://api.platform.opentargets.org/api/v4/graphql") %>%
+      httr2::req_headers(`Content-Type` = "application/json") %>%
+      httr2::req_body_json(list(query = query, variables = list(id = ensembl, size = as.integer(top_n_diseases)))) %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  tgt <- res$data$target
+  if (is.null(tgt)) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = FALSE, reason = sprintf("No Open Targets entry found for Ensembl ID \"%s\".", ensembl), meta = meta_base)) }
+
+  tract <- tgt$tractability
+  modality_summary <- stats::setNames(lapply(names(BC_OT_MODALITY_LABELS), function(mod) {
+    rows <- Filter(function(r) identical(r$modality, mod), tract)
+    approved <- any(vapply(rows, function(r) identical(r$label, "Approved Drug") && isTRUE(r$value), logical(1)))
+    tier <- Find(function(t) any(vapply(rows, function(r) identical(r$label, t) && isTRUE(r$value), logical(1))), BC_OT_TRACTABILITY_TIERS)
+    feasible <- any(vapply(rows, function(r) isTRUE(r$value), logical(1)))
+    if (approved) "Approved drug exists" else if (!is.null(tier)) tier else if (feasible) "Structurally feasible" else "No tractability evidence"
+  }), names(BC_OT_MODALITY_LABELS))
+
+  dis_rows <- tgt$associatedDiseases$rows %||% list()
+  all_datatypes <- unique(unlist(lapply(dis_rows, function(r) vapply(r$datatypeScores, function(x) x$id, character(1)))))
+  diseases <- if (length(dis_rows) > 0) {
+    do.call(rbind, lapply(dis_rows, function(r) {
+      dt <- stats::setNames(vapply(r$datatypeScores, function(x) x$score, numeric(1)), vapply(r$datatypeScores, function(x) x$id, character(1)))
+      row <- data.frame(Disease = r$disease$name, `Overall score` = round(r$score, 3), check.names = FALSE, stringsAsFactors = FALSE)
+      for (nm in all_datatypes) row[[nm]] <- if (nm %in% names(dt)) round(dt[[nm]], 3) else NA_real_
+      row
+    }))
+  } else NULL
+  if (!is.null(diseases)) colnames(diseases) <- gsub("\\bRna\\b", "RNA", gsub("_", " ", tools::toTitleCase(colnames(diseases))))
+
+  meta_base$status <- "Success"; meta_base$n_records <- tgt$associatedDiseases$count %||% 0L
+  list(ok = TRUE, n_diseases = tgt$associatedDiseases$count %||% 0, diseases = diseases, tractability = modality_summary, meta = meta_base)
+}
+
+## ---- Human Protein Atlas baseline tissue/blood-lineage RNA expression,
+## keyed by Ensembl Gene ID. Ported from tbc_hpa_evidence_for_gene().
+bc_hpa_evidence_for_gene <- function(ensembl) {
+  meta_base <- bc_meta("Human Protein Atlas", ensembl %||% NA, "www.proteinatlas.org/{ensembl}.json", NA_character_)
+  if (is.null(ensembl) || is.na(ensembl) || !nzchar(ensembl)) return(list(ok = FALSE, reason = "No Ensembl Gene ID available for Human Protein Atlas lookup.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed.", meta = meta_base))
+  res <- tryCatch({
+    resp <- httr2::request(sprintf("https://www.proteinatlas.org/%s.json", ensembl)) %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = FALSE, reason = sprintf("No Human Protein Atlas entry found for Ensembl ID \"%s\".", ensembl), meta = meta_base)) }
+
+  named_list_to_df <- function(x, value_label) {
+    if (is.null(x) || length(x) == 0) return(NULL)
+    out <- data.frame(Tissue = names(x), Value = vapply(x, function(v) as.character(v %||% NA), character(1)), stringsAsFactors = FALSE)
+    stats::setNames(out, c("Tissue / cell type", value_label))
+  }
+  meta_base$status <- "Success"; meta_base$n_records <- 1L
+  list(ok = TRUE,
+       tissue_specificity = res[["RNA tissue specificity"]] %||% "Not available",
+       tissue_top = named_list_to_df(res[["RNA tissue specific nTPM"]], "nTPM"),
+       blood_specificity = res[["RNA blood lineage specificity"]] %||% "Not available",
+       blood_top = named_list_to_df(res[["RNA blood lineage specific nTPM"]], "nTPM"),
+       blood_cluster = res[["Blood expression cluster"]] %||% NA_character_,
+       secretome = res[["Secretome location"]] %||% NA_character_,
+       protein_class = if (!is.null(res[["Protein class"]])) paste(unlist(res[["Protein class"]]), collapse = ", ") else NA_character_,
+       meta = meta_base)
+}
+
+## ---- NHGRI-EBI GWAS Catalog (live, keyless) - distinct from the
+## OpenGWAS/MRC-IEU catalogue used by gwas_catalog_search() in global.R
+## (needs OPENGWAS_JWT, serves MR datasets, not trait associations). Uses
+## the trait-level search (one call) rather than the full gene->SNP->trait
+## chain; supplementary to Open Targets' curated disease-association join.
+bc_gwas_catalog_by_gene <- function(symbol, max_results = 15) {
+  meta_base <- bc_meta("GWAS Catalog (NHGRI-EBI)", symbol %||% NA, "www.ebi.ac.uk/gwas/api/search?q={symbol}", NA_character_)
+  if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, traits = NULL, reason = "No gene symbol given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, traits = NULL, reason = "httr2 is not installed.", meta = meta_base))
+  res <- tryCatch({
+    resp <- httr2::request("https://www.ebi.ac.uk/gwas/api/search") %>%
+      httr2::req_url_query(q = symbol, facet = "false", rows = 200) %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    ## check_type = FALSE: this endpoint sometimes omits the Content-Type
+    ## header, which resp_body_json() would otherwise refuse to parse.
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, check_type = FALSE, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, traits = NULL, reason = "GWAS Catalog lookup failed (network error or timeout).", meta = meta_base)) }
+  docs <- Filter(function(d) identical(d$resourcename, "trait"), res$response$docs %||% list())
+  if (length(docs) == 0) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = TRUE, traits = NULL, reason = NULL, meta = meta_base)) }
+  df <- do.call(rbind, lapply(utils::head(docs, max_results), function(d) {
+    data.frame(Trait = d$mappedTrait %||% NA_character_, `EFO ID` = d$shortForm[[1]] %||% NA_character_,
+               Studies = d$studyCount %||% NA_integer_, Associations = d$associationCount %||% NA_integer_,
+               `Reported as` = if (!is.null(d$reportedTrait)) paste(utils::head(unlist(d$reportedTrait), 2), collapse = "; ") else NA_character_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  df <- df[order(-df$Associations), , drop = FALSE]
+  meta_base$status <- "Success"; meta_base$n_records <- length(docs)
+  list(ok = TRUE, traits = df, reason = NULL, n_total = length(docs), meta = meta_base)
+}
+
+## ---- ENCODE (live, keyless) - experiment/dataset search by gene symbol.
+## Doubles as Regulatory/Epigenomics evidence and an External Datasets source.
+bc_encode_search <- function(query, max_results = 15) {
+  meta_base <- bc_meta("ENCODE", query %||% NA, "www.encodeproject.org/search/?type=Experiment", NA_character_)
+  if (is.null(query) || !nzchar(trimws(query %||% ""))) return(list(ok = FALSE, experiments = NULL, reason = "No search term given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, experiments = NULL, reason = "httr2 is not installed.", meta = meta_base))
+  res <- tryCatch({
+    resp <- httr2::request("https://www.encodeproject.org/search/") %>%
+      httr2::req_url_query(searchTerm = query, type = "Experiment", status = "released", format = "json", limit = max_results) %>%
+      httr2::req_headers(Accept = "application/json") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, experiments = NULL, reason = "ENCODE lookup failed (network error or timeout).", meta = meta_base)) }
+  rows <- res[["@graph"]] %||% list()
+  if (length(rows) == 0) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = TRUE, experiments = NULL, reason = NULL, meta = meta_base)) }
+  df <- do.call(rbind, lapply(rows, function(r) {
+    data.frame(Accession = r$accession %||% NA_character_, Assay = r$assay_title %||% NA_character_,
+               Biosample = r$biosample_summary %||% NA_character_, Status = r$status %||% NA_character_,
+               `Link path` = r[["@id"]] %||% NA_character_, check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  meta_base$status <- "Success"; meta_base$n_records <- res$total %||% nrow(df)
+  list(ok = TRUE, experiments = df, reason = NULL, n_total = res$total %||% nrow(df), meta = meta_base)
+}
+
+## ---- GEO series/dataset search (metadata only, never auto-downloads a
+## matrix) via NCBI E-utilities db=gds, same base as bc_pubmed_summaries().
+## esearch -> id list -> esummary -> per-record metadata, same as PubMed.
+bc_geo_search <- function(query, max_results = 10) {
+  meta_base <- bc_meta("GEO (NCBI E-utilities, db=gds)", query %||% NA, "eutils.ncbi.nlm.nih.gov/esearch.fcgi?db=gds", NA_character_)
+  if (is.null(query) || !nzchar(trimws(query %||% ""))) return(list(ok = FALSE, series = NULL, reason = "No search query given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, series = NULL, reason = "httr2 is not installed.", meta = meta_base))
+  max_results <- min(max(as.integer(max_results %||% 10), 1L), 25L)
+  res <- tryCatch({
+    esearch <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi") %>%
+      httr2::req_url_query(db = "gds", term = query, retmode = "json", retmax = max_results, tool = "arthomix-explorer") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(esearch) != 200) return(NULL)
+    ids <- unlist(httr2::resp_body_json(esearch)$esearchresult$idlist)
+    if (length(ids) == 0) return(list(ids = character(0), recs = NULL))
+    esummary <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi") %>%
+      httr2::req_url_query(db = "gds", id = paste(ids, collapse = ","), retmode = "json", tool = "arthomix-explorer") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(esummary) != 200) return(NULL)
+    list(ids = ids, recs = httr2::resp_body_json(esummary)$result)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, series = NULL, reason = "GEO lookup failed (network error, timeout, or malformed response).", meta = meta_base)) }
+  if (length(res$ids) == 0) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = TRUE, series = NULL, reason = NULL, meta = meta_base)) }
+  rows <- lapply(res$ids, function(id) {
+    r <- res$recs[[id]]
+    if (is.null(r)) return(NULL)
+    data.frame(Accession = r$accession %||% NA_character_, Title = r$title %||% NA_character_,
+               `Data type` = r$gdstype %||% NA_character_, Organism = r$taxon %||% NA_character_,
+               `Samples` = r$n_samples %||% NA_integer_, Date = r$pdat %||% NA_character_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  })
+  df <- do.call(rbind, Filter(Negate(is.null), rows))
+  meta_base$status <- "Success"; meta_base$n_records <- if (!is.null(df)) nrow(df) else 0L
+  list(ok = TRUE, series = df, reason = NULL, meta = meta_base)
+}
+
+## ---- ArrayExpress / BioStudies (live, keyless) - EBI's unified BioStudies
+## search, which also indexes ArrayExpress accessions (E-MTAB-*, E-GEOD-*).
+bc_biostudies_search <- function(query, max_results = 10) {
+  meta_base <- bc_meta("BioStudies / ArrayExpress (EBI)", query %||% NA, "www.ebi.ac.uk/biostudies/api/v1/search", NA_character_)
+  if (is.null(query) || !nzchar(trimws(query %||% ""))) return(list(ok = FALSE, studies = NULL, reason = "No search query given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, studies = NULL, reason = "httr2 is not installed.", meta = meta_base))
+  res <- tryCatch({
+    resp <- httr2::request("https://www.ebi.ac.uk/biostudies/api/v1/search") %>%
+      httr2::req_url_query(query = query, pageSize = max_results) %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, studies = NULL, reason = "BioStudies lookup failed (network error or timeout).", meta = meta_base)) }
+  hits <- res$hits %||% list()
+  if (length(hits) == 0) { meta_base$status <- "No results"; meta_base$n_records <- 0L; return(list(ok = TRUE, studies = NULL, reason = NULL, meta = meta_base)) }
+  df <- do.call(rbind, lapply(hits, function(h) {
+    data.frame(Accession = h$accession %||% NA_character_, Title = h$title %||% NA_character_,
+               Type = h$type %||% NA_character_, `Release date` = h$release_date %||% NA_character_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  meta_base$status <- "Success"; meta_base$n_records <- res$totalHits %||% nrow(df)
+  list(ok = TRUE, studies = df, reason = NULL, n_total = res$totalHits %||% nrow(df), meta = meta_base)
+}
+
+## ---- Literature: structured PubMed search (title/authors/journal/year/PMID)
+## via esearch+esummary, distinct from bc_pubmed_summaries() above (keyed by
+## known PMIDs, not a free-text query). Ported from tbc_literature_search().
+bc_literature_search <- function(query, max_results = 12) {
+  meta_base <- bc_meta("PubMed (NCBI E-utilities)", query %||% NA, "eutils.ncbi.nlm.nih.gov/esearch.fcgi?db=pubmed", NA_character_)
+  if (is.null(query) || !nzchar(trimws(query %||% ""))) return(list(ok = FALSE, papers = NULL, reason = "No search query given.", meta = meta_base))
+  if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, papers = NULL, reason = "httr2 is not installed.", meta = meta_base))
+  max_results <- min(max(as.integer(max_results %||% 12), 1L), 30L)
+  res <- tryCatch({
+    esearch <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi") %>%
+      httr2::req_url_query(db = "pubmed", term = query, retmode = "json", retmax = max_results, sort = "relevance", tool = "arthomix-biomarkercard") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(esearch) != 200) return(NULL)
+    ids <- unlist(httr2::resp_body_json(esearch)$esearchresult$idlist)
+    if (length(ids) == 0) return(data.frame())
+    esummary <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi") %>%
+      httr2::req_url_query(db = "pubmed", id = paste(ids, collapse = ","), retmode = "json", tool = "arthomix-biomarkercard") %>%
+      httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
+    if (httr2::resp_status(esummary) != 200) return(NULL)
+    recs <- httr2::resp_body_json(esummary)$result
+    rows <- lapply(ids, function(pmid) {
+      r <- recs[[pmid]]
+      if (is.null(r)) return(NULL)
+      authors <- vapply(r$authors, function(a) a$name %||% "?", character(1))
+      author_str <- if (length(authors) > 1) paste0(authors[1], " et al.") else if (length(authors) == 1) authors[1] else "Unknown author"
+      data.frame(Title = r$title %||% "Untitled", Authors = author_str, Journal = r$fulljournalname %||% r$source %||% NA_character_,
+                 Year = substr(r$pubdate %||% "", 1, 4), PMID = pmid, Type = if (length(r$pubtype) > 0) paste(unlist(r$pubtype), collapse = ", ") else NA_character_,
+                 stringsAsFactors = FALSE)
+    })
+    do.call(rbind, Filter(Negate(is.null), rows))
+  }, error = function(e) NULL)
+  if (is.null(res)) { meta_base$status <- "Failed"; return(list(ok = FALSE, papers = NULL, reason = "PubMed lookup failed (network error, timeout, or malformed response).", meta = meta_base)) }
+  meta_base$status <- "Success"; meta_base$n_records <- if (is.data.frame(res)) nrow(res) else 0L
+  list(ok = TRUE, papers = if (is.data.frame(res) && nrow(res) > 0) res else NULL, reason = NULL, meta = meta_base)
+}
+
+## Preset query templates, methylation-flavored.
+BC_LITERATURE_PRESETS <- c(
+  "Gene only" = "%s", "Gene + methylation" = "%s methylation", "Gene + CpG" = "%s CpG methylation",
+  "Gene + epigenetic biomarker" = "%s epigenetic biomarker", "Gene + rheumatoid arthritis" = "%s rheumatoid arthritis"
+)
+bc_literature_query <- function(identifier, preset, custom_disease = NULL) {
+  if (identical(preset, "disease")) {
+    ctx <- if (!is.null(custom_disease) && nzchar(trimws(custom_disease))) trimws(custom_disease) else "disease"
+    return(sprintf("%s %s", identifier, ctx))
+  }
+  tmpl <- BC_LITERATURE_PRESETS[[preset]] %||% "%s"
+  sprintf(tmpl, identifier)
+}
+
+## ---- Automated literature classification: keyword heuristic over
+## title/abstract, always labeled "automated" in the UI. Multiple
+## categories may apply.
+BC_LIT_CLASS_PATTERNS <- list(
+  "EWAS" = "epigenome-wide|\\bewas\\b",
+  "DNA methylation" = "methylat",
+  "Biomarker study" = "biomarker",
+  "Disease association" = "associat|risk of|susceptibility",
+  "Functional study" = "function|regulat|expression|knockdown|knockout",
+  "Mechanistic study" = "mechanism|pathway|signal(l)?ing",
+  "Review" = "^review|systematic review|meta-analysis",
+  "Clinical study" = "clinical trial|cohort|patients? with",
+  "Validation study" = "validat|replicat"
+)
+bc_literature_classify <- function(title, abstract = NULL) {
+  text <- tolower(paste(title %||% "", abstract %||% ""))
+  if (!nzchar(trimws(text))) return(character(0))
+  hits <- names(BC_LIT_CLASS_PATTERNS)[vapply(BC_LIT_CLASS_PATTERNS, function(p) grepl(p, text, ignore.case = TRUE), logical(1))]
+  hits
+}
+
+## ---- Identifier detection & resolution - routes a submitted identifier to
+## CpG-shaped or gene-shaped resolution, never silently dropping an
+## unresolved entry. Works for a single identifier or a pasted/uploaded list.
+
+BC_ID_TYPE_PATTERNS <- list(cpg = "^cg[0-9]{6,}$", ensembl = "^ENSG[0-9]{6,}(\\.[0-9]+)?$", entrez = "^[0-9]+$")
+bc_detect_identifier_type <- function(x) {
+  x <- trimws(x)
+  if (grepl(BC_ID_TYPE_PATTERNS$cpg, x, ignore.case = TRUE)) return("cpg")
+  if (grepl(BC_ID_TYPE_PATTERNS$ensembl, x, ignore.case = TRUE)) return("ensembl")
+  if (grepl(BC_ID_TYPE_PATTERNS$entrez, x)) return("entrez")
+  "gene_symbol"
+}
+
+## Splits a pasted list on comma/newline/tab/space and dedupes, same
+## convention as mod_enrichment.R's gene-list textarea.
+bc_split_tokens <- function(text) {
+  toks <- trimws(unlist(strsplit(text %||% "", "[,\n\t ]+")))
+  unique(toks[nzchar(toks)])
+}
+
+## Resolves a mixed list of gene symbols/Ensembl/Entrez IDs and CpG probe
+## IDs in one pass - every submitted identifier appears in the output table,
+## resolved or not. Gene-like tokens are batched through the shared
+## cx_harmonize_gene_ids() (one call, not one per gene); CpG-like tokens
+## go through bc_resolve_cpg() individually.
+bc_resolve_identifiers <- function(raw_ids, array_type = "450K") {
+  raw_ids <- unique(trimws(as.character(raw_ids)))
+  raw_ids <- raw_ids[nzchar(raw_ids)]
+  if (length(raw_ids) == 0) return(list(ok = FALSE, reason = "No identifiers were provided.", df = NULL, n_submitted = 0L, n_resolved = 0L, n_unresolved = 0L))
+  types <- vapply(raw_ids, bc_detect_identifier_type, character(1))
+  cpg_ids <- raw_ids[types == "cpg"]
+  gene_ids <- raw_ids[types != "cpg"]
+
+  cpg_rows <- if (length(cpg_ids) > 0) do.call(rbind, lapply(cpg_ids, function(id) {
+    r <- bc_resolve_cpg(id, array_type)
+    resolved <- isTRUE(r$found_in_manifest) || isTRUE(r$found_in_champ)
+    gene <- if (!is.na(r$champ_gene) && nzchar(r$champ_gene)) r$champ_gene
+            else if (!is.na(r$gene_names) && nzchar(r$gene_names)) trimws(strsplit(r$gene_names, ";")[[1]][1]) else NA_character_
+    data.frame(input_id = id, detected_type = "CpG probe", resolved = resolved,
+               resolved_id = if (resolved) id else NA_character_,
+               status_label = if (resolved) "Resolved (found in manifest annotation)" else sprintf("Unresolved - not found in the %s manifest", array_type),
+               annotated_gene = gene, stringsAsFactors = FALSE)
+  })) else NULL
+
+  gene_rows <- NULL
+  if (length(gene_ids) > 0) {
+    harm <- tryCatch(cx_harmonize_gene_ids(gene_ids), error = function(e) list(ok = FALSE))
+    if (isTRUE(harm$ok)) {
+      hdf <- harm$df
+      status_labels <- c(exact_symbol = "Resolved (exact gene symbol)", exact_entrez = "Resolved (NCBI Entrez ID)",
+                          exact_ensembl = "Resolved (Ensembl Gene ID)", alias_resolved = "Resolved (via known alias)",
+                          ambiguous = "Ambiguous - multiple candidate symbols, not guessed", unmatched = "Unresolved - identifier not recognized")
+      gene_rows <- data.frame(input_id = hdf$input_id, detected_type = "Gene identifier",
+                               resolved = hdf$match_type %in% c("exact_symbol", "exact_entrez", "exact_ensembl", "alias_resolved"),
+                               resolved_id = hdf$canonical_symbol, status_label = unname(status_labels[hdf$match_type]),
+                               annotated_gene = hdf$canonical_symbol, stringsAsFactors = FALSE)
+    } else {
+      gene_rows <- data.frame(input_id = gene_ids, detected_type = "Gene identifier", resolved = FALSE,
+                               resolved_id = NA_character_, status_label = "Unresolved - gene identifier harmonization is unavailable in this deployment",
+                               annotated_gene = NA_character_, stringsAsFactors = FALSE)
+    }
+  }
+  df <- rbind(cpg_rows, gene_rows)
+  df <- df[match(raw_ids, df$input_id), , drop = FALSE]
+  list(ok = TRUE, reason = NULL, df = df, n_submitted = length(raw_ids), n_resolved = sum(df$resolved), n_unresolved = sum(!df$resolved))
+}
+
+## =============================================================================
+## Panel mode: multi-gene / multi-CpG list input - reuses
+## bc_resolve_identifiers() above, then per-item evidence rows + convergence
+## aggregation across whichever databases the user opts into.
+## =============================================================================
+
+## Long-to-wide convergence collapse - groups by the shared item
+## (Disease/Trait/Pathway) and lists every biomarker that hit it. Ported
+## from the transcriptomics Biomarker Card's tbc_aggregate_convergence().
+bc_aggregate_convergence <- function(long_df, item_col, id_col = "ID") {
+  if (is.null(long_df) || nrow(long_df) == 0) return(NULL)
+  agg <- stats::aggregate(stats::reformulate(item_col, response = id_col), long_df, function(x) paste(sort(unique(x)), collapse = ", "))
+  agg$`Biomarker count` <- vapply(strsplit(agg[[id_col]], ", "), length, integer(1))
+  agg <- agg[order(-agg$`Biomarker count`), , drop = FALSE]
+  colnames(agg)[colnames(agg) == id_col] <- "Biomarkers"
+  agg
+}
+
+## Per-gene identity row, reusing bc_gene_structure() looped across the panel.
+bc_panel_gene_rows <- function(gene_symbols) {
+  if (length(gene_symbols) == 0) return(NULL)
+  do.call(rbind, lapply(gene_symbols, function(g) {
+    gs <- bc_gene_structure(g)
+    data.frame(Gene = g, `NCBI Entrez ID` = if (isTRUE(gs$ok)) gs$entrez else NA_character_,
+               `Ensembl Gene ID` = if (isTRUE(gs$ok)) gs$ensembl else NA_character_,
+               Chromosome = if (isTRUE(gs$ok)) gs$chr else NA_character_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+}
+
+## Per-CpG row, reusing bc_resolve_cpg()/bc_dmp_lookup() unmodified.
+bc_panel_cpg_rows <- function(cpg_ids, array_type) {
+  if (length(cpg_ids) == 0) return(NULL)
+  do.call(rbind, lapply(cpg_ids, function(cpg) {
+    r <- bc_resolve_cpg(cpg, array_type)
+    dmp_f <- bc_dmp_lookup(cpg, "female"); dmp_m <- bc_dmp_lookup(cpg, "male")
+    gene <- if (!is.na(r$champ_gene) && nzchar(r$champ_gene)) r$champ_gene
+            else if (!is.na(r$gene_names) && nzchar(r$gene_names)) trimws(strsplit(r$gene_names, ";")[[1]][1]) else NA_character_
+    data.frame(CpG = cpg, Chromosome = r$chr, Position = r$pos, Gene = gene,
+               `Island relation` = bc_island_context_label(r$island_relation),
+               `Female FDR (pipeline)` = if (!is.null(dmp_f)) signif(dmp_f$fdr_bacon, 3) else NA_real_,
+               `Male FDR (pipeline)` = if (!is.null(dmp_m)) signif(dmp_m$fdr_bacon, 3) else NA_real_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+}
+
+## Loops the single-gene Open Targets client and aggregates locally; capped
+## to avoid hammering a live API from one click on a long pasted list.
+bc_panel_disease_convergence_genes <- function(gene_symbols, max_genes = 15) {
+  genes <- utils::head(unique(gene_symbols), max_genes)
+  rows <- lapply(genes, function(g) {
+    gs <- bc_gene_structure(g)
+    if (!isTRUE(gs$ok) || is.na(gs$ensembl)) return(NULL)
+    r <- bc_opentargets_evidence_for_gene(gs$ensembl, top_n_diseases = 10)
+    if (!isTRUE(r$ok) || is.null(r$diseases) || nrow(r$diseases) == 0) return(NULL)
+    data.frame(ID = g, Disease = r$diseases$Disease, stringsAsFactors = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) return(list(ok = FALSE, reason = "No Open Targets disease associations were found for any resolved gene in this list.", table = NULL, n_queried = length(genes)))
+  list(ok = TRUE, reason = NULL, table = bc_aggregate_convergence(do.call(rbind, rows), "Disease"), n_queried = length(genes))
+}
+
+## Trait convergence across a CpG list via the EWAS Catalog client - the
+## methylation-specific analogue of the disease convergence above.
+bc_panel_ewas_trait_convergence_cpgs <- function(cpg_ids, max_cpgs = 15) {
+  cpgs <- utils::head(unique(cpg_ids), max_cpgs)
+  rows <- lapply(cpgs, function(cpg) {
+    r <- bc_ewascatalog_query("cpg", cpg)
+    if (!isTRUE(r$ok) || nrow(r$df) == 0) return(NULL)
+    data.frame(ID = cpg, Trait = r$df$trait, stringsAsFactors = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) return(list(ok = FALSE, reason = "No EWAS Catalog trait associations were found for any CpG in this list.", table = NULL, n_queried = length(cpgs)))
+  list(ok = TRUE, reason = NULL, table = bc_aggregate_convergence(do.call(rbind, rows), "Trait"), n_queried = length(cpgs))
+}
+
+## Pathway convergence across a gene list via the KEGG/Reactome clients.
+bc_panel_pathway_convergence_genes <- function(gene_symbols, max_genes = 15) {
+  genes <- utils::head(unique(gene_symbols), max_genes)
+  rows <- lapply(genes, function(g) {
+    gs <- bc_gene_structure(g)
+    if (!isTRUE(gs$ok)) return(NULL)
+    k <- bc_kegg_pathways_for_gene(gs$entrez)
+    r <- bc_reactome_pathways_for_gene(g)
+    out <- NULL
+    if (isTRUE(k$ok) && !is.null(k$pathways) && nrow(k$pathways) > 0) out <- rbind(out, data.frame(ID = g, Pathway = k$pathways$name, stringsAsFactors = FALSE))
+    if (isTRUE(r$ok) && !is.null(r$pathways) && nrow(r$pathways) > 0) out <- rbind(out, data.frame(ID = g, Pathway = r$pathways$displayName, stringsAsFactors = FALSE))
+    out
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) return(list(ok = FALSE, reason = "No KEGG/Reactome pathways were found for any resolved gene in this list.", table = NULL, n_queried = length(genes)))
+  list(ok = TRUE, reason = NULL, table = bc_aggregate_convergence(do.call(rbind, rows), "Pathway"), n_queried = length(genes))
 }
 
 ## ---- Plots ---------------------------------------------------------------
@@ -825,7 +1369,7 @@ bc_primary_gene_detail <- function(d) {
     "Genomic location" = if (!is.na(gs$start) && !is.na(gs$end)) sprintf("%s:%s-%s", gs$chr, format(gs$start, big.mark = ","), format(gs$end, big.mark = ",")) else NA_character_,
     "Strand / transcription direction" = if (identical(gs$strand, "+")) "+ (forward)" else if (identical(gs$strand, "-")) "- (reverse)" else gs$strand,
     "Distance from CpG to TSS (bp)" = dist,
-    "Top GO Biological Process terms" = if (!is.null(d$go_terms) && length(d$go_terms) > 0) paste(d$go_terms, collapse = "; ") else "Not available"
+    "Top GO Biological Process terms" = if (!is.null(d$go_terms) && nrow(d$go_terms) > 0) paste(d$go_terms$TERM, collapse = "; ") else "Not available"
   )
   tagList(
     bc_kv_table(pairs),
@@ -846,13 +1390,40 @@ bc_section_genes <- function(d) {
   )
 }
 
-## ---- External evidence sections (rendered only after the "Look Up External
-## Evidence" button; `ext` is a bc_external_evidence() result, or NULL before
-## it's been fetched) --------------------------------------------------------
+## ---- External evidence sections (each rendered only after its own
+## database-specific Run button; `ext` is the merged ext_all() list, or a
+## single raw query result before it's been fetched) -------------------------
 
 bc_ext_not_fetched <- function(title, icon_name) {
   div(class = "card", div(class = "card-title", icon(icon_name), title),
-      div(class = "empty-note", icon("circle-info"), "Click \"Look Up External Evidence\" below to query this section."))
+      div(class = "empty-note", icon("circle-info"), "Not yet run - click Run below."))
+}
+
+## ---- EWAS Catalog (own database, own button) - raw trait associations for
+## this CpG. Disease Evidence/RA Evidence/Disease Comparison/Tissue Evidence/
+## Publications below combine this with EWAS Atlas, whichever has been run. -
+bc_section_ewascatalog <- function(ext) {
+  if (is.null(ext)) return(bc_ext_not_fetched("EWAS Catalog", "table-list"))
+  if (!isTRUE(ext$ok)) return(div(class = "card", div(class = "card-title", icon("table-list"), "EWAS Catalog"),
+                                   div(class = "empty-note", icon("triangle-exclamation"), ext$reason %||% "EWAS Catalog lookup unavailable.")))
+  body <- if (is.null(ext$df) || nrow(ext$df) == 0) div(class = "empty-note", icon("circle-info"), "No EWAS Catalog trait associations found for this CpG.")
+          else DT::datatable(ext$df, rownames = FALSE, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+  div(class = "card", div(class = "card-title", icon("table-list"), "EWAS Catalog"),
+      p(class = "submodule-desc", "MRC-IEU EWAS Catalog trait associations for this CpG."),
+      body)
+}
+
+## ---- EWAS Atlas (own database, own button) ---------------------------------
+bc_section_ewasatlas <- function(ext) {
+  if (is.null(ext)) return(bc_ext_not_fetched("EWAS Atlas", "table-list"))
+  if (!isTRUE(ext$ok)) return(div(class = "card", div(class = "card-title", icon("table-list"), "EWAS Atlas"),
+                                   div(class = "empty-note", icon("triangle-exclamation"), ext$reason %||% "EWAS Atlas lookup unavailable.")))
+  assoc <- ext$data$associationList
+  body <- if (is.null(assoc) || !is.data.frame(assoc) || nrow(assoc) == 0) div(class = "empty-note", icon("circle-info"), "No EWAS Atlas trait associations found for this CpG.")
+          else DT::datatable(assoc, rownames = FALSE, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+  div(class = "card", div(class = "card-title", icon("table-list"), "EWAS Atlas"),
+      p(class = "submodule-desc", "NGDC EWAS Atlas trait associations for this CpG."),
+      body)
 }
 
 bc_section_disease_evidence <- function(ext) {
@@ -866,7 +1437,7 @@ bc_section_disease_evidence <- function(ext) {
                   rownames = FALSE, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
   }
   div(class = "card", div(class = "card-title", icon("notes-medical"), "Disease Evidence"),
-      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas (live query, this CpG)."),
+      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas (this CpG)."),
       body)
 }
 
@@ -879,7 +1450,7 @@ bc_section_ra_evidence <- function(ext) {
   body <- if (found) DT::datatable(ra[, c("source", "trait", "effect", "p", "pmid")], colnames = c("Source", "Trait", "Effect", "P-value", "PMID"),
                                     rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact") else NULL
   div(class = "card", div(class = "card-title", icon("hand-dots"), "Rheumatoid Arthritis Evidence"),
-      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas, filtered to rheumatoid-arthritis-related traits (live query, this CpG)."),
+      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas, filtered to rheumatoid-arthritis-related traits (this CpG)."),
       banner, body)
 }
 
@@ -906,24 +1477,50 @@ bc_section_tissue_evidence <- function(ext) {
           else DT::datatable(tc[order(-tc$Freq), , drop = FALSE], colnames = c("Tissue", "Studies"), rownames = FALSE,
                               options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   div(class = "card", div(class = "card-title", icon("microscope"), "Tissue / Cell-Type Evidence"),
-      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog (tissue field, live query, this CpG)."),
+      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog (tissue field, this CpG)."),
       body)
 }
 
-bc_section_pathways <- function(ext) {
-  if (is.null(ext)) return(bc_ext_not_fetched("Biological Pathways", "diagram-project"))
-  kegg <- ext$kegg; reactome <- ext$reactome
-  kegg_body <- if (isTRUE(kegg$ok) && nrow(kegg$pathways) > 0) DT::datatable(kegg$pathways, colnames = c("KEGG ID", "Pathway name"), rownames = FALSE,
-                                                                              options = list(pageLength = 5, scrollX = TRUE), class = "stripe hover compact")
-               else div(class = "empty-note", icon("circle-info"), if (isTRUE(kegg$ok)) "No KEGG pathway annotation found for this gene." else (kegg$reason %||% "KEGG lookup unavailable."))
-  reactome_body <- if (isTRUE(reactome$ok) && nrow(reactome$pathways) > 0) DT::datatable(reactome$pathways, colnames = c("Reactome Stable ID", "Pathway name"), rownames = FALSE,
-                                                                                          options = list(pageLength = 5, scrollX = TRUE), class = "stripe hover compact")
-                   else div(class = "empty-note", icon("circle-info"), if (isTRUE(reactome$ok)) "No Reactome pathway annotation found for this gene." else (reactome$reason %||% "Reactome lookup unavailable."))
-  div(class = "card", div(class = "card-title", icon("diagram-project"), "Biological Pathways"),
+## ---- KEGG (own database, own button) - database annotation (membership
+## lookup for the associated gene), not a computed enrichment test. ---------
+bc_section_kegg <- function(ext) {
+  if (is.null(ext)) return(bc_ext_not_fetched("KEGG Pathways", "diagram-project"))
+  kegg <- ext$kegg
+  body <- if (isTRUE(kegg$ok) && nrow(kegg$pathways) > 0) DT::datatable(kegg$pathways, colnames = c("KEGG ID", "Pathway name"), rownames = FALSE,
+                                                                         options = list(pageLength = 5, scrollX = TRUE), class = "stripe hover compact")
+          else div(class = "empty-note", icon("circle-info"), if (isTRUE(kegg$ok)) "No KEGG pathway annotation found for this gene." else (kegg$reason %||% "KEGG lookup unavailable."))
+  div(class = "card", div(class = "card-title", icon("diagram-project"), "KEGG Pathways"),
       p(class = "submodule-desc", "Database annotation (membership lookup for the associated gene) - not a computed enrichment test, which needs a gene set and a background to test against."),
-      tags$b("KEGG"), kegg_body, tags$hr(), tags$b("Reactome"), reactome_body,
-      div(class = "empty-note", style = "margin-top:8px;", icon("circle-info"), "Gene Ontology terms for this gene are already shown under \"Associated Gene(s)\" above.")
-  )
+      body)
+}
+
+## ---- Reactome (own database, own button) ----------------------------------
+bc_section_reactome <- function(ext) {
+  if (is.null(ext)) return(bc_ext_not_fetched("Reactome Pathways", "route"))
+  reactome <- ext$reactome
+  body <- if (isTRUE(reactome$ok) && nrow(reactome$pathways) > 0) DT::datatable(reactome$pathways, colnames = c("Reactome Stable ID", "Pathway name"), rownames = FALSE,
+                                                                                 options = list(pageLength = 5, scrollX = TRUE), class = "stripe hover compact")
+          else div(class = "empty-note", icon("circle-info"), if (isTRUE(reactome$ok)) "No Reactome pathway annotation found for this gene." else (reactome$reason %||% "Reactome lookup unavailable."))
+  div(class = "card", div(class = "card-title", icon("route"), "Reactome Pathways"),
+      p(class = "submodule-desc", "Database annotation (membership lookup for the associated gene) - not a computed enrichment test, which needs a gene set and a background to test against."),
+      body)
+}
+
+bc_section_wikipathways <- function(ext) {
+  if (is.null(ext)) return(div(class = "card", div(class = "card-title", icon("map"), "WikiPathways"),
+                                div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
+  wp <- ext$wikipathways
+  body <- if (!isTRUE(wp$ok)) div(class = "empty-note", icon("circle-info"), wp$reason %||% "WikiPathways lookup unavailable.")
+          else if (is.null(wp$pathways) || nrow(wp$pathways) == 0) div(class = "empty-note", icon("circle-info"), "No WikiPathways pathways found for this gene.")
+          else {
+            wdf <- wp$pathways
+            wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', wdf$id, wdf$id)
+            DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = FALSE,
+                          options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
+          }
+  div(class = "card", div(class = "card-title", icon("map"), "WikiPathways"),
+      p(class = "submodule-desc", "Community-curated pathway diagrams, via the same gene-set source (msigdbr) the Multi-Omics Pathways module uses."),
+      body)
 }
 
 bc_section_kegg_ra_pathway <- function(ext) {
@@ -937,7 +1534,7 @@ bc_section_kegg_ra_pathway <- function(ext) {
                                             tags$b(sprintf("%s is a member gene of the KEGG Rheumatoid Arthritis pathway (hsa05323).", ext$gene_symbol %||% "This gene")))
              else div(class = "empty-note", icon("circle-info"), tags$b(sprintf("%s is not listed as a member gene of the KEGG Rheumatoid Arthritis pathway (hsa05323).", ext$gene_symbol %||% "This gene")))
   div(class = "card", div(class = "card-title", icon("network-wired"), "KEGG RA Pathway (hsa05323)"),
-      p(class = "submodule-desc", "Source: KEGG (live query - pathway hsa05323 gene list)."),
+      p(class = "submodule-desc", "Source: KEGG (pathway hsa05323 gene list)."),
       banner,
       p(style = "margin-top:8px;", tags$b(kr$pathway_name)),
       p(style = "font-size:12.5px; color:var(--color-ink-secondary);", kr$pathway_description),
@@ -958,7 +1555,7 @@ bc_section_publications <- function(ext) {
                     tags$a(href = sprintf("https://pubmed.ncbi.nlm.nih.gov/%s/", r$pmid), target = "_blank", sprintf("PMID: %s", r$pmid)))
           }))
   div(class = "card", div(class = "card-title", icon("book"), "Supporting Publications"),
-      p(class = "submodule-desc", "Source: PMIDs from EWAS Catalog / EWAS Atlas results, resolved via NCBI PubMed (live query)."),
+      p(class = "submodule-desc", "Source: PMIDs from EWAS Catalog / EWAS Atlas results, resolved via NCBI PubMed."),
       body)
 }
 
@@ -966,12 +1563,12 @@ bc_section_methbank <- function(ext) {
   if (is.null(ext)) return(bc_ext_not_fetched("MethBank", "link"))
   div(class = "card", div(class = "card-title", icon("link"), "MethBank"),
       div(class = "empty-note", icon("circle-info"),
-          "MethBank has no public API in this deployment - it is referenced here as an outbound link only, not a live query.",
+          "MethBank has no public API in this deployment - it is referenced here as an outbound link only.",
           tags$br(), tags$a(href = ext$methbank_link, target = "_blank", "Search MethBank manually")))
 }
 
-## Small ggplot-in-a-card helper for sections built outside a reactive
-## render* binding (used by both the on-screen card and the static report).
+## ggplot-in-a-card helper for sections built outside a reactive render*
+## binding (used by both the on-screen card and the static report).
 renderPlot_static <- function(p) {
   tf <- tempfile(fileext = ".png")
   ok <- tryCatch({ ggplot2::ggsave(tf, plot = p, width = 7, height = 3, dpi = 110, bg = "white"); TRUE }, error = function(e) FALSE)
@@ -995,6 +1592,23 @@ bc_section_your_dataset <- function(d, plot_tag) {
     }))
   }
 
+  ## Region-level (DMRcate) pipeline evidence for whichever region(s) this
+  ## CpG falls inside - same sex-stratified pipeline as pipeline_table above,
+  ## just region- instead of probe-level (script04_dmr_sexstratified).
+  dmr_rows <- list()
+  if (!is.null(d$dmr_female)) dmr_rows[["Female (pipeline)"]] <- d$dmr_female[1, ]
+  if (!is.null(d$dmr_male)) dmr_rows[["Male (pipeline)"]] <- d$dmr_male[1, ]
+  dmr_table <- NULL
+  if (length(dmr_rows) > 0) {
+    dmr_table <- do.call(rbind, lapply(names(dmr_rows), function(nm) {
+      r <- dmr_rows[[nm]]
+      data.frame(Stratum = nm, Region = sprintf("%s:%s-%s", r$seqnames, format(r$start, big.mark = ","), format(r$end, big.mark = ",")),
+                 `Mean Delta Beta` = round(r$meandiff, 4), `Region FDR` = signif(r$dmr_fdr, 4),
+                 `Gene(s)` = if (!is.na(r$overlapping.genes) && nzchar(r$overlapping.genes)) r$overlapping.genes else "(none annotated)",
+                 check.names = FALSE, stringsAsFactors = FALSE)
+    }))
+  }
+
   live_block <- NULL
   if (isTRUE(d$live$ok)) {
     ov <- d$live$overall
@@ -1012,10 +1626,10 @@ bc_section_your_dataset <- function(d, plot_tag) {
         bc_kv_table(live_pairs)
       )
     } else {
-      live_block <- div(class = "empty-note", icon("triangle-exclamation"), ov$reason %||% "Could not compute live dataset statistics for this CpG.")
+      live_block <- div(class = "empty-note", icon("triangle-exclamation"), ov$reason %||% "Could not compute dataset statistics for this CpG.")
     }
   } else {
-    live_block <- div(class = "empty-note", icon("circle-info"), d$live$reason %||% "No live/uploaded beta matrix and sample sheet are currently loaded.")
+    live_block <- div(class = "empty-note", icon("circle-info"), d$live$reason %||% "No uploaded beta matrix and sample sheet are currently loaded.")
   }
 
   div(class = "card",
@@ -1025,6 +1639,10 @@ bc_section_your_dataset <- function(d, plot_tag) {
         p(style = "font-size:12px; color:var(--color-ink-secondary);", "Pipeline-reported statistics (SVA/bacon-corrected sex-stratified DMP pipeline):"),
         DT::datatable(pipeline_table, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
       ) else div(class = "empty-note", icon("circle-info"), "This CpG was not found in the preloaded sex-stratified DMP tables (not tested on the array, or preloaded pipeline data is unavailable)."),
+      if (!is.null(dmr_table)) tagList(
+        p(style = "font-size:12px; color:var(--color-ink-secondary); margin-top:10px;", "Region-level statistics for the DMR this CpG falls inside (sex-stratified DMRcate pipeline):"),
+        DT::datatable(dmr_table, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
+      ),
       live_block,
       tags$div(style = "margin-top:10px;", plot_tag)
   )
@@ -1069,7 +1687,7 @@ bc_section_sex_specific <- function(d, plot_tag) {
 
   div(class = "card",
       div(class = "card-title", icon("venus-mars"), "Sex-Specific Evidence"),
-      p(class = "submodule-desc", "Source: sex-stratified SVA/bacon DMP pipeline (Female/Male rows); \"your data, computed\" rows are directly computed from the loaded beta matrix, not statistically adjusted - do not compare their raw p-values directly against the pipeline's FDR."),
+      p(class = "submodule-desc", "\"Your data\" rows are unadjusted - not comparable to pipeline FDR."),
       div(class = "empty-note", icon("circle-info"), tags$b(verdict)),
       DT::datatable(all_df, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact"),
       tags$div(style = "margin-top:10px;", plot_tag)
@@ -1097,8 +1715,17 @@ bc_section_interpretation <- function(d, ext = NULL) {
     n_disease <- if (!is.null(ext$combined_disease)) nrow(ext$combined_disease) else 0
     disease_label <- if (n_disease > 0) sprintf("%d association(s) found", n_disease) else "None found"
     disease_done <- n_disease > 0
-    ra_done <- !is.null(ext$ra_rows) && nrow(ext$ra_rows) > 0
-    ra_label <- if (ra_done) "RA-associated" else "No RA evidence"
+    ## Cites the actual matched trait text / pathway membership rather than a
+    ## bare "RA-associated" verdict - this is independent, literature-derived
+    ## evidence (EWAS Catalog/Atlas trait matches + KEGG hsa05323 membership),
+    ## not a finding about whatever dataset the user has loaded.
+    ra_terms <- if (!is.null(ext$ra_rows) && nrow(ext$ra_rows) > 0) unique(ext$ra_rows$trait) else character(0)
+    ra_in_kegg <- isTRUE(ext$kegg_ra$ok) && isTRUE(ext$kegg_ra$in_pathway)
+    ra_done <- length(ra_terms) > 0 || ra_in_kegg
+    ra_label <- if (length(ra_terms) > 0 && ra_in_kegg) sprintf("%s + KEGG RA pathway", ra_terms[1])
+                else if (length(ra_terms) > 0) ra_terms[1]
+                else if (ra_in_kegg) "In KEGG RA pathway (hsa05323)"
+                else "No RA-specific evidence found"
   }
   nodes <- list(
     list(label = "CpG", value = d$cpg, done = TRUE),
@@ -1159,9 +1786,376 @@ bc_section_evidence_summary <- function(d, ext = NULL) {
   )
   df <- data.frame(Evidence = vapply(rows, `[`, character(1), 1), Status = vapply(rows, `[`, character(1), 2), stringsAsFactors = FALSE)
   div(class = "card",
-      div(class = "card-title", icon("clipboard-check"), "Evidence Summary"),
+      div(class = "card-title", icon("clipboard-check"), "Summary"),
       p(class = "submodule-desc", "Each row is a transparent, individually-computed check - not a combined score. Rows marked \"Not yet integrated\" are planned for a later phase, not evaluated as absent."),
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE, ordering = FALSE), class = "stripe hover compact")
+  )
+}
+
+## Databases considered but deliberately not integrated, each with a reason,
+## rather than silently omitting them.
+BC_NOT_INTEGRATED_DBS <- c(
+  "DisGeNET - requires API registration/licensing not configured in this deployment (same call already made for the sibling transcriptomics Biomarker Card)",
+  "GTEx - would duplicate the baseline tissue/blood expression already shown via Human Protein Atlas above",
+  "OMIM, Human Phenotype Ontology - require registration/licensing not verified for this deployment"
+)
+
+## =============================================================================
+## Single-CpG diagnostic performance (live, computed here) - ported from the
+## transcriptomics Biomarker Card's tbc_single_gene_roc()/tbc_single_gene_cv(),
+## operating on the beta values bc_dataset_evidence() already reads. Feeds the
+## "Single-Gene vs Multi-Gene Signature" and "Biomarker Performance" tabs.
+## =============================================================================
+
+bc_single_cpg_roc <- function(beta_row, group_vec, case_label, control_label) {
+  if (!requireNamespace("pROC", quietly = TRUE)) return(list(ok = FALSE, reason = "pROC is not installed in this deployment."))
+  keep <- !is.na(beta_row) & !is.na(group_vec) & group_vec %in% c(case_label, control_label)
+  x <- beta_row[keep]; y <- group_vec[keep]
+  n_case <- sum(y == case_label); n_control <- sum(y == control_label)
+  if (n_case < 3 || n_control < 3) {
+    return(list(ok = FALSE, reason = sprintf("Fewer than 3 samples in one of the two groups (case=%d, control=%d) - cannot compute a reliable single-CpG ROC curve.", n_case, n_control)))
+  }
+  roc_obj <- tryCatch(pROC::roc(y, x, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+  if (is.null(roc_obj)) return(list(ok = FALSE, reason = "pROC could not fit a ROC curve for this CpG (e.g. constant methylation)."))
+  ci <- tryCatch(as.numeric(pROC::ci.auc(roc_obj, quiet = TRUE)), error = function(e) c(NA_real_, NA_real_, NA_real_))
+  best <- tryCatch(pROC::coords(roc_obj, "best", best.method = "youden", ret = c("threshold", "sensitivity", "specificity", "accuracy", "ppv", "npv"), transpose = FALSE), error = function(e) NULL)
+  if (is.null(best) || nrow(best) == 0) return(list(ok = FALSE, reason = "Could not determine an optimal threshold for this CpG."))
+  best <- best[1, ]
+  pred_case <- if (identical(roc_obj$direction, "<")) x >= best$threshold else x <= best$threshold
+  obs_case <- y == case_label
+  tp <- sum(pred_case & obs_case); fn <- sum(!pred_case & obs_case)
+  tn <- sum(!pred_case & !obs_case); fp <- sum(pred_case & !obs_case)
+  list(ok = TRUE, auc = as.numeric(pROC::auc(roc_obj)), ci_lo = ci[1], ci_hi = ci[3],
+       threshold = best$threshold, sensitivity = best$sensitivity, specificity = best$specificity,
+       accuracy = best$accuracy, ppv = best$ppv, npv = best$npv, balanced_accuracy = (best$sensitivity + best$specificity) / 2,
+       n_case = n_case, n_control = n_control,
+       confusion = matrix(c(tp, fp, fn, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
+       roc_obj = roc_obj, case_label = case_label, control_label = control_label)
+}
+
+bc_single_cpg_cv <- function(beta_row, group_vec, case_label, control_label, k = 5, seed = 1234) {
+  if (!requireNamespace("pROC", quietly = TRUE)) return(list(ok = FALSE, reason = "pROC is not installed in this deployment."))
+  keep <- !is.na(beta_row) & !is.na(group_vec) & group_vec %in% c(case_label, control_label)
+  x <- beta_row[keep]; y <- group_vec[keep]
+  n_case <- sum(y == case_label); n_control <- sum(y == control_label)
+  k_eff <- min(k, n_case, n_control)
+  if (k_eff < 3) return(list(ok = FALSE, reason = sprintf("Not enough samples per group for cross-validation (case=%d, control=%d; need >=3 in each).", n_case, n_control)))
+  set.seed(seed)
+  fold <- integer(length(y))
+  fold[y == case_label] <- sample(rep(seq_len(k_eff), length.out = n_case))
+  fold[y == control_label] <- sample(rep(seq_len(k_eff), length.out = n_control))
+  oof_score <- rep(NA_real_, length(y)); oof_pred <- rep(NA_character_, length(y))
+  for (f in seq_len(k_eff)) {
+    te <- fold == f; tr <- !te
+    if (sum(tr & y == case_label) < 2 || sum(tr & y == control_label) < 2) next
+    roc_tr <- tryCatch(pROC::roc(y[tr], x[tr], levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+    if (is.null(roc_tr)) next
+    best_tr <- tryCatch(pROC::coords(roc_tr, "best", best.method = "youden", ret = "threshold", transpose = FALSE), error = function(e) NULL)
+    if (is.null(best_tr) || nrow(best_tr) == 0) next
+    thr <- best_tr$threshold[1]
+    oof_score[te] <- x[te]
+    oof_pred[te] <- if (identical(roc_tr$direction, "<")) ifelse(x[te] >= thr, case_label, control_label) else ifelse(x[te] <= thr, case_label, control_label)
+  }
+  usable <- !is.na(oof_pred)
+  if (sum(usable) < 6) return(list(ok = FALSE, reason = "Cross-validation could not produce enough out-of-fold predictions (folds too small, or this CpG wasn't separable in any training fold)."))
+  y_used <- y[usable]; pred_used <- oof_pred[usable]; score_used <- oof_score[usable]
+  roc_pooled <- tryCatch(pROC::roc(y_used, score_used, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+  auc_pooled <- if (!is.null(roc_pooled)) as.numeric(pROC::auc(roc_pooled)) else NA_real_
+  obs_case <- y_used == case_label; pred_case <- pred_used == case_label
+  tp <- sum(pred_case & obs_case); fn <- sum(!pred_case & obs_case)
+  tn <- sum(!pred_case & !obs_case); fp <- sum(pred_case & !obs_case)
+  sens <- if ((tp + fn) > 0) tp / (tp + fn) else NA_real_
+  spec <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
+  list(ok = TRUE, k = k_eff, n_used = sum(usable), auc = auc_pooled, sensitivity = sens, specificity = spec,
+       accuracy = (tp + tn) / (tp + tn + fp + fn), balanced_accuracy = (sens + spec) / 2,
+       confusion = matrix(c(tp, fp, fn, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
+       roc_obj = roc_pooled, case_label = case_label, control_label = control_label)
+}
+
+bc_pr_from_roc <- function(roc_obj) {
+  if (is.null(roc_obj)) return(list(ok = FALSE, reason = "No ROC curve available."))
+  co <- tryCatch(pROC::coords(roc_obj, "all", ret = c("recall", "precision"), transpose = FALSE), error = function(e) NULL)
+  if (is.null(co) || nrow(co) == 0) return(list(ok = FALSE, reason = "Could not derive a precision-recall curve from this ROC curve."))
+  df <- data.frame(recall = co$recall, precision = co$precision)
+  df <- df[order(df$recall), , drop = FALSE]
+  keep <- !is.na(df$recall) & !is.na(df$precision)
+  df <- df[keep, , drop = FALSE]
+  if (nrow(df) < 2) return(list(ok = FALSE, reason = "Not enough non-missing precision/recall points to draw a curve."))
+  pr_auc <- sum(diff(df$recall) * (utils::head(df$precision, -1) + utils::tail(df$precision, -1)) / 2)
+  list(ok = TRUE, df = df, pr_auc = pr_auc)
+}
+
+bc_plot_roc <- function(roc_obj, label = "ROC curve", auc = NA_real_, ci_lo = NA_real_, ci_hi = NA_real_) {
+  if (is.null(roc_obj)) return(NULL)
+  co <- pROC::coords(roc_obj, "all", ret = c("specificity", "sensitivity"), transpose = FALSE)
+  df <- data.frame(fpr = 1 - co$specificity, tpr = co$sensitivity)
+  sub <- if (!is.na(ci_lo) && !is.na(ci_hi)) sprintf("AUC %.3f (95%% CI %.3f-%.3f)", auc, ci_lo, ci_hi) else sprintf("AUC %.3f", auc)
+  ggplot(df, aes(x = fpr, y = tpr)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = ARTHOMIX_COLORS$grid) +
+    geom_line(color = ARTHOMIX_COLORS$blue, linewidth = 1) +
+    labs(title = label, subtitle = sub, x = "1 - specificity", y = "Sensitivity") +
+    coord_equal() + theme_arthomix()
+}
+
+bc_plot_pr <- function(pr, label = "Precision-recall curve") {
+  if (is.null(pr) || !isTRUE(pr$ok)) return(NULL)
+  ggplot(pr$df, aes(x = recall, y = precision)) +
+    geom_line(color = ARTHOMIX_COLORS$violet, linewidth = 1) +
+    labs(title = label, subtitle = sprintf("PR-AUC %.3f", pr$pr_auc), x = "Recall (sensitivity)", y = "Precision (PPV)") +
+    ylim(0, 1) + theme_arthomix()
+}
+
+bc_fmt_num <- function(x, digits = 3) if (is.null(x) || length(x) == 0 || is.na(x)) "Not available" else sprintf(sprintf("%%.%df", digits), x)
+
+bc_confusion_table <- function(cm) {
+  if (is.null(cm)) return(NULL)
+  df <- as.data.frame.matrix(cm)
+  df <- cbind(Predicted = rownames(df), df)
+  DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE, ordering = FALSE), class = "stripe hover compact")
+}
+
+## =============================================================================
+## Multi-CpG panel context - the preloaded script09 Diagnostic Classifier's
+## own published run: majority-vote panel membership (script07 ensemble
+## votes) and this CpG's own train/internal-test/external-test AUC when it
+## is one of the (small) panel of CpGs that model was actually trained on.
+## Real, precomputed evidence, read verbatim - never recomputed here. See
+## load_default_diagnostic_ensemble_votes()/load_default_diagnostic_panel_auc()/
+## load_default_diagnostic_perprobe_auc() in global.R. External-test AUC
+## exists here (unlike the transcriptomics card's multi-gene panel, which
+## has no persisted external validation in this app).
+## =============================================================================
+
+.bc_ensemble_votes_cache <- new.env(parent = emptyenv())
+bc_ensemble_votes_table <- function(sex) {
+  cached <- .bc_ensemble_votes_cache[[sex]]
+  if (!is.null(cached)) return(cached)
+  df <- load_default_diagnostic_ensemble_votes(sex)
+  if (!is.null(df)) .bc_ensemble_votes_cache[[sex]] <- df
+  df
+}
+.bc_panel_auc_cache <- new.env(parent = emptyenv())
+bc_panel_auc_table <- function(sex) {
+  cached <- .bc_panel_auc_cache[[sex]]
+  if (!is.null(cached)) return(cached)
+  df <- load_default_diagnostic_panel_auc(sex)
+  if (!is.null(df)) .bc_panel_auc_cache[[sex]] <- df
+  df
+}
+.bc_perprobe_auc_cache <- new.env(parent = emptyenv())
+bc_perprobe_auc_table <- function(sex) {
+  cached <- .bc_perprobe_auc_cache[[sex]]
+  if (!is.null(cached)) return(cached)
+  df <- load_default_diagnostic_perprobe_auc(sex)
+  if (!is.null(df)) .bc_perprobe_auc_cache[[sex]] <- df
+  df
+}
+
+## Membership + per-probe AUC for this CpG, by sex - both NULL/FALSE when the
+## preloaded script09/script07 tables aren't available, or this CpG isn't one
+## of the panel CpGs either sex-stratified model was actually built on.
+bc_panel_membership_lookup <- function(cpg) {
+  stats::setNames(lapply(c("female", "male"), function(sex) {
+    votes <- bc_ensemble_votes_table(sex)
+    row <- if (!is.null(votes)) votes[votes$cpg == cpg, , drop = FALSE] else NULL
+    list(in_panel = !is.null(row) && nrow(row) > 0, row = if (!is.null(row) && nrow(row) > 0) row[1, ] else NULL)
+  }), c("female", "male"))
+}
+bc_panel_perprobe_lookup <- function(cpg) {
+  stats::setNames(lapply(c("female", "male"), function(sex) {
+    pp <- bc_perprobe_auc_table(sex)
+    row <- if (!is.null(pp)) pp[pp$cpg == cpg, , drop = FALSE] else NULL
+    if (is.null(row) || nrow(row) == 0) NULL else row
+  }), c("female", "male"))
+}
+
+## Compact multi-CpG panel table (best-by-internal-AUC algorithm's train/
+## internal/external AUC per sex-stratum this CpG is actually a member of) -
+## the CpG-panel equivalent of the transcriptomics card's tbc_multi_gene_perf_table().
+bc_multi_cpg_perf_table <- function(membership) {
+  strata <- Filter(function(s) isTRUE(membership[[s]]$in_panel), names(membership))
+  if (length(strata) == 0) return(NULL)
+  rows <- lapply(strata, function(sex) {
+    auc <- bc_panel_auc_table(sex)
+    if (is.null(auc) || nrow(auc) == 0) return(NULL)
+    best <- auc[which.max(auc$internal_test_auc), ]
+    votes <- bc_ensemble_votes_table(sex)
+    data.frame(Stratum = tools::toTitleCase(sex), `Panel size` = if (!is.null(votes)) nrow(votes) else NA_integer_,
+               `Best algorithm (by internal AUC)` = toupper(best$algorithm),
+               `Training AUC` = bc_fmt_num(best$train_auc), `Internal validation AUC` = bc_fmt_num(best$internal_test_auc),
+               `External validation AUC` = bc_fmt_num(best$external_test_auc),
+               check.names = FALSE, stringsAsFactors = FALSE)
+  })
+  rows <- Filter(Negate(is.null), rows)
+  if (length(rows) == 0) return(NULL)
+  do.call(rbind, rows)
+}
+
+## ---- "Single-Gene vs Multi-Gene Signature" tab (methylation: single-CpG
+## vs the multi-CpG panel) - answers "is this CpG useful alone?" with a real,
+## live, honestly-labeled single-CpG classifier next to the preloaded
+## multi-CpG panel's own membership + performance. -----------------------
+bc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
+  single_body <- if (isTRUE(sgd$ok)) {
+    bc_kv_table(list(
+      AUC = bc_fmt_num(sgd$auc), "95% CI" = sprintf("%s - %s", bc_fmt_num(sgd$ci_lo), bc_fmt_num(sgd$ci_hi)),
+      Threshold = bc_fmt_num(sgd$threshold), Sensitivity = bc_fmt_num(sgd$sensitivity), Specificity = bc_fmt_num(sgd$specificity),
+      Accuracy = bc_fmt_num(sgd$accuracy), `Balanced accuracy` = bc_fmt_num(sgd$balanced_accuracy),
+      `n (case / control)` = sprintf("%d / %d", sgd$n_case, sgd$n_control)
+    ))
+  } else div(class = "empty-note", icon("circle-info"), sgd$reason %||% "Single-CpG performance unavailable.")
+
+  membership <- d$panel_membership
+  perprobe <- d$panel_perprobe
+  membership_rows <- do.call(rbind, lapply(names(membership), function(sex) {
+    m <- membership[[sex]]
+    data.frame(Stratum = tools::toTitleCase(sex),
+               `In majority-vote panel` = if (isTRUE(m$in_panel)) "Yes" else "No",
+               `In LASSO` = if (isTRUE(m$in_panel)) as.character(m$row$in_LASSO) else NA_character_,
+               `In Boruta` = if (isTRUE(m$in_panel)) as.character(m$row$in_Boruta) else NA_character_,
+               `In SVM-RFE` = if (isTRUE(m$in_panel)) as.character(m$row$in_SVMRFE) else NA_character_,
+               Votes = if (isTRUE(m$in_panel)) m$row$n_votes else NA_integer_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+  perprobe_rows <- do.call(rbind, Filter(Negate(is.null), lapply(names(perprobe), function(sex) {
+    r <- perprobe[[sex]]
+    if (is.null(r)) return(NULL)
+    data.frame(Stratum = tools::toTitleCase(sex), Algorithm = toupper(r$algorithm[1]),
+               `Training AUC` = bc_fmt_num(r$train_auc[1]), `Internal validation AUC` = bc_fmt_num(r$internal_test_auc[1]),
+               `External validation AUC` = bc_fmt_num(r$external_test_auc[1]),
+               check.names = FALSE, stringsAsFactors = FALSE)
+  })))
+
+  multi_table <- bc_multi_cpg_perf_table(membership)
+  multi_body <- if (is.null(multi_table)) {
+    NULL
+  } else DT::datatable(multi_table, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+
+  comparison <- NULL
+  if (isTRUE(sgd$ok) && !is.null(multi_table)) {
+    best_multi_internal <- suppressWarnings(max(as.numeric(gsub("[^0-9.]", "", multi_table$`Internal validation AUC`)), na.rm = TRUE))
+    if (is.finite(best_multi_internal)) {
+      diff <- best_multi_internal - sgd$auc
+      comparison <- div(class = "empty-note", icon("scale-balanced"),
+        if (abs(diff) < 0.01) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is essentially the same as this CpG alone (%.3f) - no meaningful signature benefit is shown by the numbers here.", best_multi_internal, sgd$auc)
+        else if (diff > 0) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is %.3f points higher than this CpG alone (%.3f) - the multi-CpG signature adds real, measured value here.", best_multi_internal, diff, sgd$auc)
+        else sprintf("This CpG alone (AUC %.3f) actually scores %.3f points higher than the multi-CpG panel's internal-validation AUC (%.3f).", sgd$auc, -diff, best_multi_internal))
+    }
+  }
+
+  tagList(
+    div(class = "card",
+        div(class = "card-title", icon("layer-group"), "Single-CpG Performance"),
+        p(class = "submodule-desc", "Single-CpG classifier, full-fit on this dataset."),
+        single_body,
+        if (!is.null(roc_widget)) tagList(tags$div(style = "margin-top:10px;"), roc_widget) else NULL
+    ),
+    div(class = "card",
+        div(class = "card-title", icon("layer-group"), "Multi-CpG Panel Membership"),
+        DT::datatable(membership_rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+    ),
+    div(class = "card",
+        div(class = "card-title", icon("layer-group"), "Multi-CpG Panel Performance"),
+        multi_body,
+        if (!is.null(perprobe_rows)) tagList(tags$div(style = "margin-top:10px;", tags$b("This CpG's own performance within the trained panel model")),
+          DT::datatable(perprobe_rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")) else NULL
+    ),
+    if (!is.null(comparison)) div(class = "card", div(class = "card-title", icon("scale-balanced"), "Comparison"), comparison) else NULL
+  )
+}
+
+## ---- "Biomarker Performance" tab: Training / Internal / External kept -----
+## visibly separate throughout, never overwritten or combined. External
+## Validation here is real (the preloaded panel's own GSE111942 cohort),
+## unlike the transcriptomics card's "not persisted" limitation.
+bc_section_biomarker_performance <- function(d, sgd, sgcv, train_roc_widget = NULL, train_pr_widget = NULL, internal_roc_widget = NULL) {
+  train_body <- if (isTRUE(sgd$ok)) {
+    tagList(
+      bc_kv_table(list(AUC = bc_fmt_num(sgd$auc), "95% CI" = sprintf("%s - %s", bc_fmt_num(sgd$ci_lo), bc_fmt_num(sgd$ci_hi)),
+                        Threshold = bc_fmt_num(sgd$threshold), Sensitivity = bc_fmt_num(sgd$sensitivity), Specificity = bc_fmt_num(sgd$specificity),
+                        Accuracy = bc_fmt_num(sgd$accuracy), `Balanced accuracy` = bc_fmt_num(sgd$balanced_accuracy),
+                        PPV = bc_fmt_num(sgd$ppv), NPV = bc_fmt_num(sgd$npv), `n (case / control)` = sprintf("%d / %d", sgd$n_case, sgd$n_control))),
+      tags$div(style = "margin-top:10px;", tags$b("Confusion matrix (single-CpG, at optimal threshold)")), bc_confusion_table(sgd$confusion),
+      if (!is.null(train_roc_widget)) tagList(tags$div(style = "margin-top:10px;", tags$b("ROC curve")), train_roc_widget) else NULL,
+      if (!is.null(train_pr_widget)) tagList(tags$div(style = "margin-top:10px;", tags$b("Precision-recall curve")), train_pr_widget) else NULL
+    )
+  } else div(class = "empty-note", icon("circle-info"), sgd$reason %||% "Not available.")
+
+  internal_body <- if (isTRUE(sgcv$ok)) {
+    tagList(
+      bc_kv_table(list(AUC = bc_fmt_num(sgcv$auc), Sensitivity = bc_fmt_num(sgcv$sensitivity), Specificity = bc_fmt_num(sgcv$specificity),
+                        Accuracy = bc_fmt_num(sgcv$accuracy), `Balanced accuracy` = bc_fmt_num(sgcv$balanced_accuracy),
+                        `Folds (k)` = sgcv$k, `n used` = sgcv$n_used)),
+      tags$div(style = "margin-top:10px;", tags$b("Confusion matrix (single-CpG, pooled out-of-fold predictions)")), bc_confusion_table(sgcv$confusion),
+      if (!is.null(internal_roc_widget)) tagList(tags$div(style = "margin-top:10px;", tags$b("ROC curve (pooled out-of-fold)")), internal_roc_widget) else NULL
+    )
+  } else div(class = "empty-note", icon("circle-info"), sgcv$reason %||% "Not available.")
+
+  membership <- d$panel_membership
+  multi_table <- bc_multi_cpg_perf_table(membership)
+  has_external <- !is.null(multi_table) && any(!is.na(suppressWarnings(as.numeric(gsub("[^0-9.]", "", multi_table$`External validation AUC`)))))
+  external_body <- if (has_external) {
+    tagList(
+      p(class = "submodule-desc", "External cohort GSE111942 (preloaded, held-out)."),
+      DT::datatable(multi_table[, c("Stratum", "Best algorithm (by internal AUC)", "External validation AUC")], rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+    )
+  } else div(class = "empty-note", icon("triangle-exclamation"),
+    "Not in the external-validation panel. See the Diagnostic Classifier tab.")
+
+  div(class = "card",
+      div(class = "card-title", icon("vial-circle-check"), "Biomarker Performance"),
+      p(class = "submodule-desc", "Single-CpG: computed here. Multi-CpG panel: preloaded, read verbatim."),
+      tags$h5("Training"), train_body,
+      tags$hr(),
+      tags$h5("Internal Validation (cross-validation)"), internal_body,
+      tags$hr(),
+      tags$h5("External Validation"), external_body,
+      tags$hr(),
+      tags$b("Calibration"), div(class = "empty-note", icon("circle-info"), "Not applicable (single raw value)."),
+      if (!is.null(multi_table)) tagList(tags$hr(), tags$b("Multi-CpG panel context (this CpG is part of the evaluated panel)"),
+        DT::datatable(multi_table, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")) else NULL
+  )
+}
+
+## ---- "Dataset" tab: dataset/cohort provenance, ported from the
+## transcriptomics Biomarker Card's tbc_section_dataset_cohort(). ------------
+bc_section_dataset_cohort <- function(dataset, live) {
+  ## nrow(NULL)/ncol(NULL) return NULL (not an error) - methylomics, unlike
+  ## transcriptomics, has no default preloaded dataset, so dataset$beta is
+  ## routinely NULL before the Dataset tab loads something; guard explicitly
+  ## rather than relying on tryCatch to catch a non-error.
+  n_probes <- if (is.null(dataset$beta)) NA_integer_ else nrow(dataset$beta)
+  n_samples <- if (is.null(dataset$beta)) NA_integer_ else ncol(dataset$beta)
+  scale_label <- switch(dataset$input_scale %||% "unknown",
+    beta = "Beta values (0-1 scale)", m = "M-values (logit-transformed)", "Not determined")
+  group_label <- if (isTRUE(live$ok) || !is.null(live$group_col)) live$group_col else "Not auto-detected"
+  case_label <- if (isTRUE(live$ok)) sprintf("%s vs %s", live$case_label, live$control_label) else "Not available"
+  sex_label <- if (isTRUE(live$ok) && !is.null(live$sex_col)) live$sex_col else "Not recorded"
+  n_case <- if (isTRUE(live$ok) && isTRUE(live$overall$ok)) live$overall$n_case else NA
+  n_ctrl <- if (isTRUE(live$ok) && isTRUE(live$overall$ok)) live$overall$n_control else NA
+  sex_breakdown <- if (isTRUE(live$ok) && !is.null(live$sex_vec)) {
+    tb <- table(live$sex_vec[!is.na(live$sex_vec)])
+    paste(sprintf("%s=%d", names(tb), as.integer(tb)), collapse = ", ")
+  } else NA_character_
+  pairs <- list(
+    "Dataset / cohort label" = dataset$source,
+    "Array type" = dataset$array_type,
+    "Probes x samples" = if (!is.na(n_probes)) sprintf("%s x %s", format(n_probes, big.mark = ","), n_samples) else NA,
+    "Number of samples" = n_samples,
+    "Data type / preprocessing status" = scale_label,
+    "Species" = "Not available (not recorded for this dataset)",
+    "Tissue / sample type" = "Not available (not recorded for this dataset)",
+    "Analysis group / contrast" = sprintf("%s (grouping column: %s)", case_label, group_label),
+    "Cases / Controls" = if (!is.na(n_case)) sprintf("%s / %s", n_case, n_ctrl) else NA,
+    "Sex / group breakdown" = sex_breakdown,
+    "Dataset designation" = "Training / discovery dataset (this session's loaded dataset). Internal validation = cross-validation folds within it; external validation = the preloaded panel's own external cohort (see Biomarker Performance tab), not a separate cohort loaded this session.",
+    "Feature identifier" = "CpG probe ID (rows of the loaded beta matrix)",
+    "Gene mapping" = "Illumina manifest annotation / ChAMPdata - see CpG description tab"
+  )
+  div(class = "card",
+      div(class = "card-title", icon("table-cells"), "Dataset & Cohort"),
+      p(class = "submodule-desc", "Where this biomarker's evidence comes from. Fields with no equivalent recorded anywhere in this app's dataset metadata are shown as \"Not available\", never guessed."),
+      bc_kv_table(pairs)
   )
 }
 
@@ -1176,18 +2170,418 @@ bc_section_sources <- function(ext = NULL) {
     "This app's own preloaded sex-stratified SVA/bacon-corrected DMP pipeline results, and/or your uploaded dataset"
   )
   external_available <- c(
-    "MRC-IEU EWAS Catalog - live query, https://www.ewascatalog.org/api/",
-    "EWAS Atlas - live query, https://ngdc.cncb.ac.cn/ewas/rest/",
-    "KEGG - live query via KEGGREST, https://rest.kegg.jp/",
-    "Reactome - live query, https://reactome.org/ContentService/",
-    "PubMed (NCBI E-utilities) - live query, https://eutils.ncbi.nlm.nih.gov/"
+    "MRC-IEU EWAS Catalog - https://www.ewascatalog.org/api/",
+    "EWAS Atlas - https://ngdc.cncb.ac.cn/ewas/rest/",
+    "NCBI Gene - https://eutils.ncbi.nlm.nih.gov/ (esummary, db=gene)",
+    "Ensembl (GRCh37/hg19) - https://grch37.rest.ensembl.org/",
+    "Ensembl Regulatory Build - query by CpG coordinate, https://grch37.rest.ensembl.org/overlap/region/",
+    "KEGG - via KEGGREST, https://rest.kegg.jp/",
+    "Reactome - https://reactome.org/ContentService/",
+    "WikiPathways - community-curated pathways (msigdbr C2:CP:WIKIPATHWAYS), https://www.wikipathways.org/",
+    "Open Targets - genetic association (aggregates GWAS Catalog) + druggability, https://api.platform.opentargets.org/",
+    "GWAS Catalog (NHGRI-EBI) - trait-name search, https://www.ebi.ac.uk/gwas/",
+    "Human Protein Atlas - baseline tissue / blood-lineage RNA expression, https://www.proteinatlas.org/",
+    "ENCODE - experiment/dataset search, https://www.encodeproject.org/",
+    "GEO (NCBI E-utilities, db=gds) - search/summary only, no automatic download, https://www.ncbi.nlm.nih.gov/gds/",
+    "BioStudies / ArrayExpress (EBI) - search, https://www.ebi.ac.uk/biostudies/",
+    "PubMed (NCBI E-utilities) - https://eutils.ncbi.nlm.nih.gov/"
   )
-  external_label <- if (is.null(ext)) "Available (click \"Look Up External Evidence\" to query):" else "Used in this Biomarker Card (external, live-queried):"
+  external_label <- if (is.null(ext)) "Available (pick a subtab and click its lookup button to query):" else "Used in this Biomarker Card (external, queried):"
   div(class = "card",
       div(class = "card-title", icon("database"), "Database Sources"),
       tags$b("Used in this Biomarker Card (local/offline):"), tags$ul(lapply(used, tags$li)),
       tags$b(external_label), tags$ul(lapply(external_available, tags$li)),
-      tags$b("Referenced, no public API (outbound link only):"), tags$ul(tags$li("MethBank"))
+      tags$b("Referenced, no public API (outbound link/browser view only):"),
+      tags$ul(tags$li("MethBank"), tags$li("UCSC Genome Browser (real track view, deep-linked at the CpG's coordinate)")),
+      tags$div(style = "margin-top:10px;", tags$b("Considered but not integrated (avoided rather than faked - see reasons):")),
+      tags$ul(lapply(BC_NOT_INTEGRATED_DBS, tags$li))
+  )
+}
+
+## =============================================================================
+## Evidence sections (Gene/Genome, Gene Ontology, Disease Associations,
+## Regulatory/Epigenomics, Expression, External Datasets, PubMed & Literature,
+## Source & API Information, Evidence Summary/DB Comparison) - same "not
+## fetched yet -> opt-in button -> result or empty-note" pattern as above;
+## each fetch is independent so one slow/down service never blocks another
+## subtab. None of these are called from card_data(). ------------------------
+## =============================================================================
+
+## Renders a link to the live source page so numbers can be checked against
+## the real database (ported from tbc_db_provenance()).
+bc_db_provenance <- function(api_domain, live_url, live_label) {
+  div(class = "empty-note", style = "display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;",
+      tagList(icon("satellite-dish"), sprintf("Query to %s - nothing here is precomputed or cached in this app.", api_domain)),
+      tags$a(href = live_url, target = "_blank", rel = "noopener", class = "btn btn-sm btn-default",
+             icon("arrow-up-right-from-square"), sprintf(" Open %s ", live_label))
+  )
+}
+
+bc_ucsc_browser_link <- function(chr, pos, flank = 200) {
+  if (is.null(chr) || is.na(chr) || is.null(pos) || is.na(pos)) return(NULL)
+  sprintf("https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&position=%s:%s-%s", chr,
+          format(round(pos - flank), scientific = FALSE, trim = TRUE), format(round(pos + flank), scientific = FALSE, trim = TRUE))
+}
+
+## ---- Gene / Genome (NCBI Gene + Ensembl, live; local structure kept and
+## clearly labeled separately) -------------------------------------------
+bc_section_gene_genome <- function(d, ncbi, ensembl) {
+  ucsc_link <- bc_ucsc_browser_link(d$resolved$chr, d$resolved$pos)
+  ncbi_prov <- bc_db_provenance("eutils.ncbi.nlm.nih.gov", sprintf("https://www.ncbi.nlm.nih.gov/gene/%s", d$gene_struct$entrez %||% ""), "on NCBI Gene")
+  ncbi_body <- if (is.null(ncbi)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Gene Study Evidence\" below.")
+               else if (!isTRUE(ncbi$ok)) div(class = "empty-note", icon("triangle-exclamation"), ncbi$reason %||% "NCBI Gene lookup unavailable.")
+               else bc_kv_table(list("Official full name" = ncbi$description, "Aliases" = ncbi$aliases, "Chromosome" = ncbi$chromosome,
+                                      "Cytogenetic map location" = ncbi$map_location, "Gene summary" = ncbi$summary))
+  ens_prov <- bc_db_provenance("grch37.rest.ensembl.org", sprintf("https://grch37.ensembl.org/Homo_sapiens/Gene/Summary?g=%s", ensembl$ensembl_id %||% d$gene_struct$ensembl %||% ""), "on Ensembl (GRCh37)")
+  ens_body <- if (is.null(ensembl)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Gene Study Evidence\" below.")
+              else if (!isTRUE(ensembl$ok)) div(class = "empty-note", icon("triangle-exclamation"), ensembl$reason %||% "Ensembl lookup unavailable.")
+              else bc_kv_table(list(
+                "Ensembl Gene ID" = ensembl$ensembl_id, "Biotype" = ensembl$biotype,
+                "Genomic location (GRCh37/hg19)" = if (!is.na(ensembl$chr)) sprintf("chr%s:%s-%s (%s strand)", ensembl$chr, format(ensembl$start, big.mark = ","), format(ensembl$end, big.mark = ","), if (identical(ensembl$strand, -1L)) "reverse" else "forward") else NA,
+                "Description" = ensembl$description
+              ))
+  tagList(
+    div(class = "card", div(class = "card-title", icon("circle-nodes"), "Structure Annotation"),
+        bc_primary_gene_detail(d)),
+    div(class = "card", div(class = "card-title", icon("dna"), "NCBI Gene"), ncbi_prov, ncbi_body),
+    div(class = "card", div(class = "card-title", icon("dna"), "Ensembl (GRCh37/hg19 - matches this app's genome build)"), ens_prov, ens_body),
+    div(class = "card", div(class = "card-title", icon("map-location-dot"), "UCSC Genome Browser"),
+        if (!is.null(ucsc_link)) tagList(
+          p(class = "submodule-desc", "The real UCSC track view at this CpG's exact coordinate - not redrawn locally (spec: link to the original visualization)."),
+          tags$a(href = ucsc_link, target = "_blank", rel = "noopener", class = "btn btn-sm btn-default", icon("arrow-up-right-from-square"), " Open in UCSC Genome Browser ")
+        ) else div(class = "empty-note", icon("circle-info"), "No genomic coordinate available to link to UCSC."))
+  )
+}
+
+## ---- Gene Ontology (local annotation, live QuickGO deep links) - always
+## available once the gene resolves, no opt-in button needed. --------------
+bc_section_go <- function(d) {
+  go <- d$go_terms
+  body <- if (is.null(go) || nrow(go) == 0) div(class = "empty-note", icon("circle-info"), "No Gene Ontology (biological process) terms found for this gene, or GO.db is not installed in this deployment.")
+          else {
+            go2 <- go
+            go2$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', go2$GOID, go2$GOID)
+            DT::datatable(go2[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = FALSE,
+                          options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
+          }
+  div(class = "card", div(class = "card-title", icon("circle-nodes"), "Gene Ontology (Biological Process)"),
+      p(class = "submodule-desc", "Local functional annotation (GO.db/org.Hs.eg.db) for this CpG's primary associated gene, with deep links to the original QuickGO record."),
+      body)
+}
+
+## ---- Disease Associations: existing EWAS-derived evidence + Open Targets
+## (aggregated, curated gene->disease join) + GWAS Catalog (supplementary
+## trait-name search) + an honest DisGeNET disclosure. -------------------
+bc_section_disease_associations <- function(ext_all, gene_symbol, ensembl_id) {
+  gen <- ext_all$genetics
+  ot_prov <- bc_db_provenance("api.platform.opentargets.org", sprintf("https://platform.opentargets.org/target/%s", ensembl_id %||% ""), "on Open Targets")
+  ot_body <- if (is.null(gen)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Disease/Genetics Evidence\" below.")
+             else if (!isTRUE(gen$ok)) div(class = "empty-note", icon("triangle-exclamation"), gen$reason %||% "Open Targets lookup unavailable.")
+             else if (is.null(gen$diseases) || nrow(gen$diseases) == 0) div(class = "empty-note", icon("circle-info"), "No disease associations found in Open Targets for this gene.")
+             else DT::datatable(gen$diseases, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+  gwas <- ext_all$gwas_catalog
+  gwas_prov <- bc_db_provenance("www.ebi.ac.uk/gwas", sprintf("https://www.ebi.ac.uk/gwas/genes/%s", gene_symbol %||% ""), "on GWAS Catalog")
+  gwas_body <- if (is.null(gwas)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Disease/Genetics Evidence\" below.")
+               else if (!isTRUE(gwas$ok)) div(class = "empty-note", icon("triangle-exclamation"), gwas$reason %||% "GWAS Catalog lookup unavailable.")
+               else if (is.null(gwas$traits)) div(class = "empty-note", icon("circle-info"), "No GWAS Catalog traits matched this gene symbol.")
+               else tagList(
+                 p(class = "submodule-desc", sprintf("Trait-name text-index match (%d total matched trait record(s), showing top %d) - a supplementary cross-check, not a curated gene->trait join; Open Targets above is the primary curated disease-association source.", gwas$n_total %||% nrow(gwas$traits), nrow(gwas$traits))),
+                 DT::datatable(gwas$traits, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+               )
+  tagList(
+    div(class = "empty-note", icon("circle-info"), "EWAS-derived trait associations (EWAS Catalog / EWAS Atlas) are shown on the \"EWAS Catalog\" / \"EWAS Atlas\" options of the External Databases tab. This subtab covers curated gene-level disease/genetic-association databases."),
+    div(class = "card", div(class = "card-title", icon("dna"), "Genetic Association & Tractability (Open Targets)"), ot_prov,
+        p(class = "submodule-desc", "Aggregates GWAS Catalog and other genetic evidence via a curated gene-to-disease join."), ot_body),
+    div(class = "card", div(class = "card-title", icon("magnifying-glass"), "GWAS Catalog (trait search)"), gwas_prov, gwas_body),
+    div(class = "card", div(class = "card-title", icon("ban"), "DisGeNET"),
+        div(class = "empty-note", icon("circle-info"), "External database - API requires registration/licensing not configured in this deployment.",
+            tags$br(), tags$a(href = "https://www.disgenet.org/", target = "_blank", rel = "noopener", "Search DisGeNET manually")))
+  )
+}
+
+## ---- Regulatory / Epigenomics: Ensembl Regulatory Build at the CpG's own
+## coordinate (CpG -> regulatory region relationship) + ENCODE experiments
+## for the associated gene. ------------------------------------------------
+bc_section_regulatory <- function(ext_all, d) {
+  reg <- ext_all$regulatory
+  reg_link <- if (!is.na(d$resolved$chr) && !is.na(d$resolved$pos))
+    sprintf("https://grch37.ensembl.org/Homo_sapiens/Location/View?r=%s:%s-%s", sub("^chr", "", d$resolved$chr),
+            round(d$resolved$pos - 1000), round(d$resolved$pos + 1000)) else NA_character_
+  reg_prov <- bc_db_provenance("grch37.rest.ensembl.org", reg_link, "on Ensembl (regulatory track, GRCh37)")
+  reg_body <- if (is.null(reg)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Regulatory Evidence\" below.")
+              else if (!isTRUE(reg$ok)) div(class = "empty-note", icon("triangle-exclamation"), reg$reason %||% "Ensembl regulatory-overlap lookup unavailable.")
+              else if (is.null(reg$features)) div(class = "empty-note", icon("circle-info"), sprintf("No Ensembl-annotated regulatory features within the +/-1kb window around this CpG (chr%s:%s-%s).", d$resolved$chr, format(reg$window[1], big.mark = ","), format(reg$window[2], big.mark = ",")))
+              else DT::datatable(reg$features, colnames = c("Feature type", "Description", "Start", "End", "Ensembl Regulatory ID"),
+                                  rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+  enc <- ext_all$encode
+  enc_prov <- bc_db_provenance("www.encodeproject.org", sprintf("https://www.encodeproject.org/search/?searchTerm=%s&type=Experiment", utils::URLencode(d$primary_gene %||% "", reserved = TRUE)), "on ENCODE")
+  enc_body <- if (is.null(enc)) div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Regulatory Evidence\" below.")
+              else if (!isTRUE(enc$ok)) div(class = "empty-note", icon("triangle-exclamation"), enc$reason %||% "ENCODE lookup unavailable.")
+              else if (is.null(enc$experiments)) div(class = "empty-note", icon("circle-info"), "No ENCODE experiments found for this gene.")
+              else {
+                df <- enc$experiments
+                df$Link <- sprintf('<a href="https://www.encodeproject.org%s" target="_blank" rel="noopener">Open</a>', df[["Link path"]])
+                tagList(
+                  p(class = "submodule-desc", sprintf("%d matching ENCODE experiment(s) total (showing top %d).", enc$n_total %||% nrow(df), nrow(df))),
+                  DT::datatable(df[, c("Accession", "Assay", "Biosample", "Status", "Link")], rownames = FALSE, escape = FALSE,
+                                options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+                )
+              }
+  tagList(
+    div(class = "card", div(class = "card-title", icon("layer-group"), "Regulatory Region (Ensembl Regulatory Build, by CpG coordinate)"),
+        p(class = "submodule-desc", "Regulatory features within 1kb of this CpG."),
+        reg_prov, reg_body),
+    div(class = "card", div(class = "card-title", icon("chart-simple"), "ENCODE Experiments (gene-level)"),
+        p(class = "submodule-desc", "Regulatory/epigenomic assays (ChIP-seq, DNase-seq, ATAC-seq, etc.) associated with this gene."),
+        enc_prov, enc_body)
+  )
+}
+
+## ---- Expression (Human Protein Atlas baseline tissue/blood expression) --
+bc_section_expression <- function(ext_all, gene, ensembl_id) {
+  hpa <- ext_all$hpa
+  prov <- bc_db_provenance("www.proteinatlas.org", sprintf("https://www.proteinatlas.org/%s-%s", ensembl_id %||% "", gene %||% ""), "on Human Protein Atlas")
+  if (is.null(hpa)) return(div(class = "card", div(class = "card-title", icon("layer-group"), "Baseline Tissue Expression (Human Protein Atlas)"),
+                                div(class = "empty-note", icon("circle-info"), "Not yet looked up - click \"Look Up Expression Evidence\" below.")))
+  if (!isTRUE(hpa$ok)) return(div(class = "card", div(class = "card-title", icon("layer-group"), "Baseline Tissue Expression (Human Protein Atlas)"), prov,
+                                   div(class = "empty-note", icon("triangle-exclamation"), hpa$reason %||% "Human Protein Atlas lookup unavailable.")))
+  pairs <- list("Tissue specificity" = hpa$tissue_specificity, "Blood lineage specificity" = hpa$blood_specificity,
+                "Blood expression cluster" = hpa$blood_cluster, "Secretome" = hpa$secretome, "Protein class" = hpa$protein_class)
+  div(class = "card", div(class = "card-title", icon("layer-group"), "Baseline Tissue Expression (Human Protein Atlas)"), prov,
+      p(class = "submodule-desc", "Sanity check: does this gene's baseline expression pattern plausibly match the tissue/cell type your methylation data comes from?"),
+      bc_kv_table(pairs),
+      if (!is.null(hpa$tissue_top)) tagList(tags$div(style = "margin-top:10px;", tags$b("Top tissues (nTPM)")), DT::datatable(hpa$tissue_top, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")) else NULL,
+      if (!is.null(hpa$blood_top)) tagList(tags$div(style = "margin-top:10px;", tags$b("Top blood lineages (nTPM)")), DT::datatable(hpa$blood_top, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")) else NULL,
+      div(class = "empty-note", style = "margin-top:8px;", icon("circle-info"), "GTEx is not integrated separately in this deployment - it would duplicate the baseline tissue expression already shown above via Human Protein Atlas.")
+  )
+}
+
+## ---- External Datasets: GEO (search only, never auto-downloaded) +
+## BioStudies/ArrayExpress + a cross-reference to the ENCODE datasets shown
+## on the Regulatory/Epigenomics subtab. ----------------------------------
+bc_section_external_datasets <- function(ext_all, query_label) {
+  geo <- ext_all$geo; bio <- ext_all$biostudies; enc <- ext_all$encode
+  geo_prov <- bc_db_provenance("eutils.ncbi.nlm.nih.gov (db=gds)", sprintf("https://www.ncbi.nlm.nih.gov/gds/?term=%s", utils::URLencode(query_label %||% "", reserved = TRUE)), "on GEO")
+  geo_body <- if (is.null(geo)) div(class = "empty-note", icon("circle-info"), "Not yet searched - click \"Search External Datasets\" below.")
+              else if (!isTRUE(geo$ok)) div(class = "empty-note", icon("triangle-exclamation"), geo$reason %||% "GEO lookup unavailable.")
+              else if (is.null(geo$series)) div(class = "empty-note", icon("circle-info"), "No matching GEO series/datasets found.")
+              else {
+                df <- geo$series
+                df$Link <- sprintf('<a href="%s" target="_blank" rel="noopener">Open</a>', vapply(df$Accession, geo_link, character(1)))
+                DT::datatable(df[, c("Accession", "Title", "Data type", "Organism", "Samples", "Date", "Link")], rownames = FALSE, escape = FALSE,
+                              options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+              }
+  bio_prov <- bc_db_provenance("www.ebi.ac.uk/biostudies", sprintf("https://www.ebi.ac.uk/biostudies/studies?search=%s", utils::URLencode(query_label %||% "", reserved = TRUE)), "on BioStudies")
+  bio_body <- if (is.null(bio)) div(class = "empty-note", icon("circle-info"), "Not yet searched - click \"Search External Datasets\" below.")
+              else if (!isTRUE(bio$ok)) div(class = "empty-note", icon("triangle-exclamation"), bio$reason %||% "BioStudies lookup unavailable.")
+              else if (is.null(bio$studies)) div(class = "empty-note", icon("circle-info"), "No matching BioStudies/ArrayExpress records found.")
+              else {
+                df <- bio$studies
+                df$Link <- sprintf('<a href="https://www.ebi.ac.uk/biostudies/studies/%s" target="_blank" rel="noopener">Open</a>', df$Accession)
+                tagList(
+                  p(class = "submodule-desc", sprintf("%d total matching record(s) (showing top %d).", bio$n_total %||% nrow(df), nrow(df))),
+                  DT::datatable(df[, c("Accession", "Title", "Type", "Release date", "Link")], rownames = FALSE, escape = FALSE,
+                                options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+                )
+              }
+  enc_body2 <- if (is.null(enc)) div(class = "empty-note", icon("circle-info"), "Not yet searched - the \"Look Up Regulatory Evidence\" button on the Regulatory/Epigenomics subtab queries the same ENCODE index; its result is shown there.")
+               else if (!isTRUE(enc$ok)) div(class = "empty-note", icon("triangle-exclamation"), enc$reason %||% "ENCODE lookup unavailable.")
+               else if (is.null(enc$experiments)) div(class = "empty-note", icon("circle-info"), "No ENCODE datasets found.")
+               else p(class = "submodule-desc", sprintf("%d ENCODE experiment dataset(s) found for this gene - see the Regulatory/Epigenomics subtab for the full table.", enc$n_total %||% nrow(enc$experiments)))
+  tagList(
+    div(class = "card", div(class = "card-title", icon("database"), "GEO"), geo_body),
+    div(class = "card", div(class = "card-title", icon("database"), "BioStudies / ArrayExpress"), bio_prov, bio_body),
+    div(class = "card", div(class = "card-title", icon("dna"), "ENCODE Datasets"), enc_body2)
+  )
+}
+
+## ---- PubMed & Literature: structured search + preset query builder +
+## automated (clearly-labeled) classification. ----------------------------
+bc_section_pubmed_literature <- function(ext_all, identifier) {
+  lit <- ext_all$literature; q <- ext_all$literature_query
+  prov <- bc_db_provenance("eutils.ncbi.nlm.nih.gov", sprintf("https://pubmed.ncbi.nlm.nih.gov/?term=%s", utils::URLencode(q %||% identifier %||% "", reserved = TRUE)), "on PubMed")
+  body <- if (is.null(lit)) div(class = "empty-note", icon("circle-info"), "Not yet searched - pick a query preset below and click \"Search Literature\".")
+          else if (!isTRUE(lit$ok)) div(class = "empty-note", icon("triangle-exclamation"), lit$reason %||% "PubMed lookup unavailable.")
+          else if (is.null(lit$papers)) div(class = "empty-note", icon("circle-info"), "No matching PubMed records were returned for this query.")
+          else {
+            df <- lit$papers
+            df$Classification <- vapply(seq_len(nrow(df)), function(i) {
+              cls <- bc_literature_classify(df$Title[i])
+              if (length(cls) == 0) "Unclassified" else paste(cls, collapse = ", ")
+            }, character(1))
+            df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', df$PMID, df$PMID)
+            DT::datatable(df[, c("Title", "Authors", "Journal", "Year", "Classification", "Link")],
+                          colnames = c("Title", "Authors", "Journal", "Year", "Classification (automated)", "PMID"),
+                          rownames = FALSE, escape = FALSE, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+          }
+  div(class = "card", div(class = "card-title", icon("book-open"), "PubMed & Literature"), prov,
+      if (!is.null(q)) p(class = "submodule-desc", sprintf('Query: "%s"', q)) else NULL,
+      if (!is.null(lit) && isTRUE(lit$ok) && !is.null(lit$papers)) div(class = "empty-note", style = "margin-bottom:8px;", icon("circle-info"),
+        "\"Classification\" is an automated keyword heuristic over the title only, not a database-provided fact - always verify by reading the abstract.") else NULL,
+      body)
+}
+
+## ---- Source & API Information: one row per external query actually made
+## this session for this biomarker, built from the `meta` envelope every
+## query_* function above attaches. -----------------------------------------
+bc_collect_meta_rows <- function(ext_all) {
+  if (is.null(ext_all)) return(NULL)
+  metas <- Filter(Negate(is.null), lapply(ext_all, function(x) if (is.list(x)) x$meta else NULL))
+  if (length(metas) == 0) return(NULL)
+  do.call(rbind, lapply(metas, function(m) {
+    data.frame(Source = m$source %||% NA_character_, Query = as.character(m$query %||% NA_character_)[1],
+               Endpoint = m$endpoint %||% NA_character_,
+               `Retrieved (UTC)` = if (!is.null(m$retrieved_at)) format(m$retrieved_at, tz = "UTC", usetz = TRUE) else NA_character_,
+               Status = m$status %||% NA_character_, `Records returned` = m$n_records %||% NA_integer_,
+               check.names = FALSE, stringsAsFactors = FALSE)
+  }))
+}
+
+bc_section_source_info <- function(ext_all) {
+  df <- bc_collect_meta_rows(ext_all)
+  body <- if (is.null(df) || nrow(df) == 0) div(class = "empty-note", icon("circle-info"), "No external database has been queried yet this session for this biomarker - use the subtabs above to look up evidence.")
+          else DT::datatable(df[order(df$Source), , drop = FALSE], rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
+  div(class = "card", div(class = "card-title", icon("clipboard-list"), "Source & API Information"),
+      p(class = "submodule-desc", "One row per external query actually made this session for this biomarker: source, query submitted, endpoint, retrieval timestamp, response status, and record count. Every number shown elsewhere on this card traces back either to a row here, or to a locally-bundled annotation package listed on the Database Sources card below."),
+      body)
+}
+
+## ---- Evidence Summary / Database Comparison - honest per-database status,
+## never a checkmark just because a database exists. ------------------------
+## `result_field` may be a "$"-separated path (e.g. "data$associationList")
+## for a source whose real record list sits nested under a non-data.frame
+## envelope field - see the EWAS Atlas entry below, whose top-level `data`
+## is a parsed-JSON list, not the data.frame this function otherwise expects.
+bc_evidence_status <- function(res, result_field) {
+  if (is.null(res)) return("Not yet run")
+  if (!isTRUE(res$ok)) return("Failed")
+  val <- res
+  for (part in strsplit(result_field, "\\$")[[1]]) val <- val[[part]]
+  has_rows <- !is.null(val) && (!is.data.frame(val) || nrow(val) > 0)
+  if (isTRUE(has_rows)) "Results found" else "No results"
+}
+
+BC_EVIDENCE_DBS <- list(
+  list(key = "ewascatalog_cpg", label = "EWAS Catalog", field = "df"),
+  list(key = "ewasatlas", label = "EWAS Atlas", field = "data$associationList"),
+  list(key = "ncbi_gene", label = "NCBI Gene", field = "name"),
+  list(key = "ensembl", label = "Ensembl", field = "ensembl_id"),
+  list(key = "regulatory", label = "Ensembl Regulatory Build", field = "features"),
+  list(key = "kegg", label = "KEGG", field = "pathways"),
+  list(key = "reactome", label = "Reactome", field = "pathways"),
+  list(key = "wikipathways", label = "WikiPathways", field = "pathways"),
+  list(key = "genetics", label = "Open Targets (disease/genetics)", field = "diseases"),
+  list(key = "gwas_catalog", label = "GWAS Catalog", field = "traits"),
+  list(key = "hpa", label = "Human Protein Atlas", field = "tissue_top"),
+  list(key = "encode", label = "ENCODE", field = "experiments"),
+  list(key = "geo", label = "GEO", field = "series"),
+  list(key = "biostudies", label = "BioStudies / ArrayExpress", field = "studies"),
+  list(key = "literature", label = "PubMed literature search", field = "papers")
+)
+
+bc_status_chip <- function(label, state) {
+  cls <- switch(state, "Results found" = "status-done", "Failed" = "status-pending", "status-neutral")
+  ic <- switch(state, "Results found" = "circle-check", "No results" = "circle-minus", "Failed" = "triangle-exclamation", "circle-info")
+  span(class = paste("pipeline-status-chip", cls), icon(ic), sprintf("%s: %s", label, state))
+}
+
+bc_section_db_evidence_summary <- function(ext_all) {
+  go_status <- "Not applicable (local annotation, always shown once the gene resolves)"
+  chips <- c(
+    list(bc_status_chip("Gene Ontology", if (is.null(ext_all)) "Not yet run" else "Results found")),
+    lapply(BC_EVIDENCE_DBS, function(dbx) bc_status_chip(dbx$label, bc_evidence_status(ext_all[[dbx$key]], dbx$field)))
+  )
+  div(class = "card",
+      div(class = "card-title", icon("clipboard-check"), "Evidence Summary (Database Coverage)"),
+      p(class = "submodule-desc", "Actual retrieval status per database - a checkmark only appears once real results were returned, never just because the database exists."),
+      div(class = "pipeline-status-strip", chips)
+  )
+}
+
+bc_section_db_comparison <- function(ext_all) {
+  if (is.null(ext_all)) return(NULL)
+  rows <- list()
+  add <- function(resource, evidence_type, results_n, significance, source) {
+    rows[[length(rows) + 1]] <<- data.frame(Resource = resource, `Evidence type` = evidence_type, Results = results_n,
+                                             Significance = significance, Source = source, check.names = FALSE, stringsAsFactors = FALSE)
+  }
+  if (isTRUE(ext_all$ewascatalog_cpg$ok)) add("EWAS Catalog", "Epigenome-wide association (this CpG)", nrow(ext_all$ewascatalog_cpg$df), "Reported P-value / effect size (own study, not adjusted here)", "ewascatalog.org")
+  if (isTRUE(ext_all$ewasatlas$ok)) add("EWAS Atlas", "Epigenome-wide association (this CpG)", if (!is.null(ext_all$ewasatlas$data$associationList)) nrow(ext_all$ewasatlas$data$associationList) else 0L, "Reported correlation (own study, not adjusted here)", "ngdc.cncb.ac.cn/ewas")
+  if (isTRUE(ext_all$kegg$ok)) add("KEGG", "Curated pathway membership", nrow(ext_all$kegg$pathways), "Not applicable (membership, not enrichment)", "KEGGREST")
+  if (isTRUE(ext_all$reactome$ok)) add("Reactome", "Curated pathway membership", nrow(ext_all$reactome$pathways), "Not applicable (membership, not enrichment)", "Reactome ContentService")
+  if (isTRUE(ext_all$wikipathways$ok)) add("WikiPathways", "Curated pathway membership", nrow(ext_all$wikipathways$pathways), "Not applicable (membership, not enrichment)", "msigdbr")
+  if (isTRUE(ext_all$genetics$ok)) add("Open Targets", "Genetic association", ext_all$genetics$n_diseases %||% 0L, "Association score (not a p-value)", "Open Targets Platform")
+  if (isTRUE(ext_all$gwas_catalog$ok)) add("GWAS Catalog", "Trait-name text search", ext_all$gwas_catalog$n_total %||% 0L, "Not applicable (search index, not a curated join)", "GWAS Catalog")
+  if (isTRUE(ext_all$hpa$ok)) add("Human Protein Atlas", "Baseline tissue/blood expression", if (!is.null(ext_all$hpa$tissue_top)) nrow(ext_all$hpa$tissue_top) else 0L, "Not applicable", "proteinatlas.org")
+  if (isTRUE(ext_all$encode$ok)) add("ENCODE", "Regulatory/epigenomic experiments", ext_all$encode$n_total %||% 0L, "Not applicable", "encodeproject.org")
+  if (isTRUE(ext_all$geo$ok)) add("GEO", "Independent dataset search", if (!is.null(ext_all$geo$series)) nrow(ext_all$geo$series) else 0L, "Not applicable", "NCBI GEO")
+  if (isTRUE(ext_all$biostudies$ok)) add("BioStudies/ArrayExpress", "Independent dataset search", ext_all$biostudies$n_total %||% 0L, "Not applicable", "EBI BioStudies")
+  if (isTRUE(ext_all$literature$ok)) add("PubMed", "Literature", if (!is.null(ext_all$literature$papers)) nrow(ext_all$literature$papers) else 0L, "Not applicable", "NCBI E-utilities")
+  if (length(rows) == 0) {
+    return(div(class = "card", div(class = "card-title", icon("scale-balanced"), "Database Comparison"),
+               div(class = "empty-note", icon("circle-info"), "Run at least one database above to populate this comparison.")))
+  }
+  df <- do.call(rbind, rows)
+  div(class = "card", div(class = "card-title", icon("scale-balanced"), "Database Comparison"),
+      p(class = "submodule-desc", "Side-by-side view of what each already-run database returned, so you can judge whether independent resources converge on the same biology."),
+      DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact"))
+}
+
+## ---- Panel-mode section builders -----------------------------------------
+
+bc_section_panel_identity <- function(res) {
+  if (is.null(res) || !isTRUE(res$ok) || is.null(res$df)) {
+    return(div(class = "card", div(class = "card-title", icon("list-check"), "Identifier Resolution"),
+               div(class = "empty-note", icon("triangle-exclamation"), res$reason %||% "No identifiers to resolve.")))
+  }
+  df <- res$df[, c("input_id", "detected_type", "status_label", "resolved_id", "annotated_gene")]
+  colnames(df) <- c("Submitted identifier", "Detected type", "Resolution status", "Resolved ID", "Annotated gene")
+  div(class = "card", div(class = "card-title", icon("list-check"), "Identifier Resolution"),
+      p(class = "submodule-desc", sprintf("%d identifier(s) submitted, %d resolved, %d unresolved. Every submitted identifier is listed below - none are silently dropped.", res$n_submitted, res$n_resolved, res$n_unresolved)),
+      DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact"))
+}
+
+bc_section_panel_overview <- function(gene_rows, cpg_rows) {
+  tagList(
+    if (!is.null(gene_rows)) tagList(tags$b(sprintf("Resolved genes (%d)", nrow(gene_rows))),
+      DT::datatable(gene_rows, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")) else NULL,
+    if (!is.null(cpg_rows)) tagList(tags$div(style = "margin-top:10px;"), tags$b(sprintf("Resolved CpGs (%d)", nrow(cpg_rows))),
+      DT::datatable(cpg_rows, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")) else NULL,
+    if (is.null(gene_rows) && is.null(cpg_rows)) div(class = "empty-note", icon("circle-info"), "No resolved genes or CpGs to summarize.") else NULL
+  )
+}
+
+bc_section_panel_convergence <- function(conv, item_label, btn_label) {
+  if (is.null(conv)) return(div(class = "card", div(class = "card-title", icon("circle-nodes"), sprintf("%s Convergence", item_label)),
+                                 div(class = "empty-note", icon("circle-info"), sprintf("Not yet looked up - click \"%s\" below.", btn_label))))
+  if (!isTRUE(conv$ok) || is.null(conv$table)) return(div(class = "card", div(class = "card-title", icon("circle-nodes"), sprintf("%s Convergence", item_label)),
+                                    div(class = "empty-note", icon("circle-info"), conv$reason %||% "No convergence found.")))
+  div(class = "card", div(class = "card-title", icon("circle-nodes"), sprintf("%s Convergence", item_label)),
+      p(class = "submodule-desc", sprintf("Which %s(s) are shared across multiple biomarkers in this list (queried %d biomarker(s), capped to avoid overloading the external service) - a real overlap count, not a synthetic score.", tolower(item_label), conv$n_queried)),
+      DT::datatable(conv$table, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact"))
+}
+
+bc_section_panel_evidence_summary <- function(disease_conv, pathway_conv) {
+  chips <- list(
+    bc_status_chip("Disease/Trait convergence", bc_evidence_status(disease_conv, "table")),
+    bc_status_chip("Pathway convergence", bc_evidence_status(pathway_conv, "table"))
+  )
+  div(class = "card", div(class = "card-title", icon("clipboard-check"), "Evidence Summary (Panel)"),
+      p(class = "submodule-desc", "Actual retrieval status - a checkmark only appears once real convergence results were returned."),
+      div(class = "pipeline-status-strip", chips))
+}
+
+bc_build_panel_report_tags <- function(pcd, disease_conv, pathway_conv) {
+  tagList(
+    tags$h2(sprintf("Biomarker Panel Report (%d identifier(s))", pcd$resolution$n_submitted)),
+    bc_section_panel_evidence_summary(disease_conv, pathway_conv),
+    bc_section_panel_identity(pcd$resolution),
+    div(class = "card", div(class = "card-title", icon("table"), "Panel Overview"), bc_section_panel_overview(pcd$gene_rows, pcd$cpg_rows)),
+    bc_section_panel_convergence(disease_conv, if (length(pcd$gene_ids) > 0) "Disease" else "Trait", "Look Up Disease/Trait Convergence"),
+    bc_section_panel_convergence(pathway_conv, "Pathway", "Look Up Pathway Convergence"),
+    bc_section_sources(NULL),
+    tags$p(style = "color:#888; font-size:12px; margin-top:16px;",
+           "Per-biomarker detail (genomic context, EWAS evidence, regulatory context, etc.): select an individual biomarker in single-identifier mode for its full evidence dashboard.")
   )
 }
 
@@ -1212,31 +2606,47 @@ bc_build_report_tags <- function(d, cytoband_df, ext = NULL) {
     uri <- bc_ggsave_datauri(p)
     if (is.null(uri)) div(class = "empty-note", "Plot unavailable.") else tags$img(src = uri, style = "max-width:100%; height:auto;")
   }
+  ens_id <- if (isTRUE(ext$ensembl$ok)) ext$ensembl$ensembl_id else d$gene_struct$ensembl
+  identifier <- if (!is.na(d$primary_gene)) d$primary_gene else d$cpg
+  res_ids <- bc_resolve_identifiers(if (!is.na(d$primary_gene)) c(d$cpg, d$primary_gene) else d$cpg, d$array_type)
+  res_body <- if (isTRUE(res_ids$ok) && !is.null(res_ids$df)) {
+    rdf <- res_ids$df[, c("input_id", "detected_type", "status_label")]
+    colnames(rdf) <- c("Submitted identifier", "Detected type", "Resolution status")
+    DT::datatable(rdf, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
+  } else NULL
 
   tagList(
     tags$h2(sprintf("Biomarker Card: %s", d$cpg)),
     tags$p(sprintf("Genome build: GRCh37 / hg19. Array: %s.", d$array_type)),
-    bc_section_summary(d), bc_section_genomic_context(d),
+    div(class = "card", div(class = "card-title", "Identifier Resolution"), res_body),
+    bc_section_summary(d), bc_section_interpretation(d, ext), bc_section_evidence_summary(d, ext),
+    bc_section_genomic_context(d),
     div(class = "card", div(class = "card-title", "Local Region View"), img_tag(region_plot)),
     div(class = "card", div(class = "card-title", "Chromosome View"), img_tag(ideogram_plot)),
     bc_section_genes(d),
-    bc_section_disease_evidence(ext), bc_section_ra_evidence(ext), bc_section_disease_comparison(ext),
-    bc_section_tissue_evidence(ext), bc_section_pathways(ext), bc_section_kegg_ra_pathway(ext),
+    bc_section_gene_genome(d, ext$ncbi_gene, ext$ensembl),
+    bc_section_go(d),
+    bc_section_disease_evidence(ext), bc_section_ra_evidence(ext), bc_section_disease_comparison(ext), bc_section_tissue_evidence(ext),
+    bc_section_disease_associations(ext, d$primary_gene, ens_id),
+    bc_section_kegg(ext), bc_section_kegg_ra_pathway(ext), bc_section_reactome(ext), bc_section_wikipathways(ext),
+    bc_section_regulatory(ext, d),
+    bc_section_expression(ext, d$primary_gene, ens_id),
+    bc_section_external_datasets(ext, if (!is.na(d$primary_gene)) sprintf("%s methylation", d$primary_gene) else sprintf("%s methylation", d$cpg)),
     bc_section_publications(ext), bc_section_methbank(ext),
-    bc_section_your_dataset(d, img_tag(dist_plot)),
+    bc_section_pubmed_literature(ext, identifier),
     bc_section_sex_specific(d, img_tag(sex_plot)),
-    bc_section_interpretation(d, ext), bc_section_evidence_summary(d, ext), bc_section_sources(ext),
+    bc_section_db_comparison(ext), bc_section_source_info(ext), bc_section_sources(ext),
     tags$p(style = "color:#888; font-size:12px; margin-top:16px;",
-           if (is.null(ext)) "External evidence (EWAS Catalog, EWAS Atlas, KEGG, Reactome, PubMed) was not looked up before this report was generated - go back to the card and click \"Look Up External Evidence\" first if you want it included."
-           else "Not yet available in this build: Methylation<->Expression correlation evidence, and a rendered KEGG pathway diagram image (a real membership/gene-list lookup is shown instead).")
+           if (is.null(ext)) "No external database evidence was looked up before this report was generated - go back to the card and use each subtab's lookup button first if you want it included."
+           else "Not yet available in this build: Methylation<->Expression correlation evidence, and a rendered KEGG/Reactome pathway diagram image (a real membership/gene-list lookup is shown instead).")
   )
 }
 
 ## ---- Config / UI -----------------------------------------------------
 
 mod_methyl_biomarkercard_config <- list(
-  id = "biomarkercard", title = "Biomarker Card", icon = "id-card", group = "Biomarker modeling",
-  description = "A single-CpG epigenomic profile: genomic location, CpG island/gene context, chromosome view, and evidence from your own dataset (including sex-specific results)."
+  id = "biomarkercard", title = "Biomarker Card", icon = "id-card", group = "Interpretation",
+  description = "Shows the potential methylomics biomarker profile."
 )
 
 mod_methyl_biomarkercard_ui <- function(id) {
@@ -1263,22 +2673,26 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
             div(class = "card-title", icon("magnifying-glass"), "Data source"),
             radioButtons(ns("bc_source"), NULL, inline = TRUE,
                          choiceNames = list(
-                           tagList(icon("database"), " Preloaded methylation results (GSE42861, 450K, sex-stratified)"),
+                           tagList(icon("database"), " Preloaded methylation data"),
                            tagList(icon("upload"), " Your loaded dataset (Dataset tab)")
                          ),
                          choiceValues = list("preloaded", "live"),
                          selected = if (METH_DATA_AVAILABLE) "preloaded" else "live"),
-            if (!METH_DATA_AVAILABLE) div(class = "empty-note", icon("triangle-exclamation"), "The preloaded methylomics results folder is not available in this deployment - only your loaded dataset can be used."),
-            conditionalPanel(condition = sprintf("input['%s'] == 'preloaded'", ns("bc_source")),
-                              p(class = "submodule-desc", "Genomic/gene lookups use the 450K array manifest; Delta-Beta/P/FDR lookups use the sex-stratified SVA/bacon-corrected DMP pipeline (Female and Male are always shown together in the generated card)."))
+            if (!METH_DATA_AVAILABLE) div(class = "empty-note", icon("triangle-exclamation"), "The preloaded methylomics results folder is not available in this deployment - only your loaded dataset can be used.")
         ),
         div(class = "card",
             div(class = "card-title", icon("list-check"), "Find a biomarker"),
             radioButtons(ns("bc_search_mode"), NULL, inline = TRUE,
                          choices = c("Paste/type a CpG ID" = "cpg", "Search by gene symbol" = "gene", "Browse preloaded DMP results" = "browse",
-                                     "Browse diagnostic model panel" = "panel", "Upload a biomarker list" = "upload")),
+                                     "Browse diagnostic model panel" = "panel", "Upload a biomarker list" = "upload",
+                                     "Gene/CpG list (multiple biomarkers)" = "list")),
             conditionalPanel(condition = sprintf("input['%s'] == 'cpg'", ns("bc_search_mode")),
                               textInput(ns("bc_cpg_input"), "CpG ID", placeholder = "cg12277888")),
+            conditionalPanel(condition = sprintf("input['%s'] == 'list'", ns("bc_search_mode")),
+                              p(class = "submodule-desc", "Paste a mixed list of gene symbols and/or CpG IDs (one per line, or comma/space-separated) to explore them together as a panel - resolution status is shown for every entry, never silently dropped."),
+                              textAreaInput(ns("bc_list_input"), "Gene symbols and/or CpG IDs", rows = 5, placeholder = "BRCA1\nBRCA2\nTP53\ncg00000029\ncg27665659"),
+                              fileInput(ns("bc_list_upload_file"), "...or upload a list (.csv, .txt)", accept = c(".csv", ".txt")),
+                              actionButton(ns("bc_list_load_btn"), "Load List", icon = icon("play"), class = "btn-sm")),
             conditionalPanel(condition = sprintf("input['%s'] == 'gene'", ns("bc_search_mode")),
                               fluidRow(
                                 column(6, textInput(ns("bc_gene_input"), "Gene symbol", placeholder = "TRIM44")),
@@ -1289,7 +2703,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
                               if (!METH_DATA_AVAILABLE) div(class = "empty-note", icon("circle-info"), "Not available - the preloaded results folder is not present in this deployment.")
                               else tagList(
                                 fluidRow(
-                                  column(6, radioButtons(ns("bc_browse_sex"), "Sex stratum", inline = TRUE, choices = c("Female" = "female", "Male" = "male"), selected = "female")),
+                                  column(6, radioButtons(ns("bc_browse_sex"), "Sex stratum", inline = TRUE, choices = c("All samples" = "all", "Female" = "female", "Male" = "male"), selected = "female")),
                                   column(6, br(), actionButton(ns("bc_browse_load_btn"), "Load Top Results", icon = icon("play"), class = "btn-sm"))
                                 ),
                                 uiOutput(ns("bc_browse_results_ui"))
@@ -1321,12 +2735,15 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
     observeEvent(input$bc_source, { bc_picked_cpg(NULL); has_card(FALSE) }, ignoreInit = TRUE)
     observeEvent(input$bc_search_mode, bc_picked_cpg(NULL), ignoreInit = TRUE)
 
-    ## Explicit confirmation that a row/CpG is actually selected - without
-    ## this, clicking a table row (which highlights it but doesn't otherwise
-    ## change the page) is easy to mistake for "nothing happened", especially
-    ## once the table has scrolled the Generate button out of view.
+    ## Explicit confirmation that a row/CpG is selected - a row click alone
+    ## just highlights it, easy to mistake for "nothing happened".
     output$bc_selection_status_ui <- renderUI({
       mode <- input$bc_search_mode %||% "cpg"
+      if (identical(mode, "list")) {
+        n <- length(bc_panel_raw_ids())
+        if (n > 0) return(tagList(icon("circle-check", style = "color:#0ca30c;"), tags$b(sprintf("%d identifier(s) loaded as a panel", n)), " - click Generate to build the panel report."))
+        return(tagList(icon("circle-info"), "Paste or upload a gene/CpG list and click \"Load List\" (or \"Use Full Table as Panel\" from the upload tab) before clicking Generate."))
+      }
       cpg <- if (identical(mode, "cpg")) trimws(input$bc_cpg_input %||% "") else bc_picked_cpg()
       if (!is.null(cpg) && nzchar(cpg)) {
         tagList(icon("circle-check", style = "color:#0ca30c;"), tags$b(sprintf("Selected: %s", cpg)), " - click Generate to build the card.")
@@ -1422,8 +2839,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
     })
 
     ## ---- Upload a biomarker list (plain ID list, or a Feature Selection RDS
-    ## export - same schema check mod_methyl_diagnostic.R's own "Feature
-    ## Source: featureselection" upload path uses) ----
+    ## export - same schema check as mod_methyl_diagnostic.R's upload path) ----
     upload_table <- eventReactive(input$bc_upload_load_btn, {
       validate(need(!is.null(input$bc_upload_file), "Upload a .csv, .txt, or .rds file first."))
       path <- input$bc_upload_file$datapath; name <- input$bc_upload_file$name
@@ -1454,7 +2870,8 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
     output$bc_upload_results_ui <- renderUI({
       req(input$bc_upload_load_btn)
       tagList(
-        p(class = "submodule-desc", sprintf("%d CpG(s) loaded from the uploaded file. Click a row to select it, then click \"Generate Biomarker Card\".", nrow(upload_table()))),
+        p(class = "submodule-desc", sprintf("%d CpG(s) loaded from the uploaded file. Click a row to select it and \"Generate Biomarker Card\" for a single-CpG profile, or send the whole table below as a multi-biomarker panel - this is the intended handoff point for an existing candidate-biomarker table (CpG/Gene/Delta-Beta/P/FDR) from an upstream Methylomics analysis (spec: use it as the starting point, never recompute it).", nrow(upload_table()))),
+        actionButton(ns("bc_upload_as_panel_btn"), "Use Full Table as Panel", icon = icon("layer-group"), class = "btn-sm"),
         DT::dataTableOutput(ns("bc_upload_table"))
       )
     })
@@ -1469,16 +2886,82 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       if (length(idx) == 1) bc_picked_cpg(df$cpg[idx])
     })
 
+    ## ---- Panel mode input sources: paste/upload a list, or send a full
+    ## already-loaded table as a panel. ----
+    bc_panel_raw_ids <- reactiveVal(NULL)
+    observeEvent(input$bc_list_load_btn, {
+      from_text <- bc_split_tokens(input$bc_list_input %||% "")
+      from_file <- if (!is.null(input$bc_list_upload_file)) {
+        tryCatch({
+          up <- as.data.frame(data.table::fread(input$bc_list_upload_file$datapath, header = FALSE, showProgress = FALSE))
+          as.character(up[[1]])
+        }, error = function(e) character(0))
+      } else character(0)
+      bc_panel_raw_ids(unique(c(from_text, from_file)))
+    }, ignoreInit = TRUE)
+    observeEvent(input$bc_upload_as_panel_btn, {
+      df <- upload_table(); req(df)
+      id_col <- if ("cpg" %in% colnames(df)) "cpg" else colnames(df)[1]
+      bc_panel_raw_ids(unique(as.character(df[[id_col]])))
+      updateRadioButtons(session, "bc_search_mode", selected = "list")
+    }, ignoreInit = TRUE)
+
     ## ---- Generate ----
-    ## CpG resolution is inlined directly into card_data() rather than split
-    ## into its own eventReactive - calling one eventReactive from inside
-    ## another eventReactive bound to the exact same button click event
-    ## deadlocks (the inner one's internal "did my event fire" check never
-    ## resolves when invoked from inside the outer one's isolate()d handler).
+    ## CpG resolution is inlined into card_data() rather than its own
+    ## eventReactive - calling one eventReactive from inside another bound
+    ## to the same button click deadlocks (inner "did my event fire" check
+    ## never resolves inside the outer isolate()d handler).
+    panel_mode_active <- reactiveVal(FALSE)
     observeEvent(input$bc_generate_btn, {
+      panel_mode_active(identical(isolate(input$bc_search_mode), "list"))
       has_card(TRUE)
       updateTabsetPanel(session, "bc_subtabs", selected = "Biomarker Card")
     }, ignoreInit = TRUE)
+
+    panel_card_data <- eventReactive(input$bc_generate_btn, {
+      req(identical(isolate(input$bc_search_mode), "list"))
+      raw <- bc_panel_raw_ids()
+      validate(need(!is.null(raw) && length(raw) > 0, "No gene/CpG list loaded - paste or upload a list (or click \"Use Full Table as Panel\" on the upload tab), then click \"Load List\" before Generate."))
+      array_type <- if (identical(isolate(input$bc_source), "preloaded")) "450K" else (dataset$array_type %||% "450K")
+      res <- bc_resolve_identifiers(raw, array_type)
+      validate(need(isTRUE(res$ok) && res$n_resolved > 0, "None of the submitted identifiers could be resolved - check spelling/format (gene symbols, or CpG IDs like cg00000029)."))
+      gene_ids <- unique(res$df$resolved_id[res$df$detected_type == "Gene identifier" & res$df$resolved])
+      cpg_ids <- unique(res$df$input_id[res$df$detected_type == "CpG probe" & res$df$resolved])
+      list(raw = raw, array_type = array_type, resolution = res, gene_ids = gene_ids, cpg_ids = cpg_ids,
+           gene_rows = bc_panel_gene_rows(gene_ids), cpg_rows = bc_panel_cpg_rows(cpg_ids, array_type))
+    }, ignoreInit = TRUE)
+
+    panel_disease_conv <- reactiveVal(NULL); panel_pathway_conv <- reactiveVal(NULL)
+    observeEvent(panel_card_data(), { panel_disease_conv(NULL); panel_pathway_conv(NULL) }, ignoreInit = TRUE)
+    observeEvent(input$bc_panel_disease_btn, {
+      pcd <- panel_card_data(); req(pcd)
+      if (length(pcd$gene_ids) > 0) panel_disease_conv(bc_panel_disease_convergence_genes(pcd$gene_ids))
+      else if (length(pcd$cpg_ids) > 0) panel_disease_conv(bc_panel_ewas_trait_convergence_cpgs(pcd$cpg_ids))
+      else panel_disease_conv(list(ok = FALSE, reason = "No resolved genes or CpGs to query.", table = NULL, n_queried = 0L))
+    }, ignoreInit = TRUE)
+    observeEvent(input$bc_panel_pathway_btn, {
+      pcd <- panel_card_data(); req(pcd)
+      panel_pathway_conv(bc_panel_pathway_convergence_genes(pcd$gene_ids))
+    }, ignoreInit = TRUE)
+
+    output$bc_panel_tab_overview <- renderUI({
+      pcd <- panel_card_data(); req(pcd)
+      tagList(bc_section_panel_identity(pcd$resolution), div(class = "card", div(class = "card-title", icon("table"), "Panel Overview"), bc_section_panel_overview(pcd$gene_rows, pcd$cpg_rows)))
+    })
+    output$bc_panel_tab_convergence <- renderUI({
+      pcd <- panel_card_data(); req(pcd)
+      item_label <- if (length(pcd$gene_ids) > 0) "Disease" else "Trait"
+      tagList(
+        bc_section_panel_evidence_summary(panel_disease_conv(), panel_pathway_conv()),
+        bc_section_panel_convergence(panel_disease_conv(), item_label, "Look Up Disease/Trait Convergence"),
+        bc_section_panel_convergence(panel_pathway_conv(), "Pathway", "Look Up Pathway Convergence")
+      )
+    })
+    output$bc_panel_tab_source_info <- renderUI({
+      div(class = "card", div(class = "card-title", icon("database"), "About Panel Mode"),
+          p(class = "submodule-desc", "Panel mode aggregates evidence across multiple biomarkers at once (disease/trait and pathway convergence). For the full per-database evidence dashboard (Gene Study, Gene Ontology, EWAS Catalog, EWAS Atlas, KEGG, Reactome, WikiPathways, Disease/Genetics, Regulatory/Epigenomics, Expression, External Datasets, Literature) on one specific biomarker, switch to a single-identifier search mode and generate its individual Biomarker Card.")
+      )
+    })
 
     card_data <- eventReactive(input$bc_generate_btn, {
       cpg <- switch(input$bc_search_mode,
@@ -1512,9 +2995,24 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
 
       live <- bc_dataset_evidence(cpg, dataset)
 
+      ## Single-CpG diagnostic performance (live, computed here on the
+      ## currently loaded dataset) + multi-CpG panel membership/performance
+      ## (preloaded, read verbatim) - feed the "Single-Gene vs Multi-Gene
+      ## Signature" and "Biomarker Performance" tabs.
+      single_cpg_diag <- if (isTRUE(live$ok) && isTRUE(live$overall$ok)) {
+        bc_single_cpg_roc(live$beta_row, live$group_vec, live$case_label, live$control_label)
+      } else list(ok = FALSE, reason = "No case/control split for this CpG (see Dataset tab).")
+      single_cpg_cv <- if (isTRUE(live$ok) && isTRUE(live$overall$ok)) {
+        bc_single_cpg_cv(live$beta_row, live$group_vec, live$case_label, live$control_label)
+      } else list(ok = FALSE, reason = "No case/control split for this CpG (see Dataset tab).")
+      panel_membership <- bc_panel_membership_lookup(cpg)
+      panel_perprobe <- bc_panel_perprobe_lookup(cpg)
+
       list(cpg = cpg, source_mode = source_mode, array_type = array_type, resolved = resolved,
            primary_gene = primary_gene, island = island, gene_struct = gene_struct, go_terms = go_terms,
-           dmp_female = dmp_female, dmp_male = dmp_male, dmr_female = dmr_female, dmr_male = dmr_male, live = live)
+           dmp_female = dmp_female, dmp_male = dmp_male, dmr_female = dmr_female, dmr_male = dmr_male, live = live,
+           single_cpg_diag = single_cpg_diag, single_cpg_cv = single_cpg_cv,
+           panel_membership = panel_membership, panel_perprobe = panel_perprobe)
     }, ignoreInit = TRUE)
 
     observeEvent(card_data(), {
@@ -1528,71 +3026,416 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       }
     }, ignoreInit = TRUE)
 
-    ## External evidence is opt-in (own button/reactive, not part of
-    ## card_data()) so a slow/down external service never blocks the fully
-    ## local, already-verified core card above. Resets when a new biomarker
-    ## is generated so stale evidence from a previous CpG never lingers.
-    ## Single observeEvent, not a separate eventReactive+observer pair -
-    ## calling an eventReactive bound to input$bc_ext_lookup_btn from inside
-    ## an observeEvent bound to that exact same button click deadlocks (same
-    ## same-event-nesting hazard as card_data()'s own note above).
-    ext_data <- reactiveVal(NULL)
-    observeEvent(card_data(), ext_data(NULL), ignoreInit = TRUE)
-    observeEvent(input$bc_ext_lookup_btn, {
-      d <- card_data(); req(d)
-      ext_data(bc_external_evidence(d$cpg, d$primary_gene, d$gene_struct$entrez %||% NA_character_))
+    ## External evidence is opt-in - each database is its own reactive/button
+    ## (own click, own result), so a slow/down service never blocks another
+    ## database or the local core card. Resets on a new biomarker so stale
+    ## evidence never lingers.
+    ewascatalog_data <- reactiveVal(NULL); ewasatlas_data <- reactiveVal(NULL)
+    kegg_data <- reactiveVal(NULL); kegg_ra_data <- reactiveVal(NULL)
+    reactome_data <- reactiveVal(NULL); wikipathways_data <- reactiveVal(NULL)
+    observeEvent(card_data(), {
+      ewascatalog_data(NULL); ewasatlas_data(NULL)
+      kegg_data(NULL); kegg_ra_data(NULL); reactome_data(NULL); wikipathways_data(NULL)
     }, ignoreInit = TRUE)
 
-    output$bc_ext_sections_ui <- renderUI({
+    observeEvent(input$bc_run_ewascatalog, {
+      d <- card_data(); req(d)
+      ewascatalog_data(bc_ewascatalog_query("cpg", d$cpg))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_run_ewasatlas, {
+      d <- card_data(); req(d)
+      ewasatlas_data(bc_ewasatlas_probe(d$cpg))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_run_kegg, {
+      d <- card_data(); req(d)
+      entrez <- d$gene_struct$entrez %||% NA_character_
+      kegg_data(bc_kegg_pathways_for_gene(entrez))
+      kegg_ra_data(bc_kegg_ra_pathway_check(entrez, d$primary_gene))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_run_reactome, {
+      d <- card_data(); req(d)
+      reactome_data(if (!is.na(d$primary_gene)) bc_reactome_pathways_for_gene(d$primary_gene) else list(ok = FALSE, pathways = NULL, reason = "No associated gene."))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_run_wikipathways, {
+      d <- card_data(); req(d)
+      wikipathways_data(bc_wikipathways_pathways_for_gene(d$gene_struct$entrez %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    ## Disease Evidence/RA Evidence/Disease Comparison/Tissue Evidence/
+    ## Publications combine whichever of EWAS Catalog/EWAS Atlas has been run
+    ## - recomputes live as either arrives, so it works from just one of them.
+    ewas_combined <- reactive({
+      ewc_cpg <- ewascatalog_data(); ewa <- ewasatlas_data()
+      ewa_assoc <- NULL
+      if (isTRUE(ewa$ok) && !is.null(ewa$data$associationList) && is.data.frame(ewa$data$associationList) && nrow(ewa$data$associationList) > 0) {
+        a <- ewa$data$associationList
+        ewa_assoc <- data.frame(source = "EWAS Atlas", trait = a$trait, tissue = NA_character_,
+                                 effect = a$correlation, p = NA_character_, pmid = as.character(a$pmid), stringsAsFactors = FALSE)
+      }
+      ewc_assoc <- NULL
+      if (isTRUE(ewc_cpg$ok) && nrow(ewc_cpg$df) > 0) {
+        dd <- ewc_cpg$df
+        ewc_assoc <- data.frame(source = "EWAS Catalog", trait = dd$trait, tissue = dd$tissue,
+                                 effect = dd$beta, p = dd$p, pmid = as.character(dd$pmid), stringsAsFactors = FALSE)
+      }
+      combined <- do.call(rbind, list(ewc_assoc, ewa_assoc))
+      if (!is.null(combined)) combined <- combined[!is.na(combined$trait) & nzchar(combined$trait), , drop = FALSE]
+
+      pmids <- if (!is.null(combined)) unique(combined$pmid[!is.na(combined$pmid) & grepl("^[0-9]+$", combined$pmid)]) else character(0)
+      pubs <- bc_pubmed_summaries(pmids)
+
+      ra_rows <- if (!is.null(combined)) combined[grepl("rheumatoid|arthritis", combined$trait, ignore.case = TRUE), , drop = FALSE] else NULL
+
+      disease_counts <- NULL
+      if (!is.null(combined) && nrow(combined) > 0) {
+        cat_counts <- vapply(BC_DISEASE_CATEGORIES, function(pat) sum(grepl(pat, combined$trait, ignore.case = TRUE)), integer(1))
+        other_n <- nrow(combined) - sum(cat_counts)
+        disease_counts <- data.frame(category = c(names(BC_DISEASE_CATEGORIES), "Other"), n = c(unname(cat_counts), max(other_n, 0)), stringsAsFactors = FALSE)
+        disease_counts <- disease_counts[disease_counts$n > 0, , drop = FALSE]
+      }
+
+      tissue_counts <- NULL
+      if (isTRUE(ewc_cpg$ok) && nrow(ewc_cpg$df) > 0) {
+        tt <- ewc_cpg$df$tissue[!is.na(ewc_cpg$df$tissue) & nzchar(ewc_cpg$df$tissue)]
+        if (length(tt) > 0) tissue_counts <- as.data.frame(table(tissue = tt), stringsAsFactors = FALSE)
+      }
+
+      list(combined_disease = combined, ra_rows = ra_rows, disease_counts = disease_counts,
+           tissue_counts = tissue_counts, publications = pubs)
+    })
+
+    output$bc_tab_ewascatalog <- renderUI({
       tagList(
-        bc_section_disease_evidence(ext_data()),
-        bc_section_ra_evidence(ext_data()),
-        bc_section_disease_comparison(ext_data()),
-        bc_section_tissue_evidence(ext_data()),
-        bc_section_pathways(ext_data()),
-        bc_section_kegg_ra_pathway(ext_data()),
-        bc_section_publications(ext_data()),
-        bc_section_methbank(ext_data())
+        bc_section_ewascatalog(ewascatalog_data()),
+        bc_section_disease_evidence(ext_all()), bc_section_ra_evidence(ext_all()),
+        bc_section_disease_comparison(ext_all()), bc_section_tissue_evidence(ext_all()),
+        bc_section_publications(ext_all()), bc_section_methbank(ext_all())
+      )
+    })
+
+    output$bc_tab_ewasatlas <- renderUI({
+      tagList(
+        bc_section_ewasatlas(ewasatlas_data()),
+        bc_section_disease_evidence(ext_all()), bc_section_ra_evidence(ext_all()),
+        bc_section_disease_comparison(ext_all()), bc_section_tissue_evidence(ext_all()),
+        bc_section_publications(ext_all()), bc_section_methbank(ext_all())
+      )
+    })
+
+    output$bc_tab_kegg <- renderUI({
+      tagList(bc_section_kegg(ext_all()), bc_section_kegg_ra_pathway(ext_all()))
+    })
+
+    output$bc_tab_reactome <- renderUI({ bc_section_reactome(ext_all()) })
+
+    output$bc_tab_wikipathways <- renderUI({ bc_section_wikipathways(ext_all()) })
+
+    ## ---- Opt-in external-database reactiveVals - each independent, own
+    ## button, one failure never blocks another subtab; reset on new card. ----
+    ncbi_gene_data <- reactiveVal(NULL); ensembl_data <- reactiveVal(NULL)
+    genetics_data <- reactiveVal(NULL); gwas_catalog_data <- reactiveVal(NULL)
+    regulatory_data <- reactiveVal(NULL); encode_data <- reactiveVal(NULL)
+    hpa_data <- reactiveVal(NULL)
+    geo_data <- reactiveVal(NULL); biostudies_data <- reactiveVal(NULL)
+    literature_data <- reactiveVal(NULL); literature_query_used <- reactiveVal(NULL)
+    observeEvent(card_data(), {
+      ncbi_gene_data(NULL); ensembl_data(NULL); genetics_data(NULL); gwas_catalog_data(NULL)
+      regulatory_data(NULL); encode_data(NULL); hpa_data(NULL)
+      geo_data(NULL); biostudies_data(NULL); literature_data(NULL); literature_query_used(NULL)
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_gene_genome_btn, {
+      d <- card_data(); req(d)
+      ncbi_gene_data(bc_ncbi_gene_summary(d$gene_struct$entrez %||% NA_character_))
+      ensembl_data(bc_ensembl_gene_lookup(d$primary_gene %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_disease_genetics_btn, {
+      d <- card_data(); req(d)
+      ens_id <- if (isTRUE(ensembl_data()$ok)) ensembl_data()$ensembl_id else d$gene_struct$ensembl
+      genetics_data(bc_opentargets_evidence_for_gene(ens_id %||% NA_character_))
+      gwas_catalog_data(bc_gwas_catalog_by_gene(d$primary_gene %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_regulatory_btn, {
+      d <- card_data(); req(d)
+      regulatory_data(bc_ensembl_regulatory_overlap(d$resolved$chr, d$resolved$pos, d$resolved$pos))
+      encode_data(bc_encode_search(d$primary_gene %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_expression_btn, {
+      d <- card_data(); req(d)
+      ens_id <- if (isTRUE(ensembl_data()$ok)) ensembl_data()$ensembl_id else d$gene_struct$ensembl
+      hpa_data(bc_hpa_evidence_for_gene(ens_id %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_datasets_btn, {
+      d <- card_data(); req(d)
+      q <- if (!is.na(d$primary_gene)) sprintf("%s methylation", d$primary_gene) else sprintf("%s methylation", d$cpg)
+      geo_data(bc_geo_search(q)); biostudies_data(bc_biostudies_search(q))
+      ## ENCODE is shared with the Regulatory/Epigenomics subtab's button;
+      ## fetch it here too if not already loaded, so tab order doesn't matter.
+      if (is.null(encode_data())) encode_data(bc_encode_search(d$primary_gene %||% NA_character_))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$bc_literature_btn, {
+      d <- card_data(); req(d)
+      identifier <- if (!is.na(d$primary_gene)) d$primary_gene else d$cpg
+      q <- bc_literature_query(identifier, input$bc_lit_preset %||% "Gene only")
+      literature_query_used(q)
+      literature_data(bc_literature_search(q))
+    }, ignoreInit = TRUE)
+
+    ## Merged view of every opt-in external result for this biomarker, used
+    ## by the Evidence Summary/DB Comparison/Source Info sections and the
+    ## per-subtab section builders.
+    ext_all <- reactive({
+      d <- card_data()
+      cmb <- ewas_combined()
+      list(
+        gene_symbol = if (!is.null(d)) d$primary_gene else NA_character_,
+        ncbi_gene = ncbi_gene_data(), ensembl = ensembl_data(),
+        ewascatalog_cpg = ewascatalog_data(), ewasatlas = ewasatlas_data(),
+        kegg = kegg_data(), kegg_ra = kegg_ra_data(), reactome = reactome_data(), wikipathways = wikipathways_data(),
+        combined_disease = cmb$combined_disease, ra_rows = cmb$ra_rows, disease_counts = cmb$disease_counts,
+        tissue_counts = cmb$tissue_counts, publications = cmb$publications, methbank_link = bc_methbank_link(),
+        genetics = genetics_data(), gwas_catalog = gwas_catalog_data(),
+        regulatory = regulatory_data(), encode = encode_data(), hpa = hpa_data(),
+        geo = geo_data(), biostudies = biostudies_data(),
+        literature = literature_data(), literature_query = literature_query_used()
+      )
+    })
+
+    ## ---- Identifier resolution snippet shown on the Biomarker Overview
+    ## subtab - identifier/detected type/resolution status always shown. ----
+    output$bc_identifier_resolution_ui <- renderUI({
+      d <- card_data(); req(d)
+      raw <- if (!is.na(d$primary_gene)) c(d$cpg, d$primary_gene) else d$cpg
+      res <- bc_resolve_identifiers(raw, d$array_type)
+      if (!isTRUE(res$ok) || is.null(res$df)) return(NULL)
+      df <- res$df[, c("input_id", "detected_type", "status_label")]
+      colnames(df) <- c("Submitted identifier", "Detected type", "Resolution status")
+      div(class = "card", div(class = "card-title", icon("list-check"), "Identifier Resolution"),
+          p(class = "submodule-desc", sprintf("%d identifier(s) checked, %d resolved, %d unresolved.", res$n_submitted, res$n_resolved, res$n_unresolved)),
+          DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact"))
+    })
+
+    output$bc_tab_overview <- renderUI({
+      d <- card_data(); req(d)
+      tagList(
+        uiOutput(ns("bc_identifier_resolution_ui")),
+        bc_section_summary(d),
+        bc_section_evidence_summary(d, ext_all())
+      )
+    })
+
+    output$bc_tab_gene_genome <- renderUI({
+      d <- card_data(); req(d)
+      bc_section_gene_genome(d, ncbi_gene_data(), ensembl_data())
+    })
+
+    output$bc_tab_disease <- renderUI({
+      d <- card_data(); req(d)
+      ens_id <- if (isTRUE(ensembl_data()$ok)) ensembl_data()$ensembl_id else d$gene_struct$ensembl
+      bc_section_disease_associations(ext_all(), d$primary_gene, ens_id)
+    })
+
+    output$bc_tab_go <- renderUI({
+      d <- card_data(); req(d)
+      bc_section_go(d)
+    })
+
+    output$bc_tab_regulatory <- renderUI({
+      d <- card_data(); req(d)
+      bc_section_regulatory(ext_all(), d)
+    })
+
+    output$bc_tab_expression <- renderUI({
+      d <- card_data(); req(d)
+      ens_id <- if (isTRUE(ensembl_data()$ok)) ensembl_data()$ensembl_id else d$gene_struct$ensembl
+      bc_section_expression(ext_all(), d$primary_gene, ens_id)
+    })
+
+    output$bc_tab_datasets <- renderUI({
+      d <- card_data(); req(d)
+      label <- if (!is.na(d$primary_gene)) sprintf("%s methylation", d$primary_gene) else sprintf("%s methylation", d$cpg)
+      bc_section_external_datasets(ext_all(), label)
+    })
+
+    output$bc_tab_literature <- renderUI({
+      d <- card_data(); req(d)
+      identifier <- if (!is.na(d$primary_gene)) d$primary_gene else d$cpg
+      bc_section_pubmed_literature(ext_all(), identifier)
+    })
+
+    output$bc_tab_source_info <- renderUI({
+      tagList(bc_section_source_info(ext_all()), bc_section_db_comparison(ext_all()), bc_section_sources(ext_all()))
+    })
+
+    ## Isolated from bc_card_ui on purpose: it's the only "Biomarker Card"
+    ## tab that reads ext_all() (which changes on every External Databases
+    ## Run click). Reading ext_all() straight inside bc_card_ui's own
+    ## renderUI would re-render the WHOLE tabsetPanel - including tabs that
+    ## have nothing to do with external evidence - on every such click,
+    ## which resets the client's active-tab selection back to the first tab.
+    ## Confining the ext_all() read to its own uiOutput means only this one
+    ## panel's content is patched, and the selected tab is left alone.
+    output$bc_tab_biomarker_status <- renderUI({
+      d <- card_data(); req(d)
+      tagList(
+        bc_section_summary(d),
+        bc_section_interpretation(d, ext_all()),
+        bc_section_evidence_summary(d, ext_all())
       )
     })
 
     output$bc_card_ui <- renderUI({
       if (!has_card()) return(div(class = "empty-note", icon("circle-info"), "Select a biomarker and click \"Generate Biomarker Card\" on the \"Select Biomarker\" tab."))
+      if (isTRUE(panel_mode_active())) {
+        pcd <- panel_card_data(); req(pcd)
+        return(tagList(
+          tabsetPanel(id = ns("bc_panel_subtabs"), type = "tabs",
+            tabPanel("Panel Overview", br(), uiOutput(ns("bc_panel_tab_overview"))),
+            tabPanel("Disease/Trait & Pathway Convergence", br(),
+              fluidRow(
+                column(6, actionButton(ns("bc_panel_disease_btn"), "Look Up Disease/Trait Convergence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm")),
+                column(6, actionButton(ns("bc_panel_pathway_btn"), "Look Up Pathway Convergence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"))
+              ),
+              withSpinner(uiOutput(ns("bc_panel_tab_convergence")), color = "#2563EB", type = 6)),
+            tabPanel("Source & API Information", br(), uiOutput(ns("bc_panel_tab_source_info")))
+          ),
+          div(class = "card", div(class = "card-title", icon("download"), "Download"),
+              p(class = "submodule-desc", "A self-contained HTML panel report (identifier resolution + panel overview + whichever convergence lookups you've already run)."),
+              downloadButton(ns("bc_panel_download_report"), "Download Panel Report (HTML)", class = "btn-primary btn-sm"))
+        ))
+      }
       d <- card_data(); req(d)
       tagList(
-        bc_section_summary(d),
-        bc_section_genomic_context(d),
-        div(class = "card",
-            div(class = "card-title", icon("magnifying-glass-chart"), "Local Region View"),
-            p(class = "submodule-desc", "Source: Illumina manifest annotation (hg19) + TxDb.Hsapiens.UCSC.hg19.knownGene gene structure, ChAMPdata CpG island context."),
-            fluidRow(
-              column(4, numericInput(ns("bc_flank_kb"), "Window (kb, +/- around the CpG)", value = 5, min = 1, max = 200, step = 1)),
-              column(4, br(), actionButton(ns("bc_zoom_tight_btn"), "Zoom to Biomarker", icon = icon("magnifying-glass-plus"), class = "btn-sm")),
-              column(4, br(), actionButton(ns("bc_zoom_local_btn"), "View Local Region", icon = icon("expand"), class = "btn-sm"))
+        tabsetPanel(id = ns("bc_evidence_subtabs"), type = "tabs",
+          tabPanel("CpG description", br(),
+            bc_section_genomic_context(d),
+            div(class = "card",
+                div(class = "card-title", icon("magnifying-glass-chart"), "Local Region View"),
+                p(class = "submodule-desc", "Source: Illumina manifest annotation (hg19) + TxDb.Hsapiens.UCSC.hg19.knownGene gene structure, ChAMPdata CpG island context."),
+                fluidRow(
+                  column(4, numericInput(ns("bc_flank_kb"), "Window (kb, +/- around the CpG)", value = 5, min = 1, max = 200, step = 1)),
+                  column(4, br(), actionButton(ns("bc_zoom_tight_btn"), "Zoom to Biomarker", icon = icon("magnifying-glass-plus"), class = "btn-sm")),
+                  column(4, br(), actionButton(ns("bc_zoom_local_btn"), "View Local Region", icon = icon("expand"), class = "btn-sm"))
+                ),
+                withSpinner(plotly::plotlyOutput(ns("bc_region_plot"), height = "260px"), color = "#2563EB", type = 6)
             ),
-            withSpinner(plotly::plotlyOutput(ns("bc_region_plot"), height = "260px"), color = "#2563EB", type = 6)
-        ),
-        div(class = "card",
-            div(class = "card-title", icon("dna"), "Chromosome View"),
-            p(class = "submodule-desc", sprintf("Source: UCSC cytoBandIdeo (hg19), chromosome %s.", d$resolved$chr %||% "?")),
-            withSpinner(plotly::plotlyOutput(ns("bc_ideogram_plot"), height = "220px"), color = "#2563EB", type = 6)
-        ),
-        bc_section_genes(d),
-        div(class = "card",
-            div(class = "card-title", icon("globe"), "External Evidence"),
-            p(class = "submodule-desc", "Live queries to MRC-IEU EWAS Catalog, EWAS Atlas, KEGG, and Reactome (plus PubMed for any publications they cite) - opt-in, since these are external network calls independent of everything above."),
-            actionButton(ns("bc_ext_lookup_btn"), "Look Up External Evidence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm")
-        ),
-        withSpinner(uiOutput(ns("bc_ext_sections_ui")), color = "#2563EB", type = 6),
-        bc_section_your_dataset(d, withSpinner(plotly::plotlyOutput(ns("bc_dist_plot"), height = "300px"), color = "#2563EB", type = 6)),
-        bc_section_sex_specific(d, withSpinner(plotly::plotlyOutput(ns("bc_sex_dist_plot"), height = "320px"), color = "#2563EB", type = 6)),
-        bc_section_interpretation(d, ext_data()),
-        bc_section_evidence_summary(d, ext_data()),
-        bc_section_sources(ext_data()),
-        div(class = "card", div(class = "card-title", icon("download"), "Download"),
-            p(class = "submodule-desc", "A self-contained HTML report covering every section above (including external evidence, if you've looked it up), plus a note listing which spec sections are still pending."),
-            downloadButton(ns("bc_download_report"), "Download Biomarker Report (HTML)", class = "btn-primary btn-sm"))
+            div(class = "card",
+                div(class = "card-title", icon("dna"), "Chromosome View"),
+                p(class = "submodule-desc", sprintf("Source: UCSC cytoBandIdeo (hg19), chromosome %s.", d$resolved$chr %||% "?")),
+                withSpinner(plotly::plotlyOutput(ns("bc_ideogram_plot"), height = "220px"), color = "#2563EB", type = 6)
+            ),
+            bc_section_genes(d)
+          ),
+          tabPanel("Biomarker Status", br(),
+            withSpinner(uiOutput(ns("bc_tab_biomarker_status")), color = "#2563EB", type = 6)
+          ),
+          tabPanel("Dataset", br(), bc_section_dataset_cohort(dataset, d$live)),
+          tabPanel("Differential Methylation (DMP/DMR)", br(),
+            bc_section_sex_specific(d, withSpinner(plotly::plotlyOutput(ns("bc_sex_dist_plot"), height = "320px"), color = "#2563EB", type = 6))
+          ),
+          tabPanel("Single-Gene vs Multi-Gene Signature", br(),
+            bc_section_signature_comparison(d, d$single_cpg_diag,
+              if (isTRUE(d$single_cpg_diag$ok)) withSpinner(plotOutput(ns("bc_sg_train_roc_plot"), height = "320px"), color = "#2563EB", type = 6) else NULL)
+          ),
+          tabPanel("Biomarker Performance", br(),
+            bc_section_biomarker_performance(d, d$single_cpg_diag, d$single_cpg_cv,
+              train_roc_widget = if (isTRUE(d$single_cpg_diag$ok)) withSpinner(plotOutput(ns("bc_sg_train_roc_plot2"), height = "320px"), color = "#2563EB", type = 6) else NULL,
+              train_pr_widget = if (isTRUE(d$single_cpg_diag$ok)) withSpinner(plotOutput(ns("bc_sg_train_pr_plot"), height = "320px"), color = "#2563EB", type = 6) else NULL,
+              internal_roc_widget = if (isTRUE(d$single_cpg_cv$ok)) withSpinner(plotOutput(ns("bc_sg_internal_roc_plot"), height = "320px"), color = "#2563EB", type = 6) else NULL)
+          ),
+          tabPanel("External Databases", br(),
+            div(class = "card",
+                div(class = "card-title", icon("globe"), "Deep Dive: External Databases"),
+                p(class = "submodule-desc", "Pick a database, set your own query parameters, and run it - each is independent and links straight to the real record so you can verify it yourself."),
+                radioButtons(ns("bc_db_choice"), NULL, inline = TRUE, choices = c(
+                  "Gene Study (NCBI Gene, Ensembl)" = "gene_genome",
+                  "Gene Ontology (GO.db, QuickGO)" = "go",
+                  "EWAS Catalog" = "ewascatalog",
+                  "EWAS Atlas" = "ewasatlas",
+                  "KEGG" = "kegg",
+                  "Reactome" = "reactome",
+                  "WikiPathways" = "wikipathways",
+                  "Disease / Genetics (Open Targets, GWAS Catalog)" = "disease",
+                  "Regulatory / Epigenomics (Ensembl Regulatory Build, ENCODE)" = "regulatory",
+                  "Expression (Human Protein Atlas)" = "expression",
+                  "GEO, BioStudies/ArrayExpress" = "datasets",
+                  "Literature (PubMed)" = "literature"
+                )),
+                uiOutput(ns("bc_db_controls_ui"))
+            ),
+            withSpinner(uiOutput(ns("bc_db_result_ui")), color = "#2563EB", type = 6),
+            withSpinner(uiOutput(ns("bc_db_comparison_ui")), color = "#2563EB", type = 6)
+          ),
+          tabPanel("Download", br(),
+            div(class = "card", div(class = "card-title", icon("download"), "Download"),
+                p(class = "submodule-desc", "The downloaded report includes every section shown across all tabs above, for this CpG."),
+                downloadButton(ns("bc_download_report"), "Download Biomarker Report (HTML)", class = "btn-primary btn-sm"))
+          )
+        )
       )
+    })
+
+    ## Each database gets its own button, named after that database - no
+    ## button is shared across two different database choices (previously
+    ## "EWAS Evidence" and "Pathways" each grouped several databases behind
+    ## one generic "Look Up External Evidence" button; Gene Ontology needs no
+    ## button at all, since it's a local annotation, not a live query).
+    output$bc_db_controls_ui <- renderUI({
+      choice <- input$bc_db_choice %||% "gene_genome"
+      switch(choice,
+        gene_genome = actionButton(ns("bc_gene_genome_btn"), "Look Up Gene Study Evidence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"),
+        go = div(class = "empty-note", icon("circle-info"), "Local annotation (GO.db/org.Hs.eg.db) - no query needed, result is shown below."),
+        ewascatalog = actionButton(ns("bc_run_ewascatalog"), "Run EWAS Catalog Query", icon = icon("play"), class = "btn-primary btn-sm"),
+        ewasatlas = actionButton(ns("bc_run_ewasatlas"), "Run EWAS Atlas Query", icon = icon("play"), class = "btn-primary btn-sm"),
+        kegg = actionButton(ns("bc_run_kegg"), "Run KEGG Query", icon = icon("play"), class = "btn-primary btn-sm"),
+        reactome = actionButton(ns("bc_run_reactome"), "Run Reactome Query", icon = icon("play"), class = "btn-primary btn-sm"),
+        wikipathways = actionButton(ns("bc_run_wikipathways"), "Run WikiPathways Query", icon = icon("play"), class = "btn-primary btn-sm"),
+        disease = actionButton(ns("bc_disease_genetics_btn"), "Look Up Disease/Genetics Evidence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"),
+        regulatory = actionButton(ns("bc_regulatory_btn"), "Look Up Regulatory Evidence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"),
+        expression = actionButton(ns("bc_expression_btn"), "Look Up Expression Evidence", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"),
+        datasets = actionButton(ns("bc_datasets_btn"), "Search External Datasets", icon = icon("magnifying-glass-location"), class = "btn-primary btn-sm"),
+        literature = tagList(
+          fluidRow(
+            column(6, selectInput(ns("bc_lit_preset"), "Query preset", choices = names(BC_LITERATURE_PRESETS))),
+            column(6, br(), actionButton(ns("bc_literature_btn"), "Search Literature", icon = icon("magnifying-glass"), class = "btn-primary btn-sm"))
+          )
+        )
+      )
+    })
+
+    ## Reuses the existing per-database output$bc_tab_* bindings unmodified -
+    ## this just picks which one is visible, matching the transcriptomics
+    ## card's single-tab-with-a-picker "External Databases" format, one
+    ## database per radio choice.
+    output$bc_db_result_ui <- renderUI({
+      choice <- input$bc_db_choice %||% "gene_genome"
+      switch(choice,
+        gene_genome = uiOutput(ns("bc_tab_gene_genome")),
+        go = uiOutput(ns("bc_tab_go")),
+        ewascatalog = uiOutput(ns("bc_tab_ewascatalog")),
+        ewasatlas = uiOutput(ns("bc_tab_ewasatlas")),
+        kegg = uiOutput(ns("bc_tab_kegg")),
+        reactome = uiOutput(ns("bc_tab_reactome")),
+        wikipathways = uiOutput(ns("bc_tab_wikipathways")),
+        disease = uiOutput(ns("bc_tab_disease")),
+        regulatory = uiOutput(ns("bc_tab_regulatory")),
+        expression = uiOutput(ns("bc_tab_expression")),
+        datasets = uiOutput(ns("bc_tab_datasets")),
+        literature = uiOutput(ns("bc_tab_literature"))
+      )
+    })
+
+    output$bc_db_comparison_ui <- renderUI({
+      bc_section_db_comparison(ext_all())
     })
 
     observeEvent(input$bc_zoom_tight_btn, updateNumericInput(session, "bc_flank_kb", value = 1))
@@ -1614,7 +3457,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
 
     output$bc_dist_plot <- plotly::renderPlotly({
       d <- card_data(); req(d)
-      validate(need(isTRUE(d$live$ok) && isTRUE(d$live$overall$ok), "No live dataset evidence is available to plot for this CpG."))
+      validate(need(isTRUE(d$live$ok) && isTRUE(d$live$overall$ok), "No dataset evidence is available to plot for this CpG."))
       df <- data.frame(beta = d$live$beta_row, group = d$live$group_vec, stringsAsFactors = FALSE)
       plotly::ggplotly(bc_plot_methylation_dist(df))
     })
@@ -1626,14 +3469,54 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       plotly::ggplotly(bc_plot_methylation_dist(df, facet_sex = TRUE))
     })
 
+    ## ---- Single-CpG diagnostic plots (Single-Gene vs Multi-Gene Signature /
+    ## Biomarker Performance tabs) - two separate ROC-plot outputs (train_roc_plot
+    ## / train_roc_plot2) because the same plot is embedded in two different
+    ## tabPanels at once. ----
+    output$bc_sg_train_roc_plot <- renderPlot({
+      d <- card_data(); req(d); sgd <- d$single_cpg_diag
+      validate(need(isTRUE(sgd$ok), sgd$reason %||% "Single-CpG ROC unavailable."))
+      bc_plot_roc(sgd$roc_obj, "Single-CpG ROC (training)", sgd$auc, sgd$ci_lo, sgd$ci_hi)
+    })
+    output$bc_sg_train_roc_plot2 <- renderPlot({
+      d <- card_data(); req(d); sgd <- d$single_cpg_diag
+      validate(need(isTRUE(sgd$ok), sgd$reason %||% "Single-CpG ROC unavailable."))
+      bc_plot_roc(sgd$roc_obj, "Single-CpG ROC (training)", sgd$auc, sgd$ci_lo, sgd$ci_hi)
+    })
+    output$bc_sg_train_pr_plot <- renderPlot({
+      d <- card_data(); req(d); sgd <- d$single_cpg_diag
+      validate(need(isTRUE(sgd$ok), sgd$reason %||% "Single-CpG ROC unavailable."))
+      pr <- bc_pr_from_roc(sgd$roc_obj)
+      validate(need(isTRUE(pr$ok), pr$reason %||% "Precision-recall curve unavailable."))
+      bc_plot_pr(pr, "Single-CpG Precision-Recall (training)")
+    })
+    output$bc_sg_internal_roc_plot <- renderPlot({
+      d <- card_data(); req(d); sgcv <- d$single_cpg_cv
+      validate(need(isTRUE(sgcv$ok), sgcv$reason %||% "Cross-validated ROC unavailable."))
+      bc_plot_roc(sgcv$roc_obj, "Single-CpG ROC (internal CV, pooled out-of-fold)", sgcv$auc)
+    })
+
     output$bc_download_report <- downloadHandler(
       filename = function() sprintf("biomarker_card_%s.html", card_data()$cpg),
       content = function(file) {
         d <- card_data(); req(d)
         cb <- bc_cytoband_hg19()
-        body <- bc_build_report_tags(d, cb, ext_data())
+        body <- bc_build_report_tags(d, cb, ext_all())
         page <- tags$html(
           tags$head(tags$meta(charset = "utf-8"), tags$title(sprintf("Biomarker Card %s", d$cpg)), tags$style(bc_report_css())),
+          tags$body(body)
+        )
+        htmltools::save_html(page, file = file)
+      }
+    )
+
+    output$bc_panel_download_report <- downloadHandler(
+      filename = function() sprintf("biomarker_panel_report_%d_ids.html", panel_card_data()$resolution$n_submitted),
+      content = function(file) {
+        pcd <- panel_card_data(); req(pcd)
+        body <- bc_build_panel_report_tags(pcd, panel_disease_conv(), panel_pathway_conv())
+        page <- tags$html(
+          tags$head(tags$meta(charset = "utf-8"), tags$title("Biomarker Panel Report"), tags$style(bc_report_css())),
           tags$body(body)
         )
         htmltools::save_html(page, file = file)

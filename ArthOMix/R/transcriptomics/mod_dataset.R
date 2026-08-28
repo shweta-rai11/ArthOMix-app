@@ -1,34 +1,15 @@
 ## R/mod_dataset.R
-## The Dataset tab: lets the user pick what the app runs against - a
-## preloaded dataset (chosen from a dropdown of what's on disk) or their
-## own upload (a separate, always-visible form, not a dropdown value).
-## Every analysis submodule reads from the shared `dataset` reactiveValues
-## created once in server.R, so a successful load here is immediately
-## visible everywhere else in the app, including the sidebar's "Current
-## dataset" panel. This tab only handles loading; to look at what's loaded,
-## see the Overview and Datasets submodule.
+## Dataset tab: preview a preloaded dataset, upload, or GEO fetch - written only to
+## dataset$staged_* (a candidate); Preprocessing promotes a staged pick to the active
+## dataset$expr/meta/source that the rest of the app runs on.
 
 mod_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
   description = "Pick a preloaded dataset or upload your own - either way it's what every sub-module below reads from."
 )
 
-## The catalog of preloaded datasets this app can load directly: the merged,
-## batch-corrected training cohort the app loads by default on startup (see
-## `dataset` in server.R), plus each of the four individual GEO source
-## datasets on their own, raw - no merge, no ComBat. Loading an individual
-## one lets you run any sub-module directly against a single raw dataset
-## instead of just looking at it (Overview and Datasets' QC tab is
-## view-only); keep in mind most sub-modules were built assuming gene-level,
-## normalised, merged data, so results on a raw individual dataset may look
-## different. Switching away from the merged cohort replaces it for every
-## sub-module until you pick a dataset again - including picking the merged
-## cohort back from this same dropdown.
-## Professional, tissue-first display names for the dropdown below - no GEO
-## accession shown (full traceability stays on the Overview and Datasets
-## tab's own Datasets view, which reads GEO_SOURCES directly and is
-## untouched by this). Falls back to the raw ID if a source is ever added
-## to GEO_SOURCES without a matching entry here.
+## Tissue-first display names for the preloaded dropdown - no GEO accession shown;
+## falls back to the raw GSE ID if a source has no entry here.
 INDIVIDUAL_DATASET_LABELS <- c(
   "GSE93272"  = "Whole Blood Training Cohort A",
   "GSE110169" = "Whole Blood Training Cohort B",
@@ -48,10 +29,8 @@ individual_dataset_entry <- function(gse_id) {
   )
 }
 
-## The merged, batch-corrected training cohort the app loads by default on
-## startup (see `load_default_dataset()` in global.R) - offered here too, so
-## switching to an individual raw dataset below isn't a one-way trip; picking
-## this entry re-loads the same default cohort without reloading the app.
+## Reloads the same merged, batch-corrected cohort loaded at startup, so switching
+## to an individual raw dataset below isn't a one-way trip.
 default_dataset_entry <- list(
   id = "__default_merged__",
   label = "Merged Data",
@@ -61,6 +40,7 @@ default_dataset_entry <- list(
   }
 )
 
+## Catalog: the merged/batch-corrected default cohort plus each individual raw GEO source.
 PRELOADED_DATASETS <- c(
   list(default_dataset_entry),
   lapply(vapply(GEO_SOURCES, `[[`, character(1), "gse"), individual_dataset_entry)
@@ -82,6 +62,7 @@ mod_dataset_ui <- function(id) {
           selectInput(ns("preloaded_choice"), "Individual dataset",
                       choices = preloaded_choices(), selected = character(0), width = "100%"),
           uiOutput(ns("preloaded_note")),
+          uiOutput(ns("preloaded_geo_card_ui")),
           div(style = "display: flex; align-items: center; gap: 10px; flex-wrap: wrap;",
               actionButton(ns("load_preloaded_btn"), "Load this dataset", icon = icon("rotate-left"), class = "btn-primary btn-sm"),
               uiOutput(ns("preloaded_load_message"), inline = TRUE))
@@ -104,11 +85,12 @@ mod_dataset_ui <- function(id) {
         box(
           width = NULL, title = "Upload your own data", status = "primary", solidHeader = FALSE,
           div(class = "upload-step-label", "STEP 1 · Choose your files"),
-          p(strong("Expression matrix"), " — CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
+          p(strong("Expression matrix"), " - CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
           fileInput(ns("expr_file"), "Expression matrix", accept = c(".csv", ".rds", ".Rds")),
-          p(strong("Sample metadata"), " — CSV or RDS data frame, one row per sample."),
+          p(strong("Sample metadata"), " - CSV or RDS data frame, one row per sample."),
           fileInput(ns("meta_file"), "Sample metadata", accept = c(".csv", ".rds", ".Rds")),
           uiOutput(ns("upload_preview_ui")),
+          uiOutput(ns("upload_preview_tables_ui")),
           tags$hr(),
           div(class = "upload-step-label", "STEP 2 · Map the columns"),
           uiOutput(ns("column_mapping")),
@@ -133,10 +115,47 @@ mod_dataset_server <- function(id, dataset) {
       if (identical(input$preloaded_choice, default_dataset_entry$id)) {
         p(class = "empty-note", icon("circle-info"),
           "The same merged, batch-corrected training cohort the app loads by default on startup - pick this to switch back to it after loading something else.")
+      } else if (input$preloaded_choice %in% c("GSE93272", "GSE110169")) {
+        p(class = "empty-note", icon("circle-info"),
+          "This source's raw probe-level file isn't available in this deployment, so this loads its samples only, filtered out of the merged, batch-corrected training cohort - not raw, single-platform data. To see it merged with the other training source instead, pick \"Merged Data\" above.")
       } else {
         p(class = "empty-note", icon("triangle-exclamation"),
           "Raw, single-platform data - probe-level, not merged or normalised. You can run any sub-module directly against it, but most were built assuming the merged cohort, so results may look different. To just look at it without changing what every sub-module runs on, use the QC tab on Overview and Datasets instead.")
       }
+    })
+
+    ## GEO info-card for the 4 individual sources (not "Merged Data"), matching the
+    ## card the Overview and Datasets tab uses for the same sources.
+    output$preloaded_geo_card_ui <- renderUI({
+      req(input$preloaded_choice)
+      if (identical(input$preloaded_choice, default_dataset_entry$id)) return(NULL)
+      gse_id <- input$preloaded_choice
+      src <- Find(function(s) identical(s$gse, gse_id), GEO_SOURCES)
+      req(src)
+      eset <- get_raw_eset(gse_id)
+      div(
+        class = "info-card",
+        div(
+          class = "module-card-title-row",
+          h4(gse_id),
+          tags$a(href = geo_link(gse_id), target = "_blank", rel = "noopener",
+                  icon("up-right-from-square"), " NCBI GEO")
+        ),
+        if (!is.null(eset)) {
+          tagList(
+            p(class = "module-card-tagline",
+              tryCatch(Biobase::experimentData(eset)@title, error = function(e) NULL)),
+            p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
+            p(strong("Platform: "), Biobase::annotation(eset), br(),
+              strong("Samples: "), ncol(eset), ", ", strong("Probes: "), format(nrow(eset), big.mark = ","))
+          )
+        } else {
+          tagList(
+            p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
+            div(class = "empty-note", icon("triangle-exclamation"), "Raw file not found on disk.")
+          )
+        }
+      )
     })
 
     meta_raw <- reactive({
@@ -151,9 +170,8 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Parses the expression file once; both the immediate preview below and
-    ## load_btn's handler read from this instead of each re-parsing the file
-    ## (a large CSV like a genome-wide counts matrix is not cheap to read).
+    ## Parses the expression file once; preview and load_btn both read from this
+    ## instead of re-parsing a potentially large CSV.
     expr_raw <- reactive({
       req(input$expr_file)
       path <- input$expr_file$datapath
@@ -168,15 +186,15 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Fires the moment both files are selected and readable - before
-    ## "Load dataset" is ever clicked - so a large upload doesn't look like
-    ## it silently did nothing while it's actually just being parsed.
-    output$upload_preview_ui <- renderUI({
+    ## Fires as soon as both files are readable, before Load is clicked, so a large
+    ## upload doesn't look stuck; shared by the summary line and preview tables below.
+    upload_preview_data <- reactive({
       req(input$expr_file, input$meta_file)
-      preview <- tryCatch(
-        list(expr = expr_raw(), meta = meta_raw()),
-        error = function(e) e
-      )
+      tryCatch(list(expr = expr_raw(), meta = meta_raw()), error = function(e) e)
+    })
+
+    output$upload_preview_ui <- renderUI({
+      preview <- upload_preview_data()
       if (inherits(preview, "error")) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
                     paste("Could not read the uploaded file(s):", conditionMessage(preview))))
@@ -187,13 +205,41 @@ mod_dataset_server <- function(id, dataset) {
                   input$meta_file$name, nrow(preview$meta)))
     })
 
-    ## Guesses which uploaded column a mapping dropdown should default to,
-    ## by name rather than position - without this, a plain selectInput()
-    ## defaults to whichever column happens to be FIRST in the file (often
-    ## a sample/ID column), which silently produces a useless "group" with
-    ## one unique value per sample instead of failing loudly. Exact name
-    ## match first (case-insensitive), then a substring match, then falls
-    ## back to position - never hardcoded to one dataset's own column names.
+    ## Shows the first rows of the uploaded metadata/expression matrix as read,
+    ## before any column mapping.
+    output$upload_preview_tables_ui <- renderUI({
+      preview <- upload_preview_data()
+      req(!inherits(preview, "error"))
+      tagList(
+        div(class = "upload-step-label", "Preview of what you uploaded"),
+        p(class = "submodule-desc", "First 5 rows/columns, exactly as read - before any column mapping below."),
+        strong("Sample metadata (first 5 rows)"),
+        DT::dataTableOutput(ns("upload_preview_meta_table")),
+        br(),
+        strong("Expression matrix (first 5 features x 5 samples)"),
+        DT::dataTableOutput(ns("upload_preview_expr_table"))
+      )
+    })
+
+    output$upload_preview_meta_table <- DT::renderDataTable({
+      preview <- upload_preview_data()
+      req(!inherits(preview, "error"))
+      DT::datatable(head(preview$meta, 5), rownames = FALSE,
+                     options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    output$upload_preview_expr_table <- DT::renderDataTable({
+      preview <- upload_preview_data()
+      req(!inherits(preview, "error"))
+      m <- preview$expr
+      cols <- seq_len(min(5, ncol(m)))
+      df <- data.frame(feature = rownames(m), round(m[, cols, drop = FALSE], 3), check.names = FALSE)
+      DT::datatable(head(df, 5), rownames = FALSE,
+                     options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    ## Guesses a mapping dropdown's default column by name, not position: exact match
+    ## first, then substring, then falls back to the first column.
     guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
       hit <- cols[tolower(cols) %in% tolower(exact)]
       if (length(hit) > 0) return(hit[1])
@@ -221,10 +267,7 @@ mod_dataset_server <- function(id, dataset) {
       )
     })
 
-    ## "Upload Data" stays visibly disabled (greyed out) until everything
-    ## its own click handler requires is actually present - so it's never
-    ## possible to click it and have nothing happen, and it's obvious at a
-    ## glance whether the form is ready.
+    ## Keeps "Upload Data" disabled until files and required column mappings are set.
     observe({
       ready <- !is.null(input$expr_file) && !is.null(input$meta_file) &&
         !is.null(input$map_id) && !is.null(input$map_group)
@@ -236,12 +279,13 @@ mod_dataset_server <- function(id, dataset) {
       entry <- Find(function(d) d$id == input$preloaded_choice, PRELOADED_DATASETS)
       req(entry)
       d <- entry$load()
-      dataset$expr <- d$expr
-      dataset$meta <- d$meta
-      dataset$source <- d$source
+      dataset$staged_expr <- d$expr
+      dataset$staged_meta <- d$meta
+      dataset$staged_source <- d$source
       output$preloaded_load_message <- renderUI(
         span(style = "color: var(--color-success); font-size: 13px; font-weight: 600;", icon("check"), " ",
-             sprintf("Loaded %s: %s genes across %s samples.", entry$label, format(nrow(d$expr), big.mark = ","), ncol(d$expr)))
+             sprintf("Previewed %s: %s genes across %s samples. This doesn't change what any sub-module runs on - go to Preprocessing and pick \"Currently loaded dataset\" to analyze it.",
+                      entry$label, format(nrow(d$expr), big.mark = ","), ncol(d$expr)))
       )
     })
 
@@ -272,13 +316,15 @@ mod_dataset_server <- function(id, dataset) {
           div(class = "empty-note", icon("triangle-exclamation"), paste("Could not load this dataset:", conditionMessage(result)))
         )
       } else {
-        dataset$expr <- result$expr
-        dataset$meta <- result$meta
-        dataset$source <- paste0("Uploaded dataset: ", input$expr_file$name, " + ", input$meta_file$name)
+        dataset$staged_expr <- result$expr
+        dataset$staged_meta <- result$meta
+        dataset$staged_source <- paste0("Uploaded dataset: ", input$expr_file$name, " + ", input$meta_file$name)
         n_dup <- sum(duplicated(rownames(result$expr)))
         output$load_message <- renderUI(
           tagList(
-            div(class = "empty-note", icon("check"), sprintf("Loaded %s genes across %s samples.", format(nrow(result$expr), big.mark = ","), ncol(result$expr))),
+            div(class = "empty-note", icon("check"),
+                sprintf("Previewed %s genes across %s samples. This doesn't change what any sub-module runs on - go to Preprocessing and pick \"Currently loaded dataset\" to analyze it.",
+                        format(nrow(result$expr), big.mark = ","), ncol(result$expr))),
             if (n_dup > 0) div(class = "empty-note", icon("triangle-exclamation"),
                 sprintf("%d duplicated feature identifier(s) were detected in this dataset. All rows are kept here, but downstream row-name-keyed steps (e.g. the Preprocessing merge tab) will keep only the first occurrence of each - rename duplicates in your source file if this is unintended.", n_dup))
           )
@@ -286,13 +332,8 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Fetches one GEO Series by accession as an ExpressionSet (GEOquery,
-    ## with platform annotation attached so collapse_probes_to_genes() below
-    ## has a gene-symbol column to work with) - only runs on the Fetch
-    ## button, not on every keystroke in the accession box. Returns an error
-    ## condition object rather than raising, so downstream renderUI/observe
-    ## blocks can show it inline instead of a raw Shiny error screen -
-    ## same sentinel-object pattern expr_raw()/meta_raw() use for uploads.
+    ## Fetches one GEO Series as an ExpressionSet via GEOquery on Fetch click; returns
+    ## an error condition object instead of raising, so it can be shown inline.
     geo_fetch_result <- eventReactive(input$geo_fetch_btn, {
       if (!requireNamespace("GEOquery", quietly = TRUE)) {
         return(simpleError("The GEOquery package is not installed in this deployment. Install it with BiocManager::install(\"GEOquery\") to enable fetching by GEO accession, or use \"Upload your own data\" instead."))
@@ -329,12 +370,8 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Extracts expr/meta from the fetched ExpressionSet and, when the
-    ## platform annotation carries a gene-symbol column, collapses probes to
-    ## genes via the same collapse_probes_to_genes() the app's own bundled
-    ## GEO sources use (global.R) - so a live GEO fetch ends up in the same
-    ## gene-level shape every sub-module already expects, not left at
-    ## probe level unless that annotation genuinely isn't available.
+    ## Extracts expr/meta from the fetched ExpressionSet, collapsing probes to genes
+    ## via collapse_probes_to_genes() when the platform annotation allows it.
     geo_expr_meta <- reactive({
       tryCatch({
         eset <- geo_eset()
@@ -350,6 +387,8 @@ mod_dataset_server <- function(id, dataset) {
       }, error = function(e) e)
     })
 
+    ## GEO fetch info-card plus metadata preview, matching the Overview and Datasets
+    ## tab's card format for the app's fixed GEO sources.
     output$geo_fetch_status <- renderUI({
       req(input$geo_fetch_btn)
       res <- geo_fetch_result()
@@ -360,18 +399,40 @@ mod_dataset_server <- function(id, dataset) {
       if (inherits(em, "error")) {
         return(div(class = "empty-note", icon("triangle-exclamation"), conditionMessage(em)))
       }
-      div(class = "empty-note", icon("circle-check"),
-          sprintf("Fetched %s (platform %s): %s %s across %s samples.%s",
-                  res$acc, em$platform, format(nrow(em$expr), big.mark = ","),
-                  if (em$collapsed) "genes (collapsed from probes)" else "probes/features",
-                  ncol(em$expr),
-                  if (!em$collapsed) " No gene-symbol annotation found for this platform - left at probe/feature-ID level. You can still load it as-is, or use Preprocessing's own probe-collapse step afterward." else ""))
+      eset <- geo_eset()
+      tagList(
+        div(
+          class = "info-card",
+          div(
+            class = "module-card-title-row",
+            h4(res$acc),
+            tags$a(href = geo_link(res$acc), target = "_blank", rel = "noopener",
+                    icon("up-right-from-square"), " NCBI GEO")
+          ),
+          p(class = "module-card-tagline",
+            tryCatch(Biobase::experimentData(eset)@title, error = function(e) NULL)),
+          p(strong("Platform: "), em$platform, br(),
+            strong("Samples: "), ncol(em$expr), ", ",
+            strong(if (em$collapsed) "Genes: " else "Probes/features: "), format(nrow(em$expr), big.mark = ",")),
+          if (!em$collapsed) {
+            div(class = "empty-note", icon("triangle-exclamation"),
+                "No gene-symbol annotation found for this platform - left at probe/feature-ID level. You can still load it as-is, or use Preprocessing's own probe-collapse step afterward.")
+          }
+        ),
+        strong("Sample metadata preview (first 5 rows)"),
+        DT::dataTableOutput(ns("geo_preview_meta_table"))
+      )
     })
 
-    ## Sample-ID mapping is skipped here (unlike the plain upload form
-    ## above): GEOquery's pData() rownames are the GSM accessions, and
-    ## exprs() is already indexed by those same GSM IDs, so there is no
-    ## ambiguity to ask the user to resolve.
+    output$geo_preview_meta_table <- DT::renderDataTable({
+      em <- geo_expr_meta()
+      req(!inherits(em, "error"))
+      DT::datatable(head(em$meta, 5), rownames = FALSE,
+                     options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    ## No sample-ID mapping needed here - pData() rownames are already the same
+    ## GSM accessions exprs() is indexed by.
     output$geo_column_mapping <- renderUI({
       em <- geo_expr_meta()
       req(em); req(!inherits(em, "error"))
@@ -425,11 +486,13 @@ mod_dataset_server <- function(id, dataset) {
           div(class = "empty-note", icon("triangle-exclamation"), paste("Could not load this GEO dataset:", conditionMessage(result)))
         )
       } else {
-        dataset$expr <- result$expr
-        dataset$meta <- result$meta
-        dataset$source <- paste0("NCBI GEO: ", result$label)
+        dataset$staged_expr <- result$expr
+        dataset$staged_meta <- result$meta
+        dataset$staged_source <- paste0("NCBI GEO: ", result$label)
         output$load_message <- renderUI(
-          div(class = "empty-note", icon("check"), sprintf("Loaded %s genes across %s samples.", format(nrow(result$expr), big.mark = ","), ncol(result$expr)))
+          div(class = "empty-note", icon("check"),
+              sprintf("Previewed %s genes across %s samples. This doesn't change what any sub-module runs on - go to Preprocessing and pick \"Currently loaded dataset\" to analyze it.",
+                      format(nrow(result$expr), big.mark = ","), ncol(result$expr)))
         )
       }
     })

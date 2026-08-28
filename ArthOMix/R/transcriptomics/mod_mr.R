@@ -46,7 +46,7 @@ mr_info_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A92
 mod_mr_config <- list(
   id = "mr", group = "Genetics",
   title = "Mendelian Randomization",
-  description = "A general two-sample Mendelian randomisation tool: test any gene against a bundled RA dataset, or upload your own exposure/outcome GWAS summary statistics for any trait. Adjustable instrument filters, LD clumping, MR-PRESSO outlier testing, an MHC sensitivity analysis, and a bundled RA reference result included as a worked example.",
+  description = "Two-sample Mendelian randomisation on preloaded or uploaded data. GWAS summary statistics for any trait are needed.",
   icon = "route"
 )
 
@@ -76,10 +76,6 @@ mod_mr_overall_ui <- function(ns) {
       fluidRow(
         column(
           4,
-          arthochat_shortcut_ui(
-            "New to Mendelian randomisation? Ask ArthOChat.",
-            compact = TRUE
-          ),
           box(
             width = NULL, title = "Exposure & outcome data", status = "primary", solidHeader = FALSE,
             radioButtons(

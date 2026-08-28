@@ -1,55 +1,39 @@
 ## R/methylomics/mod_methyl_wgcna.R
-## Submodule: WGCNA (Co-Methylation Network). Self-contained methylomics
-## implementation - CpGs as network nodes, samples as observations. Every
-## helper below is mx_wgcna_*-prefixed and lives only in this file; nothing
-## here is shared with, or can collide with, R/transcriptomics/mod_wgcna.R's
-## own wgcna_*-prefixed helpers (a different, unrelated gene-expression
-## implementation this file never reads from or writes to).
+## WGCNA (Co-Methylation Network) submodule. CpGs are network nodes, samples
+## are observations. mx_wgcna_* helpers here are independent of
+## R/transcriptomics/mod_wgcna.R's wgcna_* helpers (gene-expression WGCNA).
 ##
-## Two data pathways feed the SAME live pipeline (Data & Filtering -> Sample
-## QC -> Soft Threshold -> Network & Modules -> Module-Trait -> Hub CpGs ->
-## Results & Export); only the starting matrix and each control's DEFAULT
-## value differ - every control stays user-editable in both paths:
-##  - Preloaded: methyl_dataset$beta/$sample_sheet from the preloaded
-##    whole-blood cohort (GSE42861, Liu et al. 2013), when the live raw
-##    matrix is available in this deployment. Defaults reproduce
-##    script05_wgcna_sexstratified/05_wgcna_sexstratified.R's actual
-##    published analysis: per-sex residualization against age+smoking+
-##    cell-type composition (minus the highest-mean cell-type column, kept
-##    as an implicit reference), top 20,000 CpGs by residual MAD, signed
-##    network, Pearson correlation, automatic power selection via the
-##    script's own "first power reaching the R-squared cutoff, else the
-##    best-observed power" rule over its exact tested power vector,
+## Pipeline: Data & Filtering -> Sample QC -> Soft Threshold -> Network &
+## Modules -> Module-Trait -> Hub CpGs -> Results & Export. Same live
+## pipeline for both data sources, differing only in defaults:
+##  - Preloaded (GSE42861, Liu et al. 2013): defaults reproduce
+##    script05_wgcna_sexstratified/05_wgcna_sexstratified.R - per-sex
+##    residualization against age+smoking+cell-type composition (minus the
+##    highest-mean cell-type column as implicit reference), top 20,000 CpGs
+##    by residual MAD, signed network, Pearson, auto power selection
+##    (first power reaching the R² cutoff, else best-observed),
 ##    minModuleSize=20, mergeCutHeight=0.25, deepSplit=2, maxBlockSize=5000.
-##  - Uploaded: whatever methyl_dataset$beta/$sample_sheet an upload
-##    produced. Defaults follow general WGCNA-on-methylation best practice
-##    (bicor, signed, auto power 1-20, minModuleSize=30) instead.
+##  - Uploaded: general WGCNA-on-methylation defaults (bicor, signed, auto
+##    power 1-20, minModuleSize=30).
 ##
-## Sex stratification (Female / Male / All samples combined) is a
-## first-class, always-visible control above the sub-tabs, read at the top
-## of Data & Filtering's own filter step (not a separate stage) - the
-## published script residualizes and MAD-ranks CpGs SEPARATELY per sex, so
-## reproducing it faithfully means subsetting to one sex BEFORE
-## residualization/variability-ranking, not filtering globally and
-## subsetting afterward.
+## Sex stratification (Female/Male/All) is read at the top of Data &
+## Filtering, before residualization/ranking - the published script
+## residualizes and MAD-ranks CpGs separately per sex.
 ##
-## Results-visibility: every stage after Data & Filtering is gated behind
-## its own action button via the same idiom R/transcriptomics/mod_wgcna.R
-## uses - a stage's renderUI does tryCatch(<eventReactive>(), error =
-## function(e) NULL) and shows only an empty-note "not run yet" message
-## when NULL. Nothing computes or renders speculatively.
+## Every stage after Data & Filtering is gated behind its own action button:
+## renderUI wraps the eventReactive in tryCatch and shows a "not run yet"
+## message on NULL, same idiom as mod_wgcna.R.
 
 mod_methyl_wgcna_config <- list(
   id = "wgcna", title = "WGCNA (Co-Methylation Network)", icon = "circle-nodes", group = "Network",
-  description = "Weighted co-methylation network analysis: filtering, soft-threshold selection, module detection, module-trait correlation, hub CpGs, and enrichment. Works on the preloaded dataset or your own uploaded, normalized data."
+  description = "Performs co-methylation network analysis"
 )
 
 ## ---- small pure helpers (all mx_wgcna_*-prefixed) --------------------------
 
 mx_wgcna_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
 
-## Row-wise MAD via matrixStats when available - same performance reasoning
-## methyl_row_vars() in qc.R already documents for rowVars() at 400k+ probes.
+## Row-wise MAD via matrixStats when available (fast path for large probe matrices).
 mx_wgcna_row_mads <- function(m) {
   if (requireNamespace("matrixStats", quietly = TRUE)) {
     matrixStats::rowMads(m, na.rm = TRUE)
@@ -58,10 +42,8 @@ mx_wgcna_row_mads <- function(m) {
   }
 }
 
-## Ranks probes by the chosen variability statistic and keeps the top N -
-## qc.R's own filters return a keep vector for a fixed threshold; this is
-## the top-N-by-rank companion Data & Filtering needs. `mat` is probes
-## (rows) x samples (cols).
+## Ranks probes by the chosen variability statistic and keeps the top N.
+## `mat` is probes (rows) x samples (cols).
 mx_wgcna_top_variable <- function(mat, method = c("mad", "variance", "sd", "iqr"), top_n) {
   method <- match.arg(method)
   stat <- switch(method,
@@ -76,11 +58,9 @@ mx_wgcna_top_variable <- function(mat, method = c("mad", "variance", "sd", "iqr"
   list(mat = mat[ord, , drop = FALSE], method = method, top_n = top_n, n_kept = keep_n)
 }
 
-## Encodes a trait column as a numeric vector for module-eigengene
-## correlation: numeric columns pass through; a two-level column becomes
-## 0/1; anything else is unsupported (module-trait correlation is a linear
-## step, not a multi-level test). Independent from (does not call)
-## mod_wgcna.R's own wgcna_encode_trait() - see file header.
+## Encodes a trait column as numeric for module-eigengene correlation:
+## numeric passes through, a two-level column becomes 0/1, anything else
+## is unsupported (correlation is a linear step, not multi-level).
 mx_wgcna_encode_trait <- function(sheet, col) {
   v <- sheet[[col]]
   if (is.numeric(v)) return(list(ok = TRUE, vec = as.numeric(v)))
@@ -92,14 +72,11 @@ mx_wgcna_encode_trait <- function(sheet, col) {
   list(ok = TRUE, vec = as.numeric(factor(as.character(v), levels = lv)) - 1, levels = lv)
 }
 
-## Detects cell-type-composition columns among candidate covariates (>=3
-## numeric columns whose per-row values sum to ~1, the compositional
-## signature Houseman-style cell estimates have) and returns the name of
-## the one with the highest mean fraction - the published script's own
-## implicit-reference choice ("cell-type covariates: %s used as implicit
-## reference"), reproduced generically (never hardcoding literal column
-## names) so an uploaded dataset with its own differently-named cell-type
-## estimates is handled the same way.
+## Detects cell-type-composition columns (>=3 numeric columns whose
+## per-row values sum to ~1, the Houseman-style compositional signature)
+## and returns the one with the highest mean fraction, to use as the
+## implicit reference - matches the published script's own choice, without
+## hardcoding column names.
 mx_wgcna_celltype_reference <- function(sheet, candidate_cols) {
   if (length(candidate_cols) < 3) return(NULL)
   is_num <- vapply(candidate_cols, function(cl) is.numeric(sheet[[cl]]), logical(1))
@@ -112,8 +89,8 @@ mx_wgcna_celltype_reference <- function(sheet, candidate_cols) {
   names(which.max(means))
 }
 
-## Scientific-guardrail booleans (spec: warn, don't silently force a
-## meaningless analysis through). Any argument left NULL is skipped.
+## Guardrail booleans (warn rather than silently force a meaningless
+## analysis through). Any argument left NULL is skipped.
 mx_wgcna_guardrails <- function(n_samples = NULL, n_probes = NULL, max_r_sq = NULL, module_colors = NULL) {
   list(
     low_n_samples = !is.null(n_samples) && n_samples < 15,
@@ -166,10 +143,8 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       if (!identical(input$sex_stratum %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
       mod_methyl_dmp_covariate_cols(sheet, exclude)
     })
-    ## Preloaded default residualization set: age + smoking + cell-type
-    ## columns minus the auto-detected reference cell type - reproduces the
-    ## published script's own choice (see mx_wgcna_celltype_reference()).
-    ## Uploaded default: nothing pre-ticked.
+    ## Preloaded default: age + smoking + cell-type columns minus the
+    ## auto-detected reference cell type. Uploaded default: nothing pre-ticked.
     covariate_default_selected <- reactive({
       cand <- covariate_choices()
       if (!isTRUE(methyl_dataset$preloaded)) return(character(0))
@@ -248,21 +223,11 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## Sex-stratum subsetting happens FIRST, inside this stage, not as a
-    ## separate step afterward - the published script residualizes and
-    ## MAD-ranks CpGs SEPARATELY per sex (build_residuals(), called once per
-    ## stratum), so filtering globally then splitting by sex afterward would
-    ## select a different (less faithful) CpG set per stratum than the
-    ## script's own per-sex ranking.
-    ## Memory discipline below mirrors mod_methyl_dmp.R's own live_result()
-    ## engine (see its header comment on methyl_chunked_lmfit) - at the full
-    ## ~412K-probe preloaded matrix, holding more than one or two full-size
-    ## (probes x samples) copies alive at once is enough to exceed a 16GB
-    ## machine's vector memory limit. Every intermediate is rm()'d + gc()'d
-    ## as soon as it's no longer needed, in-place clipping is used instead of
-    ## pmin()/pmax() copies, and the residual subtraction (the single most
-    ## memory-hungry step - a naive `m - coefs %*% t(design)` briefly holds
-    ## THREE full-size copies at once) is done in row-chunks instead.
+    ## Sex-stratum subsetting happens first, before residualization/ranking,
+    ## since the published script MAD-ranks CpGs separately per sex.
+    ## Intermediates are rm()'d + gc()'d as soon as unused, and the residual
+    ## subtraction is done in row-chunks - the full ~412K-probe matrix can
+    ## otherwise exceed vector memory limits holding multiple full copies.
     mx_wgcna_filtered <- eventReactive(input$filter_btn, {
       validate(need(!is.null(methyl_dataset$beta), "No live beta matrix available - see the status message above."))
       n_probes_total <- nrow(methyl_dataset$beta)
@@ -476,8 +441,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       max_r_sq <- suppressWarnings(max(fi$SFT.R.sq, na.rm = TRUE))
       reached <- is.finite(max_r_sq) && max_r_sq >= (input$r_sq_cutoff %||% 0.85)
       ## Same rule the published script uses: first power reaching the
-      ## cutoff, else the single best-observed fit across the tested range -
-      ## never a hardcoded literal power.
+      ## cutoff, else the single best-observed fit across the tested range.
       auto_power <- if (reached) min(fi$Power[fi$SFT.R.sq >= (input$r_sq_cutoff %||% 0.85)]) else fi$Power[which.max(fi$SFT.R.sq)]
       power <- if (identical(input$power_mode, "manual")) (input$manual_power %||% 6) else auto_power
       list(fit_indices = fi, power = power, auto_power = auto_power, reached_cutoff = reached,
@@ -730,16 +694,11 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
         )
       )
     })
-    ## Two-column Control/RA-style heatmap when the trait is a two-level
-    ## factor (matching the published script's own moduletrait_plot(): one
-    ## column per level, the "other" level's column is the exact negative
-    ## correlation - a two-level indicator and its complement are perfectly
-    ## anti-correlated, so cor(x, 1-vec) = -cor(x, vec) exactly, same
-    ## p-value/FDR). Falls back to a single column labeled with the trait's
-    ## own column name (not left blank) for a numeric trait. Label text is
-    ## single-line and both its size and the plot's own height scale with
-    ## the module count, so rows never overlap regardless of how many real
-    ## modules were detected.
+    ## Two-column heatmap when the trait is a two-level factor: one column
+    ## per level, with the "other" level's column being the exact negative
+    ## correlation (a two-level indicator and its complement are perfectly
+    ## anti-correlated). Falls back to a single column for a numeric trait.
+    ## Label size and plot height both scale with module count to avoid overlap.
     mt_heatmap_df <- reactive({
       res <- tryCatch(mx_wgcna_module_trait(), error = function(e) NULL); req(res)
       df <- res$table[res$table$module != "grey", , drop = FALSE]
@@ -803,13 +762,9 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## Intramodular connectivity needs the WHOLE network's TOM/adjacency (not
-    ## just the selected module), so it's one of the most expensive single
-    ## calls in this file - a plain reactive() (not part of the eventReactive
-    ## body below) so it's computed once per network and reused across every
-    ## module switch, instead of recomputed on every "Compute hub CpGs"
-    ## click. Same optimization R/transcriptomics/mod_wgcna.R's own
-    ## intramod_conn reactive already uses for the identical reason.
+    ## Intramodular connectivity needs the whole network's TOM/adjacency, so
+    ## it's expensive - kept as a plain reactive() (computed once per network,
+    ## reused across module switches) rather than recomputed on every click.
     mx_wgcna_intramod_conn <- reactive({
       net <- tryCatch(mx_wgcna_net(), error = function(e) NULL)
       req(net)
@@ -958,10 +913,9 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       DT::datatable(mt, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## ---- Optional Functional Enrichment (Fisher's exact test against the --
-    ## DMP/DMR biomarker panel - the published pipeline's own convergent-
-    ## evidence check, reused here rather than inventing a separate GO/KEGG
-    ## path from a CpG->gene mapping)
+    ## ---- Optional Functional Enrichment (Fisher's exact test against the
+    ## DMP/DMR biomarker panel, the published pipeline's own convergent-
+    ## evidence check)
 
     enrichment_ui <- function() {
       mt <- tryCatch(mx_wgcna_module_trait(), error = function(e) NULL)
@@ -1046,13 +1000,9 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       tagList(
         status_ui(),
         div(class = "tx-menu-wrap",
-            ## Each tab body is its own uiOutput/renderUI pair (not a plain
-            ## function called inline here) so that triggering one stage's
-            ## eventReactive - which tabsetPanel's eager rendering would
-            ## otherwise evaluate for every tab in a single pass - only
-            ## invalidates/spins the ONE Shiny output that actually reads
-            ## it, instead of blocking the whole tabsetPanel under one
-            ## spinner every time any stage is (re)computed.
+            ## Each tab body is its own uiOutput/renderUI pair so that
+            ## triggering one stage's eventReactive only invalidates/spins
+            ## that one output, not the whole tabsetPanel.
             tabsetPanel(
               id = ns("subtabs"), type = "tabs", header = tagList(tags$hr()),
               tabPanel(value = "data", title = mx_wgcna_tab_title("filter", "Data & Filtering"), br(), withSpinner(uiOutput(ns("tabout_data")), color = "#2563EB", type = 6)),

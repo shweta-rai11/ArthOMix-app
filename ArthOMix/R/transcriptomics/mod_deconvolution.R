@@ -1,28 +1,12 @@
 ## R/mod_deconvolution.R
-## Submodule: Immune Deconvolution (Section 2.14)
-## "Your analysis" runs two estimators live on the currently loaded
-## expression matrix, mirroring scripts/00_shared/05c_deconvolution.R:
-##   Primary : CIBERSORT (LM22, 22 leukocyte subsets, via IOBR) - actual
-##             fractions, the estimator this project's own pipeline models.
-##   Check   : MCP-counter - an independent marker-gene-based estimator,
-##             included because CIBERSORT's constrained regression can trade
-##             correlated subsets off against one another; agreement between
-##             two methods that fail differently is worth more than either
-##             alone. MCP-counter gives relative abundance scores, not
-##             fractions, so it corroborates direction only, never the
-##             primary read.
-## Defaults to comparing composition by the "group" column with Wilcoxon
-## rank-sum (2 groups) / Kruskal-Wallis (3+ groups) and Benjamini-Hochberg
-## FDR - again matching the pipeline's own Step 3. The collapsible
-## "Advanced" panel lets a user compare by a different metadata column,
-## restrict to a sample subset first, force a specific test, or tune
-## CIBERSORT's permutation count - opt-in, so the default one-click flow is
-## unchanged.
+## Immune Deconvolution: CIBERSORT (LM22 via IOBR) as the primary fraction
+## estimator, MCP-counter as an independent corroborating check, then a
+## group-composition test (Wilcoxon/Kruskal-Wallis, BH FDR).
 
 mod_deconvolution_config <- list(
   id = "deconvolution", group = "Interpretation",
   title = "Immune Deconvolution",
-  description = "Estimate immune cell composition (CIBERSORT/LM22, corroborated with MCP-counter) live from the currently loaded expression matrix, and check whether it differs by group.",
+  description = "Estimate immune cell composition (CIBERSORT/LM22, corroborated with MCP-counter) for pre-loaded expression matrix or uploaded data.",
   icon = "chart-pie"
 )
 
@@ -34,6 +18,7 @@ mod_deconvolution_ui <- function(id) {
       actionButton(ns("run_btn"), "Estimate cell composition", icon = icon("play"), class = "btn-primary btn-sm"),
       div(class = "submodule-desc", style = "margin-top:6px;", "CIBERSORT's permutation testing can take up to a minute or two for larger cohorts."),
       uiOutput(ns("not_run_note")),
+      uiOutput(ns("id_overlap_warning_ui")),
       br(),
       withSpinner(plotOutput(ns("cell_plot"), height = 420), color = "#2c6fbb", type = 6),
       box(
@@ -65,17 +50,28 @@ mod_deconvolution_ui <- function(id) {
   )
 }
 
+## % of gene_ids that are known human HUGO symbols (org.Hs.eg.db), the
+## identifier type CIBERSORT (LM22) and MCP-counter both require. Neither
+## package validates this itself - they silently intersect their own marker
+## gene lists against whatever names they're given, so a matrix keyed by
+## Ensembl IDs, probe IDs, or an unrecognised casing previously produced a
+## low-confidence or degenerate result with no signal to the user short of a
+## hard failure in the rare case IOBR returns zero fraction columns. A
+## top-level function (not nested in mod_deconvolution_server) so it can be
+## unit-tested without running the full CIBERSORT/MCP-counter pipeline.
+deconv_gene_id_overlap_pct <- function(gene_ids) {
+  known_symbols <- tryCatch(AnnotationDbi::keys(org.Hs.eg.db::org.Hs.eg.db, keytype = "SYMBOL"),
+                             error = function(e) NULL)
+  if (is.null(known_symbols)) return(NA_real_)
+  round(100 * mean(gene_ids %in% known_symbols), 1)
+}
+
 mod_deconvolution_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Same non-negative / "99th percentile > 100 means linear scale" rule
-    ## already used throughout this app for scale detection (see
-    ## mod_dge.R's looks_like_raw_counts(), mod_preprocessing.R's Scale
-    ## check, and needs_quantile_norm() in global.R) - decides both whether
-    ## to exponentiate for CIBERSORT (which needs LINEAR-scale expression,
-    ## per 05c_deconvolution.R) and whether to run it in "arrays" mode
-    ## (microarray/log-scale) or RNA-seq mode (already-linear counts).
+    ## Non-negative values with 99th percentile > 100 flag linear-scale
+    ## expression (same scale-detection rule as mod_dge.R/mod_preprocessing.R).
     is_linear_counts <- function(expr) {
       vals <- as.numeric(expr)
       vals <- vals[is.finite(vals)]
@@ -84,11 +80,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       isTRUE(!is.na(q99) && q99 > 100)
     }
 
-    ## LM22 fraction columns only (IOBR suffixes them "_CIBERSORT"; the three
-    ## diagnostics P-value/Correlation/RMSE are kept aside, not modelled) -
-    ## same frac_cols() logic as 05c_deconvolution.R. Names are cleaned from
-    ## e.g. "T_cells_regulatory_(Tregs)_CIBERSORT" to "T cells regulatory
-    ## (Tregs)" to match MCP-counter's already-clean "T cells" style.
+    ## Extract LM22 fraction columns from IOBR's CIBERSORT output, dropping
+    ## the P-value/Correlation/RMSE diagnostic columns.
     cib_frac_cols <- function(cib_raw) {
       all_cib <- grep("_CIBERSORT$", colnames(cib_raw), value = TRUE)
       diag_cols <- grep("^(P-value|Correlation|RMSE)_CIBERSORT$", all_cib, value = TRUE)
@@ -96,10 +89,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     }
     clean_cib_name <- function(x) gsub("_", " ", sub("_CIBERSORT$", "", x))
 
-    ## Same "2-20 distinct values" eligibility rule as mod_dge.R's
-    ## candidate_columns(): any metadata column that could plausibly be a
-    ## group to compare by, not hardcoded to "group" - so this works on
-    ## whatever columns the currently loaded dataset actually has.
+    ## Metadata columns with 2-20 distinct values, i.e. plausible grouping
+    ## columns (same rule as mod_dge.R's candidate_columns()).
     candidate_columns <- reactive({
       meta <- dataset$meta
       req(meta)
@@ -111,13 +102,9 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       cols[keep]
     })
 
-    ## Collapsed by default (native <details>, not shinydashboard
-    ## box(collapsible=TRUE) - see mod_crossancestry.R's references_box_ui
-    ## for why a plain collapsible box silently fails once it's inserted via
-    ## renderUI/uiOutput rather than present at initial page load). Opening
-    ## this is entirely optional: leaving every control at its default
-    ## reproduces the exact one-click CIBERSORT + MCP-counter +
-    ## group-difference behaviour this tab defaults to.
+    ## Collapsed by default (native <details>, since box(collapsible=TRUE)
+    ## fails once inserted via renderUI); all controls are optional and
+    ## defaults reproduce the standard one-click comparison.
     output$advanced_ui <- renderUI({
       cols <- candidate_columns()
       validate(need(length(cols) > 0, "The loaded metadata has no column with 2-20 distinct values to compare cell composition by."))
@@ -129,7 +116,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
                       tags$h3(class = "box-title", icon("sliders"), "Advanced: comparison group, sample filter & test")),
         div(class = "box-body",
           p(class = "submodule-desc",
-            "Defaults to comparing by “group” with Wilcoxon rank-sum (2 groups) or Kruskal-Wallis (3+ groups), FDR-adjusted – the same test this project's own deconvolution pipeline uses. Open this only if you want to compare by a different column, restrict to a sample subset first, force a specific test, or tune CIBERSORT's permutation count."),
+            "Defaults to comparing by \"group\" with Wilcoxon rank-sum (2 groups) or Kruskal-Wallis (3+ groups), FDR-adjusted - the same test this project's own deconvolution pipeline uses. Open this only if you want to compare by a different column, restrict to a sample subset first, force a specific test, or tune CIBERSORT's permutation count."),
           selectInput(ns("group_col"), "Compare cell composition across", choices = cols, selected = default_group, selectize = FALSE),
           radioButtons(
             ns("test_method"), "Statistical test",
@@ -138,10 +125,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
                                 "Kruskal-Wallis (2 or more groups)"),
             choiceValues = list("auto", "wilcox", "kruskal"), selected = "auto"
           ),
-          ## 100, matching CFG$perm in 05c_deconvolution.R - not IOBR's own
-          ## default of 1000, which is needless precision for a live,
-          ## point-and-click re-run rather than an offline pipeline. 0 skips
-          ## permutation p-values entirely for a faster run on large cohorts.
+          ## 100 matches CFG$perm in 05c_deconvolution.R; 0 skips permutation p-values for a faster run.
           numericInput(ns("cib_perm"), "CIBERSORT permutations (higher = slower, more precise deconvolution p-values; 0 = skip)",
                        value = 100, min = 0, max = 1000, step = 50),
           tags$hr(),
@@ -155,10 +139,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Same "all levels pre-checked" default as mod_preprocessing.R's
-    ## filter_val_ui - so simply opening the filter picker and leaving it
-    ## alone keeps every sample, and this only narrows the analysis once the
-    ## user actually unchecks something.
+    ## All levels pre-checked by default, so opening the filter picker keeps
+    ## every sample until something is unchecked.
     output$filter_val_ui <- renderUI({
       req(input$filter_col, !identical(input$filter_col, "(no filter)"))
       meta <- dataset$meta
@@ -187,6 +169,19 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       keep_cols <- intersect(unique(c("sample", "group", "sex", group_col)), colnames(meta))
       meta_sub <- meta[, keep_cols, drop = FALSE]
 
+      ## Neither CIBERSORT (LM22) nor MCP-counter validate that rownames(expr)
+      ## are actually HUGO gene symbols - both packages silently intersect
+      ## their own marker gene lists against whatever names are given, so a
+      ## matrix keyed by Ensembl IDs, probe IDs, or an unrecognised casing
+      ## would previously produce a low-confidence or degenerate result with
+      ## no signal to the user beyond a hard failure in the rare case IOBR
+      ## returns literally zero fraction columns. Check the overlap against
+      ## the known HUGO symbol universe up front instead.
+      id_overlap_pct <- deconv_gene_id_overlap_pct(rownames(expr))
+      validate(need(is.na(id_overlap_pct) || id_overlap_pct >= 10,
+                    sprintf("Only %s%% of this expression matrix's row names match known human gene symbols - CIBERSORT/MCP-counter need HUGO gene symbols as row names (not Ensembl IDs, probe IDs, or another identifier type). Check the loaded dataset's feature IDs.",
+                            id_overlap_pct)))
+
       ## --- CIBERSORT (LM22, primary) ---------------------------------
       is_counts <- is_linear_counts(expr)
       lin_expr <- if (is_counts) as.matrix(expr) else 2^as.matrix(expr)
@@ -210,8 +205,11 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       cib_table <- merge(meta_sub, cib_df, by = "sample")
 
       ## --- MCP-counter (independent check) ---------------------------
+      ## Each score is a mean of marker genes (MCPcounter:::appendSignatures),
+      ## which needs log-scale expression; log2-transform if linear.
+      mcp_input <- if (is_counts) log2(as.matrix(expr) + 1) else as.matrix(expr)
       mcp_est <- tryCatch(
-        MCPcounter::MCPcounter.estimate(as.data.frame(expr), featuresType = "HUGO_symbols"),
+        MCPcounter::MCPcounter.estimate(as.data.frame(mcp_input), featuresType = "HUGO_symbols"),
         error = function(e) validate(need(FALSE, paste("MCP-counter could not run on this expression matrix:", conditionMessage(e))))
       )
       mcp_df <- as.data.frame(t(mcp_est))
@@ -222,9 +220,18 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       list(
         group_col = group_col,
         cib = list(table = cib_table, cell_cols = cib_cell_cols),
-        mcp = list(table = mcp_table, cell_cols = mcp_cell_cols)
+        mcp = list(table = mcp_table, cell_cols = mcp_cell_cols),
+        id_overlap_pct = id_overlap_pct
       )
     }, ignoreInit = TRUE)
+
+    output$id_overlap_warning_ui <- renderUI({
+      req(deconv_has_run())
+      pct <- tryCatch(result()$id_overlap_pct, error = function(e) NA_real_)
+      req(!is.na(pct), pct < 70)
+      div(class = "empty-note", style = "margin-top: 8px;", icon("triangle-exclamation"),
+          sprintf("Only %s%% of this expression matrix's row names matched known human gene symbols. CIBERSORT and MCP-counter can only score genes they recognise, so the fractions below may be based on a small, possibly unrepresentative subset of the LM22/MCP-counter marker panels - check that the loaded dataset's feature IDs are gene symbols.", pct))
+    })
 
     deconv_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, deconv_has_run(TRUE), ignoreInit = TRUE)
@@ -235,10 +242,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
           "Not run yet. Click \"Estimate cell composition\" above.")
     })
 
-    ## Per-cell-type group-difference test - shared logic for both
-    ## estimators, so CIBERSORT's and MCP-counter's stats tables, plots, and
-    ## the results$deconvolution summary below all agree on exactly which
-    ## cell types are "significant" and by which test.
+    ## Per-cell-type group-difference test, shared by both estimators so
+    ## their stats tables/plots and the results summary agree on what's significant.
     compute_group_stats <- function(df, cell_cols, group_col, method_input) {
       lvls <- sort(unique(as.character(stats::na.omit(df[[group_col]]))))
       validate(need(length(lvls) >= 2, sprintf("\"%s\" has fewer than two distinct values among the samples analysed, so cell composition can't be compared across it.", group_col)))
@@ -290,8 +295,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       compute_group_stats(res$mcp$table, res$mcp$cell_cols, res$group_col, input$test_method %||% "auto")
     })
 
-    ## Boxplot + significance stars - shared rendering for both estimators
-    ## so the CIBERSORT and MCP-counter panels always look consistent.
+    ## Boxplot with significance stars; shared rendering so the CIBERSORT and
+    ## MCP-counter panels stay visually consistent.
     render_group_boxplot <- function(df, cell_cols, group_col, gs, y_lab) {
       long <- tidyr::pivot_longer(df, cols = all_of(cell_cols), names_to = "cell_type", values_to = "score")
       p <- ggplot(long, aes(x = cell_type, y = score, fill = .data[[group_col]])) +
@@ -319,11 +324,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       p
     }
 
-    ## Publishes a summary of this run for cross-tab use (ArthOChat's
-    ## session context in submodules_registry.R's build_assistant_context(),
-    ## same as every other mod_*_server that writes results$<id>) - this tab
-    ## previously accepted `results` but never wrote to it, so a completed
-    ## deconvolution run never showed up anywhere outside this tab.
+    ## Publish a run summary to results$deconvolution for cross-tab use
+    ## (ArthOChat's session context in submodules_registry.R).
     observeEvent(input$run_btn, {
       if (is.null(results)) return(invisible(NULL))
       cgs <- tryCatch(cib_stats(), error = function(e) NULL)

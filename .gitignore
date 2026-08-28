@@ -11,6 +11,9 @@ Research_Q3_METHYLOMICS_sexstratified_COPY/
 # path only, not tracked here
 Research_Q4_cross_Omics_sexstratified_COPY/
 
+# nested repo (11GB, own .git), pushed separately to its own GitHub repository
+ArthOMix/Research_05_multiomics_sexstratified/
+
 # OS / editor
 .DS_Store
 *~

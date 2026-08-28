@@ -1,5 +1,5 @@
 ## R/crossomics/mod_cross_integration.R
-## Cross-Omics sub-module: "Expression x Methylation" - integrates the
+## Cross-Omics sub-module: "Expression and Methylation" - integrates the
 ## Transcriptomics DGE output (gene, log2FC, FDR) and the Methylomics DMP
 ## output (CpG, gene, Δβ, FDR) at gene level to answer "how does DNA
 ## methylation relate to gene expression" - the four regulatory quadrants
@@ -26,7 +26,7 @@
 ## Quadrant plot, Heatmap, Network analysis, Export (downloads + provenance).
 
 mod_cross_integration_config <- list(
-  id = "integration", title = "Expression x Methylation", icon = "dna", group = "Data",
+  id = "integration", title = "Expression and Methylation", icon = "dna", group = "Data",
   description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - expression data, methylation data, integration setup, quadrant plot, heatmap, network analysis, and exportable results."
 )
 
@@ -101,10 +101,7 @@ mod_cross_integration_ui <- function(id) {
       tabPanel("Heatmap", br(), uiOutput(ns("heatmap_ui"))),
       tabPanel("Network analysis", br(), uiOutput(ns("network_ui"))),
       tabPanel("Export", br(), tagList(
-        uiOutput(ns("downloads_ui")),
-        tags$hr(),
-        h4("Analysis Settings / Reproducibility"),
-        uiOutput(ns("provenance_ui"))
+        uiOutput(ns("downloads_ui"))
       ))
     )
   )
@@ -181,7 +178,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
 
     ## ---- Run Integration --------------------------------------------------
 
-    observeEvent(input$run_integration, {
+    observeEvent(input$run_integration, withProgress(message = "Running Integration - harmonizing gene identifiers across both panels can take up to a minute for a genome-wide (pooled/ALL) dataset...", value = 0.2, {
       if (is.null(raw$expr_df)) { showNotification("No Transcriptomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
       if (is.null(raw$meth_df)) { showNotification("No Methylomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
 
@@ -257,10 +254,11 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         sample_matching = if (isTRUE(pairing$paired)) sprintf("Paired (%d common samples)", pairing$n_common) else "Not available (unpaired datasets)",
         gene_annotation_source = if (isTRUE(id_harm$ok)) "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching" else "Not available - matched on exact provided text only",
         ## Keyed off the methylation source's own text - the Dataset tab's
-        ## "Example data" mode calls the same cx_load_default_methylation()
-        ## loader as this project's bundled panel, so its source label
-        ## carries the "bacon-adjusted" marker either way.
-        methylation_platform = if (grepl("bacon-adjusted", raw$meth_source %||% "", fixed = TRUE)) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
+        ## "Example data" mode calls the same cx_load_default_methylation()/
+        ## cx_load_default_dmr() loaders as this project's bundled DMP/DMR
+        ## panels, so its source label carries "bacon-adjusted" (DMP) or
+        ## "DMR" either way; both are annotated against the same array.
+        methylation_platform = if (grepl("bacon-adjusted|DMR", raw$meth_source %||% "")) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
         run_at = integ$run_at
       )
       integ$provenance <- cx_build_provenance(integ$params)
@@ -279,7 +277,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         provenance = integ$provenance, params = integ$params, run_at = integ$run_at
       )
       showNotification("Integration complete.", type = "message")
-    })
+    }))
 
     ## `mapping` (a named char vector, possibly NULL for preloaded data which
     ## has no upload mapping) -> the gene-ID column name to use when building
@@ -332,13 +330,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       df <- cx_filter_by_min_cpg(df, input$filter_min_cpg)
       df <- cx_filter_by_correlation_direction(df, input$filter_cor_direction)
       df
-    })
-
-    ## ---- Provenance --------------------------------------------------------
-
-    output$provenance_ui <- renderUI({
-      if (is.null(integ$provenance)) return(div(class = "empty-note", icon("circle-info"), "Run an integration to see its parameters here."))
-      tags$ul(style = "padding-left: 18px; font-size: 0.85em;", lapply(integ$provenance, tags$li))
     })
 
     ## ---- Expression data -----------------------------------------------------

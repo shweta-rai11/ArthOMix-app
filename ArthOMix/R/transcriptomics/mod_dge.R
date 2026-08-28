@@ -1,21 +1,89 @@
-## R/mod_dge.R
-## Submodule: Differential Expression (Section 2.3)
-## "Your analysis" fits a live model comparing two levels of a user-chosen
-## metadata column in the currently loaded dataset (not just "group" - any
-## column with 2-20 distinct values, e.g. group, sex, dataset, batch, tx),
-## with an optional second column either used as a filter (restrict to one
-## of its levels) or as a covariate the model adjusts for. Two methods are
-## available: limma (continuous/log-scale data - microarray, or already-
-## normalised RNA-seq) and DESeq2 (raw, non-negative integer RNA-seq
-## counts) - "Auto-detect" picks between them by inspecting the loaded
-## expression matrix's values.
+## R/mod_dge.R - Differential Expression submodule.
+## Fits a live limma or DESeq2 contrast between two levels of any metadata
+## column, with an optional covariate/filter column; method must match the
+## data's scale (raw counts vs normalised/log), enforced below.
 
 mod_dge_config <- list(
   id = "dge", group = "Data",
   title = "Differential Expression",
-  description = "Fit a live limma or DESeq2 model comparing two levels of any metadata column in the currently loaded dataset, with an optional second column to filter or adjust for.",
+  description = "Perform a limma or DESeq2 model by comparing two levels of a metadata column and get the results based on sex (Female/Male).",
   icon = "chart-column"
 )
+
+## Upload readers for the "Upload your own data" source: CSV/TSV/TXT/XLSX via
+## cx_read_table(), plus RDS. Pure/side-effect-free, so defined at top level.
+
+## Reads an expression matrix upload: feature IDs in rows, samples in columns.
+dge_read_expr_upload <- function(datapath, filename) {
+  ext <- tolower(tools::file_ext(filename))
+  if (ext %in% c("rds")) {
+    obj <- readRDS(datapath)
+    m <- if (is.matrix(obj)) obj else as.matrix(obj)
+    storage.mode(m) <- "double"
+    return(m)
+  }
+  res <- cx_read_table(datapath, filename)
+  validate(need(res$ok, res$error))
+  df <- res$df
+  validate(need(ncol(df) >= 2, "Expression file needs a feature-ID column plus at least one sample column."))
+  rn <- as.character(df[[1]])
+  raw <- df[, -1, drop = FALSE]
+  m <- suppressWarnings({ mm <- as.matrix(raw); storage.mode(mm) <- "double"; mm })
+  rownames(m) <- rn
+  colnames(m) <- colnames(raw)
+  m
+}
+
+## Reads a sample metadata / feature annotation upload: a plain table, any layout.
+dge_read_table_upload <- function(datapath, filename) {
+  ext <- tolower(tools::file_ext(filename))
+  if (ext %in% c("rds")) {
+    obj <- readRDS(datapath)
+    validate(need(is.data.frame(obj), "The uploaded RDS file must contain a data frame."))
+    return(as.data.frame(obj))
+  }
+  res <- cx_read_table(datapath, filename)
+  validate(need(res$ok, res$error))
+  res$df
+}
+
+## Upload-only cleanup: collapses duplicate feature IDs to their mean, drops
+## fully-missing rows/columns and zero-variance features. Not applied to
+## Dataset Pipeline data, which already went through Preprocessing.
+dge_clean_expr_matrix <- function(m) {
+  notes <- character(0)
+  m <- as.matrix(m)
+  storage.mode(m) <- "double"
+
+  if (anyDuplicated(rownames(m))) {
+    n_dup <- sum(duplicated(rownames(m)))
+    rn <- rownames(m)
+    sum_m <- rowsum(m, group = rn)
+    cnt <- as.numeric(table(rn)[rownames(sum_m)])
+    m <- sum_m / cnt
+    notes <- c(notes, sprintf("%d duplicate feature ID(s) collapsed to their mean expression.", n_dup))
+  }
+
+  row_all_na <- rowSums(!is.na(m)) == 0
+  if (any(row_all_na)) {
+    notes <- c(notes, sprintf("%d feature(s) with no data (all missing) removed.", sum(row_all_na)))
+    m <- m[!row_all_na, , drop = FALSE]
+  }
+  col_all_na <- colSums(!is.na(m)) == 0
+  if (any(col_all_na)) {
+    notes <- c(notes, sprintf("%d sample(s) with no data (all missing) removed.", sum(col_all_na)))
+    m <- m[, !col_all_na, drop = FALSE]
+  }
+
+  vars <- apply(m, 1, stats::var, na.rm = TRUE)
+  zero_var <- is.na(vars) | vars == 0
+  if (any(zero_var)) {
+    notes <- c(notes, sprintf("%d zero-variance feature(s) removed (identical value in every sample).", sum(zero_var)))
+    m <- m[!zero_var, , drop = FALSE]
+  }
+
+  list(mat = m, notes = notes)
+}
 
 mod_dge_ui <- function(id) {
   ns <- NS(id)
@@ -23,9 +91,17 @@ mod_dge_ui <- function(id) {
       fluidRow(
         column(
           4,
-          arthochat_shortcut_ui(
-            "New to differential expression? Ask ArthOChat.",
-            compact = TRUE
+          box(
+            width = NULL, title = "Data source", status = "primary", solidHeader = FALSE,
+            radioButtons(
+              ns("data_source"), "Data source",
+              choiceNames = list(
+                "Use Dataset Pipeline (the dataset already loaded via the Dataset tab)",
+                "Upload your own data"
+              ),
+              choiceValues = list("pipeline", "upload"), selected = "pipeline"
+            ),
+            uiOutput(ns("upload_ui"))
           ),
           box(
             width = NULL, title = "Contrast", status = "primary", solidHeader = FALSE,
@@ -33,11 +109,8 @@ mod_dge_ui <- function(id) {
             uiOutput(ns("ref_comp_ui")),
             uiOutput(ns("covariate_controls_ui")),
             numericInput(ns("padj_cut"), "Adjusted p-value cutoff", value = 0.05, min = 0, max = 1, step = 0.01),
-            ## 0.1, not a rounder-looking 0.5: this project's own primary
-            ## sex-stratified analysis used |log2FC| > 0.1 (a permissive
-            ## 1.07-fold gate deliberately used as a coherence filter rather
-            ## than a prioritisation step - see Chapter_2_subchapter2_
-            ## sexstratified.md Section 2.3), not a stricter fold-change cut.
+            ## Default 0.1: matches this project's sex-stratified analysis, a
+            ## permissive coherence filter rather than a prioritisation cut.
             numericInput(ns("lfc_cut"), "Absolute log2 fold-change cutoff", value = 0.1, min = 0, step = 0.1),
             actionButton(ns("run_btn"), "Run differential expression", icon = icon("play"), class = "btn-primary btn-sm"),
             div(style = "margin-top:10px;", uiOutput(ns("saved_runs_ui")))
@@ -45,11 +118,8 @@ mod_dge_ui <- function(id) {
         ),
         column(
           8,
-          ## Hidden until "Run differential expression" is clicked - same
-          ## `input['...'] > 0` conditionalPanel already used for this exact
-          ## purpose elsewhere in this app (see fs_sex_panel() in
-          ## mod_featureselection.R). action buttons start at click-count 0,
-          ## so nothing in this box renders until the first click.
+          ## Hidden until "Run differential expression" is clicked (button
+          ## click-count starts at 0).
           conditionalPanel(
             condition = sprintf("input['%s'] > 0", ns("run_btn")),
             box(
@@ -81,8 +151,7 @@ mod_dge_ui <- function(id) {
           div(class = "table-toolbar", downloadButton(ns("download_dge"), "Download CSV", class = "btn-sm")),
           DT::dataTableOutput(ns("dge_table"))
         )
-      ),
-      uiOutput(ns("references_box_ui"))
+      )
   )
 }
 
@@ -90,42 +159,116 @@ mod_dge_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Two pipelines, one module: the References box below cites "the
-    ## papers this project's own methodology cites" - true for the default/
-    ## preloaded cohort, not for an arbitrary dataset a user brought in
-    ## themselves. dataset$source starts with "Uploaded dataset" for BOTH
-    ## upload paths: mod_dataset.R's plain "Uploaded dataset: X + Y" and
-    ## mod_preprocessing.R's activate button, "Uploaded dataset
-    ## (preprocessed + batch-corrected): ..." - match the prefix without
-    ## requiring an immediate colon so both are caught.
-    output$references_box_ui <- renderUI({
-      req(!grepl("^Uploaded dataset", dataset$source %||% ""))
-      box(
-        width = 12, title = "References", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Background reading for the methods this tab implements, and the papers this project's own methodology cites. Verified against live PubMed lookups, not from memory."),
-        tags$ul(
-          class = "dge-ref-list",
-          tags$li(strong("limma (moderated t-test): "), "Ritchie ME et al. (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. ",
-                  tags$em("Nucleic Acids Research"), ". ", tags$a(href = "https://pubmed.ncbi.nlm.nih.gov/25605792", target = "_blank", "PMID: 25605792")),
-          tags$li(strong("DESeq2 (negative binomial GLM): "), "Love MI, Huber W, Anders S. (2014). Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2. ",
-                  tags$em("Genome Biology"), ". ", tags$a(href = "https://pubmed.ncbi.nlm.nih.gov/25516281", target = "_blank", "PMID: 25516281")),
-          tags$li(strong("Benjamini-Hochberg FDR (behind adj.P.Val/padj in both methods): "), "Benjamini Y, Hochberg Y. (1995). Controlling the False Discovery Rate: A Practical and Powerful Approach to Multiple Testing. ",
-                  tags$em("Journal of the Royal Statistical Society: Series B"), ", 57(1), 289-300 (not in PubMed; a statistics journal)."),
-          tags$li(strong("arrayWeights (used in this project's own limma pipeline): "), "Ritchie ME et al. (2006). Empirical array quality weights in the analysis of microarray data. ",
-                  tags$em("BMC Bioinformatics"), ". ", tags$a(href = "https://pubmed.ncbi.nlm.nih.gov/16712727", target = "_blank", "PMID: 16712727")),
-          tags$li(strong("New to interpreting DGE results? "), "McDermaid A et al. (2019). Interpretation of differential gene expression results of RNA-seq data: review and integration. ",
-                  tags$em("Briefings in Bioinformatics"), ". ", tags$a(href = "https://pubmed.ncbi.nlm.nih.gov/30099484", target = "_blank", "PMID: 30099484"))
-        ),
-        p(class = "submodule-desc", "Have a more specific question? ", strong("Ask ArthOChat"), " above. It can search PubMed live for anything not covered here.")
+    ## Data source: either the shared Dataset Pipeline (dataset$expr/meta) or
+    ## an independent upload of expression/metadata/annotation files.
+    ## cur_source() below is what the rest of the module reads from.
+
+    meta_upload_raw <- reactive({
+      req(input$dge_meta_file)
+      dge_read_table_upload(input$dge_meta_file$datapath, input$dge_meta_file$name)
+    })
+    annot_upload_raw <- reactive({
+      req(input$dge_annot_file)
+      dge_read_table_upload(input$dge_annot_file$datapath, input$dge_annot_file$name)
+    })
+
+    output$upload_ui <- renderUI({
+      req(input$data_source)
+      if (!identical(input$data_source, "upload")) return(NULL)
+      tagList(
+        tags$hr(),
+        div(class = "upload-step-label", "STEP 1 · Upload your files"),
+        p(strong("Expression matrix"), " - CSV, TSV, TXT, XLSX, or RDS. Features in rows, samples in columns; for delimited/XLSX files, the first column is the feature ID."),
+        fileInput(ns("dge_expr_file"), "Expression matrix", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+        p(strong("Sample metadata"), " - CSV, TSV, TXT, XLSX, or RDS; one row per sample."),
+        fileInput(ns("dge_meta_file"), "Sample metadata", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+        p(strong("Feature annotation"), " (optional) - only needed if the expression matrix's row IDs aren't already gene symbols (e.g. probe IDs)."),
+        fileInput(ns("dge_annot_file"), "Feature annotation (optional)", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+        uiOutput(ns("column_mapping_ui"))
       )
     })
 
+    output$column_mapping_ui <- renderUI({
+      req(input$data_source == "upload")
+      out <- tagList()
+
+      meta_df <- tryCatch(meta_upload_raw(), error = function(e) NULL)
+      if (!is.null(meta_df)) {
+        cols <- colnames(meta_df)
+        out <- tagAppendChildren(
+          out,
+          div(class = "upload-step-label", "STEP 2 · Map metadata columns"),
+          selectInput(ns("map_sample_id"), "Sample ID column (must match expression column names)", choices = cols,
+                      selected = guess_column_by_name(cols, c("sample", "sample_id", "id", "geo_accession", "accession")),
+                      selectize = FALSE)
+        )
+      }
+
+      annot_df <- tryCatch(annot_upload_raw(), error = function(e) NULL)
+      if (!is.null(annot_df)) {
+        acols <- colnames(annot_df)
+        out <- tagAppendChildren(
+          out,
+          div(class = "upload-step-label", "STEP 3 · Map annotation columns"),
+          selectInput(ns("map_annot_feature_id"), "Feature/probe ID column (must match expression row IDs)", choices = acols,
+                      selected = guess_column_by_name(acols, c("probe", "probe_id", "feature", "feature_id", "id")),
+                      selectize = FALSE),
+          selectInput(ns("map_annot_symbol"), "Gene symbol column", choices = acols,
+                      selected = guess_column_by_name(acols, c("gene_symbol", "symbol", "gene", "genesymbol")),
+                      selectize = FALSE)
+        )
+      }
+      out
+    })
+
+    ## Resolves the upload into the same expr/meta/source_label/mode shape
+    ## cur_source() expects from the Dataset Pipeline path.
+    active_upload_input <- reactive({
+      req(input$dge_expr_file, input$dge_meta_file, input$map_sample_id)
+      expr <- dge_read_expr_upload(input$dge_expr_file$datapath, input$dge_expr_file$name)
+      meta <- meta_upload_raw()
+      meta$sample <- as.character(meta[[input$map_sample_id]])
+
+      if (!is.null(input$dge_annot_file) && !is.null(input$map_annot_feature_id) && !is.null(input$map_annot_symbol)) {
+        annot <- annot_upload_raw()
+        fid <- as.character(annot[[input$map_annot_feature_id]])
+        sym <- as.character(annot[[input$map_annot_symbol]])
+        ok <- !is.na(fid) & nzchar(fid) & !is.na(sym) & nzchar(sym)
+        fid <- fid[ok]; sym <- sym[ok]
+        ## First occurrence wins on a duplicate probe -> symbol mapping.
+        map <- setNames(sym[!duplicated(fid)], fid[!duplicated(fid)])
+        matched <- rownames(expr) %in% names(map)
+        new_rn <- rownames(expr)
+        new_rn[matched] <- unname(map[new_rn[matched]])
+        rownames(expr) <- new_rn
+      }
+
+      cleaned <- dge_clean_expr_matrix(expr)
+      list(
+        expr = cleaned$mat, meta = meta,
+        source_label = sprintf(
+          "Uploaded dataset: %s + %s%s", input$dge_expr_file$name, input$dge_meta_file$name,
+          if (!is.null(input$dge_annot_file)) paste0(" + ", input$dge_annot_file$name) else ""
+        ),
+        mode = "upload", clean_notes = cleaned$notes
+      )
+    })
+
+    ## The single data source every reactive/output below reads from; falls
+    ## back to the Dataset Pipeline while an upload is still incomplete.
+    cur_source <- reactive({
+      if (identical(input$data_source, "upload")) {
+        up <- tryCatch(active_upload_input(), error = function(e) NULL)
+        if (!is.null(up)) return(up)
+      }
+      list(expr = dataset$expr, meta = dataset$meta, source_label = dataset$source,
+           mode = "pipeline", clean_notes = character(0))
+    })
+
     ## Any metadata column with 2-20 distinct non-missing values is a
-    ## plausible contrast/covariate variable - not hardcoded to "group"/
-    ## "sex", so this works on whatever columns the currently loaded
-    ## dataset (default, preloaded, or the user's own upload) actually has.
+    ## usable contrast/covariate candidate.
     candidate_columns <- reactive({
-      meta <- dataset$meta
+      meta <- cur_source()$meta
       req(meta)
       cols <- setdiff(colnames(meta), "sample")
       keep <- vapply(cols, function(cl) {
@@ -143,25 +286,21 @@ mod_dge_server <- function(id, dataset, results) {
         radioButtons(
           ns("method"), "Method",
           choiceNames = list(
-            "Auto-detect (recommended)",
             "limma (microarray, log-scale, or already-normalised data)",
             "DESeq2 (RNA-seq raw counts)"
           ),
-          choiceValues = list("auto", "limma", "deseq2"), selected = "auto"
+          choiceValues = list("limma", "deseq2"), selected = "limma"
         ),
         selectInput(ns("contrast_col"), "Contrast column", choices = cols, selected = default_contrast, selectize = FALSE),
         selectInput(ns("covariate_col"), "Second column (optional)", choices = c("(none)", cols), selected = "(none)", selectize = FALSE)
       )
     })
 
-    ## Reference/comparison level choices depend on which column is picked
-    ## above, so this is a separate output from method_and_columns_ui
-    ## (which defines contrast_col itself) - same "depends on the previous
-    ## select's value" split already used elsewhere in this app, e.g.
-    ## mod_preprocessing.R's group_filter_ui/filter_val_ui.
+    ## Reference/comparison level choices depend on the chosen contrast_col,
+    ## so this renders separately from method_and_columns_ui.
     output$ref_comp_ui <- renderUI({
       req(input$contrast_col)
-      meta <- dataset$meta
+      meta <- cur_source()$meta
       req(input$contrast_col %in% colnames(meta))
       lvls <- sort(unique(na.omit(as.character(meta[[input$contrast_col]]))))
       validate(need(length(lvls) >= 2, "This column has fewer than two distinct values."))
@@ -187,20 +326,15 @@ mod_dge_server <- function(id, dataset, results) {
     output$covariate_level_ui <- renderUI({
       req(input$covariate_col, input$covariate_mode)
       if (identical(input$covariate_col, "(none)") || !identical(input$covariate_mode, "filter")) return(NULL)
-      meta <- dataset$meta
+      meta <- cur_source()$meta
       req(input$covariate_col %in% colnames(meta))
       lvls <- sort(unique(na.omit(as.character(meta[[input$covariate_col]]))))
       selectInput(ns("covariate_level"), "Restrict to", choices = lvls, selected = lvls[1], selectize = FALSE)
     })
 
-    ## Auto-detect heuristic: same non-negative / "99th percentile > 100
-    ## means linear scale" rule already used throughout this app for scale
-    ## detection (see mod_preprocessing.R's Scale check, and
-    ## needs_quantile_norm() in global.R) - raw counts are non-negative and
-    ## span a wide linear range; continuous/log-scale data (microarray, or
-    ## RNA-seq already turned into log-CPM) doesn't. Deliberately NOT an
-    ## "are these exact integers" check - real-world count matrices
-    ## (RSEM-style estimated counts, e.g. 472.59) are often fractional.
+    ## Flags raw-count-like data: non-negative with a wide linear range
+    ## (99th percentile > 100). Not an integer check, since count matrices
+    ## like RSEM output are often fractional.
     looks_like_raw_counts <- function(m) {
       vals <- as.numeric(m)
       vals <- vals[is.finite(vals)]
@@ -209,15 +343,8 @@ mod_dge_server <- function(id, dataset, results) {
       isTRUE(!is.na(q99) && q99 > 100)
     }
 
-    ## TPM/FPKM/CPM are library-size-normalised: by construction every
-    ## sample's column sums to (or is scaled toward) the same fixed target
-    ## (1e6 for TPM/CPM, 1e4/1e2 for other conventions), so column totals
-    ## cluster tightly across samples. Raw sequencing counts have naturally
-    ## varying library sizes (typically >5-10% coefficient of variation
-    ## across samples) - this catches normalised data that still passes
-    ## looks_like_raw_counts() (TPM/CPM values are non-negative and commonly
-    ## exceed 100 for highly-expressed genes, so the scale check alone can't
-    ## tell them apart from real counts).
+    ## Flags TPM/FPKM/CPM-normalised data: column sums cluster tightly around
+    ## a fixed target (1e2/1e4/1e6), unlike raw counts' varying library sizes.
     looks_like_normalized_totals <- function(m) {
       csums <- colSums(m, na.rm = TRUE)
       csums <- csums[is.finite(csums) & csums > 0]
@@ -232,7 +359,8 @@ mod_dge_server <- function(id, dataset, results) {
       validate(need(input$ref_group != input$comp_group, "Reference and comparison level must be different."))
 
       contrast_col <- input$contrast_col
-      meta <- dataset$meta
+      cs <- cur_source()
+      meta <- cs$meta
       meta <- meta[!is.na(meta[[contrast_col]]) & as.character(meta[[contrast_col]]) %in% c(input$ref_group, input$comp_group), , drop = FALSE]
 
       use_covariate <- !is.null(input$covariate_col) && !identical(input$covariate_col, "(none)")
@@ -247,10 +375,10 @@ mod_dge_server <- function(id, dataset, results) {
         }
       }
 
-      common <- intersect(colnames(dataset$expr), meta$sample)
+      common <- intersect(colnames(cs$expr), meta$sample)
       validate(need(length(common) >= 6, "Fewer than 6 samples match this contrast (and filter, if set); pick a different combination."))
       meta <- meta[match(common, meta$sample), , drop = FALSE]
-      expr <- dataset$expr[, common, drop = FALSE]
+      expr <- cs$expr[, common, drop = FALSE]
 
       grp <- factor(as.character(meta[[contrast_col]]), levels = c(input$ref_group, input$comp_group))
       validate(need(all(table(grp) >= 3), "Each level needs at least 3 samples in this contrast to fit a model."))
@@ -263,13 +391,17 @@ mod_dge_server <- function(id, dataset, results) {
         covariate_label <- sprintf(" adjusted for %s", input$covariate_col)
       }
 
-      method <- input$method %||% "auto"
+      used_method <- input$method
       is_counts <- looks_like_raw_counts(expr)
       is_normalized_totals <- looks_like_normalized_totals(expr)
-      used_method <- if (identical(method, "auto")) (if (is_counts && !is_normalized_totals) "deseq2" else "limma") else method
       if (identical(used_method, "deseq2")) {
         validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts directly via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with Preprocessing's own log2 set to \"Skip\")."))
         validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw sequencing counts. DESeq2 requires raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
+      } else if (identical(used_method, "limma")) {
+        ## Block limma on raw, un-normalised counts - its Gaussian model
+        ## gives misleading results on heteroscedastic count data.
+        validate(need(!(is_counts && !is_normalized_totals),
+          "This data looks like raw, non-negative sequencing counts (wide value range, not library-size-normalised) - limma assumes continuous, roughly-normal data and can give misleading results on raw counts. Pick DESeq2 instead, or load/normalise this to continuous, log-scale data first."))
       }
 
       tt <- if (identical(used_method, "deseq2")) {
@@ -294,17 +426,8 @@ mod_dge_server <- function(id, dataset, results) {
           error = function(e) validate(need(FALSE, paste("Could not build a design matrix for this contrast/covariate combination:", conditionMessage(e))))
         )
         colnames(design)[seq_len(nlevels(grp))] <- levels(grp)
-        ## Per-array quality weights (Ritchie et al. 2006, cited in
-        ## References below) - this project's own methodology
-        ## (Chapter_2_subchapter2_sexstratified.md, Section 2.2) applies
-        ## these because the training cohort combines two different
-        ## microarray platforms (HG-U219/GPL570 and HG-U133_Plus_2/
-        ## GPL13667): a noisy or poor-quality array gets an estimated
-        ## weight below 1 across all ~15,000 genes, so lmFit gives it
-        ## proportionally less influence on the fit instead of every array
-        ## counting equally regardless of quality. The References box below
-        ## already cited arrayWeights as used in this pipeline; this is
-        ## that citation actually being applied, not just referenced.
+        ## Per-array quality weights (Ritchie et al. 2006) down-weight noisy
+        ## arrays, relevant since the training cohort mixes two platforms.
         aw <- limma::arrayWeights(expr, design)
         fit <- limma::lmFit(expr, design, weights = aw)
         cm <- limma::makeContrasts(contrasts = paste0(levels(grp)[2], "-", levels(grp)[1]), levels = design)
@@ -316,9 +439,7 @@ mod_dge_server <- function(id, dataset, results) {
         out[, c("gene", setdiff(colnames(out), "gene"))]
       }
 
-      ## Shown verbatim in summary_ui below, for reproducibility - the exact
-      ## design formula and test this specific run used, not a generic
-      ## textbook description.
+      ## Exact design formula/test for this run, shown in summary_ui below.
       design_formula <- if (identical(used_method, "deseq2")) {
         if (adjust_for_covariate) sprintf("~ %s + %s", input$covariate_col, contrast_col) else sprintf("~ %s", contrast_col)
       } else {
@@ -332,9 +453,7 @@ mod_dge_server <- function(id, dataset, results) {
 
       list(
         table = tt, method = used_method,
-        ## expr/grp are the exact sample subset and group assignment this
-        ## contrast was fit on - kept here so the heatmap below can reuse
-        ## them directly instead of re-deriving the same filtering logic.
+        ## expr/grp: sample subset and group assignment, reused by the heatmap.
         expr = expr, grp = grp,
         design_formula = design_formula, test_label = test_label,
         n_ref = sum(grp == levels(grp)[1]), n_comp = sum(grp == levels(grp)[2]),
@@ -359,11 +478,8 @@ mod_dge_server <- function(id, dataset, results) {
         )
     })
 
-    ## Triggered on the same button fit_result() itself listens to, and
-    ## silently does nothing if the fit failed validation - not on
-    ## sig_table()/fit_result() directly, which would re-throw that same
-    ## validation error into this observer too (see the tryCatch()+req()
-    ## note above output$volcano below for why that matters).
+    ## Saves the fit into shared results$dge/dge_runs; silently skipped if
+    ## the fit failed validation.
     observeEvent(input$run_btn, {
       df <- tryCatch(sig_table(), error = function(e) NULL)
       req(df)
@@ -379,13 +495,8 @@ mod_dge_server <- function(id, dataset, results) {
         top_hits = head(df$gene[order(df$adj.P.Val)], 10)
       )
 
-      ## Appended (not overwritten) so the Candidate Gene Identification tab
-      ## can offer a click-based pick from EVERY contrast run this session -
-      ## e.g. a female-vs-control run and a later male-vs-control run both
-      ## stay available to compare, instead of the second silently replacing
-      ## the first the way results$dge above does. Capped at the 8 most
-      ## recent runs so a long session doesn't grow this without bound; a
-      ## run is unlikely to still be wanted many contrasts later.
+      ## Appended, not overwritten, so Candidate Gene Identification can pick
+      ## from any run this session; capped at 8 most recent.
       runs <- results$dge_runs %||% list()
       run_id <- paste0("run", length(runs) + 1L)
       runs[[run_id]] <- list(
@@ -396,12 +507,8 @@ mod_dge_server <- function(id, dataset, results) {
       if (length(runs) > 8) runs <- utils::tail(runs, 8)
       results$dge_runs <- runs
 
-      ## Saving into results$dge_runs above is the ONLY thing that makes a
-      ## run pickable later (e.g. Candidate Gene Identification's "Female
-      ## DEG contrast"/"Male DEG contrast" pickers, which read this exact
-      ## list) - but it happened silently in a background observer with
-      ## nothing on screen to show it. This notification plus
-      ## saved_runs_ui below are that visible confirmation.
+      ## On-screen confirmation that the run was saved (the observer above
+      ## is otherwise silent).
       showNotification(
         sprintf("Saved \"%s\" as run %d of %d this session - pick it up in Candidate Gene Identification's DEG contrast pickers.",
                 res$label, length(runs), length(runs)),
@@ -409,29 +516,21 @@ mod_dge_server <- function(id, dataset, results) {
       )
     })
 
-    ## Female DEG / Male DEG completion status, directly under the Run
-    ## button - by default this app expects the sex-stratified workflow
-    ## (run once filtered/adjusted to female, once to male; see
-    ## mod_candidates.R's header comment), but nothing on this tab ever
-    ## showed whether that had actually happened. Every run saved into
-    ## results$dge_runs above is silent otherwise, so without this a user
-    ## who's run both female and male contrasts has no on-screen sign of
-    ## it here - only in Candidate Gene Identification, a different tab.
-    ## Detection mirrors mod_candidates.R's guess_run() exactly (same
-    ## \\bfemale\\b|\\bF\\b / \\bmale\\b|\\bM\\b pattern against the
-    ## contrast label, most recent match wins) so "completed" here means
-    ## precisely what Candidate Gene Identification will actually pick up
-    ## - not a separate, potentially-inconsistent guess.
-    latest_run_matching <- function(pattern) {
+    ## Finds the most recent saved run whose label matches a sex pattern;
+    ## mirrors mod_candidates.R's guess_run() so status stays consistent.
+    latest_run_matching <- function(pattern, negate = FALSE) {
       runs <- results$dge_runs %||% list()
       if (length(runs) == 0) return(NULL)
       labels <- vapply(runs, function(r) r$contrast, character(1))
-      hit <- which(grepl(pattern, labels, ignore.case = TRUE, perl = TRUE))
+      matches <- grepl(pattern, labels, ignore.case = TRUE, perl = TRUE)
+      hit <- which(if (negate) !matches else matches)
       if (length(hit) == 0) return(NULL)
       labels[[utils::tail(hit, 1)]]
     }
 
     output$saved_runs_ui <- renderUI({
+      sex_pattern <- "\\b(female|male)\\b|\\bF\\b|\\bM\\b"
+      all_label <- latest_run_matching(sex_pattern, negate = TRUE)
       female_label <- latest_run_matching("\\bfemale\\b|\\bF\\b")
       male_label <- latest_run_matching("\\bmale\\b|\\bM\\b")
 
@@ -445,9 +544,9 @@ mod_dge_server <- function(id, dataset, results) {
 
       tagList(
         p(class = "submodule-desc", style = "margin-bottom: 4px;",
-          "Sex-stratified status (used by Candidate Gene Identification):"),
+          "Run status (Female/Male are used by Candidate Gene Identification):"),
         tags$ul(style = "padding-left: 18px; margin-bottom: 0; list-style: none;",
-                status_row("Female", female_label), status_row("Male", male_label))
+                status_row("All samples", all_label), status_row("Female", female_label), status_row("Male", male_label))
       )
     })
 
@@ -473,16 +572,8 @@ mod_dge_server <- function(id, dataset, results) {
       )
     })
 
-    ## Publication-style volcano: theme_classic() base, bold axis titles with
-    ## proper log subscript notation, up/down counts annotated directly on
-    ## the plot (common journal convention), gene labels for the top hits,
-    ## and a horizontal reference line at the largest raw p-value among
-    ## currently-significant points - the actual data-driven boundary the
-    ## adjusted-p cutoff maps to here, rather than a fixed but misleading
-    ## transform of padj_cut plotted against the raw-p y-axis. Built once as
-    ## its own reactive so the on-screen plot and the PNG download always
-    ## show exactly the same figure (same pattern as the Venn diagrams in
-    ## mod_preprocessing.R).
+    ## Publication-style volcano plot with up/down annotations and top-hit
+    ## labels; a single reactive so the preview and PNG download match.
     volcano_plot_obj <- reactive({
       df <- sig_table()
       top_labels <- df %>% dplyr::filter(significant) %>% dplyr::arrange(adj.P.Val) %>% head(15)
@@ -523,38 +614,22 @@ mod_dge_server <- function(id, dataset, results) {
                  hjust = 1, vjust = 1.6, size = 4.2, fontface = "bold", color = ARTHOMIX_COLORS$red)
     })
 
-    ## summary_ui below is the one place a failed fit_result() validation
-    ## message is shown - every other output that depends on the same
-    ## fit_result()/sig_table() chain (volcano, heatmap, dge_table) would
-    ## otherwise redisplay that identical message in its own box, since
-    ## each output independently re-evaluates (and re-throws) the same
-    ## cached validation error. tryCatch() + req() here swallows it and
-    ## leaves this panel blank instead of repeating the text.
+    ## Swallows a failed fit validation here (summary_ui already shows it)
+    ## instead of repeating the same error in every dependent output.
     output$volcano <- renderPlot({
       p <- tryCatch(volcano_plot_obj(), error = function(e) NULL)
       req(p)
       p
     })
 
-    ## width/height chosen to match a standard single-to-1.5-column journal
-    ## figure (~7in @ 300dpi is comfortably above the ~85-183mm range most
-    ## journals specify for a single panel) - deliberately fixed regardless
-    ## of the on-screen preview size, since the download is for actual use
-    ## in a manuscript/poster, not just a bigger version of the preview.
+    ## Fixed 7x6in @ 300dpi, matching standard journal figure dimensions.
     output$download_volcano_png <- downloadHandler(
       filename = function() "volcano_plot.png",
       content = function(file) ggsave(file, plot = volcano_plot_obj(), width = 7, height = 6, dpi = 300, bg = "white")
     )
 
-    ## ---------------------------------------------------------------------
-    ## Heatmap of the top significant genes from this contrast, z-scored
-    ## per gene across the exact same sample subset fit_result() modeled,
-    ## with a top color bar for the contrast group. DESeq2's raw counts are
-    ## log2(x+1)-transformed first (limma's expr is already continuous/log
-    ## scale). pheatmap (already installed) gives clustering + an
-    ## annotation bar in one call - the standard tool for this figure type.
-    ## ---------------------------------------------------------------------
-
+    ## Heatmap of top significant genes, z-scored per gene, with a group
+    ## color bar; DESeq2 counts are log2(x+1)-transformed first.
     top_de_genes <- reactive({
       df <- sig_table()
       n <- input$heatmap_n %||% 30

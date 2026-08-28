@@ -59,10 +59,10 @@ mod_multi_pathway_ui <- function(id) {
                  column(6, numericInput(ns("max_size"), "Max gene-set size", value = 500, min = 5, step = 10))),
         selectInput(ns("background"), "Background / universe", choices = c(
           "Auto (measured features in active dataset)" = "auto_experimental",
-          "Preloaded cohort measured-gene universe" = "preloaded_universe",
+          "Preloaded cohort candidate-gene list (small - not genome-wide)" = "preloaded_universe",
           "Uploaded file's own identifier list" = "uploaded_background",
           "Entire selected database (no experimental universe)" = "entire_database"
-        ), selected = "preloaded_universe"),
+        ), selected = "entire_database"),
         conditionalPanel(condition = sprintf("input['%s'] == 'entire_database'", ns("background")),
                           div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
                               "No experimental universe supplied - results will be labeled accordingly."))
@@ -275,9 +275,17 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         }
         tab <- do.call(rbind, rows)
         fdr_thresh <- if (identical(input$method, "GSEA")) input$gsea_fdr_cut %||% 0.25 else input$fdr_cut %||% 0.25
-        tab_sig <- tab[!is.na(tab$p.adjust) & tab$p.adjust < fdr_thresh, , drop = FALSE]
-        tab_show <- if (nrow(tab_sig) > 0) tab_sig else tab
-        tab_show <- mp_build_evidence_tracks(tab_show, df)
+        ## Every tested term is kept and shown, ranked by p.adjust - a small
+        ## input gene list (e.g. a 21-gene candidate panel) naturally clears
+        ## FDR for only a handful of terms; previously this dropped every
+        ## other tested term from view entirely, which is why KEGG/etc. could
+        ## show just one pathway even though the database itself was queried
+        ## in full. `significant` flags which rows actually clear FDR - nothing
+        ## is hidden, nothing is relabeled as significant that isn't.
+        tab <- tab[order(tab$p.adjust, tab$pvalue), , drop = FALSE]
+        tab$significant <- !is.na(tab$p.adjust) & tab$p.adjust < fdr_thresh
+        n_sig <- sum(tab$significant)
+        tab_show <- mp_build_evidence_tracks(tab, df)
         tab_show$concordance <- vapply(seq_len(nrow(tab_show)), function(i) {
           overlap <- unique(trimws(unlist(strsplit(tab_show$geneID[i] %||% "", "/"))))
           sub <- df[toupper(df$gene_symbol) %in% toupper(overlap) | toupper(df$feature) %in% toupper(overlap), , drop = FALSE]
@@ -306,7 +314,7 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
       r <- result()
       if (is.null(r) || !isTRUE(r$ok)) return(box(width = NULL, title = "Enrichment", status = "primary", solidHeader = FALSE, div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), r$error %||% "Analysis failed.")))
       tagList(
-        div(class = "empty-note", icon("circle-check"), sprintf("%d significant/shown term(s) across %s (FDR < %s where available).", nrow(r$table), paste(unique(r$table$source), collapse = ", "), r$fdr_thresh)),
+        div(class = "empty-note", icon("circle-check"), sprintf("%s term(s) tested across %s - %s significant at FDR < %s.", format(nrow(r$table), big.mark = ","), paste(unique(r$table$source), collapse = ", "), sum(r$table$significant %||% FALSE), r$fdr_thresh)),
         if (length(r$warnings) > 0) div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"), tags$ul(lapply(unique(r$warnings), tags$li))) else NULL,
         fluidRow(
           column(6, box(width = NULL, title = "Dot plot", status = "primary", solidHeader = FALSE,
@@ -344,9 +352,9 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
 
     output$enrich_table <- DT::renderDataTable({
       r <- req(res_ok())
-      cols <- intersect(c("source", "ID", "Description", "GeneRatio", "Count", "pvalue", "p.adjust", "qvalue", "NES", "ES", "geneID",
+      cols <- intersect(c("source", "ID", "Description", "significant", "GeneRatio", "Count", "pvalue", "p.adjust", "qvalue", "NES", "ES", "geneID",
                            "transcript_gene_count", "meth_cpg_count", "integration_label", "concordance"), colnames(r$table))
-      DT::datatable(r$table[, cols, drop = FALSE], rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
+      DT::datatable(r$table[, cols, drop = FALSE], rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
     output$dl_enrich_csv <- downloadHandler(function() "pathway_enrichment.csv", function(file) utils::write.csv(req(res_ok())$table, file, row.names = FALSE))
 
@@ -430,8 +438,8 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         div(style = "display:flex; flex-wrap:wrap; gap:8px;",
             card("Database(s)", paste(unique(r$table$source), collapse = ", ")), card("Method", r$method),
             card("Input features", r$mapping$n_input), card("Mapped features", r$mapping$n_mapped),
-            card("Mapping rate", sprintf("%s%%", r$mapping$mapping_rate)), card("Significant pathways", nrow(r$table)),
-            card("FDR threshold", r$fdr_thresh)),
+            card("Mapping rate", sprintf("%s%%", r$mapping$mapping_rate)), card("Terms tested", nrow(r$table)),
+            card("Significant pathways", sum(r$table$significant %||% FALSE)), card("FDR threshold", r$fdr_thresh)),
         br(),
         box(width = NULL, title = "Analysis metadata (reproducibility)", status = "primary", solidHeader = FALSE, DT::dataTableOutput(ns("meta_table"))),
         box(width = NULL, title = "Mapping results (input -> mapped identifier)", status = "primary", solidHeader = FALSE,

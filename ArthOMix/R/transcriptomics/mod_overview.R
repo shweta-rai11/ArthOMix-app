@@ -1,27 +1,11 @@
-## R/mod_overview.R
-## Submodule: Overview and Datasets (Section 2.1)
-## Four tabs, each with its own "Dataset to inspect" picker (one of the four
-## individual raw GEO series - two training, two validation - plus, once
-## you've uploaded something on the Dataset tab, that too):
-##   "Datasets"        - the GEO series this app's data comes from (always
-##                        shown, same catalog scripts/00_shared/02_data_loading.R
-##                        pulls from - independent of what's currently loaded).
-##   "Metadata"        - an unfiltered overview of the selected dataset's
-##                        sample metadata.
-##   "Expression data" - the selected dataset's expression matrix itself.
-##   "QC"              - the checks scripts/00_shared/eda.R runs before
-##                        anything else: a missing-value audit, sample-level
-##                        outlier detection (signal, detected features,
-##                        cohort correlation), a normalisation/PCA check
-##                        (with a live "normalise this dataset now" action
-##                        for anyone who uploaded un-normalised data), and
-##                        filtering by any metadata column to explore a
-##                        subset.
+## Overview and Datasets submodule: GEO source catalog, metadata/expression
+## browsers, and QC (missing values, outlier detection, normalisation check,
+## group filtering) for the selected raw dataset.
 
 mod_overview_config <- list(
   id = "overview", group = "Data",
   title = "Overview and Datasets",
-  description = "The GEO datasets this app draws on, and QC for either the merged working dataset or any individual source dataset on its own.",
+  description = "The datasets overview, where quality control of the data can be performed. Users can either upload their own dataset or use pre-loaded data.",
   icon = "table-cells"
 )
 
@@ -174,14 +158,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       div(class = "module-grid", cards)
     })
 
-    ## ---- QC tab: which individual raw dataset every check below runs on ---
-    ## Deliberately NOT the merged/batch-corrected working dataset - this tab
-    ## is for inspecting each of the four source datasets (two training, two
-    ## validation) on its own, raw, no merge, no ComBat. The merged dataset
-    ## has its own view elsewhere (Preprocessing). The one exception: if
-    ## you've uploaded your own data on the Dataset tab, it's offered here
-    ## too, since that's the one dataset in the app nobody has already
-    ## checked or normalised for you - see the Normalise section below.
+    ## QC tab source picker: raw individual datasets only (no merge/ComBat),
+    ## plus the user's own upload if present.
 
     qc_source_choices <- reactive({
       choices <- setNames(vapply(GEO_SOURCES, `[[`, character(1), "gse"),
@@ -202,11 +180,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       d
     }
 
-    ## Metadata, Expression data and QC each get their own independent
-    ## "Dataset to inspect" picker rather than sharing one - a single picker
-    ## shown/hidden across tabs via conditionalPanel doesn't reliably bind
-    ## once this module's UI is inserted dynamically (via insertTab from the
-    ## Sub-modules grid), so each tab is self-contained instead.
+    ## Each tab gets its own picker instead of sharing one, since a shared
+    ## conditionalPanel picker doesn't reliably bind once inserted via insertTab.
     output$qc_source_ui_meta <- renderUI({
       selectInput(ns("qc_source_meta"), "Dataset to inspect", choices = qc_source_choices(),
                   selected = GEO_SOURCES[[1]]$gse, width = "100%")
@@ -366,14 +341,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
 
     ## ---- QC tab: normalisation check, run on demand -----------------------
 
-    ## A plain selectInput() with choices = NULL + updateSelectInput() would
-    ## miss its target here: this module's server (like every submodule's)
-    ## is instantiated eagerly at app startup, before the user has added
-    ## this tab via the Sub-modules grid, so a fire-once update sent before
-    ## the tab (and its <select>) exists in the DOM is just lost - the
-    ## dropdown then stays permanently empty. Rendering the input itself
-    ## avoids that: it only runs once the output is actually bound, i.e.
-    ## once the tab is visible, so the choices are always there.
+    ## Rendered (not updateSelectInput) so choices populate once the tab is
+    ## actually visible, since the server starts before the tab exists in the DOM.
     output$norm_color_by_ui <- renderUI({
       cols <- setdiff(colnames(qc_target()$meta), "sample")
       selectInput(ns("norm_color_by"), "Color by", choices = cols,
@@ -461,12 +430,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                      options = list(pageLength = 8, scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## ---- QC tab: normalise this dataset live -------------------------------
-    ## Anyone can run this on any of the four raw sources to see what quantile
-    ## normalisation would do; only when the selected dataset is the user's
-    ## own upload can the result be adopted app-wide, since the four raw GEO
-    ## sources are a fixed reference and Preprocessing already owns the real
-    ## merge-and-normalise pipeline for them.
+    ## Live quantile normalisation preview; only adoptable app-wide for the
+    ## user's own upload, since the fixed GEO sources are read-only reference data.
 
     norm_apply_result <- eventReactive(input$apply_norm_btn, {
       expr <- as.matrix(qc_target()$expr)
@@ -544,10 +509,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## ---- QC tab: browse the expression matrix itself ----------------------
-    ## Server-side DT processing (the DT default) is essential here - these
-    ## matrices run to tens of thousands of rows, and rendering that client-
-    ## side would ship the whole thing to the browser at once.
+    ## Server-side DT paging (server = TRUE below) since these matrices run to
+    ## tens of thousands of rows.
 
     expr_table_data <- reactive({
       m <- qc_target_expr()$expr
@@ -568,13 +531,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       content = function(file) data.table::fwrite(expr_table_data(), file)
     )
 
-    ## ---- QC tab: explore by any metadata column - opt in, nothing pre-picked
-    ## Filters are generated from whatever columns the selected dataset's
-    ## metadata actually has, not hardcoded to group/sex: a numeric column
-    ## (age, rin, ...) gets a range slider, a low-cardinality categorical
-    ## column (group, sex, dataset, batch, ...) gets a multi-select. A
-    ## high-cardinality column (sample, id) is skipped - picking one of
-    ## hundreds of individual sample IDs isn't a useful filter.
+    ## Builds filter widgets from whatever metadata columns exist: numeric ->
+    ## range slider, low-cardinality categorical -> multi-select, high-cardinality skipped.
 
     filter_spec <- reactive({
       meta <- qc_target()$meta

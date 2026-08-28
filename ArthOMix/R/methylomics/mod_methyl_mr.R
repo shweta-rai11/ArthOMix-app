@@ -1,43 +1,21 @@
 ## R/methylomics/mod_methyl_mr.R
-## Submodule: Mendelian Randomization (methylomics)
+## Two-sample MR for methylation exposures: cis/trans mQTL instruments for
+## a CpG -> GWAS outcome. Separate from R/transcriptomics/mod_mr.R (eQTL MR).
 ##
-## A complete two-sample MR workflow for METHYLATION exposures: cis/trans
-## mQTL instruments for a CpG -> a GWAS outcome. Not the transcriptomics
-## eQTL/gene-expression MR tool (R/transcriptomics/mod_mr.R, untouched) -
-## this module has its own CpG-scoped data, filters, and results throughout.
+## Two data routes: Preloaded reproduces script08_mendelian_randomization's
+## completed run (GoDMC cis-mQTL, already clumped/harmonised against the
+## Ishigaki et al. 2022 RA GWAS) - MR estimation/sensitivity/plots run live
+## from the cached harmonised table. Upload Dataset runs the full live
+## pipeline (instrument selection, ld_clump() via OpenGWAS API,
+## harmonisation, MR, sensitivity) on user-supplied summary stats.
 ##
-## Two data routes, chosen first and nothing else shown until then:
-##  - "Use Preloaded Data" reproduces script08_mendelian_randomization's
-##    actual completed run (GoDMC cis-mQTL instruments for the script07
-##    majority-vote CpG panel, already LD-clumped r2<0.001/10000kb, already
-##    harmonise_data(action=2)'d against the Ishigaki et al. 2022 RA GWAS -
-##    see METHODS_mendelian_randomization.md). Instrument selection and
-##    clumping are NOT re-run live for this route (the raw GoDMC/RA-GWAS
-##    files aren't bundled with this deployment); MR estimation, sensitivity
-##    analyses, single-SNP estimates, and every plot ARE computed live, from
-##    the cached already-harmonised table (mr_harmonised_all_cpgs.csv),
-##    using the same TwoSampleMR functions the script itself calls - so a
-##    default-parameter run reproduces mr_estimates_{sex}.csv exactly, and
-##    a CpG that happens to carry >=3 instruments can now show real
-##    heterogeneity/pleiotropy/leave-one-out results the original batch run
-##    never had occasion to compute (no CpG in that run reached 3
-##    instruments).
-##  - "Upload Dataset" is a fully live pipeline on the user's own
-##    exposure(mQTL)/outcome(GWAS) summary-statistic files: instrument
-##    selection, LD clumping (ieugwasr::ld_clump(), OpenGWAS API - no local
-##    PLINK reference is bundled with this deployment), harmonisation, MR
-##    estimation, sensitivity, and plots all run live with user-adjustable
-##    parameters.
-##
-## Nothing computes or renders ahead of an explicit click, at every stage:
-## Data -> Filters & Instruments -> LD Clumping -> Harmonisation -> MR
-## Analysis -> Sensitivity -> Results -> Plots. Changing a stage's own
-## defining inputs invalidates every stage after it (has-run reactiveVal
-## pattern, same idiom as mod_methyl_dmp.R/mod_methyl_normalization.R).
+## Stage-gated UI: Data -> Filters & Instruments -> LD Clumping ->
+## Harmonisation -> MR Analysis -> Sensitivity -> Results -> Plots; changing
+## a stage's inputs invalidates everything downstream (has-run reactiveVal
+## pattern, same as mod_methyl_dmp.R/mod_methyl_normalization.R).
 
 ## ---------------------------------------------------------------------------
-## Small local helpers (deliberately NOT shared with R/transcriptomics/
-## mod_mr.R - this module owns its own UI/compute helpers end to end)
+## Small local helpers (not shared with R/transcriptomics/mod_mr.R)
 ## ---------------------------------------------------------------------------
 
 .mmr_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
@@ -49,11 +27,9 @@
 
 .mmr_stage_order <- c("data", "instruments", "clump", "harmonise", "mr", "sensitivity")
 
-## GoDMC/script08's own cis definition (METH_MR pipeline default) - see
-## METHODS_mendelian_randomization.md Section 3. Used as the pre-filled
-## default for the Upload route's cis window and echoed (read-only) for
-## the Preloaded route, per spec: "use the script's definition as the
-## default", not a re-guessed one.
+## GoDMC/script08's cis-mQTL definition (METHODS_mendelian_randomization.md
+## Section 3); pre-filled default for the Upload route's cis window,
+## echoed read-only for the Preloaded route.
 MMR_DEFAULT_CIS_WINDOW_BP <- 1e6
 MMR_DEFAULT_CIS_PVAL <- 5e-8
 MMR_DEFAULT_MIN_F <- 10
@@ -62,7 +38,7 @@ MMR_DEFAULT_CLUMP_KB <- 10000
 
 mod_methyl_mr_config <- list(
   id = "mr", title = "Mendelian Randomization", icon = "route", group = "Genetics",
-  description = "Two-sample Mendelian randomisation of mQTL instruments against a GWAS outcome, per CpG or across a panel. Uses the bundled GoDMC/RA-GWAS data by default, or your own uploaded summary statistics."
+  description = "Two-sample Mendelian randomisation of mQTL instruments against a GWAS outcome."
 )
 
 ## ---------------------------------------------------------------------------
@@ -234,14 +210,10 @@ mmr_analysis_ui <- function(ns) {
   uiOutput(ns("analysis_tab_body"))
 }
 
-## MR-RAPS and penalised weighted median are real TwoSampleMR::mr() method_list
-## entries (confirmed via TwoSampleMR::mr_method_list()) - offered as
-## selectable methods, but only when exists() confirms the installed package
-## version actually provides them, per "do not enable a method unless the
-## required package/function is actually available". Contamination mixture
-## isn't a function this installed TwoSampleMR version provides, and Radial
-## MR (RadialMR package) uses its own API rather than mr()'s method_list, so
-## neither is offered as a selectable MR method here.
+## MR-RAPS / penalised weighted median are offered only when exists()
+## confirms the installed TwoSampleMR version provides them. Contamination
+## mixture isn't provided by this version, and Radial MR (RadialMR) uses
+## its own API rather than mr()'s method_list - neither is offered here.
 mmr_robust_method_choices <- function() {
   extra <- list()
   if (exists("mr_raps", where = asNamespace("TwoSampleMR"), inherits = FALSE)) extra[["MR-RAPS (robust)"]] <- "mr_raps"
@@ -308,9 +280,8 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       for (s in .mmr_stage_order[idx:length(.mmr_stage_order)]) stage_flags[[s]] <- FALSE
     }
 
-    ## Freeze the CpG panel picker for the Preloaded route to whichever sex
-    ## stratum is picked, from the cached mr_estimates_{sex}.csv CpG list -
-    ## this is the actual majority-vote panel script08 used, not re-derived.
+    ## CpG panel picker for the Preloaded route, from the cached
+    ## mr_estimates_{sex}.csv CpG list (script08's majority-vote panel).
     pre_panel_cpgs <- reactive({
       switch(input$pre_sex %||% "female",
         female = { d <- load_default_mr_estimates("female"); if (is.null(d)) character(0) else sort(unique(d$exposure)) },
@@ -339,8 +310,8 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
                  invalidate_from("instruments"), ignoreInit = TRUE, ignoreNULL = FALSE)
 
     ## ------------------------------------------------------------------
-    ## Upload route: shared column-mapping utilities (global.R, generic -
-    ## also used by mod_mr.R and mod_coloc.R's own upload modes)
+    ## Upload route: shared column-mapping utilities (global.R; also used
+    ## by mod_mr.R and mod_coloc.R's upload modes)
     ## ------------------------------------------------------------------
     exp_df_r <- reactive({ req(input$exp_file); read_uploaded_table(input$exp_file$datapath) })
     out_df_r <- reactive({ req(input$out_file); read_uploaded_table(input$out_file$datapath) })
@@ -348,8 +319,8 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     output$exp_map_ui <- gwas_col_map_ui(ns, reactive(input$exp_file), exp_df_r, "exp", "Exposure file", extra_fields = "n")
     output$out_map_ui <- gwas_col_map_ui(ns, reactive(input$out_file), out_df_r, "out", "Outcome file", extra_fields = "n")
 
-    ## CpG ID + optional chr/pos/gene columns - mQTL-specific, not part of
-    ## the shared gwas_col_map_ui (which only knows the generic GWAS fields).
+    ## CpG ID + optional chr/pos/gene columns - mQTL-specific, outside the
+    ## shared gwas_col_map_ui (generic GWAS fields only).
     output$exp_extra_map_ui <- renderUI({
       req(input$exp_file)
       df <- exp_df_r()
@@ -494,11 +465,8 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
         maf_val <- pmin(d$eaf.exposure, 1 - d$eaf.exposure)
         excl_maf <- excl_maf | (!is.na(maf_val) & maf_val < maf_cut)
         weak <- d$F_stat_recomputed < min_f
-        ## Cis/trans: the preloaded pipeline already restricted to cis
-        ## (+/-1Mb) at build time - "trans allowed"/"all" here can only
-        ## widen back in by not filtering further (no raw trans rows are
-        ## cached to restore), so this control is informational for the
-        ## Preloaded route and a real filter for the Upload route only.
+        ## Preloaded pipeline already restricted to cis (+/-1Mb) at build
+        ## time - this control is informational only for this route.
         excl_region <- rep(FALSE, nrow(d))
 
         d$excluded_pval <- excl_pval
@@ -540,9 +508,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
           if (has_region_cols) {
             cpg_chr <- as.character(exp_raw[[input$exp_cpg_chr]])
             cpg_pos <- suppressWarnings(as.numeric(exp_raw[[input$exp_cpg_pos]]))
-            ## exp_fmt row order matches exp_raw's surviving rows via SNP;
-            ## rejoin by SNP+phenotype to keep this robust to any row
-            ## reordering format_data() performs internally.
+            ## Rejoin by SNP+phenotype since format_data() may reorder rows.
             key <- match(paste(exp_fmt$SNP, exp_fmt$exposure), paste(exp_raw[[input$exp_snp]], exp_raw[[cpg_col]]))
             row_cpg_chr <- cpg_chr[key]; row_cpg_pos <- cpg_pos[key]
             same_chr <- as.character(exp_fmt$chr.exposure) == row_cpg_chr
@@ -567,10 +533,9 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     observeEvent(input$instruments_btn, {
       ist <- tryCatch(build_instruments_state(), error = function(e) e)
       if (inherits(ist, "error") || inherits(ist, "shiny.silent.error")) return()
-      ## Enforce min/max instruments per CpG (on the retained set), keeping
-      ## strongest-by-p-value when a max is set - excluded rows stay in the
-      ## data.frame (excluded_maxcap flag) rather than being dropped, so the
-      ## "before/after" story stays honest.
+      ## Enforce min/max instruments per CpG (retained set), keeping the
+      ## strongest by p-value; excluded rows are flagged (excluded_maxcap),
+      ## not dropped.
       d <- ist$d
       d$excluded_maxcap <- FALSE
       max_n <- input$f_max_instruments
@@ -971,8 +936,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     outputOptions(output, "directionality_table", suspendWhenHidden = FALSE)
 
     ## ------------------------------------------------------------------
-    ## CpG annotation (chr/pos/gene) - 450K manifest lookup (annotation.R,
-    ## shared/generic), falls back to an uploaded gene column when present.
+    ## CpG annotation (chr/pos/gene) via 450K manifest lookup (annotation.R).
     ## ------------------------------------------------------------------
     cpg_annotation <- function(cpgs) {
       anno <- tryCatch(methyl_get_annotation("450K"), error = function(e) list(ok = FALSE))

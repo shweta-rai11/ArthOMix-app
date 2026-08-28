@@ -401,6 +401,27 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
 .pipeline-status-chip.status-pending { background: var(--color-warning-surface); color: #8A5A00; border-color: #F2DDB0; }
 .pipeline-status-chip.status-neutral { background: #EEF1F4; color: var(--color-ink-secondary); border-color: var(--color-border); }
 
+/* ---------- Evidence checklist (Biomarker Card: "Evidence Status") ----------
+   Long sentence-length labels ("Biological evidence (pathway/GO/disease/
+   drug/PPI/expression/literature)") wrap badly as pill chips, so this is a
+   plain two-column checklist instead: icon + label per row, no pill background. */
+.evidence-tier-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.evidence-tier-count { font-size: 12.5px; color: var(--color-ink-secondary); }
+
+.evidence-checklist { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 28px; }
+.evidence-checklist-item {
+  display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.45;
+  padding: 8px 0; border-bottom: 1px solid var(--color-border);
+}
+.evidence-checklist-item:last-child { border-bottom: none; }
+.evidence-checklist-item svg, .evidence-checklist-item .fa { flex-shrink: 0; margin-top: 2px; font-size: 13px; }
+.evidence-checklist-item.is-done { color: var(--color-ink); }
+.evidence-checklist-item.is-done svg, .evidence-checklist-item.is-done .fa { color: var(--color-success); }
+.evidence-checklist-item.is-pending { color: var(--color-ink-secondary); }
+.evidence-checklist-item.is-pending svg, .evidence-checklist-item.is-pending .fa { color: var(--color-warning); }
+.evidence-checklist-item.is-neutral { color: var(--color-ink-secondary); font-style: italic; }
+.evidence-checklist-item.is-neutral svg, .evidence-checklist-item.is-neutral .fa { color: #B8C0CC; }
+
 /* ---------- Feature Selection: sticky run bar ----------
    Pins the "Run Female"/"Run Male" buttons to the top of their box - not
    fixed to the viewport, so it still respects the box's own bounds - so
@@ -573,25 +594,6 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   font-weight: 600;
 }
 .navbar-default .navbar-brand, .navbar-default .navbar-header { display: none; }
-
-/* "(soon)" modules - subdued but still readable, same black/blue-on-hover
-   treatment, just muted at rest to signal they're not clickable yet.
-   Methylomics and Cross-Omics used to be placeholders here too, but
-   they're fully built modules now, so they're no longer grouped with the
-   genuinely-unbuilt multiomics tab and just use the base black/active-blue
-   styling every other live tab gets. */
-.navbar-default .navbar-nav > li > a[data-value="multiomics"] {
-  color: var(--color-ink-secondary) !important;
-  font-style: italic;
-}
-.navbar-default .navbar-nav > li > a[data-value="multiomics"]:hover {
-  color: var(--color-primary) !important;
-  background: var(--color-surface-blue) !important;
-}
-.navbar-default .navbar-nav > li.active > a[data-value="multiomics"] {
-  color: var(--color-primary) !important;
-  background: var(--color-surface-blue) !important;
-}
 
 /* ---------- Left sidebar ---------- */
 

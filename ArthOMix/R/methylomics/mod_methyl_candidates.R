@@ -1,30 +1,24 @@
 ## R/methylomics/mod_methyl_candidates.R
 ## Submodule: Candidate CpGs (Module-DMR Overlap).
 ##
-## Methylation/WGCNA module CpGs -> DMR coordinates -> genomic overlap ->
-## candidate CpGs -> filtering/prioritization -> results. Five sub-tabs:
-##   1. Data & Filters   - pick Preloaded/Upload, load, review detected
-##                          columns, set module/DMR/overlap/consistency filters.
-##   2. DMR-CpG Overlap  - coordinate-based overlap (GenomicRanges::findOverlaps)
-##                          between module CpGs and filtered DMRs.
-##   3. Module-DMR Overlap - per-module overlap counts + one-sided Fisher's
-##                          exact enrichment test against the tested CpG universe.
-##   4. Candidate CpGs   - further filter/rank the overlap table (subtab 2)
-##                          by significance/effect-size/module-membership.
-##   5. Visualization    - one Generate-plot button per chart, each gated on
-##                          its own upstream analysis having been run.
+## Module CpGs -> DMR coordinates -> genomic overlap -> candidate CpGs ->
+## filtering/prioritization -> results. Five sub-tabs:
+##   1. Data & Filters      - pick Preloaded/Upload, load, set filters.
+##   2. DMR-CpG Overlap     - coordinate overlap (GenomicRanges::findOverlaps)
+##                            between module CpGs and filtered DMRs.
+##   3. Module-DMR Overlap  - per-module overlap counts + one-sided Fisher's
+##                            exact enrichment test vs. the tested CpG universe.
+##   4. Candidate CpGs      - filter/rank the subtab-2 overlap table.
+##   5. Visualization       - one Generate-plot button per chart, each gated
+##                            on its own upstream analysis having run.
 ##
-## Preloaded path reads straight from global.R's existing loaders
-## (load_default_wgcna_module_assignment/load_default_dmr/load_default_dmp)
-## plus ChAMPdata::probe.features for genomic coordinates/gene/island/region -
-## nothing here reruns WGCNA or DMR calling. Upload path accepts a module-
-## assignment table and a DMR-results table (a CpG annotation/coordinate
-## table is optional if chromosome/position already live in the module
-## table); column names are auto-detected the same way mod_preprocessing.R's
-## pp_guess_col() already does elsewhere in this app - exact names are never
-## required. This module owns its own data intake end to end (no reliance on
-## the live WGCNA/DMR sub-modules' in-session reactive state), so this file
-## is the only one touched to implement it.
+## Preloaded path reads global.R's loaders (load_default_wgcna_module_
+## assignment/load_default_dmr/load_default_dmp) plus ChAMPdata::probe.features
+## for coordinates/gene/island/region - nothing here reruns WGCNA or DMR
+## calling. Upload path accepts a module-assignment table and a DMR-results
+## table (annotation table optional if coordinates are already in the module
+## table); columns are auto-detected the same way mod_preprocessing.R's
+## pp_guess_col() does.
 
 ## ---- Column-name detection --------------------------------------------
 
@@ -43,13 +37,9 @@ MCD_ISLAND_PATTERNS   <- c("^cgi$", "^island$", "^cpg_island$", "^relation_to_is
 MCD_FEATURE_PATTERNS  <- c("^feature$", "^genomic_region$", "^region$", "^annotation$", "feature")
 MCD_DIRECTION_PATTERNS <- c("^direction$")
 
-## First column whose name matches any pattern, tried in order (each
-## pattern applied as a case-insensitive regex against every column name) -
-## same "ranked regex, first hit wins" idea as mod_preprocessing.R's own
-## pp_guess_col(), just without a forced fallback: NULL means "not found",
-## which every standardizer below treats as a real, reportable outcome
-## (required field -> validation error; optional field -> that column/
-## control is simply omitted downstream).
+## First column matching any pattern (case-insensitive regex), tried in
+## order; NULL if none match. Callers treat that as required (validation
+## error) or optional (column omitted downstream).
 mcd_find_col <- function(cols, patterns) {
   for (p in patterns) {
     hit <- cols[grepl(p, cols, ignore.case = TRUE)]
@@ -140,10 +130,8 @@ mcd_standardize_annotation <- function(df) {
   list(ok = TRUE, df = out, detected = list(cpg_id = cpg_col, chr = chr_col, pos = pos_col, gene = gene_col, island = island_col, feature = feature_col))
 }
 
-## Reused for BOTH the optional CpG-level stats file on upload and the
-## preloaded pipeline's own load_default_dmp("sva", sex) table (columns
-## cpg/dbeta/p_bacon/fdr_bacon - already covered by the generic patterns
-## above) - one standardizer, two callers.
+## Shared by the optional CpG-level stats upload and the preloaded
+## load_default_dmp("sva", sex) table.
 mcd_standardize_cpg_stats <- function(df) {
   cols <- colnames(df)
   cpg_col <- mcd_find_col(cols, MCD_CPG_ID_PATTERNS)
@@ -161,10 +149,8 @@ mcd_standardize_cpg_stats <- function(df) {
   list(ok = TRUE, df = out)
 }
 
-## ChAMPdata::probe.features carries chr/pos plus the gene/genomic-region/
-## CpG-island columns methyl_champ_probe_positions() (mod_methyl_dmr.R)
-## deliberately doesn't expose - a separate, richer extraction, cached
-## independently so this file never has to touch mod_methyl_dmr.R itself.
+## ChAMPdata::probe.features: chr/pos plus gene/genomic-region/CpG-island
+## columns not exposed by mod_methyl_dmr.R's own extraction. Cached separately.
 .mcd_champ_anno_cache <- new.env(parent = emptyenv())
 mcd_champ_full_annotation <- function() {
   if (!is.null(.mcd_champ_anno_cache$anno)) return(.mcd_champ_anno_cache$anno)
@@ -183,9 +169,8 @@ mcd_champ_full_annotation <- function() {
   out
 }
 
-## "1"/"X"/"MT" -> "chr1"/"chrX"/"chrMT"; anything already "chr"-prefixed is
-## just case-normalized. Anything else (an ambiguous identifier) is left
-## exactly as provided rather than guessed at.
+## "1"/"X"/"MT" -> "chr1"/"chrX"/"chrMT"; already-prefixed values are just
+## case-normalized; anything else is left as-is.
 mcd_norm_chr <- function(x) {
   x <- trimws(as.character(x))
   ifelse(grepl("^chr", x, ignore.case = TRUE), paste0("chr", sub("^chr", "", x, ignore.case = TRUE)),
@@ -207,12 +192,10 @@ mcd_filter_dmrs <- function(dmr, fdr_max = NULL, p_max = NULL, dbeta_min = 0, mi
   dmr[keep, , drop = FALSE]
 }
 
-## Inner-joins module_assign to annotation (needs coordinates for both
-## sides), builds a CpG GRanges (point intervals) and a DMR GRanges
-## (optionally flanked), and returns every CpG x DMR overlap pair
-## (GenomicRanges::findOverlaps) alongside the full CpG universe considered
-## (with resolvable coordinates) - the same vectorized region-CpG join
-## mod_methyl_dmr.R's own heatmap helper uses.
+## Joins module_assign to annotation for coordinates, builds CpG/DMR GRanges
+## (DMR optionally flanked), and returns every CpG x DMR overlap pair
+## (GenomicRanges::findOverlaps) plus the CpG universe with resolvable
+## coordinates.
 mcd_compute_overlap <- function(module_assign, annotation, dmr_filtered, flank = 0) {
   cpg_pos <- merge(module_assign, annotation, by = "cpg")
   cpg_pos <- cpg_pos[!is.na(cpg_pos$chr) & !is.na(cpg_pos$pos), , drop = FALSE]
@@ -262,10 +245,9 @@ mcd_detected_list <- function(detected) {
   tags$ul(style = "font-size:12.5px; color:var(--color-ink-secondary); margin-bottom:0;", lapply(rows, tags$li))
 }
 
-## Module names are usually literal WGCNA colours ("blue", "turquoise", ...)
-## - used directly as fill values when every one is a valid R colour name,
-## falling back to the app's own categorical palette otherwise (e.g.
-## uploaded data with module labels like "M1"/"M2").
+## WGCNA module names are usually literal colours - used directly as fill
+## values when all valid R colour names, else falls back to the app palette
+## (e.g. uploaded "M1"/"M2" labels).
 mcd_module_colors <- function(mods) {
   ok <- vapply(mods, function(m) !inherits(tryCatch(grDevices::col2rgb(m), error = function(e) e), "error"), logical(1))
   if (length(mods) > 0 && all(ok)) return(stats::setNames(as.character(mods), as.character(mods)))
@@ -365,7 +347,7 @@ mcd_viz_block <- function(ns, id_prefix, title, icon_name, btn_label, desc) {
 
 mod_methyl_candidates_config <- list(
   id = "candidates", title = "Candidate CpGs (Module-DMR Overlap)", icon = "star", group = "Network",
-  description = "Finds CpGs that overlap significant DMRs and ranks them by WGCNA module enrichment. Works on the preloaded dataset's results, or your own uploaded module and DMR tables."
+  description = "Finds CpGs that overlap significant DMRs and ranks them by WGCNA module enrichment."
 )
 
 mod_methyl_candidates_ui <- function(id) {
@@ -913,9 +895,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## One registration helper instead of six near-identical button/output
-    ## blocks: each plot gates on its own upstream analysis (`requires()`),
-    ## and gets its own has-run flag, renderPlot, and PNG download.
+    ## Registers a plot's button/output pair: gates on its own upstream analysis (`requires()`), gets a has-run flag, renderPlot, and PNG download.
     register_viz <- function(id_prefix, requires, plot_fn, filename) {
       has_run <- reactiveVal(FALSE)
       observeEvent(input[[paste0(id_prefix, "_btn")]], has_run(TRUE), ignoreInit = TRUE)

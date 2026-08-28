@@ -1,55 +1,82 @@
-## R/mod_arthochat.R
-## ArthOChat: the app's one chat assistant (ellmer + shinychat, talking to a
-## local Ollama server - see ARTHOMIX_OLLAMA_MODEL / ollama_available() in
-## global.R). Nested inside the Overview and Datasets module (mod_overview.R
-## renders mod_arthochat_ui()/calls mod_arthochat_server() directly) rather
-## than being its own top-level sub-module, so it doesn't have a
-## mod_arthochat_config / TX_MODULES entry. Answers anything about the
-## project: the currently loaded dataset (the bundled example cohort, or the
-## user's own upload from the Dataset tab - `dataset` is the same shared
-## reactiveValues either way, so this always reflects whatever's actually
-## loaded), this session's analysis results, how to use a particular
-## sub-module, or the underlying biology/methodology. Four tools ground it
-## in real sources instead of memory: project_methods() (global.R) surfaces
-## this project's own written methodology and curated references per
-## transcriptomics sub-module; project_methods_methylomics() (global.R) does
-## the same against the methylomics pipeline's own per-stage write-ups (both
-## the Methylomics and Transcriptomics sidebars open this one shared drawer -
-## see arthochat_shortcut_ui() - rather than Methylomics having its own
-## separate scoped session, so this tool is what keeps methylomics
-## methodology questions grounded here); pubmed_search() (global.R) does a
-## live PubMed lookup for anything broader; gwas_catalog_search() (global.R)
-## looks up candidate OpenGWAS exposure/outcome datasets for a trait - e.g.
-## "which GWAS should I use for RA in the Mendelian Randomization tab's
-## upload mode" - degrading to an instructional message if no OPENGWAS_JWT
-## token is configured.
+## ArthOChat: chat assistant (ellmer + shinychat) over a local Ollama server,
+## living in its own app-wide slide-out drawer (ui.R) rather than nested in
+## any one module. Grounded via four global.R tools: project_methods(),
+## project_methods_methylomics(), pubmed_search(), gwas_catalog_search() -
+## plus one tool defined below, other_module_context(), for an explicit
+## cross-module lookup.
+##
+## Context is module-scoped: `current_context` (passed in from server.R,
+## itself a plain reactive() over the existing input$sidebar_tabs/tx_menu/
+## mx_menu/cx_menu/mo_menu navigation inputs - no second navigation system)
+## tells this module which of the four omics verticals, and which sub-module
+## within it, the user is actually looking at right now. system_prompt_r()
+## below rebuilds the context block from that plus the matching
+## dataset/results reactiveValues via R/submodules_registry.R's
+## build_scoped_assistant_context() - a plain reactive(), so Shiny's own
+## dependency tracking caches it and only recomputes when the active module/
+## sub-module or the data it actually reads changes, not on every chat
+## message (see the observeEvent below, which now just reads the cached
+## reactive instead of rebuilding the whole context string from scratch).
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
 ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "You are ArthOChat, the assistant embedded in the ArthOMix Explorer Shiny app",
-  "for rheumatoid arthritis transcriptomics analysis. Answer anything the user",
+  "for rheumatoid arthritis multi-omics analysis. Answer anything the user",
   "asks about this project: the currently loaded dataset (the bundled example",
-  "cohort, or their own uploaded expression matrix and metadata - always",
-  "whatever is actually loaded right now, described in the context below),",
-  "this session's analysis results, how to use or interpret a particular",
-  "sub-module, or the underlying biology and methodology behind it. Use the",
-  "dataset/results context below and cite specific numbers from it rather",
-  "than guessing; say plainly when a sub-module hasn't been run yet instead",
-  "of inventing results. You cannot run analyses yourself - if the user needs",
-  "a result that isn't in the context, tell them which sub-module to run and",
-  "what to set.",
+  "cohort, or their own uploaded/merged data - always whatever is actually",
+  "loaded right now, described in the context below), this session's analysis",
+  "results, how to use or interpret a particular sub-module, or the",
+  "underlying biology and methodology behind it. Use the dataset/results",
+  "context below and cite specific numbers from it rather than guessing; say",
+  "plainly when a sub-module hasn't been run yet instead of inventing",
+  "results. You cannot run analyses yourself - if the user needs a result",
+  "that isn't in the context, tell them which sub-module to run and what to",
+  "set.",
   "",
-  "You have four research tools:",
+  "The context below is scoped to whichever module and sub-module the user",
+  "currently has open (shown under \"## Current view\") - it refreshes",
+  "automatically every time they navigate, so always trust it over anything",
+  "said earlier in this conversation about a different view. If a question is",
+  "clearly about a different module (e.g. a Methylomics question while",
+  "Transcriptomics is open), say the current view doesn't cover that and",
+  "either tell them which module to switch to, or call the",
+  "other_module_context tool if they explicitly want you to look there",
+  "without switching. Never answer using a different module's results than",
+  "the ones actually shown to you (in the current context or a tool result) -",
+  "if it isn't there, say it's unavailable rather than reusing a stale or",
+  "unrelated result.",
+  "",
+  "Critical distinction, easy to get wrong: project_methods() and",
+  "project_methods_methylomics() return the PUBLISHED manuscript's own",
+  "write-up and numbers for how that pipeline was originally run - they are",
+  "NOT this session's live results, no matter how specific or numeric they",
+  "sound. This session's actual results live ONLY in the \"## Computed",
+  "analysis results (this session)\" part of the context below (or in an",
+  "other_module_context result). A sub-module block that says \"(not yet run",
+  "in this session)\" means exactly that - it has not been run in THIS",
+  "session, even if the methodology tool or literature describes what",
+  "running it typically produces. Never state, imply, or quote a specific",
+  "number (a gene count, DEG count, DMP count, p-value, etc.) as \"this",
+  "session's\" result unless it came from that Computed-results block or an",
+  "other_module_context/other-module Computed-results block - if the",
+  "question asks for a live number and the block says not yet run, the",
+  "correct answer is that it hasn't been run yet, never a number borrowed",
+  "from the methodology write-up or literature.",
+  "",
+  "You have five tools:",
   "",
   "- project_methods(module): looks up THIS project's own written methodology",
   "  for a specific transcriptomics sub-module (e.g. \"WGCNA\", \"Mendelian",
   "  randomisation\", \"feature selection\", or a section number like \"2.6\")",
-  "  plus its curated reference list. This is the authoritative source for",
-  "  \"how does this project do X\" and \"how do I perform or interpret module",
-  "  Y\" - use it first whenever the question is about a specific",
-  "  transcriptomics analysis/sub-module, even if the user doesn't name the",
-  "  module explicitly (infer it from what they're asking about).",
+  "  plus its curated reference list - describing how the PUBLISHED pipeline",
+  "  was run, not this session's own results. This is the authoritative",
+  "  source for \"how does this project do X\" and \"how do I perform or",
+  "  interpret module Y\" - use it first whenever the question is about how a",
+  "  specific transcriptomics analysis/sub-module works, even if the user",
+  "  doesn't name the module explicitly (infer it from what they're asking",
+  "  about) - but never for \"what did MY run just produce\", which only the",
+  "  Computed-results context below can answer.",
   "- project_methods_methylomics(module): the same idea, but for the",
   "  Methylomics module's own pipeline (e.g. \"DMP\", \"DMR\", \"WGCNA",
   "  methylomics\", \"cell-type deconvolution\", \"feature selection\",",
@@ -67,6 +94,13 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "  Mendelian Randomization tab. It needs a configured access token; if it",
   "  reports one is missing, relay that plainly and mention the tab's upload",
   "  option as the immediate alternative.",
+  "- other_module_context(module): fetches the full context - every",
+  "  sub-module, not just the one currently open - for a module OTHER than",
+  "  the one shown under \"## Current view\" below (\"transcriptomics\",",
+  "  \"methylomics\", \"crossomics\", or \"multiomics\"). Use this only when the",
+  "  user explicitly asks about a module they aren't currently viewing; don't",
+  "  call it just to pad an answer, and never invent what it would return",
+  "  without calling it.",
   "",
   "Search before answering, not after. When you cite a paper, give its author,",
   "year, title, journal and PMID (linking to",
@@ -82,17 +116,22 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   sep = "\n"
 )
 
-## `cross_results` is optional (NULL by default) so every pre-existing caller
-## keeps producing byte-identical output - only the drawer's own call site
-## below passes it, so ArthOChat can also answer Cross-Omics questions once
-## an "Expression x Methylation" integration has been run.
-build_arthochat_system_prompt <- function(dataset, results, cross_results = NULL) {
-  paste(ARTHOCHAT_SYSTEM_PROMPT, "", build_assistant_context(dataset, results, cross_results), sep = "\n")
+## Builds the full system prompt for one module-scoped `view` - a list(module=,
+## view_label=, submodule_id=) as produced by server.R's `current_context`
+## reactive - via R/submodules_registry.R's build_scoped_assistant_context().
+build_arthochat_system_prompt <- function(view, dataset, results,
+                                           methyl_dataset, methyl_results,
+                                           cross_dataset, cross_results,
+                                           multi_dataset, multi_results) {
+  ctx <- build_scoped_assistant_context(
+    view$module, view$submodule_id,
+    dataset, results, methyl_dataset, methyl_results,
+    cross_dataset, cross_results, multi_dataset, multi_results
+  )
+  paste(ARTHOCHAT_SYSTEM_PROMPT, "", sprintf("## Current view: %s", view$view_label), "", ctx, sep = "\n")
 }
 
-## No page-header h2 here - the drawer's own header (see ui.R) already
-## shows "ArthOChat" with a close button; this UI is now the drawer's
-## body content, not a full standalone page.
+## Drawer body UI; the drawer's own header (ui.R) already shows the title and close button.
 mod_arthochat_ui <- function(id) {
   ns <- NS(id)
   if (!ollama_available()) {
@@ -119,19 +158,50 @@ mod_arthochat_ui <- function(id) {
   )
 }
 
-mod_arthochat_server <- function(id, dataset, results = NULL, cross_results = NULL) {
+## `current_context` is a reactive (server.R's `current_module_context`)
+## returning list(module=, view_label=, submodule_id=) for whichever
+## sidebar_tabs/tx_menu/mx_menu/cx_menu/mo_menu selection is live right now.
+## The methyl_*/cross_*/multi_* reactiveValues are optional so any existing
+## call site that only passes dataset/results still works, falling back to
+## build_assistant_context()'s whole-app view for every module.
+mod_arthochat_server <- function(id, dataset, results = NULL,
+                                  methyl_dataset = NULL, methyl_results = NULL,
+                                  cross_dataset = NULL, cross_results = NULL,
+                                  multi_dataset = NULL, multi_results = NULL,
+                                  current_context = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     if (!ollama_available()) return(invisible(NULL))
+
+    ## Falls back to a fixed "whole app" view when no navigation-aware caller
+    ## passed current_context (keeps this module usable standalone/in tests).
+    view_r <- if (is.null(current_context)) {
+      reactive(list(module = "app", view_label = "ArthOMix Explorer", submodule_id = NULL))
+    } else {
+      current_context
+    }
+
+    ## Plain reactive(): Shiny caches its value and only recomputes when the
+    ## active module/sub-module (view_r()) or the specific dataset/results
+    ## fields the matching build_*_context() actually reads change - not on
+    ## every chat message, and not because of an unrelated module's results
+    ## changing while the user is looking at a different one.
+    system_prompt_r <- reactive({
+      build_arthochat_system_prompt(
+        view_r(), dataset, results,
+        methyl_dataset, methyl_results,
+        cross_dataset, cross_results,
+        multi_dataset, multi_results
+      )
+    })
 
     client <- NULL
     get_client <- function() {
       if (is.null(client)) {
         cl <- ellmer::chat_ollama(
           model = ARTHOMIX_OLLAMA_MODEL,
-          system_prompt = build_arthochat_system_prompt(dataset, results, cross_results),
-          ## qwen3's hybrid reasoning mode is ~15x slower for little benefit on
-          ## this task (see mod_assistant.R) - keep it off for a responsive chat.
+          system_prompt = system_prompt_r(),
+          ## qwen3's reasoning mode is ~15x slower with little benefit here (see mod_assistant.R).
           api_args = list(think = FALSE)
         )
         cl$register_tool(ellmer::tool(
@@ -190,12 +260,37 @@ mod_arthochat_server <- function(id, dataset, results = NULL, cross_results = NU
             max_results = ellmer::type_integer("Number of datasets to return (1-25). Defaults to 10.", required = FALSE)
           )
         ))
+        ## Explicit escape hatch for a cross-module question - isolate()d
+        ## since ellmer may invoke this outside a reactive tick; reads the
+        ## same reactiveValues build_arthochat_system_prompt() does, just
+        ## unscoped (focus_id = NULL) for whichever module is named.
+        cl$register_tool(ellmer::tool(
+          function(module) {
+            isolate(build_scoped_assistant_context(
+              tolower(trimws(module)), NULL,
+              dataset, results, methyl_dataset, methyl_results,
+              cross_dataset, cross_results, multi_dataset, multi_results
+            ))
+          },
+          paste(
+            "Fetches the full context (every sub-module, not just one) for a",
+            "module OTHER than the one currently open. Use only when the user",
+            "explicitly asks about a module they aren't currently viewing."
+          ),
+          arguments = list(
+            module = ellmer::type_string(
+              "One of: \"transcriptomics\", \"methylomics\", \"crossomics\", \"multiomics\"."
+            )
+          ),
+          name = "other_module_context"
+        ))
         client <<- cl
       }
       client
     }
 
     n_turns <- reactiveVal(0L)
+    last_module <- NULL
 
     observeEvent(input$chat_user_input, {
       if (n_turns() >= ARTHOCHAT_MAX_TURNS) {
@@ -204,8 +299,24 @@ mod_arthochat_server <- function(id, dataset, results = NULL, cross_results = NU
       }
       n_turns(n_turns() + 1L)
 
+      view <- view_r()
+      ## Crossing into a different top-level module (not just a different
+      ## sub-module of the same one) drops the ellmer client so get_client()
+      ## rebuilds a fresh conversation grounded only in the new context -
+      ## observed live (qwen3, think=FALSE) to sometimes keep answering from
+      ## a previous module's turns even after set_system_prompt() below
+      ## updates the context text. The visible chat_ui transcript is
+      ## untouched (chat_append() below just keeps appending to it), so the
+      ## user still sees continuous history - only the model's own backend
+      ## turn history resets, per this app's "correct current-module answers
+      ## over stale conversation context" priority.
+      if (!is.null(last_module) && !identical(last_module, view$module)) {
+        client <<- NULL
+      }
+      last_module <<- view$module
+
       cl <- get_client()
-      cl$set_system_prompt(build_arthochat_system_prompt(dataset, results, cross_results))
+      cl$set_system_prompt(system_prompt_r())
 
       stream <- cl$stream_async(input$chat_user_input)
       shinychat::chat_append("chat", stream)

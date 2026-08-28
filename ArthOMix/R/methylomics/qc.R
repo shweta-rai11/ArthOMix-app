@@ -1,24 +1,12 @@
 ## R/methylomics/qc.R
-## Probe- and sample-level QC for the Methylomics module (ArthOMix/R/mod_methyl_qc.R).
-## Every probe filter below returns list(keep = <logical over rownames(mat)>,
-## note = <one-line summary>) rather than filtering in place, so the caller
-## can show how many probes each individual filter would remove before
-## combining them into one final keep vector. Filters that need raw
-## intensities (detection p-value, beadcount) or manifest annotation
-## (SNP/sex-chromosome) return keep = all-TRUE with an explanatory note
-## when that input isn't available, rather than silently doing nothing or
-## guessing.
+## Probe- and sample-level QC for the Methylomics module (mod_methyl_qc.R).
+## Each probe filter returns list(keep = <logical>, note = <summary>) instead of filtering in place,
+## so counts can be shown per filter before combining into one keep vector. Filters needing raw
+## intensities or manifest annotation that isn't available return keep = all-TRUE with a note explaining why.
 
 ## ---- Probe filters --------------------------------------------------------
 
-## Row-wise variance, vectorized via matrixStats (a compiled, single-pass
-## computation) when available, falling back to base R's apply() otherwise.
-## Every top-variance-probe selection in this file (probe filtering, PCA,
-## hierarchical clustering, Mahalanobis distance, the correlation heatmap)
-## goes through this - at 400k+ probes, apply(m, 1, var) alone takes long
-## enough (several seconds, paid on every recompute) to make the live QC
-## tool feel broken; matrixStats::rowVars() is the same computation roughly
-## two orders of magnitude faster, with no change in result.
+## Row-wise variance; uses matrixStats when available for speed on large probe matrices.
 methyl_row_vars <- function(m) {
   if (requireNamespace("matrixStats", quietly = TRUE)) {
     matrixStats::rowVars(m, na.rm = TRUE)
@@ -40,10 +28,8 @@ methyl_filter_variance <- function(mat, min_variance = 0) {
   list(keep = keep, note = sprintf("%d probe(s) below the variance threshold (%.4g).", sum(!keep), min_variance))
 }
 
-## Standard-deviation companion to methyl_filter_variance() above - same
-## computation (methyl_row_vars(), sqrt'd), offered as its own independent
-## optional filter since "minimum SD" is the more familiar unit for most
-## methylation QC workflows even though it's mathematically the same cut.
+## SD companion to methyl_filter_variance() - same computation, sqrt'd; SD is the more
+## familiar unit for QC workflows.
 methyl_filter_sd <- function(mat, min_sd = 0) {
   sd <- sqrt(pmax(methyl_row_vars(mat), 0))
   sd[!is.finite(sd)] <- 0
@@ -57,9 +43,8 @@ methyl_filter_mean_range <- function(mat, lo, hi) {
   list(keep = keep, note = sprintf("%d probe(s) with mean value outside [%.3g, %.3g].", sum(!keep), lo, hi))
 }
 
-## Only meaningful for an actual Illumina array upload - see
-## METHYL_ARRAY_TYPES_ILLUMINA in annotation.R; the caller decides whether
-## to offer this filter for the selected array type.
+## Only meaningful for an Illumina array upload (see METHYL_ARRAY_TYPES_ILLUMINA in
+## annotation.R); caller decides whether to offer it for the selected array type.
 methyl_filter_non_cpg <- function(mat) {
   keep <- methyl_probe_is_cpg(rownames(mat))
   list(keep = keep, note = sprintf("%d non-CpG (CpH / control) probe(s) removed by ID prefix.", sum(!keep)))
@@ -80,12 +65,8 @@ methyl_filter_snp <- function(mat, anno_result) {
   list(keep = keep, note = sprintf("%d probe(s) overlap a known SNP (manifest Probe_rs/CpG_rs/SBE_rs).", sum(has_snp)))
 }
 
-## `mode`: "remove_xy" (drop both chrX and chrY, the original behavior),
-## "remove_y_only" (drop chrY only - keeps chrX, useful for studies that
-## want to retain X-linked signal but still avoid Y's near-binary
-## presence/absence-by-sex artifact), or "keep" (no-op, included so callers
-## can route every sex-chromosome choice through this one function instead
-## of branching around it).
+## `mode`: "remove_xy" drops chrX+chrY, "remove_y_only" keeps chrX (avoids chrY's
+## presence/absence-by-sex artifact), "keep" is a no-op.
 methyl_filter_sex_chr <- function(mat, anno_result, mode = "remove_xy") {
   if (identical(mode, "keep")) {
     return(list(keep = rep(TRUE, nrow(mat)), note = "Sex-chromosome probes kept (no filtering)."))
@@ -103,12 +84,8 @@ methyl_filter_sex_chr <- function(mat, anno_result, mode = "remove_xy") {
   list(keep = keep, note = sprintf("%d probe(s) on %s removed.", sum(is_sex), label))
 }
 
-## No published cross-reactive probe blacklist (Chen et al. 2013 for 450K;
-## Pidsley et al. 2016 / McCartney et al. 2016 for EPIC) is bundled in this
-## deployment - fabricating one would violate this project's own
-## evidence-based-methods requirement. Instead this accepts a user-supplied
-## exclusion list (methyl_parse_probe_list()), which can be exactly one of
-## those published lists downloaded and uploaded by the user.
+## No cross-reactive probe blacklist (Chen et al. 2013 for 450K; Pidsley et al. 2016 /
+## McCartney et al. 2016 for EPIC) is bundled here - accepts a user-supplied exclusion list instead.
 methyl_filter_cross_reactive <- function(mat, exclusion_ids = NULL) {
   if (is.null(exclusion_ids) || length(exclusion_ids) == 0) {
     return(list(keep = rep(TRUE, nrow(mat)), note =
@@ -118,16 +95,9 @@ methyl_filter_cross_reactive <- function(mat, exclusion_ids = NULL) {
   list(keep = keep, note = sprintf("%d probe(s) removed via the uploaded exclusion list.", sum(!keep)))
 }
 
-## Optional probe_id,maf exclusion list - same shape/parsing convention as
-## methyl_parse_probe_list() (ArthOMix/R/methylomics/parse_upload.R), but
-## also reads a numeric MAF column (by name if present - "maf"/"MAF"/"af"/
-## "AF" - else the second field positionally) so methyl_filter_maf() below
-## can threshold on it. No population-MAF table is bundled in this
-## deployment (see methyl_filter_cross_reactive()'s comment above for why:
-## this app's own manifest annotation has no allele-frequency column), so -
-## exactly like the cross-reactive filter - this only activates against a
-## user-uploaded list (e.g. a downloaded 1000 Genomes/gnomAD MAF-by-probe
-## table for this array type).
+## Parses a probe_id,maf exclusion list (same convention as methyl_parse_probe_list()),
+## reading a numeric MAF column by name or position. No population-MAF table is bundled;
+## only activates against a user-uploaded list.
 methyl_parse_maf_list <- function(datapath, filename) {
   df <- tryCatch(as.data.frame(data.table::fread(datapath, showProgress = FALSE)), error = function(e) NULL)
   if (is.null(df) || nrow(df) == 0 || ncol(df) < 2) {
@@ -143,9 +113,8 @@ methyl_parse_maf_list <- function(datapath, filename) {
   list(ok = TRUE, maf = stats::setNames(maf_vals[ok], ids[ok]))
 }
 
-## Removes probes whose uploaded MAF exceeds `max_maf` - i.e. keeps probes
-## that are either below the threshold or absent from the uploaded table
-## (absence isn't evidence of a common SNP, so it's not penalized).
+## Removes probes whose uploaded MAF exceeds `max_maf`; probes absent from the table are
+## kept (absence isn't evidence of a common SNP).
 methyl_filter_maf <- function(mat, maf_table = NULL, max_maf = 0.05) {
   if (is.null(maf_table) || length(maf_table) == 0) {
     return(list(keep = rep(TRUE, nrow(mat)), note =
@@ -171,10 +140,8 @@ methyl_filter_detection_p <- function(mat, detp, threshold = 0.01) {
   list(keep = keep, note = sprintf("%d probe(s) fail detection p < %.3g in at least one sample.", sum(!keep), threshold))
 }
 
-## Removes a probe if its bead count falls below `threshold` in ANY sample -
-## stricter than ChAMP's own default (champ.filter(beadCutoff=0.05) removes
-## a probe only when it fails in >5% of samples), a deliberate choice here
-## rather than an attempt to reproduce ChAMP's exact rule.
+## Removes a probe if bead count falls below `threshold` in ANY sample - stricter than
+## ChAMP's default (beadCutoff=0.05 requires >5% of samples failing).
 methyl_filter_beadcount <- function(mat, beadcount, threshold = 3) {
   if (is.null(beadcount)) {
     return(list(keep = rep(TRUE, nrow(mat)), note =
@@ -193,12 +160,8 @@ methyl_sample_call_rate <- function(mat) {
   1 - colMeans(is.na(mat))
 }
 
-## Per-sample failed-probe percentage: the fraction of probes with
-## detection p-value > `threshold` in that sample - the sample-level
-## transpose of methyl_filter_detection_p()'s per-probe "fails in at least
-## one sample" logic above. Requires raw IDAT detection p-values, same
-## degrade-with-a-reason pattern as bisulfite conversion/median intensity
-## in idat_metrics.R (a matrix-only upload never has `detp`).
+## Per-sample failed-probe percentage (fraction of probes with detection p > threshold) -
+## sample-level transpose of methyl_filter_detection_p(). Requires raw IDAT detp.
 methyl_sample_failed_probe_pct <- function(mat, detp, threshold = 0.01) {
   if (is.null(detp)) {
     return(list(ok = FALSE, reason = "Failed-probe percentage requires raw IDAT input - not available for an uploaded beta/M-value matrix."))
@@ -208,20 +171,15 @@ methyl_sample_failed_probe_pct <- function(mat, detp, threshold = 0.01) {
   if (length(common_probes) == 0 || length(common_samples) == 0) {
     return(list(ok = FALSE, reason = "No overlapping probes/samples between the detection p-value matrix and this run."))
   }
-  ## NA (not all(colnames(mat)) - detp may not cover every stratum sample if
-  ## the sample sheet's IDs don't perfectly match, same tolerance the
-  ## per-probe detection-p filter already has via its own intersect().
+  ## NA where detp doesn't cover a sample (ID mismatch) - same tolerance as the
+  ## per-probe filter's intersect().
   pct <- stats::setNames(rep(NA_real_, ncol(mat)), colnames(mat))
   pct[common_samples] <- colMeans(detp[common_probes, common_samples, drop = FALSE] > threshold, na.rm = TRUE) * 100
   list(ok = TRUE, pct = pct)
 }
 
-## Per-sample low-intensity flag, built on idat_metrics.R's
-## methyl_median_intensity() (minfi::getQC()'s median log2 methylated/
-## unmethylated intensity) - a sample is "low intensity" when the average
-## of its two medians falls below `min_intensity`, the same signal minfi's
-## own QC tutorial plots (mMed vs uMed) to catch failed arrays. IDAT-only,
-## same degrade pattern as everything else that needs raw intensities.
+## Low-intensity flag from idat_metrics.R's methyl_median_intensity() (minfi::getQC()
+## mMed/uMed) - flagged when the average of the two medians falls below `min_intensity`. IDAT-only.
 methyl_sample_low_intensity <- function(median_int_result, min_intensity = 10) {
   if (!isTRUE(median_int_result$ok)) {
     return(list(ok = FALSE, reason = median_int_result$reason %||% "Median intensity requires raw IDAT input."))
@@ -231,27 +189,9 @@ methyl_sample_low_intensity <- function(median_int_result, min_intensity = 10) {
   list(ok = TRUE, score = stats::setNames(score, d$sample), low = stats::setNames(score < min_intensity, d$sample))
 }
 
-methyl_sample_outliers_iqr <- function(x, k = 1.5) {
-  q <- stats::quantile(x, c(0.25, 0.75), na.rm = TRUE)
-  iqr <- q[2] - q[1]
-  lo <- q[1] - k * iqr; hi <- q[2] + k * iqr
-  x < lo | x > hi
-}
-
-## Correlation-based outlier flag: a sample whose mean pairwise correlation
-## with every other sample is more than `k` MADs below the cohort median is
-## flagged - a sample that simply doesn't look like the rest of the cohort,
-## independent of any PCA/clustering projection. Same family of idea as
-## WGCNA's own sample-network "connectivity Z-score" outlier check (Oldham/
-## Horvath), but median/MAD here rather than WGCNA's mean/SD - a deliberate
-## choice, not an attempt to reproduce WGCNA's exact formula: MAD is itself
-## robust to the very low-correlation outliers this is trying to detect,
-## where an SD computed across the same samples would already be inflated
-## by them. Built on the same top-variance-probe correlation matrix
-## methyl_sample_correlation() (below) already computes for the
-## Visualizations tab's heatmap, so this is a re-derivation of that same
-## signal into a per-sample flag rather than a second, differently-computed
-## correlation.
+## Flags a sample whose mean pairwise correlation with all others is > k MADs below the
+## cohort median (median/MAD for robustness, similar in spirit to WGCNA's connectivity
+## Z-score outlier check). Reuses methyl_sample_correlation()'s correlation matrix.
 methyl_sample_outliers_correlation <- function(mat, n_features = 5000, k = 3) {
   cr <- methyl_sample_correlation(mat, n_features = n_features)
   if (!isTRUE(cr$ok)) return(list(ok = FALSE, reason = cr$reason))
@@ -262,15 +202,9 @@ methyl_sample_outliers_correlation <- function(mat, n_features = 5000, k = 3) {
   list(ok = TRUE, mean_correlation = mean_cor, outlier = mean_cor < lo, threshold = lo)
 }
 
-## PCA-distance outlier flag: top-variance probes -> prcomp -> Euclidean
-## distance from the centroid on the first two PCs, in units of that PC's
-## own SD. A common, easy-to-explain ad hoc heuristic in array QC tooling
-## (the same idea arrayQualityMetrics-style PCA plots visualize), but it is
-## NOT a formal statistical test - it only uses 2 of the retained PCs and
-## has no citable significance threshold behind the "3 SD" default the way
-## a proper Hotelling's T^2 test would. Treat it as a quick visual-style
-## flag, not a rigorous outlier test; methyl_sample_outliers_mahalanobis()
-## below is the more principled multivariate alternative.
+## PCA-distance outlier flag: Euclidean distance from centroid on PC1/PC2 (in SD units)
+## of top-variance probes. Ad hoc heuristic (arrayQualityMetrics-style), not a formal test -
+## see methyl_sample_outliers_mahalanobis() for the multivariate alternative.
 methyl_sample_outliers_pca <- function(mat, n_features = 5000, sd_threshold = 3) {
   m <- stats::na.omit(mat)
   if (nrow(m) < 10 || ncol(m) < 4) {
@@ -303,19 +237,10 @@ methyl_sample_outliers_hclust <- function(mat, n_features = 5000, height_frac = 
   list(ok = TRUE, hc = hc, outlier = cl %in% as.integer(singleton))
 }
 
-## Mahalanobis distance computed on the top PCA components (not the raw
-## probes - p >> n there, so the covariance matrix is singular), flagged
-## against a chi-squared threshold at `alpha` - correct for a CLASSICAL
-## Mahalanobis distance under multivariate normality (df = number of PCs
-## used). Note this uses the classical (non-robust) mean/covariance
-## (stats::cov()), which is itself sensitive to the very outliers it's
-## trying to detect (masking/swamping) - a robust estimator (e.g. MCD, per
-## Rousseeuw & Van Driessen 1999, as advocated for outlier detection by
-## Filzmoser et al. 2005) would be more resistant, at the cost of needing
-## more samples than this module can assume. Treat this as a reasonable,
-## disclosed simplification, not a claim of being the most robust method
-## available - methyl_sample_outliers_pca()/_correlation() above offer
-## different, simpler heuristics to cross-check flagged samples against.
+## Mahalanobis distance on top PCA components (raw probes give a singular covariance
+## matrix), flagged against a chi-squared threshold at `alpha`. Uses classical (non-robust)
+## mean/covariance rather than a robust estimator (e.g. MCD, Rousseeuw & Van Driessen 1999) -
+## a disclosed simplification, not the most robust method available.
 methyl_sample_outliers_mahalanobis <- function(mat, n_features = 5000, n_pcs = 10, alpha = 0.01) {
   m <- stats::na.omit(mat)
   if (nrow(m) < 10 || ncol(m) < 4) {
@@ -337,22 +262,10 @@ methyl_sample_outliers_mahalanobis <- function(mat, n_features = 5000, n_pcs = 1
   list(ok = TRUE, distance2 = d2, threshold = thresh, outlier = d2 > thresh)
 }
 
-## Splits `y` (mean chrY probe beta per sample) into two groups and labels
-## the higher-mean group "M" - unless `reported` (a same-length vector of
-## reported sex, NA where unknown) lets each cluster instead be relabeled to
-## whichever sex it agrees with most often. Uses k-means (nstart=25) rather
-## than a single global-median threshold whenever there are enough samples
-## for it to be meaningful: a median split misclassifies the *minority*
-## cluster's mislabeled tail whenever the cohort is imbalanced enough that
-## the global median falls inside the majority cluster instead of the gap
-## between the two clusters - exactly what happens on this app's own
-## reference cohort (492 female / 197 male: a median split alone
-## misclassifies 147 of 492 females as male, despite chrY beta being
-## cleanly bimodal with zero overlap between the true clusters). See
-## script01_dataload_QC/01_loadandQC.R's own sex_km/sex_pred columns,
-## which hit this exact failure mode and already fix it this same way -
-## this mirrors that, so the live tool no longer disagrees with the
-## reference pipeline's methodology on an imbalanced upload.
+## Splits `y` (mean chrY beta) into two clusters via k-means and labels the higher-mean
+## cluster "M", unless `reported` sex lets each cluster be relabeled by majority
+## concordance. K-means avoids misclassifying the minority cluster on an imbalanced
+## cohort, matching script01_dataload_QC/01_loadandQC.R's sex_km/sex_pred approach.
 methyl_cluster_sex <- function(y, reported = NULL) {
   cluster <- NULL
   if (length(y) >= 6 && length(unique(y)) >= 2) {
@@ -375,11 +288,8 @@ methyl_cluster_sex <- function(y, reported = NULL) {
   list(sex = ifelse(cluster == hi, hi_sex, lo_sex), direction_assumed = direction_assumed)
 }
 
-## Appends reported_sex/sex_mismatch columns to a sex-check detail table
-## when a reported-sex vector (named by sample, from the sample sheet) is
-## available, so the caller gets the same "concordance vs metadata" flag
-## the preloaded default analysis already shows, instead of just a bare
-## prediction with nothing to compare it against.
+## Appends reported_sex/sex_mismatch columns to the detail table when a reported-sex
+## vector is available, for concordance-vs-metadata reporting.
 methyl_sex_check_attach_mismatch <- function(detail, reported_sex, method) {
   n_mismatch <- NA_integer_
   if (!is.null(reported_sex)) {
@@ -391,19 +301,10 @@ methyl_sex_check_attach_mismatch <- function(detail, reported_sex, method) {
   list(ok = TRUE, method = method, detail = detail, n_mismatch = n_mismatch)
 }
 
-## Estimated sex from the methylation profile. When a raw RGChannelSet is
-## available, uses minfi::getSex() (copy-number based on median chrX/chrY
-## total-intensity log2 ratios, not beta - the standard method most
-## published pipelines use). Otherwise falls back to a chrY-beta clustering
-## heuristic via methyl_cluster_sex() - only mean chrY beta actually drives
-## the cluster assignment (mean chrX beta is computed alongside it purely
-## for the detail table/X-vs-Y scatter plot, not for the prediction itself)
-## - clearly weaker than the raw-intensity method and labeled as such.
-## `reported_sex`, if given
-## (named by sample, e.g. from the sample sheet's sex column), resolves
-## which methylation cluster is "male" by majority concordance instead of
-## assuming higher chrY beta = male, and adds a sex_mismatch flag to the
-## result - this is what mod_methyl_qc.R passes in for a live analysis.
+## Estimated sex from methylation. Uses minfi::getSex() (copy-number, chrX/chrY intensity
+## log2 ratios) when a raw RGChannelSet is available - the standard method; otherwise falls
+## back to chrY-beta k-means clustering via methyl_cluster_sex() (weaker, labeled as such).
+## `reported_sex`, if given, resolves cluster labeling by concordance and adds a sex_mismatch flag.
 methyl_sex_check <- function(mat, anno_result, rg_set = NULL, reported_sex = NULL) {
   if (!is.null(rg_set) && requireNamespace("minfi", quietly = TRUE)) {
     sex <- tryCatch({
@@ -447,19 +348,10 @@ methyl_sex_check <- function(mat, anno_result, rg_set = NULL, reported_sex = NUL
 
 ## ---- Sample subgroup (sex/group) filtering --------------------------------
 
-## Resolves sample-sheet rows to matrix column IDs: matches on a
-## sample/Sample/sample_id/Sample_ID column when present, else assumes the
-## sheet's row order matches `all_ids`'s order (a sheet exported alongside
-## its matrix, or e.g. minfi's own Sample_Name-based convention, not in
-## that column-name list). Deliberately NOT rownames(sheet) for that
-## fallback: a freshly data.table::fread()-parsed data.frame gets sequential
-## integer rownames ("1","2",...), which never equal a real sample ID, so
-## using them silently turned every "row order" case into zero matches
-## instead of the row-order match the caller actually wants. Only falls
-## back to rownames(sheet) when the row count doesn't even match
-## length(all_ids), since there's no safe way to align them positionally
-## at that point (this preserves the old, already-broken behavior only for
-## a case that was never going to align anyway).
+## Resolves sample-sheet rows to matrix column IDs: matches a sample/Sample/sample_id/
+## Sample_ID column when present, else assumes row order matches `all_ids` (not
+## rownames(sheet), which fread() sets to sequential integers that never match real
+## IDs). Falls back to rownames(sheet) only when row counts don't even match.
 methyl_sheet_sample_ids <- function(sheet, all_ids) {
   id_col <- intersect(c("sample", "Sample", "sample_id", "Sample_ID"), colnames(sheet))
   if (length(id_col) > 0) return(as.character(sheet[[id_col[1]]]))
@@ -467,15 +359,9 @@ methyl_sheet_sample_ids <- function(sheet, all_ids) {
   rownames(sheet)
 }
 
-## Resolves a "subgroup column" + "stratum" selection against
-## methyl_dataset$sample_sheet into the matching subset of `mat`'s columns,
-## so every downstream QC computation (call rate, outlier detection, PCA,
-## sex check) runs on the chosen stratum instead of always the full cohort -
-## this is what mod_methyl_qc.R's live filtering tool was missing, which is
-## why picking "Female" vs "Male" there previously had no effect on any
-## result. Returns the unfiltered matrix unchanged when no sheet, column,
-## or the "All" stratum is selected, so this is a no-op unless a user has
-## loaded a sheet and picked one specific stratum.
+## Resolves a subgroup column + stratum selection into the matching subset of `mat`'s
+## columns, so downstream QC (call rate, outliers, PCA, sex check) runs on the chosen
+## stratum. No-op when no sheet/column/stratum is selected.
 methyl_qc_subgroup_filter <- function(mat, sheet, group_col, level, min_n = 3) {
   all_ids <- colnames(mat)
   has_col <- !is.null(sheet) && !is.null(group_col) && nzchar(group_col) && group_col %in% colnames(sheet)
@@ -499,11 +385,9 @@ methyl_qc_subgroup_filter <- function(mat, sheet, group_col, level, min_n = 3) {
        low_n = length(included) < min_n)
 }
 
-## Removes a manually-excluded sample set (e.g. from the Sample QC tab's
-## inclusion/exclusion table, or a Sex QC "Exclude" action on a discordant
-## sample) from an already-subgroup-filtered result, so one exclusion
-## mechanism feeds every downstream computation (PCA, outlier detection, sex
-## check, exports) instead of each tab tracking its own list.
+## Removes a manually-excluded sample set (e.g. Sample QC's inclusion table, or a Sex QC
+## "Exclude" action) from an already-subgroup-filtered result, so one exclusion mechanism
+## feeds every downstream computation.
 methyl_apply_manual_exclude <- function(subgroup, excluded_ids) {
   if (is.null(excluded_ids) || length(excluded_ids) == 0) return(subgroup)
   removed <- intersect(subgroup$included, excluded_ids)
@@ -520,12 +404,9 @@ methyl_apply_manual_exclude <- function(subgroup, excluded_ids) {
 
 ## ---- Outlier scoring, probe-retention cascade, misc export helpers -------
 
-## One row per sample, one column per outlier-detection method actually run
-## (whichever of pca_outlier/hclust_outlier/mahalanobis_outlier/iqr_outlier
-## columns are present in `sample_qc`), plus a summary `outlier_score` -
-## how many of the selected methods flagged that sample. Used by the Outlier
-## Detection tab so several independent methods collapse into one ranked
-## table instead of one column each with no combined view.
+## One row per sample, one column per outlier-detection method actually run, plus a
+## summary `outlier_score` (count of methods that flagged it) - collapses several
+## independent methods into one ranked table.
 methyl_outlier_score_table <- function(sample_qc) {
   flag_cols <- intersect(c("pca_outlier", "hclust_outlier", "mahalanobis_outlier", "correlation_outlier", "iqr_outlier"), colnames(sample_qc))
   if (length(flag_cols) == 0) {
@@ -538,12 +419,9 @@ methyl_outlier_score_table <- function(sample_qc) {
   out[order(-out$outlier_score), , drop = FALSE]
 }
 
-## Sequential (cascade) probe retention: applies each named filter in
-## `filters` (in the order given, same order the caller ran them in) as a
-## running AND, and reports how many probes remain after each step - this is
-## what the Probe QC tab's retention flowchart plots, distinct from the
-## "probes removed by this filter alone" counts already shown in the filter
-## summary table.
+## Sequential (cascade) probe retention: applies each named filter in `filters` as a
+## running AND, reporting probes remaining after each step - what the Probe QC tab's
+## retention flowchart plots.
 methyl_probe_retention_cascade <- function(n_probes_start, filters) {
   if (length(filters) == 0) {
     return(data.frame(step = "No filters applied", retained = n_probes_start, removed = 0L))
@@ -559,20 +437,15 @@ methyl_probe_retention_cascade <- function(n_probes_start, filters) {
              removed = c(NA_integer_, -diff(c(n_probes_start, retained))))
 }
 
-## Beta -> M-value (logit) transform for the "download M-value matrix" export
-## - beta is clipped away from the exact 0/1 boundary first since log2(0/1)
-## and log2(x/0) are undefined/infinite, matching how minfi::logit2()
-## and lumi::beta2m() handle this same edge case.
+## Beta -> M-value (logit) transform; clips beta away from 0/1 first since log2(0/1) is
+## undefined, matching minfi::logit2()/lumi::beta2m().
 methyl_beta_to_mvalue <- function(beta, eps = 1e-4) {
   b <- pmin(pmax(beta, eps), 1 - eps)
   log2(b / (1 - b))
 }
 
-## Top-variance-probe PCA scores, factored out of the outlier-detection
-## functions above (which each independently redo this) for the new call
-## sites that need PCA scores alone, without the outlier-flagging logic:
-## the Visualizations tab's color-by-metadata PCA, and Batch Correction's
-## before/after comparison.
+## Top-variance-probe PCA scores, factored out of the outlier-detection functions for
+## callers that need scores alone (Visualizations tab PCA, Batch Correction before/after).
 methyl_pca_scores <- function(mat, n_features = 5000, n_pcs = 10) {
   m <- stats::na.omit(mat)
   if (nrow(m) < 10 || ncol(m) < 4) {
@@ -586,10 +459,8 @@ methyl_pca_scores <- function(mat, n_features = 5000, n_pcs = 10) {
   list(ok = TRUE, scores = pc$x[, seq_len(k), drop = FALSE], var_explained = var_explained)
 }
 
-## Sample-by-sample correlation matrix on the same top-variance-probe subset
-## as the PCA/outlier functions above, for the Visualizations tab's
-## correlation heatmap - computing this on all ~412k probes would be both
-## slow and dominated by uninformative, near-constant probes.
+## Sample-by-sample correlation on the same top-variance-probe subset used above -
+## full-probe correlation would be slow and dominated by near-constant probes.
 methyl_sample_correlation <- function(mat, n_features = 5000) {
   m <- stats::na.omit(mat)
   if (nrow(m) < 10 || ncol(m) < 2) {
@@ -600,10 +471,8 @@ methyl_sample_correlation <- function(mat, n_features = 5000) {
   list(ok = TRUE, cor = stats::cor(m[top, , drop = FALSE]))
 }
 
-## A random subset of probes' beta values in long format, one row per
-## probe x sample, for the Visualizations tab's density plot - melting the
-## full ~412k x n matrix would be both slow to plot and visually identical
-## to a representative sample at this scale.
+## Random probe subset in long format (probe x sample) for the density plot - full-matrix
+## melt would be slow and visually identical at this scale.
 methyl_beta_density_sample <- function(mat, n_probes = 5000, seed_probes = NULL) {
   ids <- if (!is.null(seed_probes)) seed_probes else {
     n <- min(n_probes, nrow(mat))
@@ -615,12 +484,8 @@ methyl_beta_density_sample <- function(mat, n_probes = 5000, seed_probes = NULL)
   df[!is.na(df$beta), , drop = FALSE]
 }
 
-## Classical (metric) MDS via stats::cmdscale on the same top-variance-probe
-## Euclidean-distance convention methyl_pca_scores() uses for PCA - a
-## distinct sample-structure view from PCA (MDS optimizes pairwise
-## distances directly rather than variance-maximizing axes), offered
-## alongside it rather than instead of it since they can disagree on a
-## noisy dataset.
+## Classical MDS via stats::cmdscale on the same top-variance-probe distance convention as
+## methyl_pca_scores() - offered alongside PCA since they can disagree on noisy data.
 methyl_mds_scores <- function(mat, n_features = 5000, k = 2) {
   m <- stats::na.omit(mat)
   if (nrow(m) < 10 || ncol(m) < 4) {
@@ -636,10 +501,8 @@ methyl_mds_scores <- function(mat, n_features = 5000, k = 2) {
   list(ok = TRUE, scores = fit)
 }
 
-## Per-probe mean vs. standard deviation, for the classic "mean-SD plot"
-## (Huber et al. 2002) used to spot whether variance is confounded with
-## mean intensity - matrixStats-accelerated the same way every other
-## per-row summary in this file is (see methyl_row_vars()'s own comment).
+## Per-probe mean vs SD for the mean-SD plot (Huber et al. 2002), checking whether
+## variance is confounded with mean intensity.
 methyl_mean_sd_table <- function(mat, n_probes = 20000) {
   ids <- rownames(mat)
   if (length(ids) > n_probes) ids <- ids[order(stats::runif(length(ids)))[seq_len(n_probes)]]
@@ -649,10 +512,8 @@ methyl_mean_sd_table <- function(mat, n_probes = 20000) {
   data.frame(probe = ids, mean = means, sd = sds, row.names = NULL)
 }
 
-## Illumina control-probe (staining/extension/hybridization/target
-## removal/specificity/non-polymorphic/negative, etc.) intensities for the
-## control-probe heatmap - IDAT-only, since these are raw-intensity probes
-## a beta/M-value matrix never carries.
+## Illumina control-probe intensities for the control-probe heatmap - IDAT-only, not
+## present in a beta/M-value matrix.
 methyl_control_probe_matrix <- function(rg_set) {
   if (is.null(rg_set) || !requireNamespace("minfi", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "Control-probe intensities require raw IDAT input."))
@@ -674,17 +535,12 @@ methyl_control_probe_matrix <- function(rg_set) {
   list(ok = TRUE, mat = log2(pmax(intensity, 1)), types = ctrl$Type)
 }
 
-## One row per sample combining every distance-based outlier signal already
-## computed elsewhere in this file (PCA distance from centroid, Mahalanobis
-## distance, call rate) into a single ranked diagnostic table/plot, instead
-## of each metric only being visible in its own separate tab.
+## Combines every distance-based outlier signal (PCA distance, Mahalanobis distance, call
+## rate) into one per-sample diagnostic table.
 methyl_outlier_diagnostic_table <- function(sample_qc, pca_detail, mahal_detail = NULL) {
   df <- data.frame(sample = sample_qc$sample, stringsAsFactors = FALSE)
-  ## `sample_qc` here is Outlier QC's own independent per-sample data frame
-  ## (sample + flag columns only) - it doesn't carry call_rate the way
-  ## Sample QC's own sample_qc data frame does, since the two tabs compute
-  ## independently now. Included only when present so this function works
-  ## for either caller's shape.
+  ## Outlier QC's sample_qc frame lacks call_rate (computed independently from Sample QC) -
+  ## included only when present.
   if ("call_rate" %in% colnames(sample_qc)) df$call_rate <- sample_qc$call_rate
   if (isTRUE(pca_detail$ok)) {
     df$pca_distance <- pca_detail$distance[df$sample]
@@ -695,32 +551,30 @@ methyl_outlier_diagnostic_table <- function(sample_qc, pca_detail, mahal_detail 
   df
 }
 
-## Best-guess batch/chip/plate column in a sample sheet, same convention as
-## the sex-column guess already used for subgroup filtering
-## (mod_methyl_qc.R's `default_col`). Deliberately returns NULL rather than
-## guessing wrong when nothing matches - Batch Correction is disabled with an
-## explanatory message in that case rather than silently offered against a
-## column that isn't actually a batch identifier.
+## Single source of truth for the batch/chip/plate/slide column-name pattern, used by
+## Overview, Batch QC, and methyl_guess_batch_column() below.
+METHYL_BATCH_COL_PATTERN <- "batch|chip|plate|slide|sentrix|array_id|scan_date|^run$"
+
+## Every sample-sheet column matching the batch pattern above - used to detect/populate
+## the batch-column selector.
+methyl_batch_columns <- function(sheet) {
+  if (is.null(sheet)) return(character(0))
+  grep(METHYL_BATCH_COL_PATTERN, colnames(sheet), ignore.case = TRUE, value = TRUE)
+}
+
+## Best-guess single batch column in a sample sheet; returns NULL rather than guessing
+## wrong when nothing matches.
 methyl_guess_batch_column <- function(sheet) {
-  if (is.null(sheet)) return(NULL)
-  hit <- grep("batch|chip|plate|slide|sentrix|array_id|scan_date|^run$",
-              colnames(sheet), ignore.case = TRUE, value = TRUE)
+  hit <- methyl_batch_columns(sheet)
   if (length(hit) == 0) NULL else hit[1]
 }
 
-## ComBat batch correction (sva::ComBat) on a beta-value matrix - logit'd to
-## M-values first (ComBat assumes a roughly Gaussian, unbounded outcome;
-## beta values are bounded to [0,1] and heavily bimodal near the ends, which
-## is exactly what M-values correct for - Du et al. 2010 (BMC Bioinformatics,
-## "Comparison of Beta-value and M-value methods") is the standard citation
-## for M-values being the better-behaved, more homoscedastic scale for this
-## kind of parametric/statistical modeling, which is why ComBat/SVA-style
-## corrections on methylation arrays are conventionally run on M-values).
-## Corrected M-values are converted back to beta for consistency with the
-## rest of this module's beta-scale display. Requires >=2 samples in every
-## batch level ComBat is asked to adjust, same requirement sva::ComBat()
-## itself enforces.
-methyl_batch_correct_combat <- function(mat, batch) {
+## ComBat batch correction (sva::ComBat), run on M-values since ComBat assumes a roughly
+## Gaussian outcome and beta is bounded/bimodal (Du et al. 2010). `input_scale` tells this
+## whether `mat` needs the beta->M transform; skipping it when already M-values avoids the
+## [0,1] clamp corrupting an unbounded matrix. Result is returned on the same scale it was
+## given. Requires >=2 samples per batch level, same as sva::ComBat() itself.
+methyl_batch_correct_combat <- function(mat, batch, input_scale = "beta") {
   if (!requireNamespace("sva", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "The sva package (ComBat) is not available in this deployment."))
   }
@@ -734,7 +588,7 @@ methyl_batch_correct_combat <- function(mat, batch) {
       "Batch level(s) with fewer than 2 samples cannot be adjusted by ComBat: %s.",
       paste(names(tbl[tbl < 2]), collapse = ", "))))
   }
-  m <- methyl_beta_to_mvalue(mat)
+  m <- if (identical(input_scale, "m")) mat else methyl_beta_to_mvalue(mat)
   keep <- stats::complete.cases(m)
   corrected_m <- tryCatch(
     sva::ComBat(dat = m[keep, , drop = FALSE], batch = batch, par.prior = TRUE, mean.only = FALSE),
@@ -743,25 +597,18 @@ methyl_batch_correct_combat <- function(mat, batch) {
   if (is.null(corrected_m)) {
     return(list(ok = FALSE, reason = "ComBat failed to converge on this matrix/batch split."))
   }
-  corrected_beta <- m
-  corrected_beta[keep, ] <- 2^corrected_m / (1 + 2^corrected_m)
-  corrected_beta[!keep, ] <- mat[!keep, , drop = FALSE]
-  list(ok = TRUE, corrected = corrected_beta, batch = batch, n_batches = length(tbl))
+  corrected <- m
+  corrected[keep, ] <- if (identical(input_scale, "m")) corrected_m else 2^corrected_m / (1 + 2^corrected_m)
+  corrected[!keep, ] <- mat[!keep, , drop = FALSE]
+  list(ok = TRUE, corrected = corrected, batch = batch, n_batches = length(tbl))
 }
 
-## RUVm (Maksimovic et al. 2015) batch/unwanted-variation correction via
-## missMethyl::RUVfit() - unlike ComBat, RUVm doesn't take an explicit batch
-## label; it estimates unwanted variation empirically from the array's own
-## internal negative-control probes (missMethyl::getINCs()), conditioned on
-## a `group` factor of interest to protect (the biological signal RUVm must
-## NOT remove). This is why it needs a raw RGChannelSet (control probes
-## aren't in a beta/M-value matrix upload, and aren't in the preloaded
-## dataset either - only the derived beta matrix is bundled there, see
-## mod_methyl_dataset.R) rather than being usable everywhere ComBat is.
-## `k` is the number of unwanted-variation factors to remove - missMethyl's
-## own vignette uses k=1 as a starting point, adjustable here for the same
-## reason every other method's own defaults are adjustable in this module.
-methyl_batch_correct_ruvm <- function(mat, rg_set, group, k = 1) {
+## RUVm (Maksimovic et al. 2015) via missMethyl::RUVfit() - unlike ComBat, estimates
+## unwanted variation from internal negative-control probes (missMethyl::getINCs()),
+## conditioned on a `group` factor to protect. Needs a raw RGChannelSet since control
+## probes aren't in a beta/M-value upload. `k` = number of unwanted-variation factors
+## (missMethyl's vignette default is 1).
+methyl_batch_correct_ruvm <- function(mat, rg_set, group, k = 1, input_scale = "beta") {
   if (is.null(rg_set)) {
     return(list(ok = FALSE, reason = "RUVm requires raw IDAT input (its internal negative-control probes aren't present in a beta/M-value matrix upload or the preloaded dataset's bundled matrix)."))
   }
@@ -780,18 +627,16 @@ methyl_batch_correct_ruvm <- function(mat, rg_set, group, k = 1) {
   if (length(common_samples) < 4) {
     return(list(ok = FALSE, reason = "Fewer than 4 samples have both a matrix column, a control-probe column, and a non-missing factor-of-interest value."))
   }
-  m <- methyl_beta_to_mvalue(mat[, common_samples, drop = FALSE])
+  mat_sub <- mat[, common_samples, drop = FALSE]
+  m <- if (identical(input_scale, "m")) mat_sub else methyl_beta_to_mvalue(mat_sub)
   keep <- stats::complete.cases(m)
   grp <- group[common_samples]
   design <- stats::model.matrix(~grp)
   mc <- rbind(m[keep, , drop = FALSE], as.matrix(incs[, common_samples, drop = FALSE]))
   ctl <- c(rep(FALSE, sum(keep)), rep(TRUE, nrow(incs)))
-  ## method must be explicitly "ruv4" (or "ruv2") - RUVfit()'s own default
-  ## method ("inv") ignores `k` entirely (it ignores the RUV-4/RUV-2 factor
-  ## count and instead directly inverts the control-probe regression), which
-  ## would make the "Unwanted-variation factors (k)" control above silently
-  ## do nothing. ruv4 is the k-driven variant Maksimovic et al. 2015's own
-  ## RUVm examples use.
+  ## method must be explicit "ruv4" - RUVfit()'s default ("inv") ignores `k` entirely,
+  ## which would make the k control silently do nothing. ruv4 is the k-driven variant
+  ## Maksimovic et al. 2015 uses.
   fit <- tryCatch(missMethyl::RUVfit(Y = t(mc), X = design[, 2, drop = FALSE], ctl = ctl, k = k, method = "ruv4"), error = function(e) e)
   if (inherits(fit, "error")) {
     return(list(ok = FALSE, reason = paste("RUVfit failed to converge on this matrix/design:", conditionMessage(fit))))
@@ -801,19 +646,15 @@ methyl_batch_correct_ruvm <- function(mat, rg_set, group, k = 1) {
     return(list(ok = FALSE, reason = paste("RUVadj failed:", conditionMessage(adj))))
   }
   corrected_m <- t(adj$newY)[seq_len(sum(keep)), , drop = FALSE]
-  corrected_beta <- m
-  corrected_beta[keep, ] <- 2^corrected_m / (1 + 2^corrected_m)
-  corrected_beta[!keep, ] <- mat[!keep, common_samples, drop = FALSE]
-  list(ok = TRUE, corrected = corrected_beta, group = grp, k = k, n_controls = nrow(incs))
+  corrected <- m
+  corrected[keep, ] <- if (identical(input_scale, "m")) corrected_m else 2^corrected_m / (1 + 2^corrected_m)
+  corrected[!keep, ] <- mat_sub[!keep, , drop = FALSE]
+  list(ok = TRUE, corrected = corrected, group = grp, k = k, n_controls = nrow(incs))
 }
 
 ## ---- Shared ggplot builders -------------------------------------------
-## One function per figure, called by both mod_methyl_qc.R's live
-## renderPlot/renderPlotly outputs (wrapped in plotly::ggplotly() for the
-## interactive ones) and methyl_qc_report_plots() below (for the HTML
-## report + figures ZIP) - a figure's actual drawing logic lives in exactly
-## one place instead of being re-implemented for the static/interactive/
-## exported versions separately.
+## One function per figure, used by both mod_methyl_qc.R's live outputs and
+## methyl_qc_report_plots() below, so drawing logic lives in one place.
 
 methyl_plot_cascade <- function(cascade_df) {
   df <- cascade_df
@@ -840,11 +681,8 @@ methyl_plot_beadcount_dist <- function(vals, threshold = 3) {
     labs(x = "Bead count", y = "Probe x sample count") + theme_arthomix()
 }
 
-## Shared before/after color mapping - covers both the probe-filtering
-## stage labels ("Before/After filtering") and the normalization-preview
-## stage labels ("Before/After normalization"), so methyl_plot_density()/
-## methyl_plot_boxplot()/methyl_plot_violin() all recognize whichever pair
-## of labels the caller's long-format data frame actually uses.
+## Shared before/after color mapping covering both filtering and normalization stage
+## labels, used by methyl_plot_density()/_boxplot()/_violin().
 .methyl_stage_fill <- c("Before filtering" = ARTHOMIX_COLORS$blue, "After filtering" = ARTHOMIX_COLORS$orange,
                         "Before normalization" = ARTHOMIX_COLORS$blue, "After normalization" = ARTHOMIX_COLORS$orange)
 
@@ -855,10 +693,8 @@ methyl_plot_density <- function(density_df, x_label = "Beta value") {
     labs(x = x_label, y = "Density", color = NULL) + theme_arthomix()
 }
 
-## Sample-wise beta distribution, one boxplot/violin per sample, colored by
-## before/after stage - `long_df` has probe/sample/beta/stage columns, same
-## shape methyl_beta_density_sample() already produces (stage added by the
-## caller, same convention as methyl_plot_density() above).
+## Sample-wise beta distribution (boxplot/violin), colored by before/after stage;
+## `long_df` has probe/sample/beta/stage columns as produced by methyl_beta_density_sample().
 
 methyl_plot_boxplot <- function(long_df) {
   ggplot(long_df, aes(x = sample, y = beta, fill = stage)) +
@@ -883,10 +719,8 @@ methyl_plot_mean_sd <- function(mean_sd_df) {
     labs(x = "Mean", y = "Standard deviation") + theme_arthomix()
 }
 
-## Generic 2D scatter for PCA/MDS - `df` needs x/y/color/text columns
-## (caller names the axes via `x_lab`/`y_lab`); shared by PCA (2D), MDS, and
-## the outlier/sex-check/batch-correction scatters that were already
-## hand-rolling this same shape inline in mod_methyl_qc.R.
+## Generic 2D scatter for PCA/MDS/outlier/sex-check/batch-correction plots - `df` needs
+## x/y/color/text columns.
 methyl_plot_scatter2d <- function(df, x_lab, y_lab, color_lab = NULL, palette = NULL) {
   gg <- ggplot(df, aes(x = x, y = y, color = color, text = text)) +
     geom_point(size = 2.5, alpha = 0.85) +
@@ -918,14 +752,18 @@ methyl_plot_outlier_diagnostic <- function(diag_df, metric_col, y_lab) {
     theme(axis.text.x = element_text(angle = 60, hjust = 1, size = 6))
 }
 
-## Pass/Warning/Fail summary for the Overview tab's own self-contained
-## "Run Overview QC" pass - deliberately built ONLY from `overview`'s own
-## lightweight call-rate/missingness numbers, not from Sample/Probe/Sex/
-## Outlier QC's results: those are independent, separately-run methods now
-## (see mod_methyl_qc.R), and Overview must not silently depend on any of
-## them having been run, or its own badge would change every time another
-## tab is re-run without Overview itself being re-run - exactly the "one
-## global result" anti-pattern this module was restructured to avoid.
+## Range sanity check for a matrix labeled "beta" (defined on [0,1]) - values well
+## outside that range suggest a mislabeled upload or an input_scale mismatch. Never
+## blocks, just reports the range for the caller to warn on.
+methyl_check_beta_range <- function(mat, input_scale) {
+  rng <- range(mat, na.rm = TRUE)
+  out_of_range <- identical(input_scale, "beta") && is.finite(rng[1]) && is.finite(rng[2]) &&
+    (rng[1] < -0.05 || rng[2] > 1.05)
+  list(range = rng, out_of_range = out_of_range)
+}
+
+## Pass/Warning/Fail summary for the Overview tab, built only from `overview`'s own
+## call-rate/missingness/range numbers - deliberately independent of the other QC tabs' results.
 methyl_qc_status_badge <- function(overview) {
   reasons <- character(0)
   status <- "pass"
@@ -939,15 +777,18 @@ methyl_qc_status_badge <- function(overview) {
     status <- "warning"
     reasons <- c(reasons, sprintf("Overall missingness across the loaded matrix is somewhat high (%.1f%%).", miss))
   }
+  if (isTRUE(overview$range_check$out_of_range)) {
+    if (status == "pass") status <- "warning"
+    reasons <- c(reasons, sprintf(
+      "Matrix is labeled as beta values (0-1) but observed values range [%.3g, %.3g] - check the input scale selected on the Dataset tab.",
+      overview$range_check$range[1], overview$range_check$range[2]))
+  }
   if (length(reasons) == 0) reasons <- "No issues detected in this basic pass - run the other QC tabs below for deeper checks."
   list(status = status, reasons = reasons)
 }
 
-## Plain-text minfi/ChAMP-equivalent R code reflecting the exact filter
-## settings used in a Probe QC run (`settings` is probe_qc_result()$settings
-## in mod_methyl_qc.R), for the Reports & Export tab's "Copy R code"
-## reproducibility panel - a static template filled in from the actual
-## settings, not a live-executed pipeline.
+## Plain-text minfi/ChAMP-equivalent R code reflecting the Probe QC filter settings used,
+## for the Reports & Export tab's "Copy R code" panel - a static template, not a live pipeline.
 methyl_qc_r_code <- function(settings) {
   s <- settings
   lines <- c(
@@ -974,14 +815,9 @@ methyl_qc_r_code <- function(settings) {
 
 ## ---- Live QC summary / report / export --------------------------------
 
-## Single-row-per-metric summary assembled from whichever independent QC
-## tabs (mod_methyl_qc.R) have actually been run this session - each of
-## `overview`/`sample_qc`/`probe_qc`/`sex_qc`/`outlier_qc`/`batch_qc` is
-## either that tab's own result object, or NULL if its Run button hasn't
-## been clicked yet. A section that hasn't run shows as "not run" rather
-## than being silently omitted, so the exported table always has the same
-## shape and never implies a method ran when it didn't - the "Live QC
-## Summary" export.
+## Single-row-per-metric summary from whichever QC tabs have been run this session; a
+## tab that hasn't run shows as "not run" rather than being omitted, so the exported
+## table always has the same shape.
 methyl_qc_summary_table <- function(overview = NULL, sample_qc = NULL, probe_qc = NULL,
                                      sex_qc = NULL, outlier_qc = NULL, batch_qc = NULL) {
   rows <- list()
@@ -1006,11 +842,8 @@ methyl_qc_summary_table <- function(overview = NULL, sample_qc = NULL, probe_qc 
     add("probe_qc_removed_pct", sprintf("%.2f", 100 * (nrow(probe_qc$mat) - nrow(probe_qc$filtered)) / nrow(probe_qc$mat)))
   } else add("probe_qc", "not run")
 
-  ## sex_qc/batch_qc distinguish "not run" (NULL - tab's button never
-  ## clicked) from "ran, but had nothing to report" (non-NULL with
-  ## ok=FALSE - e.g. too few chrX/chrY probes, or no batch levels) - the
-  ## two are different facts and collapsing them into one "not run" label
-  ## would misreport a method that DID run as if it never had.
+  ## Distinguishes "not run" (NULL) from "ran, but nothing to report" (non-NULL,
+  ## ok=FALSE) - collapsing these would misreport a method that did run.
   if (!is.null(sex_qc)) {
     if (isTRUE(sex_qc$sex$ok)) {
       tbl <- table(sex_qc$sex$detail$predicted_sex)
@@ -1033,15 +866,10 @@ methyl_qc_summary_table <- function(overview = NULL, sample_qc = NULL, probe_qc 
   do.call(rbind, rows)
 }
 
-## Assembles every report/export figure as a plain ggplot object (never a
-## plotly widget - htmltools::save_html()/ggplot2::ggsave() both need a
-## static image), reusing the same methyl_plot_*() builders the live tabs
-## use. Each figure group is gated on the independent tab that produces its
-## underlying data (`probe_qc`/`outlier_qc`, both possibly NULL if that
-## tab's Run button hasn't been clicked) - a figure that can't be built
-## because its source analysis hasn't run yet is skipped with a message
-## saying so, same as a figure skipped for a genuine data-availability
-## reason (e.g. no detection p-values on a matrix upload).
+## Assembles every report figure as a plain ggplot object (static image, needed by
+## save_html()/ggsave()), reusing the live tabs' methyl_plot_*() builders. Each figure is
+## gated on its source tab (`probe_qc`/`outlier_qc`) and skipped with a message if that
+## tab hasn't run.
 methyl_qc_report_plots <- function(methyl_dataset, probe_qc = NULL, outlier_qc = NULL) {
   plots <- list()
   skipped <- character(0)
@@ -1088,14 +916,9 @@ methyl_qc_report_plots <- function(methyl_dataset, probe_qc = NULL, outlier_qc =
   list(plots = plots, skipped = skipped)
 }
 
-## Self-contained HTML QC report - no rmarkdown/pandoc dependency (see
-## qc.R's header note on this file's package-availability constraints):
-## htmltools::save_html() with base64 data-URI <img> tags produces one HTML
-## file that opens standalone in any browser, with the actual PNGs baked
-## in rather than referenced as sibling files a user could lose track of.
-## `summary_df` is the output of methyl_qc_summary_table(); `subtitle` a
-## one-line string (dataset source + stratum) the caller builds since this
-## function no longer has one unified result object to read either from.
+## Self-contained HTML QC report - no rmarkdown/pandoc dependency; htmltools::save_html()
+## with base64 data-URI <img> tags bakes PNGs into one standalone file. `summary_df` is
+## methyl_qc_summary_table()'s output; `subtitle` a caller-built one-line string.
 methyl_qc_report_html <- function(methyl_dataset, summary_df, plots, skipped, subtitle = NULL) {
   if (!requireNamespace("htmltools", quietly = TRUE) || !requireNamespace("base64enc", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "The htmltools/base64enc packages are required to build the HTML report."))
@@ -1133,11 +956,9 @@ methyl_qc_report_html <- function(methyl_dataset, summary_df, plots, skipped, su
   list(ok = TRUE, path = out)
 }
 
-## Every report figure as a standalone PNG, zipped - utils::zip() shells
-## out to a `zip` binary on PATH (present by default on macOS/Linux, not
-## guaranteed on Windows), so this degrades with a reason rather than
-## erroring when it isn't found, same as every other optional-tool path in
-## this file.
+## Every report figure as a standalone PNG, zipped via utils::zip() (shells out to a
+## `zip` binary on PATH - not guaranteed on Windows) - degrades with a reason rather than
+## erroring if unavailable.
 methyl_qc_report_zip <- function(plots) {
   if (length(plots) == 0) return(list(ok = FALSE, reason = "No figures were available to export for this run."))
   dir <- tempfile("methyl_qc_figs_"); dir.create(dir)

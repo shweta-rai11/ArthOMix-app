@@ -1,5 +1,5 @@
 ## R/crossomics/crossomics_integration_upload.R
-## Upload parsing for the "Expression x Methylation" Cross-Omics sub-module -
+## Upload parsing for the "Expression and Methylation" Cross-Omics sub-module -
 ## CSV/TSV/TXT via data.table::fread, XLSX via openxlsx (both already
 ## installed in this deployment, called by namespace so no global.R library()
 ## edit is needed). Same fail-soft list(ok = FALSE, error = <message>)

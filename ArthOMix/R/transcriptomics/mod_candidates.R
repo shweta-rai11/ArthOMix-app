@@ -1,38 +1,17 @@
 ## R/mod_candidates.R
-## Submodule: Candidate Gene Identification (Section 2.5)
-## "Your analysis" reproduces exactly this project's own candidate-gene
-## design (Chapter_2_subchapter2_sexstratified.md, Section 2.5): pick the
-## WGCNA module(s) that are disease-associated as a shared background, then
-## intersect that background separately with the female DEG list and the
-## male DEG list - two two-set Venn diagrams, one per sex, using the SAME
-## module background for both so any difference between the two candidate
-## lists is attributable to expression biology, not to which module got
-## assigned to which sex.
-##
-## Both the WGCNA module gene lists and the DGE runs are read live from the
-## shared `results` store, written by mod_wgcna.R and mod_dge.R as they run
-## - run WGCNA (through Step 4, Module-Trait) once, then run Differential
-## Expression once for the female stratum and once for the male stratum
-## (e.g. filter/adjust by sex on the DGE tab), and both candidate panels
-## below populate automatically.
+## Candidate Gene Identification (Section 2.5): intersects a shared disease-associated
+## WGCNA module background with the female and male DEG lists separately, one Venn
+## diagram per sex. Reads WGCNA modules and DGE runs live from the shared `results` store.
 
 mod_candidates_config <- list(
   id = "candidates", group = "Network",
   title = "Candidate Gene Identification",
-  description = "Intersect the disease-associated WGCNA module(s) with the female DEG list and, separately, the male DEG list - the same shared-background design this project's own methodology uses - and see each sex's Venn diagram and candidate table.",
+  description = "Intersect the disease-associated WGCNA module with the sex-based DEG list, and visualise and export the Venn diagram and candidate table.",
   icon = "star"
 )
 
-## One "female" or "male" panel: a DEG-contrast picker, a Venn diagram
-## against the shared WGCNA background above it, and the resulting
-## candidate table - identical structure for both sexes, so this is
-## written once and instantiated with prefix = "female"/"male" rather than
-## duplicated verbatim in the UI function below.
-## Gated behind its own "Compute ... candidates" button (matching every
-## other module in this app - WGCNA's "Detect modules", DGE's "Run
-## differential expression", etc.) - nothing here should compute just
-## because the picker dropdowns above happened to already have a value
-## selected. Each sex is triggered independently, not both at once.
+## One sex panel (DEG picker, Venn vs. WGCNA background, candidate table), shared
+## template for both "female" and "male" prefixes, gated behind its own run button.
 mod_candidates_sex_panel_ui <- function(ns, prefix, title) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -49,12 +28,7 @@ mod_candidates_sex_panel_ui <- function(ns, prefix, title) {
   )
 }
 
-## Gated: this tab can't do anything until both an upstream WGCNA run and at
-## least one upstream DGE run exist in `results` (see the prereqs reactive
-## in the server below), so the whole body is server-rendered behind a
-## single check instead of statically laid out here - a user who hasn't run
-## either yet sees one clear blocking message instead of scattered
-## per-panel empty-notes.
+## Body is server-rendered so it can be gated on WGCNA + DGE prereqs (see server below).
 mod_candidates_ui <- function(id) {
   ns <- NS(id)
   uiOutput(ns("body_ui"))
@@ -64,13 +38,7 @@ mod_candidates_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## -----------------------------------------------------------------
-    ## Compulsory prerequisites: this tab is Section 2.5's intersection of
-    ## a WGCNA disease-module background with sex-stratified DEGs, so it is
-    ## meaningless without BOTH an upstream WGCNA run (module_genes) and at
-    ## least one upstream DGE run - not an optional nicety, a hard gate.
-    ## -----------------------------------------------------------------
-
+    ## Hard gate: requires both an upstream WGCNA run and at least one DGE run.
     prereqs <- reactive({
       list(
         wgcna_ok = !is.null(results$wgcna) && length(results$wgcna$module_genes) > 0,
@@ -82,8 +50,8 @@ mod_candidates_server <- function(id, dataset, results) {
       pr <- prereqs()
       if (!pr$wgcna_ok || !pr$dge_ok) {
         missing <- c(
-          if (!pr$wgcna_ok) "WGCNA — run Step 3 (Modules) and Step 4 (Module-Trait) on the WGCNA Co-expression Network tab",
-          if (!pr$dge_ok) "Differential Expression — run at least one contrast on the Differential Expression tab"
+          if (!pr$wgcna_ok) "WGCNA - run Step 3 (Modules) and Step 4 (Module-Trait) on the WGCNA Co-expression Network tab",
+          if (!pr$dge_ok) "Differential Expression - run at least one contrast on the Differential Expression tab"
         )
         return(
           box(
@@ -97,7 +65,7 @@ mod_candidates_server <- function(id, dataset, results) {
       tagList(
         box(
           width = 12, title = "WGCNA module background", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Defaults to every disease-associated module from WGCNA's Step 4 (Module-Trait) pre-checked - the design this project's own methodology uses. Tick or untick any module below to use a different combination as the background. The SAME background is used for both sexes below, so any difference between the two candidate lists comes from expression biology, not from an analytical asymmetry. Recomputing either sex's panel after changing this requires clicking that panel's \"Compute ... candidates\" button again."),
+          p(class = "submodule-desc", "The DEG data is taken from results$dge_runs and WGCNA data from results$wgcna in order to perform this sub-module."),
           uiOutput(ns("module_picker_ui"))
         ),
         uiOutput(ns("gene_panel_box_ui")),
@@ -116,10 +84,7 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
-    ## -----------------------------------------------------------------
-    ## Shared WGCNA module background
-    ## -----------------------------------------------------------------
-
+    ## ---- Shared WGCNA module background ----
     module_choices <- reactive({
       wg <- results$wgcna
       req(wg, length(wg$module_genes) > 0)
@@ -129,16 +94,8 @@ mod_candidates_server <- function(id, dataset, results) {
            disease = intersect(wg$significant_trait_modules %||% character(0), mods))
     })
 
-    ## A multi-select dropdown (same widget mod_preprocessing.R's "Biological
-    ## covariates to protect" picker uses - selectInput(multiple = TRUE),
-    ## selectize's tag-style UI) rather than a single-select or a checkbox
-    ## group: click the dropdown, tick as many modules as needed (e.g. both
-    ## yellow AND brown together), and each selected one shows as a
-    ## removable tag. Defaults to every disease-associated module
-    ## pre-selected - the shared background this project's own methodology
-    ## uses (|cor| >= 0.5, p < 1e-8 in WGCNA Step 4) - but any other
-    ## combination, including a single module, is freely selectable for
-    ## anyone whose own data calls for a different background.
+    ## Multi-select module picker, pre-selected to the disease-associated modules
+    ## from WGCNA Step 4 (|cor| >= 0.5, p < 1e-8), but any combination is selectable.
     output$module_picker_ui <- renderUI({
       mc <- tryCatch(module_choices(), error = function(e) NULL)
       if (is.null(mc)) {
@@ -147,7 +104,7 @@ mod_candidates_server <- function(id, dataset, results) {
       }
       choices <- stats::setNames(
         mc$mods,
-        sprintf("%s (n=%d)%s", mc$mods, mc$sizes, ifelse(mc$mods %in% mc$disease, " — disease-associated", ""))
+        sprintf("%s (n=%d)%s", mc$mods, mc$sizes, ifelse(mc$mods %in% mc$disease, " - disease-associated", ""))
       )
       default_sel <- if (length(mc$disease) > 0) mc$disease else mc$mods[1]
       tagList(
@@ -166,19 +123,8 @@ mod_candidates_server <- function(id, dataset, results) {
       unique(unlist(wg$module_genes[chosen], use.names = FALSE))
     })
 
-    ## -----------------------------------------------------------------
-    ## Optional third gene set: any bundled panel (GENE_PANELS_DIR, e.g. a
-    ## published study's own curated ferroptosis gene list) or a pasted-in
-    ## custom list. NULL when "(none)" - the default - is selected, so
-    ## sex_candidates() below is a no-op change for anyone not using this.
-    ## -----------------------------------------------------------------
-
-    ## Upload-only, same as mod_dge.R's References box: dataset$source
-    ## starts with "Uploaded dataset" for both mod_dataset.R's plain upload
-    ## and mod_preprocessing.R's activate button - anything else (the
-    ## default cohort or a preloaded "Individual dataset: ..." pick) means
-    ## this whole box is absent, not just visually hidden, so the preloaded
-    ## pipeline's page is byte-for-byte what it was before this feature.
+    ## Optional third gene set (bundled panel or pasted custom list); NULL/"(none)" is a
+    ## no-op. Upload-only: hidden unless dataset$source starts with "Uploaded dataset".
     output$gene_panel_box_ui <- renderUI({
       req(grepl("^Uploaded dataset", dataset$source %||% ""))
       box(
@@ -215,18 +161,8 @@ mod_candidates_server <- function(id, dataset, results) {
       load_gene_panel(choice)
     })
 
-    ## -----------------------------------------------------------------
-    ## DEG contrast pickers - one per sex, both listing every DGE run
-    ## this session (mod_dge.R appends to results$dge_runs on every run),
-    ## defaulting to whichever run's contrast label mentions that sex.
-    ## The app's real sex metadata column is harmonised to single-letter
-    ## "F"/"M" codes (global.R's eset_harmonize_meta()), and mod_dge.R's
-    ## sex-filter label reads e.g. "(sex = F)" - it never spells out
-    ## "female"/"male" - so the pattern must match BOTH the spelled-out
-    ## word and the bare letter, on a word boundary (\\b) so "male" can't
-    ## match as a false-positive substring of "female".
-    ## -----------------------------------------------------------------
-
+    ## DEG contrast pickers, one per sex, listing every DGE run and defaulting to
+    ## whichever contrast label matches that sex (word or "F"/"M" code, word-boundary).
     deg_run_choices <- reactive({
       runs <- results$dge_runs
       req(length(runs) > 0)
@@ -257,15 +193,8 @@ mod_candidates_server <- function(id, dataset, results) {
       selectInput(ns("male_deg_run"), "Male DEG contrast", choices = ch, selected = guess_run(ch, "\\bmale\\b|\\bM\\b"), selectize = FALSE)
     })
 
-    ## -----------------------------------------------------------------
-    ## Module background ∩ one sex's significant DEGs - the exact
-    ## Section 2.5 intersection. Gated behind its own "Compute ... candidates"
-    ## button (eventReactive, same pattern as every other run-button in this
-    ## app) - picking a different module or DEG run above only takes effect
-    ## once that sex's button is clicked again, it never recomputes on its
-    ## own just because an input changed.
-    ## -----------------------------------------------------------------
-
+    ## Module background ∩ one sex's significant DEGs (+ optional gene panel), gated
+    ## behind that sex's run button so changing inputs doesn't recompute automatically.
     sex_candidates <- function(deg_input_name, run_btn_name) {
       eventReactive(input[[run_btn_name]], {
         req(input[[deg_input_name]])
@@ -301,9 +230,7 @@ mod_candidates_server <- function(id, dataset, results) {
         cand$mean_expr <- NA_real_
         if (any(in_expr)) cand$mean_expr[in_expr] <- rowMeans(expr[overlap[in_expr], , drop = FALSE])
 
-        ## One-sided hypergeometric enrichment: is this overlap bigger than
-        ## the two list sizes would predict by chance, against a background
-        ## of every gene in the loaded matrix or either input list.
+        ## One-sided hypergeometric test: is the overlap bigger than chance predicts.
         N <- length(union(rownames(expr), union(bg, deg_genes)))
         p_value <- stats::phyper(length(overlap) - 1, length(bg), N - length(bg), length(deg_genes), lower.tail = FALSE)
 
@@ -322,9 +249,7 @@ mod_candidates_server <- function(id, dataset, results) {
     female_result <- sex_candidates("female_deg_run", "female_run_btn")
     male_result <- sex_candidates("male_deg_run", "male_run_btn")
 
-    ## Registers the summary/Venn/table/download outputs for one sex panel
-    ## - called once per prefix below instead of writing the same five
-    ## outputs out twice.
+    ## Registers the summary/Venn/table/download outputs for one sex panel.
     register_panel <- function(prefix, res) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
         r <- tryCatch(res(), error = function(e) NULL)
@@ -335,16 +260,12 @@ mod_candidates_server <- function(id, dataset, results) {
         tagList(
           p(strong(r$n_bg), " module-background genes, ", strong(r$n_deg), " significant DEGs (", r$contrast, ")",
             if (!is.na(r$n_panel)) tagList(", ", strong(r$n_panel), " genes in the selected gene panel") else NULL, "."),
-          p(strong(length(r$overlap)), " candidate genes in the overlap — hypergeometric enrichment ",
+          p(strong(length(r$overlap)), " candidate genes in the overlap - hypergeometric enrichment ",
             HTML("<em>p</em>"), " = ", signif(r$p_value, 3), ".")
         )
       })
 
-      ## Green for Female, brown for Male - matches this project's own
-      ## reference figures (fig_venn_female_disease_candidates.png /
-      ## fig_venn_male_disease_candidates.png), so the two panels read as
-      ## visibly distinct sexes at a glance instead of both defaulting to
-      ## the same blue every other Venn in this app uses.
+      ## Green for Female, brown for Male, matching this project's reference figures.
       venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26")[[prefix]]
 
       venn_obj <- reactive({
@@ -377,20 +298,9 @@ mod_candidates_server <- function(id, dataset, results) {
     register_panel("female", female_result)
     register_panel("male", male_result)
 
-    ## -----------------------------------------------------------------
-    ## Final candidate gene set - lets the user explicitly pick which of
-    ## the two sex panels above (or their overlap/union) is "the" candidate
-    ## set going forward, instead of every downstream tab having to guess
-    ## which of results$candidates$female / $male it should read.
-    ## Defaults to Union, not Intersection: this project's own script
-    ## (00_shared/10_MR.R, STEP 1) combines candidates_female_disease.csv
-    ## and candidates_male_disease.csv with union(fem, mal), explicitly
-    ## noting "MR is run ONCE on the union" - genes found in EITHER sex
-    ## carry forward, not just the ones found in both. Intersection is kept
-    ## as a selectable option (it's still a meaningful, more conservative
-    ## view), just no longer the default.
-    ## -----------------------------------------------------------------
-
+    ## Final candidate gene set: lets the user pick female/male/union/intersection as
+    ## "the" set for downstream tabs. Defaults to Union, matching this project's own
+    ## MR script (00_shared/10_MR.R), which runs MR once on union(fem, mal).
     output$final_set_picker_ui <- renderUI({
       radioButtons(
         ns("final_candidate_set"), NULL,

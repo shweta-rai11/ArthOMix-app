@@ -78,7 +78,7 @@
 mod_crosstissue_config <- list(
   id = "crosstissue", group = "Validation",
   title = "Cross-Tissue Validation",
-  description = "Sex-stratified discovery, direction concordance, and a four-classifier panel model (logistic regression, elastic net, random forest, SVM) evaluating a chosen gene panel in the independent RA synovial tissue cohort.",
+  description = "Validation of the diagnostic model based on different tissue type and sex. Four-classifier panel model (logistic regression, elastic net, random forest, SVM). Performs analysis on both preloaded or uploaded data, based on sex.",
   icon = "shuffle"
 )
 
@@ -144,7 +144,7 @@ ct_gene_auc <- function(values, y) {
 ## both orientation conventions (Section 2.11.6). `genes` is the REQUESTED
 ## panel (may include genes absent from synovium - flagged via `present`).
 ct_discovery_table <- function(genes, sex_code, val, blood_dir) {
-  idx_sex <- which(val$sex == sex_code)
+  idx_sex <- if (is.null(sex_code)) seq_along(val$sex) else which(val$sex == sex_code)
   y_sex <- droplevels(val$grp[idx_sex])
   tt <- val$tt
   rows <- lapply(genes, function(g) {
@@ -363,6 +363,71 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
 }
 
 ## ---------------------------------------------------------------------------
+## User-uploaded validation dataset - Option B (Section 5). Builds a
+## val_synovium.rds-shaped object (tt/logcpm/sex/grp; fsig/msig left empty,
+## since that bundled consensus panel is specific to the project's own
+## synovium script) from an uploaded raw-count expression matrix and sample
+## metadata, so ct_build_sex() below can run the IDENTICAL sex-stratified
+## discovery (ct_discovery_table) and panel-classifier (ct_fit_sex) code on
+## either data source - no separate analysis path for uploaded data.
+## ---------------------------------------------------------------------------
+
+## Sex-adjusted limma-voom DE (filterByExpr, TMM, voom, limma, eBayes) - the
+## SAME pipeline already cited in this module's own References box as the
+## provenance of the bundled val_synovium.rds$tt, applied live to an
+## uploaded raw-count matrix rather than invoking a new statistical method.
+## `grp` must be a 2-level factor (reference = level 1, comparison = level
+## 2, matching val_synovium.rds's own Normal/RA convention); `sex` a
+## "F"/"M" character vector, same length as ncol(counts).
+ct_voom_de_table <- function(counts, grp, sex) {
+  validate(need(all(counts >= 0, na.rm = TRUE) && all(counts == round(counts), na.rm = TRUE),
+                "The uploaded validation expression matrix must be raw (non-negative, whole-number) RNA-seq counts, not already-normalised or log-scale values."))
+  counts <- round(as.matrix(counts)); storage.mode(counts) <- "integer"
+  dge0 <- edgeR::DGEList(counts = counts)
+  keepg <- edgeR::filterByExpr(dge0, group = grp)
+  validate(need(sum(keepg) >= 50, "Fewer than 50 genes pass edgeR's expression filter (filterByExpr) for this group split - check the uploaded counts and group mapping."))
+  dge <- edgeR::calcNormFactors(dge0[keepg, ], method = "TMM")
+  design_df <- data.frame(grp = grp, sex = factor(sex))
+  design <- if (length(unique(sex)) == 2) stats::model.matrix(~ grp + sex, data = design_df) else stats::model.matrix(~ grp, data = design_df)
+  v <- limma::voom(dge, design)
+  fit <- limma::eBayes(limma::lmFit(v, design))
+  coef_name <- paste0("grp", levels(grp)[2])
+  tt <- limma::topTable(fit, coef = coef_name, number = Inf, sort.by = "none")
+  tt$gene <- rownames(tt)
+  list(tt = tt, logcpm = v$E)
+}
+
+## Assembles the val_synovium.rds-shaped object for an uploaded cohort.
+## `meta` is the raw uploaded metadata data.frame; `id_col`/`sex_col`/
+## `group_col` are the user's chosen column mappings (same "map your own
+## columns" pattern as Diagnostic Model's External Validation tab);
+## `ref_group`/`comp_group` are the two group values to keep (comp = the
+## positive/disease class, matching val_synovium.rds's own RA-as-level-2
+## convention).
+ct_build_uploaded_val <- function(expr, meta, id_col, sex_col, group_col, ref_group, comp_group) {
+  sample_id <- as.character(meta[[id_col]])
+  common <- intersect(colnames(expr), sample_id)
+  validate(need(length(common) >= 12, "Fewer than 12 sample IDs in the uploaded validation expression matrix match the metadata sample-ID column. Check the column mapping."))
+  expr <- expr[, common, drop = FALSE]
+  meta <- meta[match(common, sample_id), , drop = FALSE]
+
+  sex_raw <- as.character(meta[[sex_col]])
+  sex <- ifelse(grepl("^f", sex_raw, ignore.case = TRUE), "F",
+                ifelse(grepl("^m", sex_raw, ignore.case = TRUE), "M", NA_character_))
+  validate(need(!anyNA(sex), "The sex column must contain values starting with \"F\"/\"f\" (female) or \"M\"/\"m\" (male) for every matched sample."))
+
+  grp_raw <- as.character(meta[[group_col]])
+  keep <- grp_raw %in% c(ref_group, comp_group)
+  validate(need(sum(keep) >= 12, "Fewer than 12 samples match the chosen reference/comparison groups."))
+  expr <- expr[, keep, drop = FALSE]; sex <- sex[keep]
+  grp <- factor(grp_raw[keep], levels = c(ref_group, comp_group))
+  validate(need(all(table(sex) >= 4), "Each sex needs at least 4 samples (after the reference/comparison group filter) in the uploaded validation cohort."))
+
+  de <- ct_voom_de_table(expr, grp, sex)
+  list(logcpm = de$logcpm, grp = grp, sex = sex, tt = de$tt, fsig = character(0), msig = character(0))
+}
+
+## ---------------------------------------------------------------------------
 ## UI
 ## ---------------------------------------------------------------------------
 
@@ -493,13 +558,29 @@ mod_crosstissue_ui <- function(id) {
     fluidRow(
       column(
         3,
-        arthochat_shortcut_ui(
-          "Questions about cross-tissue validation? Ask ArthOChat.",
-          compact = TRUE
+        box(
+          width = NULL, title = "Validation dataset", status = "primary", solidHeader = FALSE,
+          radioButtons(
+            ns("val_source"), NULL,
+            choiceNames = list(
+              tagList(icon("database"), " Use preloaded validation dataset (Synovium, GSE89408)"),
+              tagList(icon("file-arrow-up"), " Upload my own validation dataset")
+            ),
+            choiceValues = list("preloaded", "upload"), selected = "preloaded"
+          ),
+          conditionalPanel(
+            condition = sprintf("input['%s'] == 'upload'", ns("val_source")),
+            p(class = "submodule-desc", "Provide a raw RNA-seq count matrix and sample metadata for an independent validation-tissue cohort. The same sex-stratified discovery and panel-classifier workflow below then runs on this cohort instead of the bundled synovium dataset."),
+            fileInput(ns("val_expr_file"), "Validation expression matrix (raw counts)", accept = c(".csv", ".rds", ".Rds")),
+            div(class = "empty-note", style = "font-size: 12.5px; margin-top: -8px;", icon("circle-info"),
+                "CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
+            fileInput(ns("val_meta_file"), "Validation sample metadata", accept = c(".csv", ".rds", ".Rds")),
+            uiOutput(ns("val_column_mapping"))
+          )
         ),
         box(
           width = NULL, title = "Gene panel & synovium contrast", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "RA vs Normal synovium (GSE89408), sex-stratified."),
+          p(class = "submodule-desc", "RA vs Normal synovium (GSE89408, or your uploaded validation cohort), sex-stratified."),
           radioButtons(
             ns("panel_source"), NULL,
             choiceNames = list(
@@ -551,9 +632,10 @@ mod_crosstissue_ui <- function(id) {
           id = ns("main_tabs"), type = "tabs",
           tabPanel(
             "Synovium Discovery & Concordance", br(),
-            p(class = "submodule-desc", "Pick Female or Male, then Run."),
+            p(class = "submodule-desc", "Pick Pooled (all), Female or Male, then Run."),
             tabsetPanel(
               id = ns("disc_sex_tabs"), type = "tabs",
+              tabPanel("Pooled (All)", br(), mod_crosstissue_discovery_sex_panel(ns, "pooled")),
               tabPanel("Female", br(), mod_crosstissue_discovery_sex_panel(ns, "female")),
               tabPanel("Male", br(), mod_crosstissue_discovery_sex_panel(ns, "male"))
             )
@@ -566,6 +648,7 @@ mod_crosstissue_ui <- function(id) {
                 9,
                 tabsetPanel(
                   id = ns("full_sex_tabs"), type = "tabs",
+                  tabPanel("Pooled (All)", br(), mod_crosstissue_fullfit_sex_panel(ns, "pooled")),
                   tabPanel("Female", br(), mod_crosstissue_fullfit_sex_panel(ns, "female")),
                   tabPanel("Male", br(), mod_crosstissue_fullfit_sex_panel(ns, "male"))
                 )
@@ -583,6 +666,7 @@ mod_crosstissue_ui <- function(id) {
             p(class = "submodule-desc", "Out-of-fold performance - this project's headline synovium estimate."),
             tabsetPanel(
               id = ns("cv_sex_tabs"), type = "tabs",
+              tabPanel("Pooled (All)", br(), mod_crosstissue_cv_sex_panel(ns, "pooled")),
               tabPanel("Female", br(), mod_crosstissue_cv_sex_panel(ns, "female")),
               tabPanel("Male", br(), mod_crosstissue_cv_sex_panel(ns, "male"))
             )
@@ -590,6 +674,8 @@ mod_crosstissue_ui <- function(id) {
           tabPanel(
             "Cross-Dataset Comparison", br(),
             p(class = "submodule-desc", "Synovium AUC alongside Diagnostic Model's saved blood AUC - not a transfer of the blood model."),
+            mod_crosstissue_crossdata_sex_panel(ns, "pooled"),
+            tags$hr(),
             mod_crosstissue_crossdata_sex_panel(ns, "female"),
             tags$hr(),
             mod_crosstissue_crossdata_sex_panel(ns, "male")
@@ -615,14 +701,83 @@ mod_crosstissue_server <- function(id, dataset, results) {
     ## since this module's whole point is a compartment `dataset` never
     ## holds. `tt` converted to a plain data.frame once here so every
     ## gene == g row lookup below doesn't repeat data.table dispatch.
-    val <- { v <- readRDS(VAL_SYNOVIUM_RDS); v$tt <- as.data.frame(v$tt); v }
+    val_bundled <- { v <- readRDS(VAL_SYNOVIUM_RDS); v$tt <- as.data.frame(v$tt); v }
     bundled_dge <- tryCatch(readRDS(DGE_RESULTS_RDS), error = function(e) NULL)
 
     ## -----------------------------------------------------------------
+    ## Validation dataset source - Option A (bundled val_synovium.rds,
+    ## read once above) vs Option B (user upload, Section 5/6). Both sides
+    ## of `val_active()` return the same shape (tt/logcpm/sex/grp/fsig/
+    ## msig), so every downstream function below (ct_project_panel_genes,
+    ## ct_build_sex, ct_discovery_table, ct_fit_sex) is unchanged by which
+    ## source is active.
+    ## -----------------------------------------------------------------
+
+    val_meta_raw <- reactive({
+      req(input$val_meta_file)
+      path <- input$val_meta_file$datapath
+      if (grepl("\\.rds$", input$val_meta_file$name, ignore.case = TRUE)) {
+        d <- readRDS(path)
+        validate(need(is.data.frame(d), "The uploaded validation metadata RDS file must contain a data frame."))
+        as.data.frame(d)
+      } else {
+        as.data.frame(data.table::fread(path, showProgress = FALSE))
+      }
+    })
+
+    val_expr_raw <- reactive({
+      req(input$val_expr_file)
+      if (grepl("\\.rds$", input$val_expr_file$name, ignore.case = TRUE)) {
+        res <- tx_parse_expr_matrix_rds(input$val_expr_file$datapath)
+        validate(need(res$ok, res$error))
+        res$mat
+      } else {
+        m <- as.data.frame(data.table::fread(input$val_expr_file$datapath, showProgress = FALSE))
+        rn <- as.character(m[[1]]); m <- as.matrix(m[, -1, drop = FALSE]); rownames(m) <- rn
+        m
+      }
+    })
+
+    output$val_column_mapping <- renderUI({
+      req(input$val_expr_file, val_meta_raw())
+      cols <- colnames(val_meta_raw())
+      tagList(
+        fluidRow(
+          column(4, selectInput(ns("val_map_id"), "Sample ID column", choices = cols, selected = cols[1], selectize = FALSE)),
+          column(4, selectInput(ns("val_map_sex"), "Sex column", choices = cols, selectize = FALSE)),
+          column(4, selectInput(ns("val_map_group"), "Group column", choices = cols, selectize = FALSE))
+        ),
+        uiOutput(ns("val_group_pick_ui"))
+      )
+    })
+
+    output$val_group_pick_ui <- renderUI({
+      req(input$val_map_group)
+      groups <- sort(unique(stats::na.omit(as.character(val_meta_raw()[[input$val_map_group]]))))
+      validate(need(length(groups) >= 2, "The chosen group column needs at least two distinct values."))
+      fluidRow(
+        column(6, selectInput(ns("val_ref_group"), "Reference group (e.g. healthy / control)", choices = groups, selected = groups[1], selectize = FALSE)),
+        column(6, selectInput(ns("val_comp_group"), "Comparison group (e.g. disease)", choices = groups, selected = groups[min(2, length(groups))], selectize = FALSE))
+      )
+    })
+
+    val_uploaded <- reactive({
+      req(input$val_map_id, input$val_map_sex, input$val_map_group, input$val_ref_group, input$val_comp_group)
+      validate(need(input$val_ref_group != input$val_comp_group, "Reference and comparison group must be different."))
+      ct_build_uploaded_val(val_expr_raw(), val_meta_raw(), input$val_map_id, input$val_map_sex, input$val_map_group,
+                            input$val_ref_group, input$val_comp_group)
+    })
+
+    val_active <- reactive({
+      if (identical(input$val_source %||% "preloaded", "upload")) val_uploaded() else val_bundled
+    })
+
+    ## -----------------------------------------------------------------
     ## Gene panel sources - same two-radio-button pattern as Diagnostic
-    ## Model, but the "project pipeline" fallback is val$fsig/val$msig (this
+    ## Model, but the "project pipeline" fallback is va$fsig/va$msig (this
     ## project's own consensus panels, already the ones the bundled synovium
-    ## validation itself used), not Diagnostic Model's blood FS_input CSVs.
+    ## validation itself used - empty for an uploaded cohort, which has no
+    ## such bundled panel), not Diagnostic Model's blood FS_input CSVs.
     ## -----------------------------------------------------------------
 
     ct_project_panel_genes <- function(sex_label) {
@@ -631,13 +786,16 @@ mod_crosstissue_server <- function(id, dataset, results) {
         return(list(genes = live, is_live = TRUE,
                     note = sprintf("%d genes from this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
-      bundled <- if (identical(sex_label, "female")) val$fsig else val$msig
+      va <- val_active()
+      bundled <- switch(sex_label, female = va$fsig, male = va$msig, NULL)
       bundled <- unique(as.character(bundled))
       if (length(bundled) >= 2) {
         return(list(genes = bundled, is_live = FALSE,
                     note = sprintf("%d genes from this project's own bundled %s consensus panel (the one its own synovium validation used).", length(bundled), sex_label)))
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s candidate genes available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No %s candidate genes available%s.", sex_label,
+                           if (identical(input$val_source %||% "preloaded", "upload")) " - run Feature Selection or paste a gene list; an uploaded validation cohort has no bundled consensus panel" else ""))
     }
 
     ct_own_panel_genes <- function(sex_label) {
@@ -652,6 +810,8 @@ mod_crosstissue_server <- function(id, dataset, results) {
       has_live <- length(f_live) >= 2 && length(m_live) >= 2
       if (has_live) {
         div(class = "empty-note", icon("check"), sprintf("Live panel: %d F / %d M genes.", length(f_live), length(m_live)))
+      } else if (identical(input$val_source %||% "preloaded", "upload")) {
+        div(class = "empty-note", icon("triangle-exclamation"), "No live Feature Selection panel, and an uploaded validation cohort has no bundled consensus panel - run Feature Selection first, or paste a gene list instead.")
       } else {
         div(class = "empty-note", icon("circle-info"), "Bundled consensus panel (no live Feature Selection yet).")
       }
@@ -668,10 +828,13 @@ mod_crosstissue_server <- function(id, dataset, results) {
 
     ct_blood_direction <- function(sex_label) {
       runs <- results$dge_runs %||% list()
-      pattern <- if (identical(sex_label, "female")) "\\bfemale\\b|\\bF\\b" else "\\bmale\\b|\\bM\\b"
+      sex_word_pattern <- "\\b(female|male)\\b|\\bF\\b|\\bM\\b"
+      pattern <- switch(sex_label, female = "\\bfemale\\b|\\bF\\b", male = "\\bmale\\b|\\bM\\b", NULL)
       if (length(runs) > 0) {
         labels <- vapply(runs, function(r) r$contrast, character(1))
-        hit_ids <- names(runs)[grepl(pattern, labels, ignore.case = TRUE, perl = TRUE)]
+        matches <- if (is.null(pattern)) !grepl(sex_word_pattern, labels, ignore.case = TRUE, perl = TRUE)
+                   else grepl(pattern, labels, ignore.case = TRUE, perl = TRUE)
+        hit_ids <- names(runs)[matches]
         if (length(hit_ids) > 0) {
           r <- runs[[utils::tail(hit_ids, 1)]]
           return(list(logfc = stats::setNames(r$table$logFC, r$table$gene),
@@ -679,8 +842,8 @@ mod_crosstissue_server <- function(id, dataset, results) {
         }
       }
       if (!is.null(bundled_dge)) {
-        key <- if (identical(sex_label, "female")) "Female" else "Male"
-        d <- bundled_dge$res[[key]]
+        key <- switch(sex_label, female = "Female", male = "Male", pooled = "All", NULL)
+        d <- if (!is.null(key)) bundled_dge$res[[key]] else NULL
         if (!is.null(d) && nrow(d) > 0) {
           return(list(logfc = stats::setNames(d$logFC, d$gene),
                       note = "bundled DE", is_live = FALSE))
@@ -690,9 +853,9 @@ mod_crosstissue_server <- function(id, dataset, results) {
     }
 
     output$blood_direction_ui <- renderUI({
-      f <- ct_blood_direction("female"); m <- ct_blood_direction("male")
+      p <- ct_blood_direction("pooled"); f <- ct_blood_direction("female"); m <- ct_blood_direction("male")
       div(class = "empty-note", title = "Reference used to check each gene's direction of effect against blood.",
-          icon("arrows-turn-to-dots"), sprintf("Blood direction: F = %s, M = %s.", f$note, m$note))
+          icon("arrows-turn-to-dots"), sprintf("Blood direction: Pooled = %s, F = %s, M = %s.", p$note, f$note, m$note))
     })
 
     ## -----------------------------------------------------------------
@@ -732,34 +895,42 @@ mod_crosstissue_server <- function(id, dataset, results) {
     ## -----------------------------------------------------------------
 
     ct_build_sex <- function(sex_label) {
-      sex_code <- if (identical(sex_label, "female")) "F" else "M"
-      idx_sex <- which(val$sex == sex_code)
-      validate(need(length(idx_sex) > 0, sprintf("No %s samples in the synovium dataset.", sex_label)))
-      y_full <- droplevels(val$grp[idx_sex])
+      va <- val_active()
+      is_upload <- identical(input$val_source %||% "preloaded", "upload")
+      sex_code <- switch(sex_label, female = "F", male = "M", NULL)
+      idx_sex <- if (is.null(sex_code)) seq_along(va$sex) else which(va$sex == sex_code)
+      validate(need(length(idx_sex) > 0, sprintf("No %s samples in the validation dataset.", sex_label)))
+      y_full <- droplevels(va$grp[idx_sex])
       validate(need(length(unique(y_full)) == 2 && all(table(y_full) >= 4),
-                    sprintf("The %s synovium subset needs at least 4 samples in each group (RA / Normal).", sex_label)))
+                    sprintf("The %s validation subset needs at least 4 samples in each group (%s).", sex_label, paste(levels(va$grp), collapse = " / "))))
 
       cand <- if (identical(input$panel_source, "project")) ct_project_panel_genes(sex_label) else ct_own_panel_genes(sex_label)
       genes_req <- cand$genes
       validate(need(length(genes_req) >= 2, sprintf("Fewer than 2 %s genes from the chosen panel.", sex_label)))
-      genes_present <- intersect(genes_req, rownames(val$logcpm))
-      validate(need(length(genes_present) >= 2, sprintf("Fewer than 2 %s panel genes are present in the synovium dataset.", sex_label)))
+      genes_present <- intersect(genes_req, rownames(va$logcpm))
+      validate(need(length(genes_present) >= 2, sprintf("Fewer than 2 %s panel genes are present in the validation dataset.", sex_label)))
 
       bd <- ct_blood_direction(sex_label)
-      discovery <- ct_discovery_table(genes_req, sex_code, val, bd)
+      discovery <- ct_discovery_table(genes_req, sex_code, va, bd)
 
-      expr_sub <- val$logcpm[genes_present, idx_sex, drop = FALSE]
+      expr_sub <- va$logcpm[genes_present, idx_sex, drop = FALSE]
       fit <- ct_fit_sex(expr_sub, y_full, params = ct_advanced_params())
       fit$discovery <- discovery
       fit$candidate_note <- cand$note
       fit$blood_note <- bd$note
       fit$n_input <- length(genes_req); fit$n_present <- length(genes_present)
       fit$sex_label <- sex_label
+      fit$grp_levels <- levels(va$grp)
+      fit$dataset_label <- if (is_upload) "user-uploaded validation cohort" else "synovium, GSE89408"
       fit
     }
 
+    pooled_run_trigger <- reactiveVal(0)
     female_run_trigger <- reactiveVal(0)
     male_run_trigger <- reactiveVal(0)
+    lapply(c("run_pooled_btn_disc", "run_pooled_btn_full", "run_pooled_btn_cv"), function(bid) {
+      observeEvent(input[[bid]], { pooled_run_trigger(isolate(pooled_run_trigger()) + 1) }, ignoreInit = TRUE)
+    })
     lapply(c("run_female_btn_disc", "run_female_btn_full", "run_female_btn_cv"), function(bid) {
       observeEvent(input[[bid]], { female_run_trigger(isolate(female_run_trigger()) + 1) }, ignoreInit = TRUE)
     })
@@ -767,17 +938,20 @@ mod_crosstissue_server <- function(id, dataset, results) {
       observeEvent(input[[bid]], { male_run_trigger(isolate(male_run_trigger()) + 1) }, ignoreInit = TRUE)
     })
 
+    ct_result_pooled <- eventReactive(pooled_run_trigger(), ct_build_sex("pooled"), ignoreInit = TRUE)
     ct_result_female <- eventReactive(female_run_trigger(), ct_build_sex("female"), ignoreInit = TRUE)
     ct_result_male <- eventReactive(male_run_trigger(), ct_build_sex("male"), ignoreInit = TRUE)
 
     ct_has_run <- reactiveVal(FALSE)
+    observeEvent(pooled_run_trigger(), ct_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(female_run_trigger(), ct_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(male_run_trigger(), ct_has_run(TRUE), ignoreInit = TRUE)
 
     ## Which model's params box to show: whichever pill was clicked most
-    ## recently, in either sex's Full Fit or Cross-Validated tab.
+    ## recently, in any stratum's Full Fit or Cross-Validated tab.
     active_model_pill <- reactiveVal("Logistic Regression")
-    lapply(c("female_full_model_pills", "male_full_model_pills", "female_cv_model_pills", "male_cv_model_pills"), function(iid) {
+    lapply(c("pooled_full_model_pills", "female_full_model_pills", "male_full_model_pills",
+             "pooled_cv_model_pills", "female_cv_model_pills", "male_cv_model_pills"), function(iid) {
       observeEvent(input[[iid]], { active_model_pill(input[[iid]]) }, ignoreInit = TRUE)
     })
 
@@ -894,7 +1068,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
           rf_pooled_cv_auc = if (isTRUE(r$rf$cv$pooled$available)) round(r$rf$cv$pooled$auc, 3) else NA_real_,
           svm_apparent_auc = round(r$svm$full_auc, 3),
           svm_pooled_cv_auc = if (isTRUE(r$svm$cv$pooled$available)) round(r$svm$cv$pooled$auc, 3) else NA_real_,
-          genes = r$genes
+          genes = r$genes, dataset_source = r$dataset_label
         )), sex_label)
       )
       showNotification(
@@ -903,10 +1077,12 @@ mod_crosstissue_server <- function(id, dataset, results) {
         type = "message", duration = 6
       )
     }
+    observeEvent(ct_result_pooled(), save_result("pooled", ct_result_pooled()))
     observeEvent(ct_result_female(), save_result("female", ct_result_female()))
     observeEvent(ct_result_male(), save_result("male", ct_result_male()))
 
     output$saved_runs_ui <- renderUI({
+      res_p <- tryCatch(ct_result_pooled(), error = function(e) NULL)
       res_f <- tryCatch(ct_result_female(), error = function(e) NULL)
       res_m <- tryCatch(ct_result_male(), error = function(e) NULL)
       sig_cut <- input$sig_cutoff %||% 0.05
@@ -920,11 +1096,11 @@ mod_crosstissue_server <- function(id, dataset, results) {
         }
       }
       tags$ul(style = "padding-left: 18px; margin-bottom: 0; list-style: none;",
-              status_row("Female", res_f), status_row("Male", res_m))
+              status_row("Pooled (All)", res_p), status_row("Female", res_f), status_row("Male", res_m))
     })
 
     res_sex <- function(sex_label) reactive({
-      fr <- if (identical(sex_label, "female")) ct_result_female else ct_result_male
+      fr <- switch(sex_label, female = ct_result_female, male = ct_result_male, ct_result_pooled)
       tryCatch(fr(), error = function(e) NULL)
     })
 
@@ -1066,7 +1242,8 @@ mod_crosstissue_server <- function(id, dataset, results) {
       pooled <- rr$cv$pooled
       list(
         model_type = rr$model_type, model_label = rr$label, model = rr$model,
-        sex = sex_label, genes = r$genes, contrast = "RA vs Normal (synovium, GSE89408)",
+        sex = sex_label, genes = r$genes,
+        contrast = sprintf("%s vs %s (%s)", r$grp_levels[2], r$grp_levels[1], r$dataset_label),
         hyperparams = switch(rr$model_type,
           lr = list(),
           enet = list(alpha = rr$alpha, lambda_choice = rr$lambda_choice, lambda_used = rr$lambda_used),
@@ -1091,7 +1268,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     }
 
     register_sex_model_outputs <- function(sex_label, res) {
-      sex_color <- if (identical(sex_label, "female")) "#1a7a3c" else "#7a4a26"
+      sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", "#2c6fbb")
       cv_color <- ARTHOMIX_COLORS$orange
       not_yet_note <- function() div(class = "empty-note", icon("circle-info"), "Not run yet, or the last run failed validation - check above.")
 
@@ -1306,10 +1483,13 @@ mod_crosstissue_server <- function(id, dataset, results) {
       })
     }
 
+    register_discovery_outputs("pooled", res_sex("pooled"))
     register_discovery_outputs("female", res_sex("female"))
     register_discovery_outputs("male", res_sex("male"))
+    register_sex_model_outputs("pooled", res_sex("pooled"))
     register_sex_model_outputs("female", res_sex("female"))
     register_sex_model_outputs("male", res_sex("male"))
+    register_crossdata_outputs("pooled", res_sex("pooled"))
     register_crossdata_outputs("female", res_sex("female"))
     register_crossdata_outputs("male", res_sex("male"))
   })

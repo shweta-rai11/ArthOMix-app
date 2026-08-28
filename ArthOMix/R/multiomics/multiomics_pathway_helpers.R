@@ -382,7 +382,7 @@ mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, me
   entrez <- if (isTRUE(harm$ok)) unique(stats::na.omit(harm$df$entrez_id)) else character(0)
   if (length(entrez) == 0) return(list(ok = FALSE, universe_entrez = NULL, universe_label = NULL, n = 0L, error = "None of the background identifiers could be mapped to Entrez IDs."))
   label <- switch(background_choice, auto_experimental = "Measured features in the active dataset's layer(s)",
-                   uploaded_background = "Uploaded background file", preloaded_universe = "Preloaded cohort measured-gene universe", background_choice)
+                   uploaded_background = "Uploaded background file", preloaded_universe = "Preloaded cohort candidate-gene list", background_choice)
   list(ok = TRUE, universe_entrez = entrez, universe_label = sprintf("%s (%s genes)", label, format(length(entrez), big.mark = ",")), n = length(entrez))
 }
 
@@ -729,7 +729,7 @@ mp_concordance_direction <- function(row) {
 
 mp_validate_ora_inputs <- function(genes_entrez, universe_entrez) {
   if (is.null(genes_entrez) || length(genes_entrez) < 3) return(list(ok = FALSE, error = "Fewer than 3 identifiers could be mapped to Entrez IDs - not enough for a meaningful over-representation test."))
-  if (!is.null(universe_entrez) && length(universe_entrez) < length(genes_entrez)) return(list(ok = FALSE, error = "The background/universe is smaller than the input gene list - check the Background setting."))
+  if (!is.null(universe_entrez) && length(universe_entrez) < length(genes_entrez)) return(list(ok = FALSE, error = "Background/universe is smaller than the input gene list - switch Background to \"Entire selected database\"."))
   list(ok = TRUE, error = NULL)
 }
 

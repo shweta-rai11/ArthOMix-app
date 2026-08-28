@@ -1,45 +1,22 @@
 ## R/methylomics/normalization.R
-## Methylation normalization methods for the Methylomics "Normalization"
-## sub-module (ArthOMix/R/methylomics/mod_methyl_normalization.R). Method
-## choice and default parameters are taken from each method's own published
-## documentation, not guessed:
-##   - Noob:                     minfi::preprocessNoob(offset=15, dyeMethod="single")
-##   - Functional normalization: minfi::preprocessFunnorm(nPCs=2)
-##   - SWAN:                     minfi::preprocessSWAN()
-##   - Stratified quantile:      minfi::preprocessQuantile() - minfi's own
-##                                re-implementation of Touleimat & Tost 2012's
-##                                subset/stratified quantile method
-##   - Dasen:                    wateRmelon::dasen() - wateRmelon's own docs
-##                                describe this as "the recommended method"
-##   - BMIQ:                     wateRmelon::BMIQ(nfit=50000, nL=3, ...) - the
-##                                published Teschendorff et al. 2013 defaults
-##   - PBC:                      the Dedeurwaerder et al. 2011 peak-based
-##                                correction method as implemented in
-##                                ChAMP:::DoPBC() - not exported by ChAMP, but
-##                                this is the real, tested implementation
-##                                champ.norm(method="PBC") itself calls; safer
-##                                to call it directly than to re-derive PBC's
-##                                density-peak logic from scratch, and
-##                                champ.norm() itself has unwanted side
-##                                effects here (dir.create()/setwd() into a
-##                                results folder) that calling DoPBC directly
-##                                avoids
-##   - Quantile (plain):         limma::normalizeQuantiles() - a simple,
-##                                non-stratified baseline that works on any
-##                                input, unlike every method above
+## Methylation normalization methods for the Normalization sub-module
+## (mod_methyl_normalization.R). Defaults follow each method's own published docs:
+##   - Noob:                 minfi::preprocessNoob(offset=15, dyeMethod="single")
+##   - Funnorm:               minfi::preprocessFunnorm(nPCs=2)
+##   - SWAN:                  minfi::preprocessSWAN()
+##   - Stratified quantile:   minfi::preprocessQuantile() (Touleimat & Tost 2012)
+##   - Dasen:                 wateRmelon::dasen() (wateRmelon's recommended default)
+##   - BMIQ:                  wateRmelon::BMIQ(nfit=50000, nL=3, ...) (Teschendorff et al. 2013 defaults)
+##   - PBC:                   ChAMP:::DoPBC() (Dedeurwaerder et al. 2011); called directly
+##                             since champ.norm() has unwanted dir.create()/setwd() side effects
+##   - Quantile (plain):      limma::normalizeQuantiles() - simple baseline, works on any input
 ##
-## Noob/Funnorm/SWAN/Dasen/Stratified-quantile all need raw IDAT intensities
-## (an RGChannelSet/MethylSet) and are unavailable for a matrix-only upload;
-## BMIQ/PBC need Type I/II probe-design annotation (450K/EPIC only) but work
-## from a beta matrix alone; plain quantile normalization works everywhere.
-## Every function below degrades to list(ok = FALSE, reason = ...) rather
-## than guessing when its required input isn't available.
+## Noob/Funnorm/SWAN/Dasen/Stratified-quantile need raw IDAT (RGChannelSet/MethylSet);
+## BMIQ/PBC need Type I/II annotation (450K/EPIC) but work from a beta matrix; plain
+## quantile works everywhere. Each function degrades to list(ok = FALSE, reason = ...).
 
-## Type I/II design vector (1 = Type I, 2 = Type II) aligned to `probe_ids`,
-## used by BMIQ/PBC - both need to know each probe's Infinium chemistry to
-## correct for the type-II compression artifact. Probes missing from the
-## manifest (shouldn't happen for a genuine 450K/EPIC upload, but possible
-## for a subsetted or custom probe list) are dropped, not guessed at.
+## Type I/II design vector (1 = Type I, 2 = Type II) aligned to `probe_ids`, used
+## by BMIQ/PBC. Probes missing from the manifest are dropped, not guessed at.
 methyl_design_vector <- function(probe_ids, anno_result) {
   if (!isTRUE(anno_result$ok)) {
     return(list(ok = FALSE, reason = anno_result$reason))
@@ -110,14 +87,8 @@ methyl_norm_dasen <- function(mset) {
 
 ## ---- Matrix-based methods (need Type I/II annotation, not raw IDAT) ------
 
-## Per-sample BMIQ (Teschendorff et al. 2013 beta-mixture quantile
-## normalization) - wateRmelon::BMIQ() operates one sample at a time.
-## Documented to occasionally fail on a poor-quality sample; failures are
-## reported per-sample and that sample's ORIGINAL beta values are kept
-## rather than dropping it or filling in NA. `nL`/`tol` are exposed
-## (wateRmelon::BMIQ()'s own "number of states" and convergence-tolerance
-## parameters) since the Normalization tab's BMIQ panel offers them, not
-## guessed defaults.
+## Per-sample BMIQ (Teschendorff et al. 2013), via wateRmelon::BMIQ() one sample
+## at a time. A failed sample keeps its original beta values rather than NA.
 methyl_norm_bmiq <- function(mat, anno_result, nfit = 50000, nL = 3, tol = 0.001) {
   if (!requireNamespace("wateRmelon", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "wateRmelon is not installed."))
@@ -129,14 +100,8 @@ methyl_norm_bmiq <- function(mat, anno_result, nfit = 50000, nL = 3, tol = 0.001
   design_v <- dv$design_v[keep]
   m[m == 0] <- 1e-6; m[m == 1] <- 1 - 1e-6  ## BMIQ is undefined at the beta boundary
 
-  ## BMIQ samples `nfit` probes PER TYPE without replacement to fit its
-  ## beta-mixture model - on a small or pre-filtered upload (fewer probes
-  ## of one Infinium type than the 50000 default), that sample() call
-  ## errors outright rather than gracefully using what's available.
-  ## wateRmelon's own docs note smaller nfit values are an expected,
-  ## sanctioned tradeoff ("~10000 will make BMIQ run faster at the expense
-  ## of a small loss in accuracy"), so capping to what's actually there is
-  ## the correct fix, not a workaround.
+  ## BMIQ samples `nfit` probes per type without replacement; caps nfit to what's
+  ## actually available to avoid an outright error on a small/pre-filtered upload.
   n_type1 <- sum(design_v == 1, na.rm = TRUE); n_type2 <- sum(design_v == 2, na.rm = TRUE)
   nfit_used <- max(1, min(nfit, n_type1, n_type2))
 
@@ -153,8 +118,8 @@ methyl_norm_bmiq <- function(mat, anno_result, nfit = 50000, nL = 3, tol = 0.001
   list(ok = TRUE, beta = out, note = note, failed_samples = failed)
 }
 
-## Peak-based correction (Dedeurwaerder et al. 2011), via ChAMP's own
-## (unexported) reference implementation - see this file's header comment.
+## Peak-based correction (Dedeurwaerder et al. 2011) via ChAMP's unexported
+## DoPBC() - see file header.
 methyl_norm_pbc <- function(mat, anno_result) {
   if (!requireNamespace("ChAMP", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "ChAMP is not installed."))
@@ -183,10 +148,8 @@ methyl_norm_quantile <- function(mat) {
 }
 
 ## ---- Sequential (two-step) workflows --------------------------------------
-## The literature draws a real distinction between background/dye-bias
-## correction (what Noob does) and probe-design/distribution normalization
-## (what BMIQ/SWAN do) - these two combos run one of each in sequence,
-## rather than treating the two kinds of correction as interchangeable.
+## Background/dye-bias correction (Noob) and probe-design normalization (BMIQ/SWAN)
+## are distinct steps - these combos run one of each in sequence.
 
 methyl_norm_noob_bmiq <- function(rg_set, anno_result, offset = 15, dye_method = "single", nfit = 50000, nL = 3, tol = 0.001) {
   step1 <- methyl_norm_noob(rg_set, offset, dye_method)
@@ -208,11 +171,8 @@ methyl_norm_noob_swan <- function(rg_set, offset = 15, dye_method = "single") {
        note = sprintf("Sequential Noob (offset=%d, dyeMethod=\"%s\") -> SWAN.", offset, dye_method))
 }
 
-## ---- Method explanations, for the Normalization tab's per-method info ----
-## panel (section "Method-specific explanations"). `category` distinguishes
-## background/technical correction from probe-design/distribution
-## normalization, per this file's own header comment on why those are not
-## the same operation.
+## ---- Method explanations for the Normalization tab's per-method info panel ----
+## `category` distinguishes background/technical correction from probe-design normalization.
 METHYL_NORM_METHOD_INFO <- list(
   noob = list(category = "Background / technical correction", text =
     "Noob (normal-exponential out-of-band) performs background correction and dye-bias correction using out-of-band Infinium I probe intensities. Appropriate whenever raw methylation-array intensity data are available; on its own it does not address Type I/II probe-design distribution differences."),
@@ -237,16 +197,9 @@ METHYL_NORM_METHOD_INFO <- list(
 )
 
 ## ---- Extended (Normalization-tab-only) annotation -------------------------
-## methyl_get_annotation() (annotation.R) only carries chr/pos/Type/SNP/gene -
-## enough for the Quality Control module's own filters. The Normalization
-## tab's CpG-island-relation and gene-region filters need two more columns
-## (Relation_to_Island, UCSC_RefGene_Group) that live in the SAME underlying
-## annotation packages but a DIFFERENT data object (Islands.UCSC/Other) than
-## methyl_get_annotation() loads - rather than editing that shared function
-## (used by Quality Control) to carry columns only this tab needs, this
-## builds its own extension on top of it, cached separately, so
-## annotation.R's own behavior/return shape for every other caller is
-## completely unchanged.
+## methyl_get_annotation() only carries chr/pos/Type/SNP/gene. This tab also needs
+## island-relation and gene-region columns (from a different data object), so this
+## builds its own cached extension rather than changing the shared function.
 .methyl_norm_anno_cache <- new.env(parent = emptyenv())
 
 methyl_get_norm_annotation <- function(array_type) {
@@ -264,9 +217,7 @@ methyl_get_norm_annotation <- function(array_type) {
     a <- base$anno
     ids <- rownames(a)
     a$island_relation <- isl[ids, "Relation_to_Island"]
-    ## Same "first token of the semicolon-separated list" simplification
-    ## methyl_get_annotation() already uses for `gene` - one representative
-    ## gene-region label per probe.
+    ## Same first-token simplification methyl_get_annotation() uses for `gene`.
     a$gene_region <- vapply(strsplit(oth[ids, "UCSC_RefGene_Group"], ";"), function(g) {
       if (length(g) == 0 || !nzchar(g[1])) NA_character_ else g[1]
     }, character(1))
@@ -282,10 +233,8 @@ methyl_get_norm_annotation <- function(array_type) {
 }
 
 ## ---- Normalization-tab-only probe filters ----------------------------------
-## Same "return keep + note, never filter in place" convention as qc.R's own
-## filters (methyl_filter_snp() etc.) - kept here rather than in qc.R since
-## they depend on methyl_get_norm_annotation()'s extra columns, which QC's
-## own filters don't use.
+## Same "return keep + note" convention as qc.R's filters; kept here since these
+## depend on methyl_get_norm_annotation()'s extra columns.
 
 methyl_filter_island_relation <- function(mat, anno_result, keep_categories) {
   a <- anno_result$anno
@@ -322,12 +271,8 @@ methyl_filter_chromosome <- function(mat, anno_result, exclude_chr) {
   list(keep = !removed, note = sprintf("%d probe(s) on excluded chromosome(s) (%s) removed.", sum(removed), paste(exclude_chr, collapse = ", ")))
 }
 
-## Sample-level missingness filter for the Normalization tab's own "remove
-## low-quality samples" option - distinct from Quality Control's sample-QC
-## tab (which reports what it would remove but never touches the shared
-## dataset); this one genuinely drops columns before normalization runs,
-## since a sample too sparse to normalize meaningfully shouldn't silently
-## ride along.
+## Sample-missingness filter for the "remove low-quality samples" option. Unlike
+## QC's sample-QC tab (report-only), this one actually drops columns before normalizing.
 methyl_filter_samples_missingness <- function(mat, max_na_frac) {
   if (is.null(max_na_frac)) return(list(keep = rep(TRUE, ncol(mat)), note = "No sample-missingness threshold applied."))
   na_frac <- colMeans(is.na(mat))
@@ -336,9 +281,7 @@ methyl_filter_samples_missingness <- function(mat, max_na_frac) {
 }
 
 ## ---- Automatic diagnostics --------------------------------------------
-## The compact summary + "Show Details" numbers the Normalization tab shows
-## for both the preloaded and uploaded data pathways before any filtering or
-## normalization runs - purely descriptive of what's already loaded.
+## Summary numbers the Normalization tab shows before any filtering/normalization runs.
 
 methyl_norm_diagnostics <- function(mat, dataset, anno_result = NULL) {
   vals <- mat[is.finite(mat)]
@@ -366,16 +309,10 @@ methyl_norm_diagnostics <- function(mat, dataset, anno_result = NULL) {
   )
 }
 
-## Kolmogorov-Smirnov distance between the pooled Type I and Type II
-## beta-value distributions - the actual signal both BMIQ and SWAN exist to
-## correct for (Teschendorff et al. 2013's own motivating figure is exactly
-## this Type I vs Type II distributional gap). Used both to give the
-## "already normalized?" status a real, checkable number instead of a guess,
-## and to quantify before/after improvement once a method has been run.
-## Sampled (not exhaustive) for speed on a 450K/EPIC-sized matrix; every
-## other top-variance-probe computation in this module (qc.R) samples the
-## same way, so this is consistent with the rest of the app, not a new
-## shortcut.
+## Kolmogorov-Smirnov distance between pooled Type I and Type II beta distributions -
+## the signal BMIQ/SWAN correct for (Teschendorff et al. 2013). Used both for the
+## "already normalized?" status and to quantify before/after improvement. Sampled
+## (not exhaustive) for speed, consistent with qc.R's sampling elsewhere in this module.
 methyl_type_bias_stat <- function(mat, anno_result) {
   if (!isTRUE(anno_result$ok) || is.null(anno_result$anno) || !("Type" %in% colnames(anno_result$anno))) {
     return(list(ok = FALSE, reason = "No Type I/II probe-design annotation available for this array type."))
@@ -400,27 +337,14 @@ methyl_type_bias_stat <- function(mat, anno_result) {
 }
 
 ## ---- Normalization-status detection ---------------------------------------
-## Deliberately narrower than "has this data been normalized at all", because
-## that broader question is NOT answerable from a beta/M-value matrix alone -
-## a dataset can be fully corrected for background fluorescence, dye bias,
-## and batch effects (a real normalization pipeline) and still show a large
-## residual Type I/II gap, because that specific correction (what BMIQ/SWAN
-## do) is a separate, narrower step many published normalization pipelines
-## never applied - this is exactly the case for this app's own preloaded
-## cohort (Liu et al. 2013's GEO-deposited, author-normalized beta values;
-## see the Dataset tab), which reliably shows a large Kolmogorov-Smirnov gap
-## here despite being genuinely normalized upstream. So:
-##   - "raw" is reserved for the one thing this function can state as a
-##     STRUCTURAL FACT, not a guess: mod_methyl_dataset.R's IDAT path only
-##     ever derives beta via minfi::preprocessRaw(), never normalizes, so
-##     rg_set being present means no processing has happened at all.
-##   - "bias_detected" / "no_bias_detected" describe ONLY the Type I/II
-##     probe-design signal (what methyl_type_bias_stat() measures) - never
-##     phrased as "requires normalization" or "already normalized", since
-##     this function has no way to know whether background/dye/batch
-##     correction happened upstream of the beta matrix it was given.
-##   - "unknown" covers every case where even that narrower signal isn't
-##     available or is inconclusive.
+## Deliberately narrower than "has this been normalized" - that's not answerable
+## from a beta matrix alone (e.g. this app's preloaded Liu et al. 2013 cohort is
+## genuinely normalized upstream but still shows a large Type I/II gap here).
+##   - "raw": a structural fact - rg_set present means beta came only from
+##     minfi::preprocessRaw(), no processing at all.
+##   - "bias_detected"/"no_bias_detected": describe only the Type I/II signal
+##     from methyl_type_bias_stat(), never "requires/already normalized".
+##   - "unknown": signal unavailable or inconclusive.
 methyl_norm_status <- function(mat, dataset, anno_result) {
   if (!is.null(dataset$rg_set)) {
     return(list(status = "raw", message =
@@ -452,9 +376,7 @@ methyl_norm_status <- function(mat, dataset, anno_result) {
     bias = bias)
 }
 
-## Advisory recommendation text (section "Smart method recommendation") -
-## always non-binding; the method picker below it never restricts the user
-## to whatever this suggests.
+## Advisory recommendation text - always non-binding, never restricts the method picker.
 methyl_norm_recommendation <- function(dataset, status, available_methods) {
   if (!is.null(dataset$rg_set)) {
     return("Your dataset contains raw Illumina methylation-array intensity data. A Noob-based workflow (optionally paired with BMIQ or SWAN for probe-design correction) is available and is a reasonable default for correcting background and dye-bias effects before downstream analysis.")
@@ -472,10 +394,8 @@ methyl_norm_recommendation <- function(dataset, status, available_methods) {
 }
 
 ## ---- Post-run validation ----------------------------------------------
-## Computed once a normalization result exists, from the SAME before/after
-## matrices the density plot already shows - not a claim that the algorithm
-## merely completed, but an actual comparison of technical-variation and
-## structure metrics (section "Normalization validation").
+## Compares before/after technical-variation and structure metrics, not just
+## whether the algorithm completed (section "Normalization validation").
 methyl_norm_validation <- function(before, after, anno_result, group_labels = NULL) {
   out <- list(
     var_before = mean(methyl_row_vars(before), na.rm = TRUE),
@@ -512,11 +432,9 @@ methyl_norm_validation <- function(before, after, anno_result, group_labels = NU
   out
 }
 
-## Plain-language interpretation of methyl_norm_validation()'s numbers -
-## never declares success merely because the algorithm completed (section
-## "Normalization validation"); a biological-signal-preservation warning
-## (section "Preserve biological signal") takes priority over an otherwise
-## favorable technical-variation readout.
+## Plain-language interpretation of methyl_norm_validation()'s numbers - a
+## biological-signal-preservation warning takes priority over a favorable
+## technical-variation readout.
 methyl_norm_interpretation <- function(v) {
   if (isTRUE(v$signal_check$flagged)) {
     return(list(status = "warning", text = sprintf(

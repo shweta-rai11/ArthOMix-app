@@ -1,6 +1,6 @@
 ## R/crossomics/mod_cross_dataset.R
 ## Cross-Omics "Dataset" tab: the module's single data-entry point for
-## "Expression x Methylation". Two ways to arrive at the exact same shape -
+## "Expression and Methylation". Two ways to arrive at the exact same shape -
 ## a standardized Transcriptomics table (gene, log2fc, pvalue, fdr) and/or
 ## Methylomics table (cpg, gene, dbeta, pvalue, fdr) - through one shared
 ## preview and one shared hand-off:
@@ -8,7 +8,7 @@
 ## - "Example data" - this app's own real, sex-stratified Transcriptomics
 ##   (DEG) and Methylomics (DMP) results (cx_load_default_deg()/
 ##   cx_load_default_methylation(), crossomics_integration_helpers.R) - the
-##   SAME files "Expression x Methylation"'s own "Preloaded data" mode uses,
+##   SAME files "Expression and Methylation"'s own "Preloaded data" mode uses,
 ##   standardized to the identical shape "Upload your own data" produces.
 ##   Shown through the identical preview, so it doubles as a worked example
 ##   of what an uploaded file should look like - not a different kind of
@@ -21,7 +21,7 @@
 ##
 ## Either way, "Use this data" publishes the same standardized
 ## user_expr_df/user_meth_df pair into the shared `cross_dataset` store,
-## which "Expression x Methylation"'s "From Dataset tab" input mode reads
+## which "Expression and Methylation"'s "From Dataset tab" input mode reads
 ## directly - loading the example or uploading your own is one real,
 ## working path, not two incompatible ones.
 ##
@@ -29,27 +29,27 @@
 ## eQTL-MR x mQTL-MR x DEG x DMP x DMR biomarker-convergence tables
 ## (CX_TABLE_REGISTRY, still defined in data_paths.R and still exercised by
 ## tests/test-data-loaders.R) - removed from here because that shape has
-## nothing to do with what Expression x Methylation needs, so it could never
+## nothing to do with what Expression and Methylation needs, so it could never
 ## usefully serve as a worked example for the Upload path. Those tables are
 ## unrelated to this workflow: Biomarker Convergence and Cross-Omics MR
 ## below still load them directly and independently via their own Load
 ## buttons, unaffected by this change.
 ##
 ## If a file's required columns can't be auto-detected, this tab says so
-## explicitly and points to Expression x Methylation's own Upload option,
+## explicitly and points to Expression and Methylation's own Upload option,
 ## which supports manual column mapping; it never guesses at an ambiguous
 ## column.
 
 mod_cross_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
-  description = "Load example Transcriptomics/Methylomics data, or upload your own in the same standardized format, for the Expression x Methylation sub-module to run on."
+  description = "Load example Transcriptomics/Methylomics data, or upload your own in the same standardized format, for the Expression and Methylation sub-module to run on."
 )
 
 mod_cross_dataset_ui <- function(id) {
   ns <- NS(id)
   tagList(
     div(class = "empty-note", icon("circle-info"),
-        "Loads the data for Expression x Methylation, separate from the Transcriptomics and Methylomics tabs."),
+        "Loads the data for Expression and Methylation, separate from the Transcriptomics and Methylomics tabs."),
     fluidRow(
       column(
         4,
@@ -61,9 +61,12 @@ mod_cross_dataset_ui <- function(id) {
           conditionalPanel(
             condition = sprintf("input['%s'] == 'example'", ns("source_mode")),
             radioButtons(ns("sex_stratum"), "Analysis group",
-                         choices = c("FEMALE" = "female", "MALE" = "male"),
+                         choices = c("ALL" = "all", "FEMALE" = "female", "MALE" = "male"),
                          selected = "female", inline = TRUE),
-            p(class = "submodule-desc", "Female/Male Transcriptomics (DEG) and Methylomics (DMP) example data, in the same format as \"Upload your own data.\""),
+            radioButtons(ns("meth_level"), "Methylation data",
+                         choices = c("CpG-level (DMP)" = "dmp", "Region-level (DMR)" = "dmr"),
+                         selected = "dmp", inline = TRUE),
+            p(class = "submodule-desc", "Female/Male Transcriptomics (DEG) and Methylomics (DMP or DMR) example data, in the same format as \"Upload your own data.\""),
             actionButton(ns("load_example_btn"), "Load example data", icon = icon("database"), class = "btn-primary btn-sm")
           ),
           conditionalPanel(
@@ -100,7 +103,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
     ## standardized, source = display label, raw = original wide df or NULL,
     ## mapping = column mapping or NULL). `raw`/`mapping` stay NULL for
     ## example data (it's already gene/CpG-level, no per-sample columns to
-    ## detect), matching Expression x Methylation's own Preloaded mode.
+    ## detect), matching Expression and Methylation's own Preloaded mode.
     expr_data <- reactiveVal(NULL)
     meth_data <- reactiveVal(NULL)
 
@@ -115,15 +118,17 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
       } else {
         std <- cx_standardize_expression(deg, mapping = c(gene = "gene", log2fc = "logFC", pvalue = "P.Value", fdr = "adj.P.Val"))
         if (!std$ok) { showNotification(std$error, type = "error"); expr_data(NULL) }
-        else expr_data(list(df = std$df, source = sprintf("Example data (%s, sex-stratified DEG)", toupper(sex)), raw = NULL, mapping = NULL))
+        else expr_data(list(df = std$df, source = sprintf("Example data (%s, %s DEG)", toupper(sex), if (identical(sex, "all")) "pooled" else "sex-stratified"), raw = NULL, mapping = NULL))
       }
 
-      meth <- cx_load_default_methylation(sex = sex)
+      meth <- if (identical(input$meth_level, "dmr")) cx_load_default_dmr(sex = sex) else cx_load_default_methylation(sex = sex)
       if (!meth$ok) {
         showNotification(meth$error, type = "warning", duration = 10)
         meth_data(NULL)
       } else {
-        meth_data(list(df = meth$df, source = sprintf("Example data (%s, sex-stratified DMP, SVA/bacon-adjusted)", toupper(sex)), raw = NULL, mapping = NULL))
+        strat_word <- if (identical(sex, "all")) "pooled" else "sex-stratified"
+        meth_label <- if (identical(input$meth_level, "dmr")) sprintf("%s DMR", strat_word) else sprintf("%s DMP, SVA/bacon-adjusted", strat_word)
+        meth_data(list(df = meth$df, source = sprintf("Example data (%s, %s)", toupper(sex), meth_label), raw = NULL, mapping = NULL))
       }
     })
 
@@ -138,7 +143,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
       std <- cx_standardize_expression(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Transcriptomics file: %s Required columns could not be auto-detected here - use Expression x Methylation's own Upload option instead, which supports manual column mapping.", std$error),
+          sprintf("Transcriptomics file: %s Required columns could not be auto-detected here - use Expression and Methylation's own Upload option instead, which supports manual column mapping.", std$error),
           type = "warning", duration = 15
         )
         expr_data(NULL)
@@ -153,7 +158,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
       std <- cx_standardize_methylation(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Methylomics file: %s Required columns could not be auto-detected here - use Expression x Methylation's own Upload option instead, which supports manual column mapping.", std$error),
+          sprintf("Methylomics file: %s Required columns could not be auto-detected here - use Expression and Methylation's own Upload option instead, which supports manual column mapping.", std$error),
           type = "warning", duration = 15
         )
         meth_data(NULL)
@@ -185,7 +190,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
         cross_dataset$user_meth_mapping <- meth_data()$mapping
         cross_dataset$user_meth_sample_cols <- if (!is.null(meth_data()$raw)) cx_detect_sample_columns(meth_data()$raw, meth_data()$mapping) else character(0)
       }
-      showNotification("Ready for Expression x Methylation.", type = "message")
+      showNotification("Ready for Expression and Methylation.", type = "message")
     })
 
     observeEvent(input$clear_btn, {

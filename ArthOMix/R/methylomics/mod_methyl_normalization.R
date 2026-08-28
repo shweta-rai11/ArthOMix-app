@@ -1,41 +1,27 @@
 ## R/methylomics/mod_methyl_normalization.R
 ## Methylomics sub-module: Normalization. Reads the shared `methyl_dataset`
-## reactiveValues (R/methylomics/normalization.R has the actual method
-## implementations, diagnostics, status-detection, and validation helpers -
-## see its own header for what each one calls and why).
+## reactiveValues (R/methylomics/normalization.R has the method
+## implementations, diagnostics, status-detection, and validation helpers).
 ##
-## ---- Two data pathways, one shared diagnostics/status engine -------------
-## Both the preloaded dataset and an uploaded one run through the SAME
-## automatic diagnostics (methyl_norm_diagnostics()) and normalization-status
-## detection (methyl_norm_status()) below - there is no separate "preloaded
-## logic" for that part. What differs is what happens next: the preloaded
-## whole-blood dataset was analyzed from its original author-normalized data
-## (see the Dataset tab), a deliberate choice that preserves direct
-## comparability with the originally published beta values rather than
-## risking systematic differences from an independently re-implemented
-## normalization - so for preloaded data this tab stops at "here is what the
-## data looks like and here is its status", it never offers a live method
-## picker, filters, or a Run button that would reprocess it. An uploaded
-## dataset gets the full live workflow: filters, a method picker whose
-## choices depend on what was actually uploaded (raw IDAT unlocks Noob/
-## Functional normalization/SWAN/Dasen/Stratified quantile/Noob+SWAN, all of
-## which need an RGChannelSet; BMIQ/PBC/Noob+BMIQ need Type I/II manifest
-## annotation - 450K/EPIC only - but the matrix-based ones work from a beta
-## matrix alone; plain quantile normalization and "no normalization" always
-## work), a Compare Methods panel, and progressively-revealed before/after
-## results. Nothing is guessed or offered when its input isn't actually
-## available.
+## Both preloaded and uploaded datasets run through the same automatic
+## diagnostics (methyl_norm_diagnostics()) and status detection
+## (methyl_norm_status()). Preloaded whole-blood data was analyzed from its
+## original author-normalized values (see Dataset tab) for comparability
+## with the published beta values, so this tab only shows status for it -
+## no live method picker/filters/Run button. Uploaded data gets the full
+## live workflow: filters, a method picker gated by what's actually
+## available (raw IDAT unlocks Noob/Functional normalization/SWAN/Dasen/
+## Stratified quantile/Noob+SWAN; BMIQ/PBC/Noob+BMIQ need Type I/II
+## manifest annotation - 450K/EPIC only; quantile/none always work), a
+## Compare Methods panel, and progressive before/after results.
 ##
-## Follows the same "compute a candidate result, then an explicit button
-## promotes it to the shared dataset" pattern mod_preprocessing.R already
-## uses for transcriptomics ("Use this as the active dataset") - the run
-## button alone never overwrites methyl_dataset$beta, so a normalization
-## can be tried, inspected via the before/after diagnostics, and either
-## kept or discarded.
+## Same "compute a candidate result, explicit button promotes it to the
+## shared dataset" pattern as mod_preprocessing.R's "Use this as the active
+## dataset" - Run alone never overwrites methyl_dataset$beta.
 
 mod_methyl_normalization_config <- list(
   id = "normalization", title = "Normalization", icon = "wave-square", group = "Data",
-  description = "Detects normalization status and applies methylation-specific filters. Runs Noob, Functional normalization, SWAN, Dasen, BMIQ, PBC, and quantile normalization, with method comparison and before/after QC."
+  description = "Performs normalization through various methods"
 )
 
 METHYL_NORM_METHODS_IDAT <- c(
@@ -47,11 +33,10 @@ METHYL_NORM_METHODS_UNIVERSAL <- c("No normalization / keep current data" = "non
 METHYL_NORM_METHODS_COMBO_SWAN <- c("Noob + SWAN" = "noob_swan")
 METHYL_NORM_METHODS_COMBO_BMIQ <- c("Noob + BMIQ" = "noob_bmiq")
 
-## Methods that operate directly on a beta/M-value matrix (filters are
-## applied BEFORE the method runs); every other method runs on raw IDAT
-## input and filters are applied to its resulting beta AFTER the method
-## runs, since minfi/wateRmelon's raw-intensity methods work on the array's
-## full probe set from the RGChannelSet, not a pre-filtered matrix.
+## Methods operating directly on a beta/M-value matrix apply filters BEFORE
+## running; raw-IDAT methods apply filters AFTER, since minfi/wateRmelon's
+## raw-intensity methods need the array's full probe set from the
+## RGChannelSet, not a pre-filtered matrix.
 METHYL_NORM_MATRIX_METHOD_KEYS <- c("bmiq", "pbc", "quantile", "none")
 
 mod_methyl_normalization_ui <- function(id) {
@@ -62,10 +47,8 @@ mod_methyl_normalization_ui <- function(id) {
   )
 }
 
-## Small helper: an actionLink that toggles a hidden wrapper div - the same
-## "nothing renders until expanded" affordance mod_methyl_qc.R's historical-
-## reference toggle already uses, applied here to every progressive-reveal
-## section in the results area.
+## actionLink that toggles a hidden wrapper div - same progressive-reveal
+## affordance as mod_methyl_qc.R's historical-reference toggle.
 .methyl_norm_toggle_ui <- function(ns, id, label) {
   tagList(
     actionLink(ns(paste0(id, "_toggle")),
@@ -77,8 +60,7 @@ mod_methyl_normalization_ui <- function(id) {
   )
 }
 
-## Sub-tab title (icon + label) - same convention as mod_methyl_qc.R's own
-## qc_tab_title() for its Overview/Sample QC/Probe QC/... tabs.
+## Sub-tab title (icon + label), matching mod_methyl_qc.R's qc_tab_title().
 norm_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
 
 mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) {
@@ -178,8 +160,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       uploaded_ui()
     })
 
-    ## ==== Branch: preloaded dataset - diagnostics/status only, no live =====
-    ## reprocessing (see this file's header comment for why).
+    ## ==== Branch: preloaded dataset - diagnostics/status only, no live reprocessing ====
 
     preloaded_ui <- function() {
       if (is.null(methyl_dataset$beta)) {
@@ -190,18 +171,12 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         ))
       }
       d <- diag_result(); st <- status_result()
-      ## Deliberately NOT status_card(st, ...): that helper's badge reflects
-      ## methyl_norm_status()'s narrow Type I/II probe-design-bias signal
-      ## (see normalization.R's header on that function), which is a
-      ## DIFFERENT question from "was this dataset normalized" - for this
-      ## specific cohort the documented, ground-truth answer to the latter
-      ## is already known (author-normalized before GEO deposition; see the
-      ## Dataset tab) and is not something a heuristic should second-guess
-      ## or appear to contradict. The heuristic's actual reading is still
-      ## shown, just demoted to a secondary technical note rather than the
-      ## headline badge, so it stays informative without reading as "this
-      ## dataset needs normalizing" for a dataset this tab will never offer
-      ## to reprocess anyway.
+      ## Deliberately not status_card(st, ...): that badge reflects
+      ## methyl_norm_status()'s narrow Type I/II bias signal, a different
+      ## question from "was this dataset normalized" - the ground-truth
+      ## answer for this cohort is already known (author-normalized before
+      ## GEO deposition). The heuristic's reading is still shown, just
+      ## demoted to a secondary note instead of the headline badge.
       tagList(
         diagnostics_card(d, "Computed automatically from the preloaded whole-blood cohort's bundled beta matrix."),
         div(class = "card",
@@ -210,7 +185,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
             p(class = "submodule-desc",
               "This is the app's own reference dataset, analyzed from its original author-normalized data (Liu et al. 2013, deposited on GEO) rather than reprocessed here - a deliberate choice that preserves direct comparability with the originally published beta values (see the Dataset tab). \"Re-normalize\" and \"Compare normalization methods\" are intentionally not offered for this dataset."),
             if (!is.null(st$bias)) div(class = "empty-note", icon("flask"), sprintf(
-              "Technical note: this tab's automatic Type I/II probe-design-bias check (a narrower signal than \"was this normalized at all\" - see the Filters/Method sections' own explanations below for the distinction) reads %s (Kolmogorov-Smirnov statistic = %.3f) for this dataset. GEO-deposited processed beta values from this era typically received background/dye/batch correction but not necessarily a probe-design-aware step (BMIQ/SWAN); either way, this dataset's own author-normalized values are kept as-is rather than reprocessed here.",
+              "Technical note: an automatic check for residual Type I/II probe-design bias reads %s (Kolmogorov-Smirnov statistic = %.3f) for this dataset. This check detects one specific technical signal, not whether normalization was performed at all - a dataset can be fully corrected for background, dye, and batch effects without a probe-design-aware step such as BMIQ or SWAN ever being applied. Either way, this dataset's author-normalized values are kept as-is rather than reprocessed here.",
               if (identical(st$status, "bias_detected")) "substantial residual Type I/II difference" else if (identical(st$status, "no_bias_detected")) "little residual Type I/II difference" else "an inconclusive result",
               st$bias$ks_stat))
         )
@@ -241,13 +216,10 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       methyl_norm_recommendation(methyl_dataset, status_result(), available_methods())
     })
 
-    ## Section "Already-normalized data": when the status card says
-    ## "no_bias_detected", the filters/method-picker/compare-methods sections
-    ## below stay hidden until the user actively picks "Re-normalize" or
-    ## "Compare normalization methods" - "Keep current normalization" just
-    ## confirms the status quo (the currently loaded matrix already IS the
-    ## active dataset; nothing here needs to change it). Reset whenever a
-    ## genuinely new dataset is loaded.
+    ## When status is "no_bias_detected", filters/method-picker/compare
+    ## sections stay hidden until the user picks "Re-normalize" or "Compare
+    ## normalization methods"; "Keep current normalization" just confirms
+    ## the status quo. Reset whenever a new dataset is loaded.
     norm_choice <- reactiveVal(NULL)
     observeEvent(methyl_dataset$beta, norm_choice(NULL), ignoreNULL = TRUE)
     observeEvent(input$choice_keep_btn, norm_choice("keep"), ignoreInit = TRUE)
@@ -292,13 +264,10 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
               p(class = "empty-note", icon("circle-info"), "This is advisory only - every compatible method below remains selectable regardless of this recommendation.")
           ),
           ## Filters / Method & Run / Compare Methods as sub-tabs (same
-          ## tabsetPanel convention mod_methyl_qc.R already uses for its own
-          ## Overview/Sample QC/Probe QC/... tabs) rather than one long
-          ## vertical stack of cards - a tabsetPanel renders every tabPanel's
-          ## content up front (tab switching is CSS visibility, not
-          ## conditional rendering), so filters set on the Filters tab stay
-          ## live and are read by both Method & Run and Compare Methods
-          ## regardless of which tab is currently open.
+          ## tabsetPanel convention as mod_methyl_qc.R). tabsetPanel renders
+          ## every tabPanel up front (tab switching is CSS visibility), so
+          ## filters set on the Filters tab stay live for the other tabs
+          ## regardless of which is open.
           div(class = "tx-menu-wrap",
               tabsetPanel(
                 id = ns("config_tabs"), type = "tabs", header = tagList(tags$hr()),
@@ -390,9 +359,8 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       if (isTRUE(pl$ok)) pl$ids else NULL
     })
 
-    ## Every filter's keep-vector, applied by the caller (matrix methods:
-    ## before running; raw-intensity methods: on the resulting beta) - see
-    ## this file's header comment on why the order differs by method.
+    ## Every filter's keep-vector; caller applies before running for matrix
+    ## methods, or on the resulting beta for raw-intensity methods.
     build_probe_filters <- function(m) {
       filters <- list()
       if (isTRUE(input$f_probe_missing)) filters$probe_missing <- methyl_filter_missing(m, input$probe_missing_max %||% 0.05)
@@ -465,8 +433,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     }
 
     ## ---- Core: run one method on one (already sample-filtered) input ------
-    ## Returns list(ok, beta, note) - shared by both the single Run button
-    ## and the Compare Methods panel so both call the exact same code path.
+    ## Returns list(ok, beta, note); shared by Run and Compare Methods.
     run_one_method <- function(method_key, mat_in, rg_in, mset_in) {
       switch(method_key,
         noob = methyl_norm_noob(rg_in, input$noob_offset %||% 15, input$noob_dye %||% "single"),
@@ -515,9 +482,8 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       stats::setNames(as.character(sheet[[input$group_col_check]]), ids)[sample_ids]
     }
 
-    ## One end-to-end run: sample filters -> method -> probe filters
-    ## (ordered per method type, see this file's header) -> before/after
-    ## comparison on the shared probe set. Returns NULL (with a `reason`)
+    ## One end-to-end run: sample filters -> method -> probe filters ->
+    ## before/after comparison on the shared probe set. Returns a `reason`
     ## on failure instead of throwing.
     run_full <- function(method_key) {
       sc <- sample_scope()
@@ -581,13 +547,10 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     observeEvent(input$promote_btn, {
       r <- norm_result()
       methyl_dataset$beta <- r$after
-      ## Every method except plain quantile normalization / "no
-      ## normalization" (both scale-agnostic per normalization.R's header)
-      ## derives or requires actual beta values, so it's safe to stamp
-      ## "beta" for those - but quantile-normalizing (or leaving unchanged)
-      ## an uploaded M-value matrix does not change its scale, and
-      ## relabeling it "beta" here would corrupt input_scale for every
-      ## downstream module that trusts it.
+      ## Every method except quantile/none requires actual beta values, so
+      ## "beta" is safe to stamp for those - but quantile-normalizing (or
+      ## leaving unchanged) an M-value matrix doesn't change its scale, and
+      ## relabeling it "beta" would corrupt input_scale downstream.
       methyl_dataset$input_scale <- if (r$method %in% c("quantile", "none")) methyl_dataset$input_scale else "beta"
       methyl_dataset$source <- sprintf("%s, normalized with %s", methyl_dataset$source %||% "Methylation dataset", r$method_label)
       showNotification(sprintf("The %s-normalized matrix is now the active Methylomics dataset for every sub-module below.", r$method_label), type = "message")

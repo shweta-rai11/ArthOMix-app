@@ -1,49 +1,16 @@
-## R/mod_featureselection.R
-## Submodule: Feature Selection (Section 2.8)
-## "Your analysis" fits three independent, sex-stratified feature-selection
-## algorithms - LASSO logistic regression, random forest importance, and
-## SVM-RFE - on a candidate gene panel, and reports the 3-way consensus.
-## Female and male are ALWAYS modeled completely separately (two independent
-## fits per method, never a combined model with sex as a covariate) - this
-## mirrors this project's own methodology (Chapter_2_subchapter2_
-## sexstratified.md Section 2.8) exactly, including its hyperparameter
-## tuning (10-fold CV for LASSO's lambda, random forest's mtry, and SVM-RFE's
-## cost) and its selection rules (LASSO: non-zero coefficient at lambda.min;
-## RF: Mean Decrease in Gini above the mean; SVM-RFE: the top-k ranked
-## features minimising 10-fold CV error), and its single global seed (1234)
-## reset before every stochastic step.
-##
-## Three ways to get to a candidate gene panel (radioButtons "data_source"):
-##   "project" (default) - use this session's own live Candidate Gene
-##       Identification output (results$candidates$female/$male, i.e. WGCNA
-##       module background intersected with sex-stratified DEGs) if it's
-##       been run, otherwise fall back to this project's own bundled,
-##       MR-prioritised candidate lists (FS_input_{female,male}.csv) as a
-##       worked example - so this tab is never empty on first use.
-##   "expr" - upload your own expression matrix + metadata (own fileInputs,
-##       not the app-wide Dataset tab, since the sex column mapping here is
-##       mandatory rather than optional) and pick candidate genes from it
-##       directly (most variable, or a pasted list).
-##   "deg"  - upload your own female/male DEG (or any ranked/significant
-##       gene list) CSVs directly; expression values for those genes still
-##       come from whatever dataset is currently loaded in the app.
+## Feature Selection module: fits LASSO, random forest, and SVM-RFE
+## independently per sex on a candidate gene panel, then reports the
+## consensus overlap. Female/male are always modeled separately, never
+## pooled with sex as a covariate. Candidate genes come from live Candidate
+## Gene Identification output, an uploaded expression matrix, or an
+## uploaded DEG/gene list (radioButtons "data_source": project/expr/deg).
 
-## -----------------------------------------------------------------------
-## SVM-RFE helpers - ports of this project's own script (goal2_sex_
-## stratified/12_feature_selection.R) verbatim: recursive elimination by
-## smallest squared linear-SVM weight, one feature per round, giving a full
-## most-to-least-important ranking; then a 10-fold CV error curve over the
-## top-k ranked features to pick the panel size objectively.
-## -----------------------------------------------------------------------
+## SVM-RFE: recursive elimination by smallest squared linear-SVM weight,
+## one feature per round, then a CV error curve over the ranking to pick
+## panel size objectively.
 
-## kernel is deliberately fixed to "linear" throughout SVM-RFE (both here and
-## in fs_svm_rfe_curve() below) - the per-round elimination rule (dropping
-## the feature with the smallest squared linear weight, w2 <- ((t(m$coefs)
-## %*% m$SV)[1, ])^2) is only mathematically valid for a linear decision
-## boundary; a radial/polynomial kernel has no single feature-wise weight to
-## rank by. tolerance and class.weights (see fs_class_weight_levels() above)
-## are still meaningful for a linear-kernel SVM and are exposed as advanced
-## parameters.
+## Linear kernel only - the per-round elimination weight (squared SVM
+## coefficient) is only meaningful for a linear decision boundary.
 fs_svm_rfe_rank <- function(X, y, cost = 1, tolerance = 0.001, class_weights = NULL) {
   feats <- colnames(X)
   ranking <- character(0)
@@ -72,34 +39,16 @@ fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tole
 
 FS_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 
-## SVM-RFE eliminates one feature per round via a full model refit
-## (fs_svm_rfe_rank), then re-fits again per round to build the CV-error
-## curve (fs_svm_rfe_curve) - roughly 2p linear-SVM fits for p candidate
-## genes. This project's own MR-prioritised panels are 25-40 genes (a few
-## minutes at most); this project's Candidate Gene Identification output,
-## by contrast, can be a raw WGCNA-module-sized list of 1,000-2,000+ genes
-## - at that size this is thousands of SVM fits and would run for hours.
-## Candidate sets above this cap are reduced to their most variable genes
-## (within that sex's samples) before fitting, in fs_build_sex() below -
-## noted on-screen (candidate_note) so it's never a silent change.
+## SVM-RFE refits once per eliminated feature (~2p fits for p genes) - fine
+## for a 25-40 gene MR panel but hours-long on a raw WGCNA module (1000s of
+## genes). Candidate sets above this cap get reduced to their most variable
+## genes first, in fs_build_sex() below, with a note shown on-screen.
 FS_MAX_CANDIDATE_GENES <- 200
 
-## Every entry here is the exact value this project's own script
-## (goal2_sex_stratified/12_feature_selection.R) uses - fs_fit_sex()'s
-## `params` argument is this list, with any subset overridden by the
-## per-tab "Customize parameters" UI (each of LASSO/Random Forest/SVM-RFE
-## has its own independent cv_folds and settings). Leaving every tab
-## uncustomized reproduces the thesis panels exactly - and, on the default
-## "project pipeline" data source, is served instantly from this project's
-## own precomputed run rather than recomputed (see load_precomputed_fs()
-## in the server below); nothing here changes what "the default pipeline"
-## means.
+## Default hyperparameters, matching this project's own analysis script;
+## overridable per-method from the UI (see fs_fit_sex()'s `params`).
 FS_DEFAULT_PARAMS <- list(
-  ## Class weighting - shared across all three methods (see fs_class_weight_
-  ## levels()/fs_obs_weights() below), one control for the whole per-sex run
-  ## rather than three duplicated ones. "equal" = this project's own
-  ## methodology (no reweighting); "balanced" = auto inverse-frequency;
-  ## "manual" = a fixed comparison:reference weight ratio.
+  # equal = unweighted (default); balanced = inverse-frequency; manual = fixed ratio
   class_weight_mode = "equal", class_weight_ratio = 1,
   lasso_cv_folds = 10, lasso_alpha = 1, lasso_lambda_choice = "lambda.min",
   lasso_nlambda = 100, lasso_type_measure = "deviance",
@@ -108,22 +57,12 @@ FS_DEFAULT_PARAMS <- list(
   rf_nodesize = 1, rf_maxnodes = NULL,
   svm_cv_folds = 10, svm_cost_mode = "auto", svm_cost_manual = 1, svm_cost_grid = FS_SVM_COST_GRID,
   svm_panel_mode = "auto", svm_manual_k = 10, svm_tolerance = 0.001,
-  ## Which of the three methods count toward "consensus" - all three
-  ## (this project's own methodology) by default, but overridable to any
-  ## non-empty subset, e.g. c("LASSO", "SVM_RFE") to replicate a published
-  ## two-method overlap (Chen et al. 2021/2022's own Fig. 3c intersects only
-  ## LASSO and SVM-RFE, never a random forest step).
+  # methods intersected for consensus; e.g. drop RandomForest to replicate Chen et al. 2021/2022's LASSO∩SVM-RFE panel
   consensus_methods = c("LASSO", "RandomForest", "SVM_RFE")
 )
 
-## Named-by-level (reference, comparison) weights for imbalanced groups -
-## a duplicate of mod_diagnostic.R's own diag_class_weight_levels()/diag_
-## obs_weights(), per this codebase's per-module self-containment
-## convention (see wgcna_module_pick_ui_builder()'s own note on this).
-## Shared by randomForest's classwt and e1071's class.weights directly, and
-## (converted to a per-observation vector by fs_obs_weights()) glmnet's
-## weights=. "equal" (default) returns all-1s, i.e. this project's own
-## unweighted methodology.
+## Class weights by level for imbalanced groups; feeds randomForest's classwt
+## and e1071's class.weights directly, and glmnet's weights= via fs_obs_weights().
 fs_class_weight_levels <- function(y, mode, ratio) {
   lv <- levels(y)
   if (identical(mode, "balanced")) {
@@ -143,12 +82,8 @@ fs_obs_weights <- function(y, mode, ratio) {
 }
 
 ## Fits LASSO + tuned random forest + tuned SVM-RFE on one sex's data.
-## Column names are made syntactically safe first (some gene symbols contain
-## "-", e.g. HLA-A) and translated back to symbols on the way out - same
-## precaution this project's own script takes. `params` (see
-## FS_DEFAULT_PARAMS above) lets each method's hyperparameters and
-## selection rule be overridden from the UI; any field left out falls back
-## to the thesis default.
+## Gene symbols are made syntactically safe (e.g. HLA-A) for the fits and
+## translated back on the way out.
 fs_fit_sex <- function(X, y, params = list()) {
   params <- utils::modifyList(FS_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- 1234
@@ -163,19 +98,11 @@ fs_fit_sex <- function(X, y, params = list()) {
   colnames(X) <- safe
   back <- function(v) unname(lk[v])
 
-  ## Class weighting (see fs_class_weight_levels() above) - shared by all
-  ## three methods below. class_weight_mode = "equal" (the default) makes
-  ## obs_w all 1s and cw_levels c(1, 1), numerically identical to each
-  ## method's unweighted fit, so this project's own numeric replication is
-  ## unaffected unless class weighting is actively turned on.
+  # shared class weights for all three methods below; "equal" mode is a no-op (all weights 1)
   cw_levels <- fs_class_weight_levels(y, params$class_weight_mode, params$class_weight_ratio)
   obs_w <- fs_obs_weights(y, params$class_weight_mode, params$class_weight_ratio)
 
-  ## (1) LASSO logistic regression. alpha (1 = pure LASSO, 0 = ridge),
-  ## which lambda to read coefficients at, and the CV fold count are all
-  ## user-overridable independently of the other two methods. nlambda and
-  ## the CV metric (deviance/AUC/misclassification error) are additional
-  ## advanced controls.
+  # (1) LASSO logistic regression - non-zero coefficients at the chosen lambda
   set.seed(GLOBAL_SEED)
   cv <- glmnet::cv.glmnet(X, y, family = "binomial", alpha = params$lasso_alpha, nfolds = nf_lasso,
                            type.measure = params$lasso_type_measure %||% "deviance", nlambda = params$lasso_nlambda,
@@ -184,11 +111,7 @@ fs_fit_sex <- function(X, y, params = list()) {
   co <- coef(cv, s = lambda_s)[-1, 1, drop = TRUE]
   lasso_genes <- back(names(co)[co != 0])
 
-  ## (2) Random forest importance. mtry is either tuned by its own nf-fold
-  ## CV grid search (caret, ROC metric, default) or a fixed manual value;
-  ## ntree and the selection rule (above-mean Gini, default, or a fixed
-  ## top-N) are both user-overridable. nodesize/maxnodes (tree complexity)
-  ## and classwt (class weighting) are additional advanced controls.
+  # (2) Random forest importance - mtry CV-tuned (or manual), genes kept above mean Gini (or top-N)
   ntree <- max(100, round(params$rf_ntree))
   rf_nodesize <- max(1, round(params$rf_nodesize %||% 1))
   rf_maxnodes <- if (!is.null(params$rf_maxnodes) && is.finite(params$rf_maxnodes)) max(2, round(params$rf_maxnodes)) else NULL
@@ -218,12 +141,7 @@ fs_fit_sex <- function(X, y, params = list()) {
   }
   names(gini) <- back(names(gini))
 
-  ## (3) SVM-RFE, linear kernel (see fs_svm_rfe_rank()'s own comment on why
-  ## the kernel itself isn't user-selectable here). Cost is either tuned by
-  ## its own nf-fold CV grid search (e1071::tune, default, over a
-  ## user-editable grid) or a fixed manual value; the final panel size is
-  ## either the top-k minimising nf-fold CV error (default) or a fixed
-  ## manual k. tolerance and class.weights are additional advanced controls.
+  # (3) SVM-RFE, linear kernel - cost CV-tuned (or manual), panel size = CV-optimal k (or manual)
   svm_tolerance <- params$svm_tolerance %||% 0.001
   if (identical(params$svm_cost_mode, "manual") && !is.null(params$svm_cost_manual)) {
     best_cost <- params$svm_cost_manual
@@ -252,10 +170,7 @@ fs_fit_sex <- function(X, y, params = list()) {
 
   sets <- list(LASSO = lasso_genes, RandomForest = rf_genes, SVM_RFE = svm_genes)
 
-  ## Consensus = intersection of only the user-selected subset of methods
-  ## (params$consensus_methods, default all three) - falls back to all
-  ## three if somehow left empty, so "no methods ticked" can't silently
-  ## zero out the panel.
+  # consensus = intersection of the selected methods; falls back to all three if none selected
   consensus_methods <- intersect(params$consensus_methods %||% names(sets), names(sets))
   if (length(consensus_methods) == 0) consensus_methods <- names(sets)
   consensus_genes <- Reduce(intersect, sets[consensus_methods])
@@ -274,26 +189,16 @@ fs_fit_sex <- function(X, y, params = list()) {
 mod_featureselection_config <- list(
   id = "featureselection", group = "Biomarker modeling",
   title = "Feature Selection",
-  description = "LASSO, random forest and SVM-RFE consensus feature selection, by sex.",
+  description = "Select features based on LASSO, random forest and SVM-RFE by sex.",
   icon = "sliders"
 )
 
-## Wraps one sex's technique box so it only renders once THAT sex's OWN Run
-## button has been clicked - not "any of the three", the way the outer
-## fs_results_wrap toggle (shown on the first click of any button) already
-## works. Applied to every Female/Male/Pooled box across all four tabs
-## (LASSO/Random Forest/SVM-RFE/Overlap), so e.g. clicking "Run Female"
-## reveals only the Female boxes; Male and Pooled stay hidden until their
-## own buttons are clicked, instead of all three appearing together.
+## Reveals a sex's technique box only after that sex's own Run button has been clicked.
 fs_sex_panel <- function(ns, run_btn_id, ...) {
   conditionalPanel(condition = sprintf("input['%s'] > 0", ns(run_btn_id)), ...)
 }
 
-## One technique's Female/Male pair of result boxes. `body` is a tagList of
-## the sex-specific outputs (plot/summary/table/download) for that
-## technique, built by the caller - written once and instantiated 4 times
-## (LASSO / Random Forest / SVM-RFE / Consensus) rather than laid out
-## separately for each.
+## One technique's result box (summary/plot/table/download); instantiated per method x sex.
 mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height = 300) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -304,16 +209,7 @@ mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height 
   )
 }
 
-## One method's own filter controls, always visible and live-editable -
-## no "customize" checkbox to find first. Every control's own default
-## value (set on the numericInput/sliderInput/radioButtons themselves,
-## below) is exactly this project's own methodology; change any of them
-## to run with different settings. fs_any_customized() in the server
-## compares the current values of these inputs against those same
-## defaults to decide whether a run still qualifies for the instant
-## precomputed path (see load_precomputed_fs()) or needs to be live.
-## Each of the three methods gets its own instance - not one shared box -
-## so folds/settings for one method never entangle with another's.
+## One method's parameter box; always visible/live-editable, one independent instance per method.
 mod_featureselection_params_box <- function(ns, prefix, method_label, defaults_desc, ...) {
   box(
     width = 12, title = sprintf("%s parameters", method_label), status = "primary", solidHeader = FALSE,
@@ -328,20 +224,10 @@ mod_featureselection_ui <- function(id) {
     fluidRow(
       column(
         4,
-        arthochat_shortcut_ui(
-          "New to feature selection? Ask ArthOChat.",
-          compact = TRUE
-        ),
         box(
           width = NULL, title = "Candidate genes & samples", status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Female and male fit separately by default; \"Run All\" pools every sample."),
-          ## Run controls pinned at the top of the box (position: sticky, see
-          ## .fs-run-bar in custom.css) rather than after every data-source/
-          ## group setting below - previously they sat at the very end of a
-          ## long form, off-screen until scrolled past everything. Sticky
-          ## keeps them reachable the whole time you're adjusting settings
-          ## further down, without duplicating the actionButtons (which
-          ## would need a second input id and a merged trigger).
+          # run buttons pinned at the top via .fs-run-bar (custom.css) so they stay reachable while scrolling settings
           div(
             class = "fs-run-bar",
             div(style = "display:flex; gap:8px; flex-wrap: wrap;",
@@ -385,14 +271,7 @@ mod_featureselection_ui <- function(id) {
               condition = sprintf("input['%s'] == 'custom'", ns("gene_source")),
               textAreaInput(ns("gene_list"), NULL, rows = 5, placeholder = "TNF\nIL6\nSTAT3\n...")
             ),
-            ## Same results$wgcna$module_genes source as the "deg" data
-            ## source's own WGCNA-module option below, just intersected with
-            ## THIS uploaded expression matrix's own genes instead of the
-            ## app-wide Dataset tab's - a separate selectInput/output
-            ## (wgcna_module_pick_expr) rather than reusing the "deg" one,
-            ## so both can sit in the DOM at once without a duplicate
-            ## element ID (only one is ever visible at a time, per
-            ## data_source, but Shiny still renders both conditionalPanels).
+            # separate picker (wgcna_module_pick_expr) from the "deg" source's own, to avoid a duplicate DOM id
             conditionalPanel(
               condition = sprintf("input['%s'] == 'wgcna_module'", ns("gene_source")),
               uiOutput(ns("wgcna_module_pick_expr_ui"))
@@ -411,15 +290,7 @@ mod_featureselection_ui <- function(id) {
               fileInput(ns("male_deg_file"), "Male DEG / candidate gene file", accept = c(".csv", ".tsv", ".txt")),
               fileInput(ns("pooled_deg_file"), "Pooled (all-sample) DEG / candidate gene file - for \"Run All\"", accept = c(".csv", ".tsv", ".txt"))
             ),
-            ## Reads results$wgcna$module_genes directly - the same
-            ## color -> gene-vector split mod_wgcna.R's Step 3 already
-            ## populates the shared results object with (see the
-            ## observeEvent(net_result(), ...) block there) the moment WGCNA
-            ## has been run this session, on whatever dataset is currently
-            ## active - no CSV export/re-upload round-trip needed. The SAME
-            ## module selection is used for Female, Male and "Run All
-            ## (pooled)" alike (unlike the per-sex uploaded-file mode above,
-            ## a WGCNA module isn't sex-specific by construction).
+            # reads results$wgcna$module_genes directly (from mod_wgcna.R Step 3); same module used for all sexes
             conditionalPanel(
               condition = sprintf("input['%s'] == 'wgcna'", ns("deg_source_mode")),
               uiOutput(ns("wgcna_module_pick_ui"))
@@ -432,32 +303,12 @@ mod_featureselection_ui <- function(id) {
       ),
       column(
         8,
-        ## Hidden (not absent - see shinyjs::show(ns("fs_results_wrap")) in
-        ## the server, fired the same moment fs_has_run() first flips TRUE)
-        ## rather than gated behind a req(fs_has_run())-style renderUI: the
-        ## withSpinner()-wrapped outputs inside still need to already exist
-        ## in the DOM, bound, the moment "Run Female"/"Run Male" is first
-        ## clicked (see the comment on tabsetPanel below) - shinyjs::hidden()
-        ## keeps that binding intact while still showing nothing at all
-        ## until that first click.
+        # hidden (not absent) via shinyjs so outputs stay bound in the DOM before the first Run click
         shinyjs::hidden(div(
         id = ns("fs_results_wrap"),
         tabsetPanel(
           id = ns("technique_tabs"), type = "tabs",
-          ## Every technique/consensus box below is written directly into
-          ## this static UI - NOT behind a server-side req(res())-gated
-          ## renderUI - so its withSpinner()-wrapped outputs already exist
-          ## in the DOM the moment "Run Female"/"Run Male" is clicked. Only
-          ## the outputs THEMSELVES (bound below in the server, e.g.
-          ## female_lasso_summary) are invalidated by that click; the boxes
-          ## around them are not, so shinycssloaders' busy-detection (which
-          ## only has a visible effect on already-existing output elements)
-          ## actually gets something to attach the spinner to. This mirrors
-          ## the working pattern already used elsewhere in this app (e.g.
-          ## mod_wgcna.R's Step 3 box, which is never gated on its own Run
-          ## button either). Each output's own render function still starts
-          ## from "not run yet" and only shows real content once its sex has
-          ## a result - see not_yet_note() in the server below.
+          # static UI (not req()-gated) so shinycssloaders spinners have something to attach to on first click
           tabPanel(
             "LASSO", br(),
             uiOutput(ns("lasso_params_ui")),
@@ -510,13 +361,7 @@ mod_featureselection_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## -----------------------------------------------------------------
-    ## "Upload my own expression data" - a self-contained upload, separate
-    ## from the app-wide Dataset tab, because the sex column mapping here is
-    ## mandatory (sex-stratification is this whole module's point) rather
-    ## than optional the way it is on the Dataset tab.
-    ## -----------------------------------------------------------------
-
+    # own expression/metadata upload, separate from the Dataset tab, since sex mapping is mandatory here
     own_meta_raw <- reactive({
       req(input$meta_file)
       path <- input$meta_file$datapath
@@ -539,9 +384,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## Unified expr/meta source: "project" and "deg" both read the app-wide
-    ## `dataset` (whatever's loaded on the Dataset tab); "expr" reads this
-    ## module's own upload above.
+    # unified expr/meta source: "project"/"deg" read the app-wide dataset; "expr" reads the own upload above
     source_expr_meta <- reactive({
       if (identical(input$data_source, "expr")) {
         req(input$expr_file, input$meta_file, input$map_id, input$map_group, input$map_sex)
@@ -565,18 +408,12 @@ mod_featureselection_server <- function(id, dataset, results) {
         list(expr = expr[, common, drop = FALSE], meta = meta[match(common, meta$sample), , drop = FALSE])
       } else {
         req(dataset$expr, dataset$meta)
-        ## No sex-column check here any more - it only matters for the
-        ## Female/Male buttons (checked in fs_build_sex() itself, right
-        ## before it's actually needed) and would otherwise block "Run All
-        ## (pooled)" on a dataset that legitimately has no sex data, e.g.
-        ## one merged from sources where only some contributed a sex column.
+        # sex column is only required later, in fs_build_sex(), so "Run All" still works without one
         list(expr = dataset$expr, meta = dataset$meta)
       }
     })
 
-    ## Which value in the sex column means "female" / "male" - matches
-    ## whatever's actually in the loaded metadata (this app's own datasets
-    ## harmonise to single-letter "F"/"M", but an upload might spell it out).
+    # maps the sex column's actual values to female/male (usually "F"/"M", but an upload might spell it out)
     sex_levels <- reactive({
       lv <- unique(stats::na.omit(as.character(source_expr_meta()$meta$sex)))
       validate(need(length(lv) >= 2, "The sex column needs at least two distinct values (e.g. F and M)."))
@@ -609,15 +446,35 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## -----------------------------------------------------------------
-    ## Candidate gene panel per sex, one function per data source.
-    ## -----------------------------------------------------------------
+    # candidate gene panel per sex, one function per data source
 
-    ## "project": this session's own live Candidate Gene Identification
-    ## output if available, else this project's own bundled, MR-prioritised
-    ## candidate lists (with an MHC-excluded variant when the checkbox below
-    ## is ticked) - so the tab is never empty on first use.
+    # "project" candidates: live Candidate Gene Identification output, else bundled MR-prioritised lists.
+    # "pooled" has no candidate list of its own (candidate discovery is sex-stratified), so it uses the
+    # union of the female/male panels instead.
     project_candidate_genes <- function(sex_label) {
+      if (identical(sex_label, "pooled")) {
+        live_f <- results$candidates$female$genes
+        live_m <- results$candidates$male$genes
+        live <- unique(c(live_f, live_m))
+        if (length(live) >= 2) {
+          return(list(genes = live, is_live = TRUE,
+                      note = sprintf("%d genes - union of this session's live candidate panels (%d female, %d male).",
+                                     length(live), length(unique(live_f)), length(unique(live_m)))))
+        }
+        mhc <- if (isTRUE(input$mhc_exclude)) "_noMHC" else ""
+        bf <- read_table_safe(sprintf("FS_input_female%s.csv", mhc))
+        bm <- read_table_safe(sprintf("FS_input_male%s.csv", mhc))
+        genes_f <- if (!is.null(bf) && "gene" %in% colnames(bf)) unique(as.character(bf$gene)) else character(0)
+        genes_m <- if (!is.null(bm) && "gene" %in% colnames(bm)) unique(as.character(bm$gene)) else character(0)
+        genes <- unique(c(genes_f, genes_m))
+        if (length(genes) >= 2) {
+          return(list(genes = genes, is_live = FALSE,
+                      note = sprintf("%d genes - union of the bundled female + male candidate lists (%d female, %d male).",
+                                     length(genes), length(genes_f), length(genes_m))))
+        }
+        return(list(genes = character(0), is_live = FALSE,
+                    note = "No pooled candidate genes available (no live or bundled female/male candidates found)."))
+      }
       live <- results$candidates[[sex_label]]$genes
       if (!is.null(live) && length(live) >= 2) {
         return(list(genes = live, is_live = TRUE,
@@ -635,17 +492,8 @@ mod_featureselection_server <- function(id, dataset, results) {
            note = sprintf("No %s candidate genes available.", sex_label))
     }
 
-    ## -----------------------------------------------------------------
-    ## Fast path: this project's own precomputed LASSO/RF/SVM-RFE run
-    ## (data/processed/new/ml_features.rds, or ml_features_noMHC.rds),
-    ## already verified to reproduce fs_fit_sex()'s live output exactly on
-    ## this project's own bundled candidates. Used instead of recomputing
-    ## whenever the default pipeline is selected uncustomized (see
-    ## use_fast_path in build_sex() below) - the same "instant on the
-    ## project's own data, live otherwise" pattern mod_wgcna.R and
-    ## mod_mr.R already use elsewhere in this app.
-    ## -----------------------------------------------------------------
-
+    # fast path: precomputed LASSO/RF/SVM-RFE run (ml_features.rds / ml_features_noMHC.rds), served
+    # instead of recomputing when the default pipeline is used uncustomized (see use_fast_path below).
     load_precomputed_fs <- function(sex_label, mhc_exclude) {
       fname <- if (isTRUE(mhc_exclude)) "ml_features_noMHC.rds" else "ml_features.rds"
       path <- file.path(PROCESSED_NEW_DIR, fname)
@@ -669,11 +517,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     }
 
-    ## "deg": either a user-uploaded gene list/DEG table (one file per sex,
-    ## plus a dedicated pooled file for "Run All"), or - deg_source_mode ==
-    ## "wgcna" - the gene list straight from a WGCNA module run this session,
-    ## the SAME module regardless of sex_label since a co-expression module
-    ## isn't sex-specific by construction (unlike the per-sex uploaded files).
+    # "deg" candidates: uploaded gene list/DEG table per sex, or a WGCNA module's gene list (same module for all sexes).
     deg_candidate_genes <- function(sex_label) {
       if (identical(input$deg_source_mode, "wgcna")) {
         req(input$wgcna_module_pick)
@@ -726,15 +570,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       }
     }
 
-    ## Module-color dropdown, shared builder for both entry points into
-    ## results$wgcna$module_genes (set by mod_wgcna.R's Step 3 the moment a
-    ## run completes) - the "deg" data source's own WGCNA-module mode
-    ## (input_id = "wgcna_module_pick", reads expression from the app-wide
-    ## Dataset tab) and the "expr" data source's matching gene_source choice
-    ## (input_id = "wgcna_module_pick_expr", reads expression from this
-    ## module's own uploaded matrix instead). "grey" is excluded from both,
-    ## matching WGCNA's own Step 4/Step 5 treatment of it as an unassigned
-    ## bin rather than a real co-expression module.
+    # shared module-picker builder for both WGCNA-module entry points; "grey" (unassigned) is excluded.
     wgcna_module_pick_ui_builder <- function(input_id, expr_note) {
       mg <- results$wgcna$module_genes
       if (is.null(mg) || length(mg) == 0) {
@@ -778,23 +614,8 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## -----------------------------------------------------------------
-    ## Advanced method parameters - each of the three methods has its own
-    ## "Customize" checkbox (in its own tab); only a checked method's
-    ## fields are actually read, so customizing e.g. Random Forest alone
-    ## leaves LASSO and SVM-RFE at this project's own defaults untouched.
-    ## fs_fit_sex()'s utils::modifyList(FS_DEFAULT_PARAMS, ...) fills in
-    ## defaults for anything not present here.
-    ## -----------------------------------------------------------------
-
-    ## Every LASSO/Random Forest/SVM-RFE control is always visible and
-    ## live-editable now (no "customize" checkbox gating them) - so
-    ## "customized" is decided by comparing the current value of each
-    ## control against its own default (FS_DEFAULT_PARAMS), not by
-    ## whether a checkbox is checked. use_fast_path in build_sex() below
-    ## needs exactly this to decide whether the precomputed result is
-    ## still valid to serve.
     val_eq <- function(a, b) isTRUE(all.equal(as.numeric(a), as.numeric(b), tolerance = 1e-8))
+    # true if any control differs from FS_DEFAULT_PARAMS; decides fast-path eligibility in use_fast_path below
     fs_any_customized <- function() {
       p <- fs_advanced_params()
       d <- FS_DEFAULT_PARAMS
@@ -813,10 +634,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     }
 
-    ## Tells the user, before they click Run, whether THIS click will be
-    ## instant (precomputed) or live - and if live, exactly which of the
-    ## fast-path conditions isn't met. Mirrors use_fast_path in build_sex()
-    ## below exactly, so this is never wrong about what's about to happen.
+    # tells the user whether the next Run will be instant or live; mirrors use_fast_path below exactly
     output$speed_hint_ui <- renderUI({
       note <- function(icon_name, txt) div(class = "empty-note", style = "font-size: 12.5px;", icon(icon_name), txt)
 
@@ -845,11 +663,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       NULL
     })
 
-    ## Reads every LASSO/Random Forest/SVM-RFE control's current value
-    ## directly - no checkbox to gate them, so a control left untouched
-    ## just reads back its own default (set on the widget itself in the
-    ## UI) and a control the user changes takes effect on the next Run,
-    ## same as any other filter in this app.
+    # reads current values of the LASSO/RF/SVM-RFE controls, falling back to FS_DEFAULT_PARAMS
     fs_advanced_params <- function() {
       cost_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
       cost_grid <- cost_grid[!is.na(cost_grid) & cost_grid > 0]
@@ -880,23 +694,13 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     }
 
-    ## -----------------------------------------------------------------
-    ## Run: fit LASSO + random forest + SVM-RFE for both sexes on one
-    ## click - whichever data source, per-tab parameters, and group
-    ## contrast are currently set. Female and male are still always fit
-    ## completely separately internally (fs_build_sex is called once per
-    ## sex, independently), just triggered by the same button.
-    ## -----------------------------------------------------------------
-
+    # fits LASSO/RF/SVM-RFE for one sex, given the current data source, parameters, and group contrast
     fs_build_sex <- function(sex_label, sex_value) {
       req(input$ref_group, input$comp_group)
       validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
 
       sem <- source_expr_meta()
-      ## Only Female/Male need a usable sex column - "Run All" (sex_value
-      ## NULL) pools every sample regardless, so it works even on a dataset
-      ## that never had (or lost) sex information, e.g. one merged from
-      ## sources where only some contributed a sex column.
+      # only Female/Male need a usable sex column; "Run All" (sex_value NULL) pools regardless
       if (!is.null(sex_value)) {
         validate(need("sex" %in% colnames(sem$meta) && length(unique(stats::na.omit(sem$meta$sex))) >= 2,
                       "No usable sex column in this dataset - load one with sex data, or use \"Run All (pooled)\" instead."))
@@ -904,22 +708,11 @@ mod_featureselection_server <- function(id, dataset, results) {
       adv_params <- fs_advanced_params()
       any_customized <- fs_any_customized()
 
-      ## Candidate gene lookup is cheap (a CSV read or an existing
-      ## results$candidates list) regardless of path - only the model fit
-      ## itself (fs_fit_sex, below) is the expensive part, so it's always
-      ## resolved first to decide fast-path eligibility.
+      # candidate lookup is cheap; resolve it first to decide fast-path eligibility before the expensive fit
       cand_project <- if (identical(input$data_source, "project")) project_candidate_genes(sex_label) else NULL
 
-      ## Fast path: default pipeline, this project's own unmodified bundled
-      ## candidates (not live Candidate Gene Identification output, which
-      ## wouldn't match the precomputed run), every method's parameters
-      ## left uncustomized, the standard HC-vs-RA contrast this precomputed
-      ## run was itself built on, AND the project's own default example
-      ## dataset still actually loaded (same guard mod_wgcna.R uses for its
-      ## own precomputed shortcut) - without this last check, someone who
-      ## switched to a different dataset on the Dataset tab but still had
-      ## HC/RA-labelled groups would silently get this project's numbers
-      ## instead of their own.
+      # fast path only when: default pipeline, unmodified bundled candidates, no customized params,
+      # standard HC-vs-RA contrast, and the project's own example dataset still loaded
       use_fast_path <- identical(input$data_source, "project") &&
         !isTRUE(cand_project$is_live) && !any_customized &&
         identical(input$ref_group, "HC") && identical(input$comp_group, "RA") &&
@@ -950,10 +743,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       genes <- intersect(cand$genes, rownames(expr_sub))
       validate(need(length(genes) >= 3, sprintf("Fewer than 3 %s candidate genes are present in the currently loaded expression matrix.", sex_label)))
 
-      ## See FS_MAX_CANDIDATE_GENES above: a raw WGCNA-module-sized
-      ## candidate set (thousands of genes) makes SVM-RFE's per-round
-      ## refitting take hours - reduce to the most variable genes within
-      ## this sex's own samples first, and say so on-screen.
+      # cap candidate count (see FS_MAX_CANDIDATE_GENES) by keeping the most variable genes in this sex's samples
       n_before_cap <- length(genes)
       if (n_before_cap > FS_MAX_CANDIDATE_GENES) {
         v <- apply(expr_sub[genes, , drop = FALSE], 1, stats::var)
@@ -975,46 +765,19 @@ mod_featureselection_server <- function(id, dataset, results) {
       fit
     }
 
-    ## ignoreInit = TRUE: without it, this evaluates once at session start
-    ## (using run_female_btn/run_male_btn's initial value of 0), before the
-    ## renderUI-driven ref_group/comp_group selectInputs have round-tripped
-    ## to the server - req() inside fs_build_sex() then halts with a bare,
-    ## unstyled error that briefly flashes in every technique panel until
-    ## the real click.
-    ##
-    ## Female and male each have their own button and their own
-    ## eventReactive, so one sex can be run (and re-run, with different
-    ## per-tab parameters) without touching the other - fs_build_sex()
-    ## itself is unchanged and still fits each sex completely independently
-    ## internally; only the trigger is now split.
+    # ignoreInit avoids an early req() halt before ref_group/comp_group have round-tripped to the server
     fs_result_female <- eventReactive(input$run_female_btn, {
       fs_build_sex("female", sex_levels()$female)
     }, ignoreInit = TRUE)
     fs_result_male <- eventReactive(input$run_male_btn, {
       fs_build_sex("male", sex_levels()$male)
     }, ignoreInit = TRUE)
-    ## "Run All": pools every sample regardless of sex - sex_value = NULL
-    ## tells fs_build_sex() to skip the sex filter (and its sex-column
-    ## requirement) entirely, so this works even when sex isn't available.
-    ## For replicating a published method that never stratified by sex.
+    # sex_value = NULL skips the sex filter entirely, pooling every sample regardless of sex
     fs_result_pooled <- eventReactive(input$run_pooled_btn, {
       fs_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
 
-    ## Everything to the right of the "Candidate genes & samples" box -
-    ## each method's own parameter/filter box, every Female/Male result
-    ## panel (hidden via shinyjs, see "fs_results_wrap" in the UI above),
-    ## the bottom Result box, and the References box - stays completely
-    ## invisible until EITHER "Run Female" or "Run Male" has been clicked
-    ## once. Stays TRUE for the rest of the session after that first click,
-    ## so the parameter boxes remain visible/editable to adjust and re-run -
-    ## only the very first reveal is gated.
-    ## shinyjs functions called from inside moduleServer() already apply
-    ## session$ns() to id= internally (shinyjs:::jsFuncHelper checks for a
-    ## session_proxy) - passing an already-ns()-wrapped id here would get
-    ## double-namespaced ("tx_featureselection-tx_featureselection-...")
-    ## and silently match nothing client-side, so this has to be the RAW
-    ## "fs_results_wrap", same as the raw id ns() wrapped once in the UI.
+    # reveals the results area on the first Run click (stays visible after); raw id since shinyjs auto-namespaces
     fs_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_female_btn, {
       fs_has_run(TRUE)
@@ -1107,18 +870,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## Which methods count toward "consensus" - all three ticked by default
-    ## (this project's own methodology: LASSO ∩ Random Forest ∩ SVM-RFE),
-    ## but untick any one (or two) to intersect a smaller subset instead -
-    ## e.g. LASSO + SVM-RFE only, to replicate a published two-method
-    ## overlap (this exact choice is what Chen et al. 2021/2022's own Fig.
-    ## 3c does: their hub-gene panel is LASSO ∩ SVM-RFE, no random forest
-    ## step at all). At least one method must stay ticked; unticking the
-    ## last one silently falls back to all three rather than erroring (see
-    ## fs_fit_sex()'s own fallback), so this only ever narrows the panel,
-    ## never breaks it. Changing this always forces a live re-run (see
-    ## fs_any_customized()) since the fast-path precomputed result was only
-    ## ever built as the 3-way intersection.
+    # methods to intersect for consensus; all three by default, untick to replicate e.g. Chen et al. 2021/2022's LASSO∩SVM-RFE panel
     output$consensus_params_ui <- renderUI({
       req(fs_has_run())
       mod_featureselection_params_box(
@@ -1146,10 +898,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## Female and male are saved into results$featureselection independently
-    ## as each finishes - utils::modifyList() only ever overwrites its own
-    ## sex's entry, so running Male alone (or re-running it later) never
-    ## clobbers an already-saved Female result, and vice versa.
+    # each sex saves into results$featureselection independently via modifyList, without clobbering the other
     observeEvent(fs_result_female(), {
       r <- fs_result_female()
       results$featureselection <- utils::modifyList(
@@ -1258,12 +1007,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## Female and male render their line in the Result box independently -
-    ## whichever has actually been run, showing "not run yet" for the
-    ## other rather than waiting on both. Contrast/MHC mode are read
-    ## straight off the shared input controls (not off either sex's fit
-    ## object) since both sexes are always fit against the same
-    ## reference/comparison group and MHC setting.
+    # renders each sex's summary line independently, showing "not run yet" for the others
     output$summary_ui <- renderUI({
       res_f <- tryCatch(fs_result_female(), error = function(e) NULL)
       res_m <- tryCatch(fs_result_male(), error = function(e) NULL)
@@ -1285,33 +1029,22 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
-    ## Every per-technique output below reads through this: NULL (not a
-    ## req()-halt) when that sex hasn't been run yet, so each output can
-    ## explicitly show "not run yet" rather than sitting there blank.
+    # returns NULL (not a req()-halt) when a sex hasn't been run yet, so outputs can show "not run yet"
     res_sex <- function(sex_label) reactive({
       fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
       tryCatch(fr(), error = function(e) NULL)
     })
 
+    # binds all summary/plot/table/download outputs for one sex's LASSO/RF/SVM-RFE/consensus boxes
     register_sex_technique_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
-      ## Each technique/consensus box now lives directly in the static UI
-      ## (see mod_featureselection_ui above) rather than behind a
-      ## req(res())-gated renderUI, so this note covers BOTH "never clicked
-      ## yet" and "clicked but the run failed validation" - there's no
-      ## separate state to distinguish them by once the box always exists.
       not_yet_note <- function() {
         div(class = "empty-note", icon("circle-info"),
             "No result yet. Click Run Female, Run Male, or Run All (pooled) on the left.")
       }
       sex_title <- tools::toTitleCase(sex_label)
 
-      ## LASSO. Every renderUI summary below explicitly branches on
-      ## is.null(r) to show not_yet_note() - the whole reason res_sex()
-      ## returns a plain NULL rather than req()-halting. Plot/table/
-      ## download outputs instead `req(r)` right after `r <- res()` (a
-      ## plain statement, not nested in a generic-dispatch argument - see
-      ## the plot() note below) so they just stay blank under the note.
+      # LASSO
       output[[paste0(sex_label, "_lasso_summary")]] <- renderUI({
         r <- res()
         if (is.null(r)) return(not_yet_note())
@@ -1319,11 +1052,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         p(strong(length(r$lasso_genes)),
           sprintf(" of %d candidate genes selected (alpha = %.2f, %s = %.4f).", r$n_input, r$lasso_alpha, r$lasso_lambda_choice, lambda_used))
       })
-      ## `r <- res()` as its own statement, not `plot(res()$cv)` inline:
-      ## plot() is an S3 generic, so passing res()$cv directly forces the
-      ## halt to be evaluated INSIDE plot()'s own method-dispatch
-      ## machinery, which surfaces an ugly error banner instead of a clean
-      ## blank panel. Forcing res() first avoids that entirely.
+      # r <- res() first (not inline plot(res()$cv)) so req()'s halt doesn't hit plot()'s S3 dispatch
       output[[paste0(sex_label, "_lasso_plot")]] <- renderPlot({
         r <- res()
         req(r)
@@ -1340,7 +1069,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         content = function(file) write.csv(data.frame(gene = res()$lasso_genes), file, row.names = FALSE)
       )
 
-      ## Random Forest
+      # Random Forest
       output[[paste0(sex_label, "_rf_summary")]] <- renderUI({
         r <- res()
         if (is.null(r)) return(not_yet_note())
@@ -1358,9 +1087,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         p <- ggplot(df, aes(x = reorder(gene, importance), y = importance)) +
           geom_col(fill = sex_color) +
           coord_flip() + labs(x = NULL, y = "Mean decrease in Gini") + theme_arthomix(base_size = 12)
-        ## Only draw the mean-Gini cutoff line when it's actually the
-        ## selection rule in effect - misleading otherwise (top-N mode
-        ## picks genes by rank, not by this threshold).
+        # only draw the mean-Gini cutoff when it's the active selection rule
         if (!identical(r$rf_selection_rule, "top_n")) {
           p <- p + geom_hline(yintercept = r$gini_thr, linetype = "dashed", color = "#8A929C")
         }
@@ -1382,7 +1109,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         }
       )
 
-      ## SVM-RFE
+      # SVM-RFE
       output[[paste0(sex_label, "_svm_summary")]] <- renderUI({
         r <- res()
         if (is.null(r)) return(not_yet_note())
@@ -1397,9 +1124,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         r <- res()
         req(r)
         df <- data.frame(k = r$svm_curve$k, error = r$svm_curve$err)
-        ## Marks wherever the panel size actually came from - the
-        ## CV-error-minimising k (default) or the manual k, if that mode
-        ## was chosen instead.
+        # marks whichever panel size was actually used - CV-optimal k or manual k
         marker_k <- if (identical(r$svm_panel_mode, "manual")) length(r$svm_genes) else r$svm_curve$best
         ggplot(df, aes(x = k, y = error)) +
           geom_line(color = sex_color) + geom_point(color = sex_color) +
@@ -1422,14 +1147,8 @@ mod_featureselection_server <- function(id, dataset, results) {
         }
       )
 
-      ## Consensus / Overlap - r$consensus_methods (default all three, see
-      ## FS_DEFAULT_PARAMS$consensus_methods / the "Overlap" tab's checkbox
-      ## group) is the authoritative set this whole box reflects; the Venn
-      ## plot, "selected by" wording, and the table/download's own
-      ## "consensus" column all key off it directly rather than re-deriving
-      ## a hardcoded 3-way AND, so a 2-method selection (e.g. LASSO ∩
-      ## SVM-RFE only) renders a genuine 2-circle Venn and a 2-method
-      ## consensus column, not a 3-circle one with an unused RF ring.
+      # Consensus/Overlap - Venn, wording, and table all key off r$consensus_methods so a 2-method
+      # selection renders a genuine 2-circle Venn rather than a hardcoded 3-way intersection
       method_labels <- c(LASSO = "LASSO", RandomForest = "Random Forest", SVM_RFE = "SVM-RFE")
       consensus_venn_obj <- reactive({
         r <- res()

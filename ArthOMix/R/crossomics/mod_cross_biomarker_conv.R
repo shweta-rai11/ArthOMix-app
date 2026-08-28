@@ -16,7 +16,7 @@
 
 mod_cross_biomarker_conv_config <- list(
   id = "biomarkerconv", title = "Biomarker Convergence", icon = "diagram-project", group = "Data",
-  description = "Integrates the pipeline's own precomputed eQTL-MR, mQTL-MR, DEG, DMP, and DMR evidence into one sex-stratified table, with instantly reconfigurable significance filters."
+  description = "Shows the pipeline's own precomputed eQTL-MR and mQTL-MR evidence per gene, and where the two converge."
 )
 
 mod_cross_biomarker_conv_ui <- function(id) {
@@ -26,23 +26,30 @@ mod_cross_biomarker_conv_ui <- function(id) {
       4,
       box(
         width = NULL, title = "1. Cohort", status = "primary", solidHeader = FALSE,
-        radioButtons(ns("sex"), "Sex", choices = c("Female" = "female", "Male" = "male"), selected = "female", inline = TRUE),
-        p(class = "empty-note", icon("circle-info"),
-          "Loads this project's own precomputed, already-joined eQTL-MR x mQTL-MR x DEG x DMP x DMR table directly - the join itself was already run by the pipeline; nothing is re-computed here."),
-        actionButton(ns("load_table"), "Load Table", icon = icon("database"), class = "btn-primary btn-sm", width = "100%")
-      ),
-      box(
-        width = NULL, title = "2. Integration Filters", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
-        numericInput(ns("deg_fdr"), "DEG significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
-        numericInput(ns("dmp_genomewide_fdr"), "DMP genome-wide-significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
-        radioButtons(ns("mqtl_sig_basis"), "mQTL-MR significance basis", choices = c("Nominal P (matches original script)" = "nominal_p", "BH-FDR (recomputed over this table)" = "fdr"), selected = "nominal_p"),
-        numericInput(ns("mqtl_sig_cutoff"), "mQTL-MR significance cutoff", value = 0.05, min = 0, max = 1, step = 0.01),
-        numericInput(ns("dmr_fdr"), "DMR significant: FDR <", value = 0.05, min = 0, max = 1, step = 0.01),
-        p(class = "submodule-desc", "Defaults match the pipeline's own thresholds. These only relabel which rows count as significant, from values already in the loaded table - changing them updates every tab instantly, no reload needed.")
-      ),
-      box(
-        width = NULL, title = "Analysis Settings / Reproducibility", status = "primary", solidHeader = FALSE,
-        uiOutput(ns("provenance_ui"))
+        radioButtons(ns("data_source"), "Data source",
+                     choices = c("Preloaded (this project's pipeline)" = "preloaded", "Upload your own data" = "upload"),
+                     selected = "preloaded"),
+        conditionalPanel(
+          condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
+          radioButtons(ns("sex"), "Sex", choices = c("Female" = "female", "Male" = "male", "Both (female and male)" = "combined"), selected = "female", inline = TRUE),
+          p(class = "empty-note", icon("circle-info"),
+            "Already-joined eQTL-MR, mQTL-MR, DEG, DMP, and DMR results, loaded as one table."),
+          actionButton(ns("load_table"), "Load Table", icon = icon("database"), class = "btn-primary btn-sm", width = "100%")
+        ),
+        conditionalPanel(
+          condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
+          fileInput(ns("upload_eqtl_file"), "eQTL-MR results (optional)",
+                    accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
+          p(class = "empty-note", icon("circle-info"),
+            "One row per gene. Required: gene. Optional: eQTL_MR_OR, eQTL_MR_pval, eQTL_MR_FDR, eQTL_MHC_region."),
+          fileInput(ns("upload_mqtl_file"), "mQTL-MR results (optional)",
+                    accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
+          p(class = "empty-note", icon("circle-info"),
+            "One row per gene. Required: gene, mQTL_MR_pval. Optional: mQTL_candidate_cpg, mQTL_cpg_chr, mQTL_cpg_pos_hg19, mQTL_MR_beta."),
+          p(class = "empty-note", icon("triangle-exclamation"),
+            "Upload at least one of the two files - the eQTL-MR and mQTL-MR tabs each work from their own file alone. But the eQTL-mQTL tab (genes with evidence in BOTH) needs both files uploaded - with only one, it will always be empty, since there's nothing to intersect it against. The two files are merged live by gene here (a plain outer join, not a re-run of either MR analysis). DEG/DMP/DMR significance isn't available from this path - this module never re-derives those; use the Cross-Omics Dataset tab / Expression and Methylation module for that."),
+          actionButton(ns("load_table_upload"), "Merge & Load", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
+        )
       )
     ),
     column(
@@ -50,8 +57,9 @@ mod_cross_biomarker_conv_ui <- function(id) {
       uiOutput(ns("summary_cards")),
       tabsetPanel(
         id = ns("result_tabs"), type = "tabs",
-        tabPanel("Results Table", br(), uiOutput(ns("results_table_ui"))),
-        tabPanel("Evidence Overlap", br(), uiOutput(ns("overlap_ui"))),
+        tabPanel("eQTL-MR", br(), uiOutput(ns("eqtl_tab_ui"))),
+        tabPanel("mQTL-MR", br(), uiOutput(ns("mqtl_tab_ui"))),
+        tabPanel("eQTL-mQTL", br(), uiOutput(ns("eqtl_mqtl_tab_ui"))),
         tabPanel("Downloads", br(), uiOutput(ns("downloads_ui")))
       )
     )
@@ -62,8 +70,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    raw <- reactiveValues(df = NULL, sex = NULL, loaded_at = NULL)
-    active_filter <- reactiveVal("All")
+    raw <- reactiveValues(df = NULL, sex = NULL, loaded_at = NULL, missing_layer = NULL)
 
     observeEvent(input$load_table, {
       res <- cx_bc_load_precomputed(input$sex)
@@ -71,116 +78,147 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       raw$df <- res$df
       raw$sex <- input$sex
       raw$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-      active_filter("All")
+      raw$missing_layer <- NULL
       showNotification(sprintf("Loaded %s genes (%s).", format(nrow(res$df), big.mark = ","), toupper(input$sex)), type = "message")
     })
 
-    ## Relabeling is cheap (a handful of vectorized comparisons over <100
-    ## rows), so it's reactive - every filter change updates immediately,
-    ## unlike the pipeline's own analyses which are never re-run here.
-    bc_df <- reactive({
-      req(raw$df)
-      cx_bc_relabel(raw$df, list(
-        deg_fdr = input$deg_fdr, dmp_genomewide_fdr = input$dmp_genomewide_fdr,
-        mqtl_sig_basis = input$mqtl_sig_basis, mqtl_sig_cutoff = input$mqtl_sig_cutoff,
-        dmr_fdr = input$dmr_fdr
-      ))
+    observeEvent(input$load_table_upload, {
+      validate(need(!is.null(input$upload_eqtl_file) || !is.null(input$upload_mqtl_file),
+                    "Upload at least one file (eQTL-MR and/or mQTL-MR)."))
+      eqtl_res <- if (!is.null(input$upload_eqtl_file)) cx_bc_load_eqtl_upload(input$upload_eqtl_file$datapath, input$upload_eqtl_file$name) else NULL
+      if (!is.null(eqtl_res) && !eqtl_res$ok) { showNotification(eqtl_res$error, type = "error", duration = 12); return() }
+      mqtl_res <- if (!is.null(input$upload_mqtl_file)) cx_bc_load_mqtl_upload(input$upload_mqtl_file$datapath, input$upload_mqtl_file$name) else NULL
+      if (!is.null(mqtl_res) && !mqtl_res$ok) { showNotification(mqtl_res$error, type = "error", duration = 12); return() }
+
+      merged <- cx_bc_merge_eqtl_mqtl(if (!is.null(eqtl_res)) eqtl_res$df else NULL, if (!is.null(mqtl_res)) mqtl_res$df else NULL)
+      if (!merged$ok) { showNotification(merged$error, type = "error"); return() }
+
+      raw$df <- merged$df
+      raw$sex <- "uploaded"
+      raw$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+      files_desc <- paste(c(
+        if (!is.null(input$upload_eqtl_file)) sprintf("eQTL-MR: \"%s\"", input$upload_eqtl_file$name),
+        if (!is.null(input$upload_mqtl_file)) sprintf("mQTL-MR: \"%s\"", input$upload_mqtl_file$name)
+      ), collapse = "; ")
+      ## Only one of the two files given - flagged so the eQTL-mQTL tab can
+      ## explain WHY it's empty (nothing to intersect against), rather than
+      ## looking like the same "these panels just don't overlap" case the
+      ## preloaded data can genuinely show.
+      raw$missing_layer <- if (is.null(input$upload_eqtl_file)) "eQTL-MR" else if (is.null(input$upload_mqtl_file)) "mQTL-MR" else NULL
+      showNotification(sprintf("Loaded %s genes from %s.", format(nrow(merged$df), big.mark = ","), files_desc), type = "message")
+      if (!is.null(raw$missing_layer)) {
+        showNotification(sprintf("You only uploaded %s data - the eQTL-mQTL tab needs both files to find genes with evidence in both, so it will show 0. Upload %s results too if you want that tab populated.",
+                                  if (raw$missing_layer == "eQTL-MR") "mQTL-MR" else "eQTL-MR", raw$missing_layer),
+                          type = "warning", duration = 15)
+      }
     })
 
-    output$provenance_ui <- renderUI({
-      if (is.null(raw$df)) return(div(class = "empty-note", icon("circle-info"), "Load the table to see its provenance here."))
-      params <- list(deg_fdr = input$deg_fdr, dmp_genomewide_fdr = input$dmp_genomewide_fdr,
-                      mqtl_sig_basis = input$mqtl_sig_basis, mqtl_sig_cutoff = input$mqtl_sig_cutoff, dmr_fdr = input$dmr_fdr)
-      tags$ul(style = "padding-left: 18px; font-size: 0.85em;", lapply(cx_bc_build_provenance(raw$sex, params, raw$loaded_at), tags$li))
+    ## No filter UI left in this module - every significance threshold
+    ## (DEG/DMP/DMR FDR, mQTL-MR basis/cutoff) is fixed at the pipeline's
+    ## own default (CX_BC_DEFAULT_PARAMS). Relabeling itself still runs
+    ## through cx_bc_relabel() so the *_significant/n_evidence_layers
+    ## columns published to other Cross-Omics sub-modules are unchanged.
+    bc_df <- reactive({
+      req(raw$df)
+      cx_bc_relabel(raw$df, CX_BC_DEFAULT_PARAMS)
     })
 
     output$summary_cards <- renderUI({
       df <- tryCatch(bc_df(), error = function(e) NULL)
-      if (is.null(df)) return(cx_empty_state())
-      card <- function(label, value, key, color = "blue") {
-        div(class = "card", style = "flex: 1 1 150px; cursor:pointer; text-align:center; padding:10px;",
-            onclick = sprintf("Shiny.setInputValue('%s', '%s', {priority: 'event'})", ns("card_click"), key),
+      if (is.null(df)) return(NULL)
+      card <- function(label, value, color = "blue") {
+        div(class = "card", style = "flex: 1 1 150px; text-align:center; padding:10px;",
             div(style = sprintf("font-size:1.4em; font-weight:600; color:%s;", ARTHOMIX_COLORS[[color]] %||% ARTHOMIX_COLORS$ink), format(value, big.mark = ",")),
             div(style = "font-size:0.82em; color:var(--color-ink-muted, #898781);", label))
       }
       div(style = "display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;",
-          card("Genes (union)", nrow(df), "All"),
-          card("In eQTL-MR panel", sum(df$in_eQTL_MR_panel), "eqtl", "aqua"),
-          card("In mQTL-MR panel", sum(df$in_mQTL_MR_panel), "mqtl", "aqua"),
-          card("DEG significant", sum(df$DEG_significant, na.rm = TRUE), "deg", "violet"),
-          card("Methylation significant (DMP or DMR)", sum(df$methylation_significant, na.rm = TRUE), "meth", "violet"),
-          card("Evidence in all applicable layers", sum(df$n_evidence_layers >= 3), "layers3", "red")
+          card("Genes (union)", nrow(df)),
+          card("In eQTL-MR panel", sum(df$in_eQTL_MR_panel), "aqua"),
+          card("In mQTL-MR panel", sum(df$in_mQTL_MR_panel), "aqua"),
+          card("In both (eQTL-mQTL)", sum(df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE), "red"),
+          card("DEG significant", sum(df$DEG_significant, na.rm = TRUE), "violet"),
+          card("Methylation significant (DMP or DMR)", sum(df$methylation_significant, na.rm = TRUE), "violet")
       )
     })
-    observeEvent(input$card_click, {
-      key <- input$card_click
-      active_filter(switch(key,
-        "eqtl" = "eqtl", "mqtl" = "mqtl", "deg" = "deg", "meth" = "meth", "layers3" = "layers3", "All"))
-    })
 
-    filtered_df <- reactive({
+    ## ---- eQTL-MR tab: genes in the eQTL-MR panel, that layer's own columns ----
+    eqtl_df <- reactive({
       df <- bc_df()
-      switch(active_filter(),
-        "eqtl" = df[df$in_eQTL_MR_panel %in% TRUE, , drop = FALSE],
-        "mqtl" = df[df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE],
-        "deg" = df[df$DEG_significant %in% TRUE, , drop = FALSE],
-        "meth" = df[df$methylation_significant %in% TRUE, , drop = FALSE],
-        "layers3" = df[df$n_evidence_layers >= 3, , drop = FALSE],
-        df
-      )
+      d <- df[df$in_eQTL_MR_panel %in% TRUE, , drop = FALSE]
+      cols <- intersect(c("gene", "eQTL_MR_OR", "eQTL_MR_pval", "eQTL_MR_FDR", "eQTL_MHC_region", "eQTL_MR_significant"), colnames(d))
+      d[, cols, drop = FALSE]
     })
-
-    output$results_table_ui <- renderUI({
+    output$eqtl_tab_ui <- renderUI({
       df <- tryCatch(bc_df(), error = function(e) NULL)
-      if (is.null(df)) return(cx_empty_state())
-      display_cols <- c("gene", "in_eQTL_MR_panel", "eQTL_MR_OR", "eQTL_MR_FDR", "eQTL_MHC_region",
-                         "in_mQTL_MR_panel", "mQTL_candidate_cpg", "mQTL_MR_pval", "mQTL_MR_significant",
-                         "DEG_logFC", "DEG_adjP", "DEG_direction", "DEG_significant",
-                         "DMP_top_cpg", "DMP_dbeta", "DMP_fdr_bacon", "DMP_direction", "DMP_genomewide_significant", "DMP_suggestive_only",
-                         "DMR_id", "DMR_meandiff", "DMR_fdr", "DMR_direction", "DMR_significant", "n_evidence_layers")
-      display_cols <- intersect(display_cols, colnames(df))
+      if (is.null(df)) return(cx_empty_state("Load a table on the \"1. Cohort\" panel to see results here."))
       tagList(
-        fluidRow(
-          column(6, selectInput(ns("filter_pick"), "Quick filter", choices = c("All genes" = "All", "In eQTL-MR panel" = "eqtl", "In mQTL-MR panel" = "mqtl", "DEG significant" = "deg", "Methylation significant" = "meth", "Evidence in all applicable layers" = "layers3"), selected = "All")),
-          column(6, selectizeInput(ns("visible_cols"), "Visible columns", choices = display_cols, selected = display_cols, multiple = TRUE))
-        ),
-        div(class = "table-toolbar", downloadButton(ns("dl_table_csv"), "CSV", class = "btn-sm"), downloadButton(ns("dl_table_xlsx"), "XLSX", class = "btn-sm")),
-        DT::dataTableOutput(ns("results_table"))
+        p(class = "submodule-desc", sprintf("%s of %s genes have an eQTL-MR causal-expression instrument in this panel.", format(sum(df$in_eQTL_MR_panel %in% TRUE), big.mark = ","), format(nrow(df), big.mark = ","))),
+        div(class = "table-toolbar", downloadButton(ns("dl_eqtl_csv"), "CSV", class = "btn-sm")),
+        DT::dataTableOutput(ns("eqtl_table"))
       )
     })
-    observeEvent(input$filter_pick, active_filter(input$filter_pick), ignoreInit = TRUE)
+    output$eqtl_table <- DT::renderDataTable({
+      req(eqtl_df())
+      DT::datatable(eqtl_df(), rownames = FALSE, filter = "top", options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+    })
+    output$dl_eqtl_csv <- downloadHandler(function() paste0("biomarker_convergence_eQTL-MR_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(eqtl_df(), file, row.names = FALSE))
 
-    table_df <- reactive({
-      df <- filtered_df()
-      cols <- intersect(input$visible_cols %||% colnames(df), colnames(df))
-      if (length(cols) == 0) cols <- colnames(df)
-      df[, cols, drop = FALSE]
+    ## ---- mQTL-MR tab: genes in the mQTL-MR panel, that layer's own columns ----
+    mqtl_df <- reactive({
+      df <- bc_df()
+      d <- df[df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
+      cols <- intersect(c("gene", "mQTL_candidate_cpg", "mQTL_cpg_chr", "mQTL_cpg_pos_hg19",
+                           "mQTL_instrument_available", "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
+      d[, cols, drop = FALSE]
     })
-    output$results_table <- DT::renderDataTable({
-      req(table_df())
-      DT::datatable(table_df(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
-    })
-
-    output$overlap_ui <- renderUI({
-      if (is.null(raw$df)) return(cx_empty_state())
-      tagList(
-        p(class = "submodule-desc", "How many genes have evidence in each combination of layers - eQTL-MR panel membership, DEG significance, and methylation significance (DMP genome-wide or DMR)."),
-        plotOutput(ns("overlap_plot"), height = "420px")
-      )
-    })
-    output$overlap_plot <- renderPlot({
+    output$mqtl_tab_ui <- renderUI({
       df <- tryCatch(bc_df(), error = function(e) NULL)
-      validate(need(!is.null(df), "Load the table first."))
-      sets <- list(`eQTL-MR panel` = df$gene[df$in_eQTL_MR_panel %in% TRUE],
-                   `DEG significant` = df$gene[df$DEG_significant %in% TRUE],
-                   `Methylation significant` = df$gene[df$methylation_significant %in% TRUE])
-      ggVennDiagram::ggVennDiagram(sets, label = "count") +
-        ggplot2::scale_fill_gradient(low = "white", high = ARTHOMIX_COLORS$blue) + theme_arthomix() +
-        ggplot2::theme(axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(), panel.grid = ggplot2::element_blank())
+      if (is.null(df)) return(cx_empty_state("Load a table on the \"1. Cohort\" panel to see results here."))
+      tagList(
+        p(class = "submodule-desc", sprintf("%s of %s genes have an mQTL-MR causal-methylation instrument in this panel.", format(sum(df$in_mQTL_MR_panel %in% TRUE), big.mark = ","), format(nrow(df), big.mark = ","))),
+        div(class = "table-toolbar", downloadButton(ns("dl_mqtl_csv"), "CSV", class = "btn-sm")),
+        DT::dataTableOutput(ns("mqtl_table"))
+      )
     })
+    output$mqtl_table <- DT::renderDataTable({
+      req(mqtl_df())
+      DT::datatable(mqtl_df(), rownames = FALSE, filter = "top", options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+    })
+    output$dl_mqtl_csv <- downloadHandler(function() paste0("biomarker_convergence_mQTL-MR_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(mqtl_df(), file, row.names = FALSE))
+
+    ## ---- eQTL-mQTL tab: genes with BOTH a causal-expression AND a causal- ----
+    ## methylation instrument - the genetic convergence set, a stronger
+    ## candidate list than either MR panel alone.
+    eqtl_mqtl_df <- reactive({
+      df <- bc_df()
+      d <- df[df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
+      cols <- intersect(c("gene", "eQTL_MR_OR", "eQTL_MR_pval", "eQTL_MR_FDR", "eQTL_MHC_region", "eQTL_MR_significant",
+                           "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
+      d[, cols, drop = FALSE]
+    })
+    output$eqtl_mqtl_tab_ui <- renderUI({
+      df <- tryCatch(bc_df(), error = function(e) NULL)
+      if (is.null(df)) return(cx_empty_state("Load a table on the \"1. Cohort\" panel to see results here."))
+      n_both <- sum(df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE)
+      tagList(
+        if (!is.null(raw$missing_layer)) p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
+          sprintf("This tab is empty because you only uploaded %s data - there's nothing to intersect it against. Upload %s results too (on the \"1. Cohort\" panel) and click \"Merge & Load\" again to see genes with evidence in both.",
+                  if (identical(raw$missing_layer, "eQTL-MR")) "mQTL-MR" else "eQTL-MR", raw$missing_layer))
+        else if (n_both == 0) p(class = "empty-note", icon("circle-info"),
+          "0 here doesn't necessarily mean something is wrong: both files/panels are loaded, but this loaded data's eQTL-MR and mQTL-MR gene sets simply don't share any genes (this is expected for independently-uploaded files with unrelated candidate gene lists; the preloaded pipeline data always has some overlap, once genes with real mQTL-MR evidence that this table's own join had dropped are backfilled)."),
+        p(class = "submodule-desc", sprintf("%s genes have BOTH an eQTL-MR and an mQTL-MR instrument - genetic evidence for a causal effect on both expression and methylation, independent of the DEG/DMP/DMR observational layers.", format(n_both, big.mark = ","))),
+        div(class = "table-toolbar", downloadButton(ns("dl_eqtl_mqtl_csv"), "CSV", class = "btn-sm")),
+        DT::dataTableOutput(ns("eqtl_mqtl_table"))
+      )
+    })
+    output$eqtl_mqtl_table <- DT::renderDataTable({
+      req(eqtl_mqtl_df())
+      DT::datatable(eqtl_mqtl_df(), rownames = FALSE, filter = "top", options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+    })
+    output$dl_eqtl_mqtl_csv <- downloadHandler(function() paste0("biomarker_convergence_eQTL-mQTL_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(eqtl_mqtl_df(), file, row.names = FALSE))
 
     output$downloads_ui <- renderUI({
-      if (is.null(raw$df)) return(cx_empty_state())
+      if (is.null(raw$df)) return(cx_empty_state("Load a table on the \"1. Cohort\" panel to see results here."))
       tagList(
         downloadButton(ns("dl_table_csv"), "Results (CSV)", class = "btn-sm"),
         downloadButton(ns("dl_table_xlsx"), "Results (XLSX)", class = "btn-sm")

@@ -7,8 +7,12 @@
 ## object (cx_quadrant_ggplot) reused for both the interactive plotly view
 ## and PNG/PDF/SVG export, so there is exactly one place that draws it.
 
-cx_empty_state <- function() {
-  div(class = "empty-note", icon("circle-info"), "Click \"Run Integration\" in the Integration tab to see results here.")
+## `message` defaults to the Integration module's own instruction (its
+## original hardcoded text) - callers in the OTHER Cross-Omics sub-modules
+## (Biomarker Convergence, Cross-Omics MR) must pass their own, since "Run
+## Integration" is never the right action there.
+cx_empty_state <- function(message = "Click \"Run Integration\" in the Integration tab to see results here.") {
+  div(class = "empty-note", icon("circle-info"), message)
 }
 
 cx_fmt_num <- function(x, digits = 3, sci = FALSE) {
@@ -277,7 +281,7 @@ cx_build_report <- function(df, provenance) {
   top <- top[order(-abs(ifelse(is.na(top$log2fc), 0, top$log2fc))), , drop = FALSE]
   top <- utils::head(top, 20)
   c(
-    "# Cross-Omics Expression x Methylation Integration Report", "",
+    "# Cross-Omics Expression and Methylation Integration Report", "",
     sprintf("Generated: %s", format(Sys.time())), "",
     "## Parameters", "", provenance, "",
     "## Summary", "",

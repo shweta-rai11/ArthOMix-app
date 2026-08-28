@@ -2,11 +2,15 @@
 
 **Location:** Transcriptomics \> Functional Enrichment &nbsp;|&nbsp; **Group:** Interpretation
 
-_Status: [built / in progress / not yet built] — update once this module is finalized in the app, and delete this line before publishing._
-
 ## Purpose
 
-[One or two sentences: what question does this module answer, and when should a user reach for it? See Chapter \@ref(mx-qc), "Quality Control", for a fully worked example of how a chapter in this guide should read once finished.]
+Functional Enrichment takes a list of candidate biomarker genes — pasted by
+hand or loaded from one of this project's own biomarker panels — and tests it
+live against GO Biological Process, KEGG, or Reactome to determine which
+pathways those genes are significantly over-represented in. It answers the
+question a researcher asks once a biomarker panel exists: *which biological
+mechanisms do these genes converge on, and which specific genes drive each
+enriched pathway?*
 
 ## Getting there
 
@@ -14,24 +18,106 @@ Open **ArthOMix Explorer**, go to the **Transcriptomics** tab, and select **Func
 
 ## Inputs
 
-- [Describe every input control: dropdowns, sliders, file uploads, thresholds. State defaults and valid ranges.]
+- **GENE SOURCE** (radio buttons) — "Your own" leaves the text box below empty
+  for pasting a custom list. "Same-tissue", "Cross-tissue" and "Cross-ancestry"
+  each open a panel showing one of this project's own biomarker panels for the
+  selected sex (Female/Male toggle), preferring this session's own live result
+  (from Feature Selection or Cross-Ancestry Validation) and falling back to the
+  project's bundled panel when no live result exists yet. A "Load these genes
+  into the list below" button copies that panel's genes into the text box —
+  it does not run enrichment by itself.
+- **Gene list** (text area) — gene symbols, one per line or comma/space/tab
+  separated, e.g. `TNF\nIL6\nSTAT3`.
+- **DATABASE** (radio buttons) — GO Biological Process, KEGG pathways, or
+  Reactome pathways. Exactly one database is tested per run.
+- **Q-value cutoff** (numeric input, default `0.05`) — the significance
+  threshold used to count "significant pathways" in the summary and to filter
+  the bar plot; it does not remove rows from the full "Enriched terms" table,
+  which stays sortable/filterable on every statistic.
+- **Run enrichment** button — nothing is computed, and no result panel is
+  rendered, until this is clicked.
 
 ## Walkthrough
 
-### [Name the first sub-panel or sub-tab]
+### Building the gene list
 
-```{r transcriptomics-enrichment-fig1, echo=FALSE, fig.cap="[One-line caption describing what this screenshot shows]"}
-knitr::include_graphics("Figures/f-transcriptomics-enrichment-1.png")
-```
+Paste symbols directly, or pick a panel source above the text box and click
+"Load these genes into the list below" to populate it — the genes can still
+be edited by hand afterwards before running.
 
-[Explain what the user is looking at, what they can change, and what happens when they do.]
+### Running the enrichment
 
-### [Name the next sub-panel or sub-tab, repeat as needed]
+Clicking **Run enrichment**:
+
+1. Trims, normalizes (uppercases) and de-duplicates the submitted symbols,
+   keeping the original submitted count for reporting.
+2. Maps every symbol to an Entrez Gene ID via this app's own HGNC-based
+   identifier harmonizer (exact symbol/Entrez/Ensembl match, then alias
+   resolution) — a symbol that cannot be resolved this way is reported as
+   *unmapped*, never silently dropped.
+3. Restricts both the tested genes and the statistical background to genes
+   actually measured in the currently loaded transcriptomics dataset (its
+   expression matrix's row names) rather than the whole human genome. A
+   mapped gene that isn't measured in the loaded dataset is reported
+   separately as *excluded (not measured)*.
+4. Runs live over-representation analysis (`clusterProfiler::enrichGO`,
+   `clusterProfiler::enrichKEGG`, or `ReactomePA::enrichPathway`, all with
+   Benjamini–Hochberg correction) against that dataset-specific background,
+   using only the genes that survived mapping and the background restriction.
+
+### Reading the summary and results
+
+The **Result** panel reports, for the run just completed: the number of genes
+submitted (and how many were duplicates), how many unique symbols mapped to a
+valid Entrez ID, how many of those are measured in the loaded dataset and were
+actually tested, any unmapped or excluded symbols by name, the database and
+Q-value cutoff used, the background/universe description, and how many terms
+are significant at the chosen cutoff out of the total tested. Below that:
+
+- A bar plot of the top 15 significant terms, ranked by −log10(q-value).
+- An **Enriched terms** table with every tested pathway's ID, Description,
+  GeneRatio, BgRatio, p-value, adjusted p-value (`p.adjust`), q-value, Count,
+  and the overlapping submitted genes (`geneID`) — sortable and per-column
+  filterable, and downloadable as CSV.
+- **Gene cards** (live MyGene.info lookups) and a **Protein interaction
+  network** (live STRING image) for the submitted gene list.
+- A **Hub genes** table combining, per gene: its STRING interaction degree
+  within just this submitted list, and this project's own precomputed WGCNA
+  co-expression hub status in the full training-cohort network.
 
 ## Outputs
 
-[What results/plots/tables does this module produce? Can they be downloaded? In what format?]
+- Enriched-pathway table (GO term / KEGG pathway / Reactome pathway ID,
+  description, GeneRatio, BgRatio, raw p-value, BH-adjusted p-value, q-value,
+  Count, and the specific overlapping biomarker genes) — downloadable as CSV.
+- Bar plot of the most significant pathways at the chosen Q-value cutoff.
+- Gene cards, a STRING PPI network image, and a hub-gene table for the
+  submitted list.
 
 ## Notes and troubleshooting
 
-[Known caveats, edge cases, or common mistakes worth flagging.]
+- **At least 3 distinct, mappable, dataset-measured genes are required.**
+  Fewer than 3 gene symbols after de-duplication, fewer than 3 mapping to a
+  valid Entrez ID, or fewer than 3 of those measured in the currently loaded
+  dataset each stop the run with a message naming which genes were excluded
+  and why, rather than a fabricated or empty result.
+- **A gene can fail for two different reasons**, and the summary
+  distinguishes them: *unmapped* means the symbol itself could not be
+  resolved to a gene identifier (likely a typo or non-human/invalid symbol);
+  *excluded (not measured)* means it is a real, mapped gene that simply isn't
+  present in the currently loaded dataset's expression matrix, so it cannot
+  be tested against that dataset's own background.
+- **The background/universe is dataset-specific**, not the whole genome — it
+  is always the set of genes measured in the currently loaded transcriptomics
+  dataset. Loading a different dataset changes the background and can change
+  which pathways come out significant.
+- **A Q-value cutoff that no term passes** is reported as "0 terms
+  significant" alongside the total number of terms tested — it is not treated
+  as an error, since the underlying test may still be valid.
+- **KEGG pathway enrichment queries the live KEGG REST API**, and **the
+  gene-card and STRING panels query MyGene.info and STRING respectively** — a
+  slow or unreachable network fails that specific piece (with a clear
+  message) without failing the whole run.
+- **Reactome pathway enrichment requires the `ReactomePA` and `reactome.db`
+  packages.** If either is not installed in this deployment, selecting
+  "Reactome pathways" reports that clearly instead of crashing the app.

@@ -1,29 +1,13 @@
 ## R/methylomics/mod_methyl_celltype.R
-## Submodule: Cell-Type Deconvolution (script02_celltype, METHODS 2.Y)
-## Estimates cell-type proportions from bulk DNA methylation via EpiDISH
-## (Houseman CP, RPC, CIBERSORT-style CBS, and hepidish two-stage) against
-## EpiDISH's own built-in published reference centroid panels, or a
-## user-supplied custom reference. All non-UI logic lives in celltype.R
-## (sourced alongside every other file in this folder) - this file is the
-## config/ui/server trio only.
-##
-## Isolated strictly to id = "celltype" (as already registered in
-## MX_MODULES, submodules_registry.R): nothing here touches
-## ArthOMix/R/transcriptomics/mod_deconvolution.R (Immune Deconvolution)
-## or any other tab. Data source is the shared `methyl_dataset`
-## reactiveValues populated by the Dataset tab (mod_methyl_dataset.R), with
-## an optional matrix upload scoped to this module only - the same pattern
-## mod_methyl_featureselection.R's fs_active_source() already uses. No
-## fabricated "preloaded dataset" entries beyond that one shared cohort.
-##
-## Backend honesty: only EpiDISH (installed) drives real estimation.
-## MethylResolver / IDOL-optimized libraries / true reference-free
-## deconvolution are shown as disabled with an explanatory reason (see
-## celltype.R's methyl_ct_unavailable_methods()) rather than faked.
+## Cell-Type Deconvolution submodule: estimates cell-type proportions from bulk methylation via EpiDISH
+## (Houseman CP, RPC, CBS, hepidish two-stage) against built-in reference panels or a custom upload.
+## Non-UI logic lives in celltype.R; this file is config/ui/server only, scoped to id = "celltype".
+## Shares methyl_dataset from the Dataset tab; only EpiDISH drives real estimation, other methods are
+## disabled with a reason (see celltype.R's methyl_ct_unavailable_methods()).
 
 mod_methyl_celltype_config <- list(
   id = "celltype", title = "Cell-Type Deconvolution", icon = "people-group", group = "Data",
-  description = "Estimates cell-type proportions from bulk methylation using EpiDISH (Houseman, RPC, CIBERSORT-style). Works on the loaded dataset, or your own upload scoped to this module."
+  description = "Estimates cell-type proportions from bulk methylation. Works on the loaded dataset, or upload data"
 )
 
 ## =============================================================================
@@ -287,8 +271,7 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## "Hasn't run yet" gating, same convention as mod_methyl_qc.R's
-    ## register_has_run_gate() (module-local there too, not shared).
+    ## Local "not run yet" gate helper, mirrors mod_methyl_qc.R's register_has_run_gate().
     register_has_run_gate_local <- function(gate_id, has_run_flag_fn, result_output_id, not_run_message) {
       output[[gate_id]] <- renderUI({
         if (isTRUE(has_run_flag_fn())) uiOutput(ns(result_output_id))
@@ -296,19 +279,14 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       })
     }
 
-    ## Per-figure PNG download factory, same pattern as mod_methyl_mr.R's
-    ## make_plot_dl() (mod_methyl_mr.R:1194-1205), reimplemented locally.
+    ## Per-figure PNG download factory, same pattern as mod_methyl_mr.R's make_plot_dl().
     make_plot_dl <- function(build_fn, base_name) downloadHandler(
       filename = function() sprintf("%s.png", base_name),
       content = function(file) ggplot2::ggsave(file, plot = build_fn(), width = 9, height = 6, dpi = 300, device = "png")
     )
 
-    ## ggplotly() doesn't carry theme_arthomix()'s legend.position="bottom"
-    ## into a layout with enough reserved space for it - the legend row and
-    ## the x-axis title end up drawn on top of each other. Explicitly
-    ## re-laying-out the legend as a horizontal strip below the axis title,
-    ## with a bottom margin sized to fit it, fixes every plotly figure in
-    ## this module rather than each renderPlotly() re-deriving its own fix.
+    ## ggplotly() doesn't inherit theme_arthomix()'s bottom legend layout; re-lays it out as
+    ## a horizontal strip with a bottom margin reserved for it.
     plotly_safe <- function(p) {
       plotly::layout(plotly::ggplotly(p),
                       legend = list(orientation = "h", x = 0, y = -0.3, yanchor = "top"),
@@ -337,16 +315,9 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       div(class = "empty-note", icon("circle-info"),
           sprintf("Read %s: %s CpGs x %s samples.", input$ct_own_matrix_file$name, format(nrow(p$mat), big.mark = ","), ncol(p$mat)))
     })
-    ## Scale detection (and the auto-apply-when-already-beta decision) runs
-    ## synchronously right here, once per click, rather than via a separate
-    ## observer keyed on own_raw() - reactiveVal() setters don't reliably
-    ## re-invalidate a dependent observer when the new value is
-    ## content-identical to the old one (e.g. clicking "Load dataset" twice
-    ## on the same file), which previously left own_ready() stuck at the
-    ## NULL this handler resets it to, even though the matrix was already
-    ## confirmed to be on the beta scale. Doing it inline instead means one
-    ## click always fully resolves the state in one pass, no matter how
-    ## many times it's clicked.
+    ## Scale detection runs synchronously here (not via a separate observer) since reactiveVal()
+    ## setters don't reliably re-invalidate on content-identical repeats (e.g. clicking the same
+    ## file twice) - doing it inline ensures each click fully resolves the state.
     observeEvent(input$ct_own_load_btn, {
       p <- own_matrix_parsed()
       if (!isTRUE(p$ok)) { showNotification(p$error, type = "error"); return() }
@@ -368,14 +339,9 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       methyl_ct_detect_scale(raw$mat)
     })
 
-    ## A renderUI must not both READ and WRITE the same reactiveVal - doing
-    ## so here (own_ready() read for the early-return, then written a few
-    ## lines later) made this output re-invalidate itself, which corrupts
-    ## Shiny.js's client-side output-binding state machine (observed
-    ## directly: "Shiny server has sent a progress message ... but the
-    ## output is in an unexpected state of: running"). own_ready() is now
-    ## only ever written from the load-button handler above and the
-    ## transform-button handler below; ct_scale_ui itself is a pure read.
+    ## renderUI must not both read and write the same reactiveVal - doing so previously
+    ## corrupted Shiny's client-side output-binding state machine. own_ready() is only
+    ## written by the load/transform handlers; this output is a pure read.
     output$ct_scale_ui <- renderUI({
       if (!identical(input$ct_data_source, "own")) return(NULL)
       raw <- own_raw()
@@ -824,14 +790,8 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
             column(3, radioButtons(ns("ct_ord_method"), NULL, choices = c("PCA" = "pca", "MDS" = "mds"), inline = TRUE)),
             column(3, selectInput(ns("ct_ord_color"), "Color by",
                                    choices = c("None" = "", stats::setNames(cts, paste0("Cell type: ", cts)),
-                                               ## paste0() with a zero-length `sheet_cols` (no sample sheet
-                                               ## loaded) does NOT return character(0) - it recycles the
-                                               ## other, non-empty argument as if sheet_cols were "" instead,
-                                               ## producing a length-1 result that setNames() then rejects
-                                               ## against the true length-0 sheet_cols ("'names' attribute
-                                               ## [1] must be the same length as the vector [0]", confirmed
-                                               ## via direct repro). Guarding on length() avoids that call
-                                               ## entirely rather than working around paste0's mismatch.
+                                               ## paste0() on a zero-length sheet_cols recycles instead of returning
+                                               ## character(0), which setNames() then rejects - guard on length().
                                                if (length(sheet_cols) > 0) stats::setNames(sheet_cols, paste0("Phenotype: ", sheet_cols)) else character(0)))),
             column(3, checkboxInput(ns("ct_ord_labels"), "Show sample labels", value = FALSE))
           ),

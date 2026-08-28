@@ -1,52 +1,30 @@
-## R/mod_preprocessing.R
-## Submodule: Preprocessing and Batch Correction (Section 2.2)
-## Everything on this page runs live, on whatever data is loaded: each
-## source dataset is cleaned individually first (log2 scale check, sample
-## filters), then datasets are merged onto their shared genes/probes
-## (Venn/overlap diagram), then the merged cohort is normalised and
-## batch-corrected (ComBat, limma::removeBatchEffect, or ComBat-seq). Three
-## tabs, in that order:
-##   "Preprocessing"    - per-dataset upload/preloaded-GEO-dataset/currently
-##                         loaded dataset, plus filters.
-##   "Merge datasets"    - overlap of features across every configured
-##                         dataset, and the merge itself.
-##   "Batch correction"  - normalisation + batch correction on the merged
-##                         (or single) dataset, with a full set of tunable
-##                         filters.
-## The analysis adapts to whatever columns/scale/platform(s) you give it
-## rather than assuming any particular dataset's layout. Picking "A
-## preloaded GEO dataset" for two sources (e.g. GSE93272 and GSE110169)
-## reproduces the example cohort from scratch, computed live rather than
-## read from a precomputed file.
+## R/mod_preprocessing.R - Preprocessing and Batch Correction (Section 2.2).
+## Runs live on whatever data is loaded: per-dataset cleanup -> merge on
+## shared genes/probes -> normalise + batch-correct (ComBat,
+## limma::removeBatchEffect, or ComBat-seq), across three tabs
+## (Preprocessing / Merge datasets / Batch correction).
 
 MAX_PP_SOURCES <- 6
 
 mod_preprocessing_config <- list(
   id = "preprocessing", group = "Data",
   title = "Preprocessing and Batch Correction",
-  description = "Preprocess and merge one or more datasets on their shared genes and probes, then normalise and batch-correct - live, on whatever you load.",
+  description = "Preprocess and merge one or more datasets based on shared genes and probes, then normalise and batch-correct on the uploaded or pre-loaded data.",
   icon = "filter"
 )
 
-## ---------------------------------------------------------------------------
 ## One data source: upload + column mapping + per-dataset filters. Instantiated
-## MAX_PP_SOURCES times up front (server side) so state survives changing how
-## many are shown; the UI only reveals the first N via conditionalPanel, which
-## keeps every already-configured block's inputs intact when N changes.
-## ---------------------------------------------------------------------------
+## MAX_PP_SOURCES times server-side so state survives changing how many are
+## shown; conditionalPanel just reveals the first N in the UI.
 
-## Small SaaS-style hover tooltip: a circular info icon that reveals a dark
-## floating card of `text` on hover/focus, pure CSS (see .field-hint* in
-## www/custom.css) - no JS tooltip library needed.
+## Hover info icon revealing `text` in a floating card (CSS only, see .field-hint* in www/custom.css).
 mod_pp_field_hint <- function(text) {
   tags$span(class = "field-hint", tabindex = "0",
             icon("circle-info"),
             tags$span(class = "field-hint-box", text))
 }
 
-## Same name-based guess mod_pp_source_server's own colmap uses internally
-## (see its comment) - pulled out to module scope so the batch-upload path
-## below can reuse it without a UI-bound copy per dataset.
+## Name-based column guesser, shared by mod_pp_source_server's colmap and the batch-upload path.
 pp_guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
   hit <- cols[tolower(cols) %in% tolower(exact)]
   if (length(hit) > 0) return(hit[1])
@@ -55,17 +33,9 @@ pp_guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
   fallback
 }
 
-## Collapses a probe-level expression matrix to one row per gene, given an
-## external probe -> gene symbol annotation table (two columns, auto-
-## guessed by name like everything else in this file). Three interchangeable
-## methods, since published methods vary: "median" (per gene, per sample,
-## the median across every probe mapping to that gene - e.g. Zhu et al.
-## 2021's stated method), "maxmean" (one representative probe per gene -
-## the one with the highest mean expression - ArthOMix's own preloaded-GEO-
-## dataset convention, global.R::collapse_probes_to_genes()), or "mean"
-## (per gene, per sample, the mean across probes). Probes with no
-## annotation match, or mapped to more than one gene symbol (e.g.
-## "MIR4640///DDR1"), are dropped either way - never split or duplicated.
+## Collapses a probe-level expression matrix to one row per gene via an auto-guessed
+## probe->symbol annotation table; method is median (Zhu et al. 2021), maxmean (highest-mean
+## probe per gene, matches global.R::collapse_probes_to_genes()), or mean. Ambiguous/unmatched probes are dropped.
 pp_collapse_probes_to_genes <- function(expr, annot, method = c("median", "maxmean", "mean")) {
   method <- match.arg(method)
   cols <- colnames(annot)
@@ -89,23 +59,11 @@ pp_collapse_probes_to_genes <- function(expr, annot, method = c("median", "maxme
   apply(ex, 2, function(col_vals) tapply(col_vals, sym, agg_fn, na.rm = TRUE))
 }
 
-## ---------------------------------------------------------------------------
-## The "Data Exploration" tab's own helpers, UI, and server logic now live
-## entirely in R/mod_preprocessing_explore.R (mod_data_exploration_ui() /
-## mod_data_exploration_server()) - a standalone EDA module with its own raw-
-## data upload, independent of the shared `dataset` reactiveValues this file
-## uses everywhere else. See mod_preprocessing_ui()/mod_preprocessing_server()
-## below for where it's mounted (nested module, id "eda").
-## ---------------------------------------------------------------------------
+## "Data Exploration" tab now lives in R/mod_preprocessing_explore.R (mod_data_exploration_ui/_server),
+## mounted below as nested module id "eda".
 
-## Display names for this tab only. mod_dataset.R's own dropdown and
-## Overview and Datasets keep showing the raw GEO accession (full
-## traceability lives there); this tab is a working cohort picker for
-## someone running the pipeline, so it reads as tissue + role rather than
-## an accession lookup. Add an entry here if a new bundled source is ever
-## added to GEO_SOURCES (global.R) - anything missing just falls back to
-## its raw ID (a plain character vector's `[[` errors on an unknown name
-## rather than returning NULL, so the fallback is a `%in%` check, not `%||%`).
+## Display names for this tab (tissue + role) vs. the raw GEO accession shown elsewhere;
+## anything not listed here falls back to its raw ID.
 PP_COHORT_LABELS <- c(
   "GSE93272"  = "Whole Blood Training Cohort A",
   "GSE110169" = "Whole Blood Training Cohort B",
@@ -119,33 +77,33 @@ pp_cohort_label <- function(id) {
   if (id %in% names(PP_COHORT_LABELS)) unname(PP_COHORT_LABELS[[id]]) else id
 }
 
-## Same id -> value pairing as mod_dataset.R's own preloaded_choices(), just
-## with this tab's professional display names instead of the raw-accession
-## ones.
+## Same choices as mod_dataset.R's preloaded_choices(), with this tab's display names.
 pp_cohort_choices <- function() {
   ids <- unname(preloaded_choices())
   stats::setNames(ids, vapply(ids, pp_cohort_label, character(1)))
 }
 
-## Reads one dataset for the Preprocessing tab's "Preloaded Data" box -
-## either one of the app's bundled raw GEO sources (same read path as
-## mod_dataset.R's PRELOADED_DATASETS / mod_pp_source_server's own
-## "preloaded" source_type: GSE89408 is already gene-level RNA-seq counts,
-## every other source is microarray and gets collapsed to gene symbol via
-## get_collapsed_genes()), or whatever is currently loaded via the Dataset
-## tab (choice_id == "__current__", read from the shared `dataset`
-## reactiveValues). Returns the same list(label=, expr=, meta=, ...) shape
-## every dataset entry feeding merge_inputs() uses.
+## Reads one dataset for the "Preloaded Data" box - a bundled GEO source (collapsed to gene
+## symbol unless already gene-level, e.g. GSE89408) or the currently loaded dataset ("__current__").
+## Returns the list(label=, expr=, meta=, ...) shape merge_inputs() expects.
 pp_preloaded_read <- function(choice_id, log2_choice, dataset = NULL) {
   if (identical(choice_id, "__current__")) {
-    validate(need(!is.null(dataset) && !is.null(dataset$expr),
-                  "No dataset is currently loaded. Pick one on the Dataset tab first."))
-    expr <- dataset$expr
-    meta <- dataset$meta
-    label <- dataset$source %||% "Currently Loaded Dataset"
+    ## Prefers the Dataset tab's staged preview, falls back to the active dataset.
+    use_expr <- dataset$staged_expr %||% dataset$expr
+    use_meta <- dataset$staged_meta %||% dataset$meta
+    use_label <- dataset$staged_source %||% dataset$source
+    validate(need(!is.null(dataset) && !is.null(use_expr),
+                  "No dataset is currently loaded. Preview one on the Dataset tab first."))
+    expr <- use_expr
+    meta <- use_meta
+    label <- use_label %||% "Currently Loaded Dataset"
   } else {
     gse <- choice_id
-    if (identical(gse, "GSE89408")) {
+    if (identical(gse, default_dataset_entry$id)) {
+      ## Already merged and batch-corrected - no raw file to read for this one.
+      d <- load_default_dataset()
+      expr <- d$expr; meta <- d$meta
+    } else if (identical(gse, "GSE89408")) {
       d <- load_individual_dataset(gse)
       validate(need(!is.null(d), paste("Raw data for", gse, "was not found on disk.")))
       expr <- d$expr; meta <- d$meta
@@ -172,11 +130,7 @@ pp_preloaded_read <- function(choice_id, log2_choice, dataset = NULL) {
     expr <- log2(expr)
     expr <- expr[stats::complete.cases(expr), , drop = FALSE]
   }
-  ## Residual missingness (e.g. already-log-scale data that skips the log2
-  ## branch above) is median-imputed per gene rather than left in place -
-  ## the same technique already used by filter_and_transform_expr()
-  ## (global.R) - so Batch Correction never receives an NA-containing
-  ## matrix regardless of which log2 branch this dataset took.
+  ## Median-impute per gene so Batch Correction never sees NAs (same approach as filter_and_transform_expr()).
   if (anyNA(expr)) {
     row_med <- apply(expr, 1, stats::median, na.rm = TRUE)
     na_idx <- which(is.na(expr), arr.ind = TRUE)
@@ -200,11 +154,7 @@ mod_pp_source_ui <- function(id, default_gse = NULL, n_sources_id = NULL) {
     conditionalPanel(
       condition = sprintf("input['%s'] == 'preloaded'", ns("source_type")),
       if (!is.null(default_gse)) {
-        ## This slot has a fixed training-cohort default (Dataset 1 ->
-        ## GSE93272, Dataset 2 -> GSE110169) - no dropdown to pick a
-        ## different one, just load it. `preloaded_choice` is still a real
-        ## selectInput (shinyjs::hidden(), not absent) so raw_pair()'s
-        ## req(input$preloaded_choice) keeps working unchanged.
+        ## Fixed training-cohort default, no dropdown; preloaded_choice stays a hidden selectInput so raw_pair() still works.
         tagList(
           div(class = "empty-note", icon("check"),
               sprintf("Using %s.", pp_cohort_label(default_gse))),
@@ -278,18 +228,24 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
     use_upload    <- reactive(identical(source_type(), "upload"))
     use_current   <- reactive(identical(source_type(), "current"))
 
-    ## "Currently loaded dataset" reuses whatever the Dataset tab (or another
-    ## sub-module that writes to the shared `dataset` reactiveValues) already
-    ## has loaded - the same object the sidebar's "Current dataset" panel and
-    ## every other sub-module read from. No file to parse, no GSE to fetch.
+    ## "Currently loaded dataset" reuses the Dataset tab's staged preview, or the active dataset if none is staged.
+    current_source <- reactive({
+      list(
+        expr = dataset$staged_expr %||% dataset$expr,
+        meta = dataset$staged_meta %||% dataset$meta,
+        label = dataset$staged_source %||% dataset$source
+      )
+    })
+
     output$current_note <- renderUI({
-      if (is.null(dataset) || is.null(dataset$expr)) {
+      cs <- current_source()
+      if (is.null(dataset) || is.null(cs$expr)) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
-                    "Nothing is currently loaded. Pick a dataset on the Dataset tab first, then come back here."))
+                    "Nothing is currently loaded. Preview a dataset on the Dataset tab first, then come back here."))
       }
       div(class = "empty-note", icon("check"),
-          sprintf("Using %s: %s genes x %s samples.", dataset$source,
-                   format(nrow(dataset$expr), big.mark = ","), ncol(dataset$expr)))
+          sprintf("Using %s: %s genes x %s samples.", cs$label,
+                   format(nrow(cs$expr), big.mark = ","), ncol(cs$expr)))
     })
 
     meta_raw <- reactive({
@@ -304,9 +260,7 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
       }
     })
 
-    ## Fires the moment both files are selected and readable, before the
-    ## column-mapping dropdowns even appear - otherwise a large upload can
-    ## look like it silently did nothing while it's actually just parsing.
+    ## Parses eagerly so a large upload doesn't look like it silently did nothing.
     expr_raw_preview <- reactive({
       req(use_upload(), input$expr_file)
       if (grepl("\\.rds$", input$expr_file$name, ignore.case = TRUE)) {
@@ -332,9 +286,7 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
                   input$meta_file$name, nrow(preview$meta)))
     })
 
-    ## Same name-based guess as mod_dataset.R's upload form - see its
-    ## comment for why a plain selectInput() default (first column in the
-    ## file) is actively wrong here, not just imprecise.
+    ## Same name-based column guess as mod_dataset.R's upload form.
     guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
       hit <- cols[tolower(cols) %in% tolower(exact)]
       if (length(hit) > 0) return(hit[1])
@@ -365,14 +317,20 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
     ## Loaded + column-mapped, before any filtering.
     raw_pair <- reactive({
       if (use_current()) {
-        req(dataset, dataset$expr, dataset$meta)
-        expr <- dataset$expr; meta <- dataset$meta
+        cs <- current_source()
+        req(dataset, cs$expr, cs$meta)
+        expr <- cs$expr; meta <- cs$meta
         if (!"batch" %in% colnames(meta)) meta$batch <- NA_character_
-        list(expr = expr, meta = meta, label = dataset$source %||% default_label)
+        list(expr = expr, meta = meta, label = cs$label %||% default_label)
       } else if (use_preloaded()) {
         req(input$preloaded_choice)
         gse <- input$preloaded_choice
-        if (identical(gse, "GSE89408")) {
+        if (identical(gse, default_dataset_entry$id)) {
+          ## Already merged and batch-corrected - not a raw GEO accession,
+          ## so it never had (and shouldn't need) a "<id>_raw.rds" file.
+          d <- load_default_dataset()
+          expr <- d$expr; meta <- d$meta
+        } else if (identical(gse, "GSE89408")) {
           ## RNA-seq counts, already gene-level - no probe/platform to collapse.
           d <- load_individual_dataset(gse)
           validate(need(!is.null(d), paste("Raw data for", gse, "was not found on disk.")))
@@ -415,7 +373,14 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
         validate(need(length(common) >= 3, "Fewer than 3 sample IDs in the expression matrix match the metadata sample-ID column. Check the column mapping."))
         expr <- expr[, common, drop = FALSE]
         meta <- meta[match(common, meta$sample), , drop = FALSE]
-        label <- if (nzchar(trimws(input$label %||% ""))) input$label else default_label
+        ## Prefixed like mod_dataset.R's single-upload path and the GEO-fetch
+        ## path do - merged()/result()$sources downstream, and ultimately
+        ## activate_btn's dataset$source (mod_preprocessing.R's own
+        ## "was_uploaded" check), key off this exact "Uploaded dataset:"
+        ## marker to distinguish genuinely-uploaded data from bundled
+        ## cohorts. Without it, a real upload through this panel would be
+        ## silently mislabeled as preloaded once activated.
+        label <- paste0("Uploaded dataset: ", if (nzchar(trimws(input$label %||% ""))) input$label else default_label)
         list(expr = expr, meta = meta, label = label)
       }
     })
@@ -467,16 +432,8 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
       selectInput(ns("dedup_col"), "Deduplicate by", choices = colnames(pair$meta), selectize = FALSE)
     })
 
-    ## Two pipelines, one control: same three choices either way, but the
-    ## PRELOADED path's default stays "auto" exactly as already built -
-    ## untouched. The UPLOAD path defaults to "skip" instead, because
-    ## "auto" only looks at value magnitude (q99 > 100), which can't tell a
-    ## large-valued RAW RNA-seq count matrix (correct DESeq2 input, should
-    ## stay unlogged) apart from large-valued already-normalised data that
-    ## genuinely needs logging - a real upload of raw counts was getting
-    ## auto-log2'd here and then rejected by DESeq2 downstream for having
-    ## negative/non-integer values. A user can still override either
-    ## default by picking a different radio option themselves.
+    ## Upload path defaults to "skip" (not "auto") since raw RNA-seq counts would otherwise get
+    ## wrongly auto-log2'd and rejected by DESeq2 downstream; preloaded path keeps "auto".
     output$log2_ui <- renderUI({
       default <- if (use_upload()) "skip" else "auto"
       radioButtons(ns("log2"), "Log2 transform",
@@ -518,11 +475,7 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
         validate(need(nrow(expr) > 0, "The exclusion pattern matched every feature. Check the regular expression and try again."))
       }
 
-      ## missing-data tolerance: drop features missing in more than the
-      ## chosen % of samples, median-impute whatever gaps remain in the rest
-      ## - a real (if simple) missing-data technique, and strictly more
-      ## permissive than the old hard complete.cases() when the slider is
-      ## above 0, identical to it at the default of 0.
+      ## Drop features missing above the chosen %, median-impute the rest.
       na_pct <- rowMeans(is.na(expr)) * 100
       expr <- expr[na_pct <= (input$max_na_pct %||% 0), , drop = FALSE]
       validate(need(nrow(expr) > 0, "No features remain within the missing-data tolerance. Raise the missing-data slider and try again."))
@@ -571,36 +524,19 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
   })
 }
 
-## ---------------------------------------------------------------------------
 ## UI
-## ---------------------------------------------------------------------------
 
-## Plain icon + label tab title - same convention as this tabset's own
-## "Data Exploration" tab (below) and the outer Dataset/Sub-modules/
-## Differential Expression tabs (tx_menu, ui.R), so this inner tabset reads
-## as one more ordinary tab bar rather than a separate numbered stepper.
-## `value` is set explicitly on each tabPanel() below so this title markup
-## doesn't change the tab's selectable value - anything elsewhere that does
-## updateTabsetPanel(session, ns("tabs"), selected = "Merge datasets") still
-## works exactly as before.
+## Plain icon + label tab title, matching the outer tabset's convention. `value` is set
+## explicitly on each tabPanel() so this markup doesn't affect the tab's selectable value.
 pp_tab_title <- function(ic, label) {
   tagList(icon(ic), " ", label)
 }
 
 mod_preprocessing_ui <- function(id) {
   ns <- NS(id)
-  ## No ArthOChat rail on this tab (see feedback memory: ArthOChat removed
-  ## from Preprocessing & Batch Correction). The pipeline-rail column used
-  ## to hold nothing but the "Ask ArthOChat" shortcut, so with it gone the
-  ## tabset now simply spans the full row width for every subtab -
-  ## Preprocessing/Merge datasets/Batch correction/Explore alike - instead
-  ## of the old 8/4 split.
+  ## No ArthOChat sidebar rail here; tabset spans the full row width for every subtab.
   div(
-    ## "tx-menu-wrap": the same class the outer Dataset/Sub-modules/
-    ## Differential Expression tabset (ui.R's tx_menu) uses, so this
-    ## inner tabset gets the identical plain underline-tab look
-    ## (www/custom.css .tx-menu-wrap .nav-tabs) instead of a bespoke
-    ## numbered-stepper treatment.
+    ## Same nav-tabs styling class as the outer tx_menu tabset (www/custom.css .tx-menu-wrap).
     class = "tx-menu-wrap",
     tabsetPanel(
       id = ns("tabs"), type = "tabs",
@@ -631,14 +567,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Shared progress signal for the right-column "Pipeline summary"
-    ## timeline. `pp_sources`, `merged` and `result` are all defined further
-    ## down this function; referencing them here is fine since R resolves
-    ## the closure lazily, only when this reactive actually fires.
-    ## Nothing here is ever marked ready/done automatically - every step
-    ## needs its own explicit button click: "Preprocess this dataset" per
-    ## source for step 1, merge_use_example_btn/merge_btn for step 2,
-    ## run_btn for step 3.
+    ## Progress signal for the right-column "Pipeline summary" timeline; each step only
+    ## advances on its own explicit button click (preprocess / merge / batch-correct).
     pp_progress <- reactive({
       merged_ok <- !is.null(tryCatch(merged(), error = function(e) NULL))
       batch_ok  <- !is.null(tryCatch(result(), error = function(e) NULL))
@@ -649,8 +579,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       list(n = n, n_ready = n_ready, merged_ok = merged_ok, batch_ok = batch_ok)
     })
 
-    ## Right-column "Pipeline summary" timeline (see R/ui_shell.R), scoped to
-    ## exactly the 3 steps this page covers - reuses pp_progress() above.
+    ## Right-column "Pipeline summary" timeline (see R/ui_shell.R), the 3 steps this page covers.
     output$pipeline_summary <- renderUI({
       pr <- pp_progress()
       step_state <- function(done, current) if (done) "done" else if (current) "current" else "future"
@@ -666,26 +595,13 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       pipeline_summary_ui(steps)
     })
 
-    ## The two GEO series the example cohort is built from, raw - matching
-    ## the "Datasets" tab of Overview and Datasets. Read once via the same
-    ## cached load_individual_dataset() every other view of these datasets
-    ## already uses.
+    ## The two GEO series the example cohort is built from, matching the "Datasets" tab.
     PP_TRAINING_GEO_IDS <- c("GSE93272", "GSE110169")
-    ## Joined display name for the two training cohorts above - "Whole Blood
-    ## Training Cohort A and Whole Blood Training Cohort B" would repeat
-    ## itself, so this is its own short-hand rather than built from
-    ## pp_cohort_label() twice and pasted together.
     PP_TRAINING_COHORT_LABEL <- "Whole Blood Training Cohorts A and B"
 
-    ## Every non-missing diagnosis group actually present across the two
-    ## training GEO series, meta-only (cheap - no expression matrix read).
-    ## GSE110169 carries SLE samples alongside RA/HC (GSE93272 has only
-    ## RA/HC); this project's own training cohort is RA-vs-control only
-    ## (Chapter_2_subchapter2_sexstratified.md: "183 samples: 145 female
-    ## (86 RA, 59 healthy control) and 38 male (17 RA, 21 healthy
-    ## control)" - no SLE), so example_live_merge() below defaults to
-    ## HC+RA only. Every group actually present is still individually
-    ## selectable for anyone who wants a different comparison.
+    ## Diagnosis groups present across the two training series (GSE110169 also has SLE, not
+    ## just RA/HC); example_live_merge() below defaults to HC+RA only, matching this project's
+    ## training cohort definition, but every group is still individually selectable.
     available_example_groups <- reactive({
       grps <- unlist(lapply(PP_TRAINING_GEO_IDS, function(gse) {
         eset <- get_raw_eset(gse)
@@ -699,17 +615,16 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     ## Preprocessing tab: N per-dataset upload/filter blocks
     ## =====================================================================
 
-    pp_source_default_gse <- function(i) if (i <= length(PP_TRAINING_GEO_IDS)) PP_TRAINING_GEO_IDS[i] else NULL
-
+    ## Each block defaults to "Upload files" (default_gse = NULL) rather than
+    ## a bundled cohort - the "Preloaded Data" box above already covers
+    ## picking a bundled cohort, so this panel's own job is genuine
+    ## multi-file upload, not a second preloaded-cohort picker.
     pp_sources <- lapply(seq_len(MAX_PP_SOURCES), function(i) {
       mod_pp_source_server(paste0("src", i), default_label = paste("Dataset", i),
-                            default_gse = pp_source_default_gse(i), dataset = dataset)
+                            default_gse = NULL, dataset = dataset)
     })
 
-    ## observeEvent()+reactiveVal() for the "Use a preloaded dataset" box:
-    ## each selected choice (a GSE ID, or "__current__" for whatever's loaded
-    ## via the Dataset tab) is read and preprocessed independently via
-    ## pp_preloaded_read(), so one bad selection doesn't block the others.
+    ## Each selected cohort is read/preprocessed independently via pp_preloaded_read(), so one bad selection doesn't block the others.
     preloaded_results_val <- reactiveVal(NULL)
     observeEvent(input$preloaded_run, {
       req(length(input$preloaded_selected) > 0)
@@ -753,10 +668,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       }))
     })
 
-    ## Feeds merge_inputs() below: a preloaded box (any of the app's bundled
-    ## raw GEO sources, or whatever's currently loaded via the Dataset tab -
-    ## including your own upload, made there) - no upload here. Whatever's
-    ## loaded from it becomes selectable in the Merge tab.
+    ## Feeds merge_inputs() below: pick bundled cohorts or the currently-loaded dataset, no upload here.
     output$preprocessing_tab_ui <- renderUI({
       tagList(
         box(
@@ -773,6 +685,20 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                        choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
           actionButton(ns("preloaded_run"), "Load and Preprocess Selected Cohorts", icon = icon("play"), class = "btn-primary btn-sm"),
           div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui")))
+        ),
+        box(
+          width = 12, title = tagList(icon("upload"), " Upload Your Own Data"), status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc",
+            "Upload one or more of your own expression matrix + sample metadata pairs, filter and preprocess each independently, then combine them (with the cohorts above, if any) in the Merge step below."),
+          numericInput(ns("n_sources"), "Number of your own datasets to upload", value = 1, min = 1, max = MAX_PP_SOURCES, step = 1, width = "260px"),
+          lapply(seq_len(MAX_PP_SOURCES), function(i) {
+            conditionalPanel(
+              condition = sprintf("input['%s'] >= %d", ns("n_sources"), i),
+              tags$div(class = "card", style = "margin-top:10px;",
+                       tags$div(class = "card-title", sprintf("Dataset %d", i)),
+                       mod_pp_source_ui(paste0("src", i), n_sources_id = ns("n_sources")))
+            )
+          })
         )
       )
     })
@@ -781,18 +707,32 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     ## Merge datasets tab
     ## =====================================================================
 
-    ## The Preprocessing tab's preloaded selections, in the list(label=,
-    ## expr=, meta=, ...) shape produced by pp_preloaded_read(); everything
-    ## successfully loaded becomes selectable in the Merge tab below.
+    ## Preprocessing tab's successfully-loaded selections, ready for the Merge tab below.
+    ## Own-upload results: each pp_sources[[i]] is that block's own result()
+    ## eventReactive, returning its preprocessed list once that block's own
+    ## "Preprocess this dataset" button has fired, and erroring (skipped via
+    ## tryCatch) until then - so merge_inputs() below only picks up blocks
+    ## the user has actually filled in and preprocessed, not every visible one.
+    own_upload_results <- reactive({
+      n_src <- input$n_sources %||% 0
+      if (n_src <= 0) return(list())
+      idx <- seq_len(min(n_src, MAX_PP_SOURCES))
+      vals <- lapply(idx, function(i) tryCatch(pp_sources[[i]](), error = function(e) NULL))
+      Filter(Negate(is.null), vals)
+    })
+
     merge_inputs <- reactive({
       res <- preloaded_results()
-      validate(need(length(res) > 0, "Load at least one dataset in the Preprocessing tab first."))
-      failed <- Filter(Negate(function(r) isTRUE(r$ok)), res)
+      failed <- Filter(Negate(function(r) isTRUE(r$ok)), res %||% list())
       validate(need(length(failed) == 0,
                     sprintf("%s failed to load: %s. Fix and re-run before merging.",
                             paste(vapply(failed, `[[`, character(1), "label"), collapse = ", "),
                             paste(vapply(failed, `[[`, character(1), "error"), collapse = "; "))))
-      lapply(res, `[[`, "value")
+      preloaded_vals <- lapply(Filter(function(r) isTRUE(r$ok), res %||% list()), `[[`, "value")
+      all_vals <- c(preloaded_vals, own_upload_results())
+      validate(need(length(all_vals) > 0,
+                    "Load at least one dataset above - a preloaded cohort, or your own upload - before merging."))
+      all_vals
     })
 
     output$merge_tab_ui <- renderUI({
@@ -853,23 +793,11 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Live merge of the two raw training datasets (example_live_merge()
-    ## above) - deliberately NOT the app's already-batch-corrected `dataset`
-    ## reactiveValues, so Batch Correction downstream has a genuine,
-    ## uncorrected batch effect to remove instead of a near-identical
-    ## before/after. Still shows the same feature-overlap Venn/region-
-    ## breakdown/download the manual "own data" merge path shows, computed
-    ## from the same two training GEO sources, so "how many probes in one
-    ## dataset and the overlap" is visible here too.
+    ## UI for merging the two raw training datasets, with the same Venn/region-breakdown the manual merge path shows.
     output$merge_example_ui <- renderUI({
       groups <- available_example_groups()
       default_groups <- if (length(intersect(c("HC", "RA"), groups)) > 0) intersect(c("HC", "RA"), groups) else groups
-      ## Named generically (whatever's excluded by default), not hardcoded
-      ## to "SLE" - GSE110169 happens to be the source of that extra group
-      ## today, but the exclusion itself is by group identity (anything
-      ## that isn't HC/RA), not by that specific label, so this stays
-      ## accurate if the training sources or their diagnosis categories
-      ## ever change.
+      ## Excludes by group identity (not a hardcoded "SLE" label), so this stays accurate if sources change.
       excluded_groups <- setdiff(groups, default_groups)
       excluded_note <- if (length(excluded_groups) > 0) {
         sprintf(" %s also present (%s) - tick above to include for a different comparison.",
@@ -879,11 +807,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       tagList(
         div(
           class = "card",
-          div(class = "empty-note", icon("circle-info"),
-              sprintf(
-                "Merges %s on shared genes, before batch correction.",
-                PP_TRAINING_COHORT_LABEL
-              )),
+          if (example_merge_from_raw()) div(class = "empty-note", icon("circle-info"),
+              sprintf("Merges %s on shared genes, before batch correction.", PP_TRAINING_COHORT_LABEL)),
           if (length(groups) > 0) tagList(
             div(style = "margin-top:12px;",
                 strong("Diagnosis groups to include"),
@@ -901,32 +826,52 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     output$merge_venn_example_ui <- renderUI({
       if (!isTRUE((input$merge_use_example_btn %||% 0) > 0)) {
         return(div(class = "empty-note", icon("circle-info"),
-                    "Click “Merge these datasets” above to merge and see the feature overlap between the two training datasets."))
+                    "Click “Merge these datasets” above to merge and see the result."))
       }
-      tagList(
-        box(width = 12, title = tagList(icon("diagram-project"), " Feature overlap across datasets"), status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", sprintf(
-              "%s, collapsed to gene symbol.",
-              PP_TRAINING_COHORT_LABEL
-            )),
-            fluidRow(
-              column(7,
-                withSpinner(plotOutput(ns("venn_plot_example"), height = 440), color = "#2563EB", type = 6),
-                div(class = "table-toolbar", downloadButton(ns("download_venn_example_png"), "Download diagram (PNG)", class = "btn-primary btn-sm"))
+      if (!example_merge_from_raw()) {
+        m <- example_live_merge()
+        tagList(
+          box(width = 12, title = tagList(icon("circle-info"), " Using the merged, batch-corrected cohort"), status = "primary", solidHeader = FALSE,
+              p(class = "submodule-desc",
+                "Uses the real merged, already-batch-corrected training cohort directly (fast), so Batch Correction below will find little or no residual batch effect left to remove."),
+              fluidRow(
+                valueBox(format(ncol(m$expr), big.mark = ","), "Samples", icon = icon("users"), color = "light-blue", width = 4),
+                valueBox(format(nrow(m$expr), big.mark = ","), "Genes", icon = icon("dna"), color = "green", width = 4),
+                valueBox(length(unique(m$meta$dataset)), "Source datasets", icon = icon("layer-group"), color = "purple", width = 4)
               ),
-              column(5, DT::dataTableOutput(ns("venn_table_example")))
-            )),
-        box(width = 12, title = tagList(icon("table-list"), " Region breakdown"), status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "Every exact combination of datasets a feature belongs to, largest first. These are the same regions the diagram above draws, shown here as a full table."),
-            div(class = "table-toolbar", downloadButton(ns("download_venn_example"), "Download region counts (CSV)", class = "btn-sm")),
-            DT::dataTableOutput(ns("venn_region_table_example")))
-      )
+              DT::dataTableOutput(ns("merge_example_composition_table")))
+        )
+      } else {
+        tagList(
+          box(width = 12, title = tagList(icon("diagram-project"), " Feature overlap across datasets"), status = "primary", solidHeader = FALSE,
+              p(class = "submodule-desc", sprintf(
+                "%s, collapsed to gene symbol.",
+                PP_TRAINING_COHORT_LABEL
+              )),
+              fluidRow(
+                column(7,
+                  withSpinner(plotOutput(ns("venn_plot_example"), height = 440), color = "#2563EB", type = 6),
+                  div(class = "table-toolbar", downloadButton(ns("download_venn_example_png"), "Download diagram (PNG)", class = "btn-primary btn-sm"))
+                ),
+                column(5, DT::dataTableOutput(ns("venn_table_example")))
+              )),
+          box(width = 12, title = tagList(icon("table-list"), " Region breakdown"), status = "primary", solidHeader = FALSE,
+              p(class = "submodule-desc", "Every exact combination of datasets a feature belongs to, largest first. These are the same regions the diagram above draws, shown here as a full table."),
+              div(class = "table-toolbar", downloadButton(ns("download_venn_example"), "Download region counts (CSV)", class = "btn-sm")),
+              DT::dataTableOutput(ns("venn_region_table_example")))
+        )
+      }
     })
 
-    ## Gene-symbol-collapsed feature sets for the two training GEO sources -
-    ## the same collapse_probes_to_genes() step mod_pp_source_server's own
-    ## "preloaded GEO dataset" option already applies (raw probe IDs almost
-    ## never overlap across the two platforms; gene symbols do).
+    output$merge_example_composition_table <- DT::renderDataTable({
+      m <- example_live_merge()
+      tbl <- as.data.frame(table(Dataset = m$meta$dataset, Group = m$meta$group))
+      tbl <- tbl[tbl$Freq > 0, , drop = FALSE]
+      colnames(tbl)[colnames(tbl) == "Freq"] <- "Samples"
+      DT::datatable(tbl, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    ## Gene-symbol-collapsed feature sets for the two training GEO sources (raw probe IDs don't overlap across platforms).
     example_overlap_sets <- reactive({
       sets <- lapply(PP_TRAINING_GEO_IDS, function(gse) {
         collapsed <- get_collapsed_genes(gse)
@@ -939,51 +884,38 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       sets
     })
 
-    ## Live merge of the two RAW training datasets - NOT the app's default
-    ## `dataset` reactiveValues, which is already batch-corrected
-    ## (combined_expr_batchcorrected.rds). Adopting that directly here would
-    ## feed already-corrected data back into the Batch Correction step,
-    ## where a second ComBat pass has almost no residual batch signal left
-    ## to remove - "before" and "after" PCA would look nearly identical.
-    ## Rebuilding from raw (same collapse_probes_to_genes()/
-    ## eset_harmonize_meta() steps mod_pp_source_server's own "preloaded GEO
-    ## dataset" option already applies per-source, and the same common-gene
-    ## merge mod_pp_source_server's own "own data" path below already does)
-    ## gives Batch Correction a genuine, uncorrected batch effect to remove,
-    ## so the before/after contrast is real - matching how the example
-    ## cohort was actually built in the first place.
+    ## FALSE = reuse the already-merged, batch-corrected cohort directly (fast, and Batch
+    ## Correction finds little residual effect left); TRUE rebuilds from the two raw GEO
+    ## series instead (slow probe->gene collapse) to get a genuine uncorrected batch effect.
+    example_merge_from_raw <- reactive(FALSE)
+
+    ## Live merge of the two raw training datasets when example_merge_from_raw() is TRUE;
+    ## otherwise reuses the app's already-merged/batch-corrected default dataset.
     example_live_merge <- reactive({
+      if (!example_merge_from_raw()) {
+        d <- load_default_dataset()
+        meta <- d$meta
+        if (!"batch" %in% colnames(meta) || all(is.na(meta$batch))) meta$batch <- meta$dataset
+        return(list(expr = d$expr, meta = meta, sources = PP_TRAINING_COHORT_LABEL, n_dup_features = 0L))
+      }
       parts <- lapply(PP_TRAINING_GEO_IDS, function(gse) {
         eset <- get_raw_eset(gse)
         validate(need(!is.null(eset), paste("Raw file for", gse, "not found on disk.")))
         expr <- get_collapsed_genes(gse)
         meta <- eset_harmonize_meta(eset, gse)
-        ## input$example_groups (checkboxGroupInput above, defaults to
-        ## HC+RA) - not just !is.na(meta$group) - so GSE110169's SLE
-        ## samples are excluded by default instead of silently merging in
-        ## alongside RA/HC, matching this project's own RA-vs-control
-        ## training cohort. Falls back to every non-NA group if the input
-        ## hasn't rendered yet (e.g. very first reactive pass).
+        ## Restricts to the checked groups (defaults to HC+RA), falling back to all non-NA groups pre-render.
         wanted_groups <- input$example_groups %||% available_example_groups()
         keep <- !is.na(meta$group) & meta$group %in% wanted_groups
         meta <- meta[keep, , drop = FALSE]
         expr <- expr[, meta$sample, drop = FALSE]
 
-        ## Same auto-detect log2 rule every per-source preprocessing path in
-        ## this app uses (see mod_pp_source_server's result()) - a no-op for
-        ## these two datasets (already log2, per the Scale check panel
-        ## above), but applied for correctness on whatever's actually on disk.
+        ## Same auto-detect log2 rule as every per-source preprocessing path (mod_pp_source_server's result()).
         q99 <- suppressWarnings(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
         if (isTRUE(!is.na(q99) && q99 > 100)) {
           expr[expr <= 0] <- NA
           expr <- log2(expr)
           expr <- expr[stats::complete.cases(expr), , drop = FALSE]
         }
-        ## Residual missingness (this branch is a no-op for the bundled
-        ## already-log2 training cohorts, so any NA surviving probe
-        ## collapsing would otherwise reach Batch Correction unhandled) is
-        ## median-imputed per gene, mirroring pp_preloaded_read() above and
-        ## filter_and_transform_expr() (global.R).
         if (anyNA(expr)) {
           row_med <- apply(expr, 1, stats::median, na.rm = TRUE)
           na_idx <- which(is.na(expr), arr.ind = TRUE)
@@ -1042,14 +974,9 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       content = function(file) write.csv(venn_regions_example(), file, row.names = FALSE)
     )
 
-    ## Which configured, preprocessed datasets actually go into this merge is
-    ## the user's call, not automatic - unchecking one here drops it from
-    ## both the overlap diagram below and the merge itself, so what you see
-    ## is exactly what you'll get.
+    ## Unchecking a dataset here drops it from both the overlap diagram and the merge itself.
     output$merge_select_ui <- renderUI({
-      ## Silent (not validate()'d) when sources aren't ready yet - merge_venn_ui
-      ## below is what surfaces that "preprocess dataset X first" message, so
-      ## it isn't shown twice.
+      ## Silent when sources aren't ready - merge_venn_ui below shows that message instead.
       lst <- tryCatch(merge_inputs(), error = function(e) NULL)
       req(length(lst) >= 2)
       labels <- vapply(lst, `[[`, character(1), "label")
@@ -1058,9 +985,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           checkboxGroupInput(ns("merge_selected"), NULL, choices = labels, selected = labels, inline = TRUE))
     })
 
-    ## Shared annotation table for the optional probe-collapsing step below -
-    ## read once, reused for every selected dataset (same-platform merges
-    ## only; see the Merge tab's own note on this).
+    ## Shared annotation table for optional probe-collapsing, reused across every selected dataset.
     collapse_annot <- reactive({
       validate(need(!is.null(input$collapse_annot_file),
                     "Probe-to-gene collapsing is turned on, but no annotation file has been uploaded yet - add one above, or turn the checkbox off if your data is already at gene level."))
@@ -1161,10 +1086,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       content = function(file) write.csv(venn_regions_custom(), file, row.names = FALSE)
     )
 
-    ## Triggered by either button: "Use this dataset" (example path, added
-    ## below) or "Merge datasets" (the original, unchanged own-data path).
-    ## ignoreInit = TRUE keeps this from firing at session start, the same
-    ## guarantee a single eventReactive(input$merge_btn, ...) already had.
+    ## Triggered by either "Merge datasets" or the example-path button.
     merged <- eventReactive(list(input$merge_btn, input$merge_use_example_btn), {
       if (identical(input$merge_mode, "example")) {
         return(example_live_merge())
@@ -1175,15 +1097,25 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         x <- lst[[1]]
         meta <- x$meta
         if (!"dataset" %in% colnames(meta)) meta$dataset <- x$label
-        return(list(expr = x$expr, meta = meta, sources = x$label, n_dup_features = expr_raw_health(x$expr)$n_duplicated_features))
+        n_dup_features <- expr_raw_health(x$expr)$n_duplicated_features
+        ## The multi-dataset branch below merges via expr[common, ], which
+        ## implicitly keeps only each name's first occurrence (R's default
+        ## row-name-indexing behavior) - the single-dataset path skipped that
+        ## step entirely, so a duplicate-feature-ID upload reached every
+        ## downstream row-name-keyed lookup (mod_candidates.R's match(),
+        ## mod_wgcna.R's column selection, etc.) with duplicates intact,
+        ## despite the Dataset tab's own upload message promising exactly
+        ## this "first occurrence kept" behavior. Deduplicate here the same
+        ## way, so that promise is actually true for every path through here,
+        ## not just the multi-dataset merge.
+        expr_dedup <- x$expr[!duplicated(rownames(x$expr)), , drop = FALSE]
+        return(list(expr = expr_dedup, meta = meta, sources = x$label, n_dup_features = n_dup_features))
       }
       sets <- lapply(lst, function(x) rownames(x$expr))
       common <- Reduce(intersect, sets)
       validate(need(length(common) >= 20,
                     "Fewer than 20 features are in common across the selected datasets. Check that every uploaded dataset uses the same type of row name, for example all gene symbols or all the same probe IDs."))
-      ## Row-name-keyed subsetting below silently keeps only the first row per
-      ## duplicated feature ID - counted here (not fixed) so the merge summary
-      ## can disclose it, matching expr_raw_health()'s existing diagnostic.
+      ## Counts duplicated feature IDs so the merge summary can disclose them (subsetting below keeps only the first).
       n_dup_features <- sum(vapply(lst, function(x) expr_raw_health(x$expr)$n_duplicated_features, integer(1)))
       merged_expr <- do.call(cbind, lapply(lst, function(x) x$expr[common, , drop = FALSE]))
       metas <- lapply(lst, function(x) { m <- x$meta; m$dataset <- x$label; m })
@@ -1251,10 +1183,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## =====================================================================
-    ## Batch correction tab: normalisation + ComBat, live, on the merged (or
-    ## single, un-merged) dataset from the Merge datasets tab.
-    ## =====================================================================
+    ## Batch correction tab: normalisation + ComBat, live, on the merged (or single) dataset.
 
     active_meta_df <- reactive({
       m <- merged()
@@ -1360,11 +1289,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                   choices = c("(none)", lvls), selected = "(none)", selectize = FALSE)
     })
 
-    ## A column can't be both the thing corrected for and a thing protected
-    ## from correction - keep it out of reach in the UI instead of letting
-    ## ComBat/limma resolve the resulting confound unpredictably (see the
-    ## defensive setdiff() a bit further down, which still applies if this
-    ## observer hasn't fired yet).
+    ## Keeps a batch column out of the protect-columns choices, so it can't be both corrected for and protected.
     observeEvent(list(input$batch_col, input$batch_col2), {
       meta <- tryCatch(active_meta_df(), error = function(e) NULL)
       req(meta)
@@ -1389,10 +1314,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         already_corrected <- FALSE
 
         if (identical(norm_method, "tmm")) {
-          ## TMM + log2-CPM, matching scripts/goal2_sex_stratified/
-          ## 20_testing_synovium_external.R: edgeR::filterByExpr() by group,
-          ## calcNormFactors(method = "TMM"), then log2-CPM. For raw RNA-seq
-          ## counts, not log-scale microarray/already-normalised data.
+          ## TMM + log2-CPM for raw RNA-seq counts: edgeR::filterByExpr() by group, then calcNormFactors(method="TMM").
           validate(need(all(expr >= 0, na.rm = TRUE),
                         "TMM normalisation expects raw, non-negative counts, but this data has negative values, which suggests it is already log-transformed. Preprocess this dataset again with log2 set to \"Skip\"."))
           validate(need("group" %in% colnames(meta), "TMM normalisation needs a group column to filter low-count genes by."))
@@ -1408,14 +1330,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
           tmm_stage <- input$tmm_correction_stage %||% "post"
           if (!skip_combat && identical(tmm_stage, "pre")) {
-            ## ComBat-seq: batch-correct the raw counts directly with a
-            ## negative-binomial model, THEN TMM-normalise the corrected
-            ## counts - better suited to batch effects that are themselves
-            ## count-scale (library-size/depth-driven) rather than effects
-            ## that only show up after log-CPM.
-            ## Zhang Y, Parmigiani G, Johnson WE. ComBat-seq: batch effect
-            ## adjustment for RNA-seq count data. Brief Bioinform
-            ## 2020;21(6):1954-1964.
+            ## ComBat-seq: negative-binomial batch correction on raw counts before TMM (Zhang, Parmigiani & Johnson 2020).
             cs_batch_primary <- as.character(meta[[input$batch_col]])
             cs_use_batch2 <- !identical(input$batch_col2 %||% "(none)", "(none)") && (input$batch_col2 %in% colnames(meta))
             cs_batch <- if (cs_use_batch2) paste(cs_batch_primary, as.character(meta[[input$batch_col2]]), sep = "_") else cs_batch_primary
@@ -1491,13 +1406,10 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           )
         }
 
-        ## Everything below only applies to the standard, post-normalisation
-        ## correction path - ComBat-seq (already_corrected == TRUE) already
-        ## produced expr_combat directly, on the raw counts, above.
+        ## Only applies to the standard post-normalisation path; ComBat-seq already produced expr_combat above.
         n_excluded_outliers <- 0L
         if (!already_corrected) {
-          ## optional: drop samples flagged as QC outliers before correcting,
-          ## instead of only flagging them afterwards
+          ## Optionally drop QC-flagged samples before correcting, not just flag them afterwards.
           if (isTRUE(input$exclude_outliers)) {
             qc_pre <- compute_sample_qc(expr_qnorm, mad_k = input$mad_k)
             flagged <- qc_pre$sample[qc_pre$flag_signal | qc_pre$flag_detected | qc_pre$flag_cor]
@@ -1512,9 +1424,6 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             }
           }
 
-          ## batch correction, protecting whichever covariates were selected -
-          ## the batch column only needs to be a real, 2+ level split when a
-          ## correction is actually going to run against it.
           batch_primary <- as.character(meta[[input$batch_col]])
           use_batch2 <- !identical(input$batch_col2 %||% "(none)", "(none)") && (input$batch_col2 %in% colnames(meta))
           batch <- if (use_batch2) paste(batch_primary, as.character(meta[[input$batch_col2]]), sep = "_") else batch_primary
@@ -1525,12 +1434,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
           protect <- intersect(input$protect_cols %||% character(0), colnames(meta))
           protect <- protect[vapply(protect, function(cl) length(unique(na.omit(meta[[cl]]))) >= 2, logical(1))]
-          ## Protecting the exact column being corrected for is a degenerate
-          ## design - batch and mod become collinear, and depending on which
-          ## fallback ComBat/limma lands on, that can either silently strip
-          ## the "protected" signal (mod gets absorbed into batch) or refuse
-          ## to remove any batch effect at all. Drop the overlap up front
-          ## rather than let ComBat resolve it unpredictably.
+          ## Drop batch columns from protect up front - protecting the corrected-for column makes batch/mod collinear.
           batch_cols_used <- c(input$batch_col, if (use_batch2) input$batch_col2 else NULL)
           protect_dropped_for_batch <- intersect(protect, batch_cols_used)
           protect <- setdiff(protect, batch_cols_used)
@@ -1556,24 +1460,13 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             design <- if (!is.null(mod)) mod else matrix(1, ncol(expr_qnorm), 1)
             limma::removeBatchEffect(expr_qnorm, batch = b, design = design)
           }
-          ## SVA doesn't take a batch label at all - it estimates unknown/
-          ## residual sources of unwanted variation straight from the data
-          ## (protecting `mod`'s biological covariates from being absorbed
-          ## into those surrogate variables), then the estimated surrogate
-          ## variables are regressed out the same way limma::removeBatchEffect
-          ## regresses out a known batch - this is the sva package's own
-          ## documented recipe for producing SVA-adjusted data for
-          ## visualisation/downstream use, not a novel technique.
-          ## Leek JT, Johnson WE, Parker HS, Jaffe AE, Storey JD. The sva
-          ## package for removing batch effects. Bioinformatics 2012;28(6):882-883.
+          ## SVA estimates unknown/residual sources of variation directly from the data (protecting
+          ## `mod`'s covariates), then regresses the surrogate variables out via limma::removeBatchEffect
+          ## - the sva package's documented recipe (Leek et al., Bioinformatics 2012;28(6):882-883).
           run_sva <- function() {
             mod_full <- if (!is.null(mod)) mod else matrix(1, ncol(expr_qnorm), 1)
             mod0 <- matrix(1, ncol(expr_qnorm), 1)
-            ## num.sv's permutation-based "be" method and sva()'s own eigen
-            ## decomposition are O(genes) per iteration; vfilter restricts
-            ## both to the most variable genes so estimation stays fast even
-            ## on tens of thousands of features, as recommended by the sva
-            ## package vignette for large expression matrices.
+            ## vfilter restricts num.sv/sva() to the most variable genes so estimation stays fast on large matrices.
             n_genes <- nrow(expr_qnorm)
             vfilt <- if (n_genes > 2000) 2000L else NULL
             n_sv <- as.integer(input$sva_n_sv %||% 0)
@@ -1594,9 +1487,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           } else if (identical(correction_method, "sva")) {
             run_sva()
           } else {
-            ## ladder of fallbacks, same idea as scripts/00_shared/03_normalize_batch.R's
-            ## run_combat(): try the requested batch/mod/ref.batch combination first,
-            ## then progressively drop ref.batch, the interaction, and finally mod.
+            ## Fallback ladder: try full batch/mod/ref.batch, then progressively drop ref.batch, interaction, mod.
             tryCatch(run_combat(batch, use_mod = TRUE, use_ref = TRUE),
               error = function(e) tryCatch(run_combat(batch_primary, use_mod = TRUE, use_ref = FALSE),
                 error = function(e2) run_combat(batch_primary, use_mod = FALSE, use_ref = FALSE)))
@@ -1844,7 +1735,16 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       res <- result()
       dataset$expr <- res$expr_combat
       dataset$meta <- res$meta
-      dataset$source <- paste0("Uploaded dataset (preprocessed + ",
+      ## dataset_is_uploaded()-style checks elsewhere (mod_wgcna.R, mod_candidates.R,
+      ## mod_overview.R) key off a "^Uploaded dataset" prefix to distinguish this
+      ## project's own data from a user's. res$sources traces back through
+      ## merged()/pp_preloaded_read() to each component's own staged label, so it
+      ## already contains "Uploaded dataset:"/"NCBI GEO:" iff a component actually
+      ## came from the Dataset tab's upload or GEO-fetch - a run built entirely from
+      ## bundled cohorts (either merge_mode) must not be labelled as an upload just
+      ## because it passed through this preprocessing/batch-correction step.
+      was_uploaded <- grepl("Uploaded dataset:|NCBI GEO:", res$sources %||% "")
+      dataset$source <- paste0(if (was_uploaded) "Uploaded dataset (preprocessed + " else "Preloaded dataset (preprocessed + ",
                                 if (isTRUE(res$skip_combat)) "normalised" else "batch-corrected", "): ",
                                 res$sources %||% "your data")
       output$activate_status_ui <- renderUI(
@@ -1852,18 +1752,10 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     }, ignoreInit = TRUE)
 
-    ## =====================================================================
-    ## Assemble the page
-    ## =====================================================================
+    ## Assemble the page.
 
-    ## Nothing below the settings panel is meaningful until result() has
-    ## actually run once, so none of it renders until then - no empty boxes,
-    ## no spinners stuck with nothing to spin for.
-    ## Plain, unboxed section - a small heading rule plus its content -
-    ## used throughout Batch Correction's results INSTEAD of shinydashboard
-    ## box() cards, per explicit feedback that stacked bordered cards read
-    ## as an unprofessional dashboard look here. Batch Correction only;
-    ## every other tab/module still uses box() as before.
+    ## Plain unboxed section header + content, used only in Batch Correction's results
+    ## instead of shinydashboard box() cards (feedback: stacked cards read as unprofessional here).
     bc_section <- function(icon_name, title, ..., desc = NULL) {
       tagList(
         tags$h4(
@@ -1882,9 +1774,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             "Set the options on the left, then click \"Run normalisation and batch correction\" to see results here."))
       }
       tagList(
-        ## 2-per-row, not 4: this row lives inside a column(6) beside
-        ## Settings, so 4-across would squeeze each value box to an
-        ## eighth of the page.
+        ## 2-per-row, not 4: lives inside a column(6) beside Settings.
         fluidRow(
           valueBoxOutput(ns("vb_samples"), width = 6),
           valueBoxOutput(ns("vb_genes_kept"), width = 6)
@@ -1903,12 +1793,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       res <- tryCatch(result(), error = function(e) NULL)
       req(res)
       tagList(
-        ## Stacked full-width, not nested into 3- and 2-column sub-rows:
-        ## this whole tagList already lives inside a column(6) beside
-        ## Settings (see batch_content below), and subdividing that further
-        ## squeezed each plot down to roughly a sixth of the page - visibly
-        ## clipped legends and unreadable per-sample bar plots. Full width
-        ## of the results column is what these need to render legibly.
+        ## Stacked full-width (not sub-columns) - lives inside column(6) beside Settings; subdividing further clipped plots.
         bc_section("chart-simple", "Per-sample signal",
           withSpinner(plotOutput(ns("signal_plot"), height = 210), color = "#2563EB", type = 6)
         ),
@@ -1955,22 +1840,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Settings (column(6), unboxed - a plain section header, matching the
-    ## unboxed style bc_section() gives every results section below, so
-    ## nothing in this tab looks visually inconsistent with the rest) beside
-    ## just the compact top-of-results value boxes + decisions
-    ## (results_top_ui) in the other column(6) - the same "settings beside
-    ## the first result card" row mod_dge.R uses (Contrast beside Result).
-    ## results_rest_ui (the plots and tables - the bulk of the page) breaks
-    ## out of that row to full width below, exactly like mod_dge.R's
-    ## Heatmap/Result table/References boxes do beneath its own settings+
-    ## result row - previously it was squeezed into the same column(6) as
-    ## Settings, clipping every plot and table to a quarter of the page.
-    ## Pipeline summary is removed from this tab entirely so its space goes
-    ## to Results - it is not shown elsewhere either (it was already pulled
-    ## out of the shared rail in mod_preprocessing_ui in an earlier change).
-    ## The rail itself (and its ArthOChat shortcut) was later removed from
-    ## this whole module; this tab has never used it since.
+    ## Settings and top-of-results value boxes share a row (column(6) each, like mod_dge.R's
+    ## Contrast/Result row); results_rest_ui (plots/tables) breaks out to full width below.
     batch_content <- tagList(
       fluidRow(
         column(
@@ -1993,32 +1864,14 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## batch_tab_ui is a uiOutput directly inside a tabPanel (same shape as
-    ## mod_wgcna.R's stepN_ui) and, being a plain renderUI() with no reactive
-    ## dependency of its own, only ever fires once - the first time that tab
-    ## becomes visible. Left at Shiny's default (suspendWhenHidden = TRUE),
-    ## that first fire can be missed: merging on the Merge Datasets tab, then
-    ## switching straight to Batch Correction, showed nothing until you left
-    ## the tab and came back (or revisited Merge Datasets) to re-trigger it.
-    ## Its nested uiOutputs (settings_ui/ref_batch_ui/results_top_ui/
-    ## results_rest_ui) are only ever inserted into the DOM once batch_tab_ui
-    ## has rendered, so they inherit the same risk and get the same fix -
-    ## mirroring mod_wgcna.R's "every step's uiOutput must render as soon as
-    ## this module mounts" comment for its own step tabs.
+    ## Force these to render as soon as the module mounts (not just when the tab becomes visible),
+    ## otherwise switching straight to Batch Correction after merging can show nothing until revisited.
     for (bc_out in c("batch_tab_ui", "settings_ui", "ref_batch_ui", "results_top_ui", "results_rest_ui")) {
       outputOptions(output, bc_out, suspendWhenHidden = FALSE)
     }
 
-    ## =====================================================================
-    ## Data Exploration tab
-    ## ---------------------------------------------------------------------
-    ## A standalone EDA module (R/mod_preprocessing_explore.R) with its own
-    ## raw-data upload - deliberately independent of the Preprocessing/Merge/
-    ## Batch correction steps above and of the shared `dataset`
-    ## reactiveValues every other tab in this app reads from. Nested Shiny
-    ## module, id "eda" (matches mod_preprocessing_ui()'s mod_data_exploration_ui(ns("eda"))).
-    ## =====================================================================
-
+    ## Data Exploration tab: standalone EDA module (mod_preprocessing_explore.R), own upload,
+    ## independent of the pipeline steps above and the shared `dataset` reactiveValues.
     mod_data_exploration_server("eda")
   })
 }
