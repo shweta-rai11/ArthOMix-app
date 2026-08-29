@@ -226,6 +226,15 @@ ct_cv_eval <- function(Xraw, y, n_folds, refit_fn, predict_fn, stratified = TRUE
 ## resubstitution fit + tuning both use the full sex-subset; ct_cv_eval()
 ## above supplies the out-of-fold estimate.
 ct_fit_sex <- function(expr_full, y_full, params = list()) {
+  ## caret::train(classProbs = TRUE) below requires factor levels that are
+  ## valid R variable names - it make.names()s them internally to build its
+  ## own predicted-probability column names, so a raw group label with a
+  ## space (e.g. "multiple sclerosis") desyncs from any levels(y)-based
+  ## lookup once caret has already renamed its own columns to
+  ## "multiple.sclerosis". Sanitized once here, up front, matching
+  ## mod_diagnostic.R::diag_fit_sex()'s identical fix; callers keep the real
+  ## group names for their own display text, so nothing user-visible changes.
+  levels(y_full) <- make.names(levels(y_full), unique = TRUE)
   params <- utils::modifyList(CT_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- 1234
   genes <- rownames(expr_full)

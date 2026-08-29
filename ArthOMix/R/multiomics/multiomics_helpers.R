@@ -303,3 +303,60 @@ multi_package_versions <- function() {
   )
 }
 
+## ---------------------------------------------------------------------------
+## Results Summary & Reproducibility - what's genuinely NOT implemented in
+## this module (spec: never render a fake placeholder as if it were a
+## result - state it plainly instead), and a pointer to the real pipeline
+## scripts that produced whatever is currently loaded, for reproducibility.
+## Keep this list in sync with the module's actual capabilities as they
+## change - it is read directly by the Results Summary tab.
+## ---------------------------------------------------------------------------
+
+MULTI_KNOWN_LIMITATIONS <- c(
+  "No cell-type composition sub-module: methylation (EpiDISH) and expression (CIBERSORTx) deconvolution, composition-vs-disease testing, and composition-adjusted matrices are not implemented.",
+  "Probe QC covers duplicate IDs, zero-variance and missingness filtering, and variance/MAD-ranked feature filtering - it does not include cross-reactive probe masking, SNP-overlapping probe filtering, sex-chromosome probe handling, or an expression/methylation sex check (XIST/RPS4Y1 vs. reported sex).",
+  "No dedicated Covariates & Clinical Metadata sub-module: there is no clinical-variable coverage table, treatment-strata harmonization, sample x metadata missingness map, or covariate collinearity/VIF check.",
+  "Validation & Stability covers leakage-safe nested cross-validation only - bootstrap feature-selection stability, a permutation null, external cohort scoring (e.g. GSE17755, GSE15573), calibration curves, and decision-curve analysis are not implemented.",
+  "No unified Model Benchmarking panel comparing clinical-only, transcriptomics-only, methylomics-only, and combined models under identical cross-validation folds.",
+  "The Machine Learning panel offers Elastic Net and Random Forest only - XGBoost, Boruta, SHAP explanations, and learning curves are not implemented.",
+  "Sex differences are assessed by running the same analysis separately per sex stratum, not by a formal sex x disease interaction model, FDR-ranked interaction table, or sex-shared/sex-specific/interaction classification.",
+  "No sex-chromosome biology annotation (X/Y/autosomal feature classification, X-inactivation escapees, hormone-responsive gene sets).",
+  "Gene<->CpG mapping uses each CpG's Illumina manifest gene annotation, not a configurable genomic-distance window - and mediation analysis (methylation -> expression -> outcome) is not implemented.",
+  "No Druggable Target Linker (Open Targets tractability, known drugs, or clinical-phase lookups for candidate genes).",
+  "DIABLO exposes one cross-block design-weight control, not a design-matrix sweep grid, and does not render correlation-circle or arrow plots.",
+  "No parameter-manifest JSON export or decision log - the session bundle below includes the loaded result tables, a plain-text report, and installed package versions only.",
+  "Reported AUROCs (precomputed cohort tabs) are the source pipeline's own nested cross-validation performance, not performance on an independent replication cohort - see AUDIT.md."
+)
+
+MULTI_REPRODUCIBILITY_SCRIPTS <- c(
+  "Shared upstream (sample matching, QC, normalization, annotation, genome-wide discovery, leakage-safe nested-CV benchmark): analyses/data_preparation/scripts/01-06_*.R",
+  "SNF integration (classifier + unsupervised joint-biomarker discovery): analyses/01_female_male_adalimumab/scripts/07*.R, analyses/02_female_male_etanercept/scripts/07*.R",
+  "DIABLO integration (drug x sex, response, drug-type): analyses/01_female_male_adalimumab/scripts/08_*.R, analyses/07_cross_analysis_summary/scripts/11_*.R, 14_*.R",
+  "Gene<->CpG concordance: analyses/07_cross_analysis_summary/scripts/15_*.R, 18_*.R",
+  "Pathway enrichment: analyses/07_cross_analysis_summary/scripts/16_*.R",
+  "Cross-cell summary assembly: analyses/07_cross_analysis_summary/scripts/09_*.R, 12_*.R",
+  "Independent audit (methodology, leakage findings/fixes, honest AUROC verdicts per cell): AUDIT.md",
+  "Live-computation code (this app, not the source pipeline): R/multiomics/multiomics_live_helpers.R, multiomics_integration_live_helpers.R, cohort_harmonization_helpers.R, multiomics_concordance_live_helpers.R, multiomics_sexstratified_engine.R"
+)
+
+## Plain-text report for the "Download everything loaded so far" bundle -
+## lists which sub-modules had results loaded this session and where their
+## numbers actually came from, not a regenerated analysis.
+multi_build_report <- function(multi_results) {
+  ids <- c("overview", "integration", "stratification", "biomarker", "concordance", "pathway", "live_qc", "live_mofa")
+  lines <- c(
+    "# ArthOMix Multi-Omics module - session report",
+    sprintf("Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
+    "",
+    "This report lists which sub-modules had results loaded this session. Precomputed-cohort tabs browse Research_05_multiomics_sexstratified's own saved DIABLO/SNF/concordance/pathway output; Dataset Workspace/Live Analysis results are computed in this app from the currently active dataset.",
+    ""
+  )
+  for (i in ids) {
+    res <- multi_results[[i]]
+    lines <- c(lines, sprintf("## %s", i), if (is.null(res)) "(not loaded this session)" else "Loaded - see the accompanying CSV(s) in this bundle for the exact rows shown.", "")
+  }
+  lines <- c(lines, "## Known limitations", paste0("- ", MULTI_KNOWN_LIMITATIONS), "",
+             "## Reproducibility - source scripts", paste0("- ", MULTI_REPRODUCIBILITY_SCRIPTS))
+  lines
+}
+

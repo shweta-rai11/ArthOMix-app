@@ -425,12 +425,23 @@ mod_dge_server <- function(id, dataset, results) {
           if (adjust_for_covariate) model.matrix(~0 + grp + covar) else model.matrix(~0 + grp),
           error = function(e) validate(need(FALSE, paste("Could not build a design matrix for this contrast/covariate combination:", conditionMessage(e))))
         )
-        colnames(design)[seq_len(nlevels(grp))] <- levels(grp)
+        ## limma::makeContrasts() parses its contrasts= string as an R
+        ## expression, so design-matrix column names built from raw factor
+        ## level values must be syntactically valid R names - confirmed live,
+        ## a real GEO group value like "multiple sclerosis" (contains a
+        ## space) throws "Error: The levels must by syntactically valid
+        ## names in R" and aborts the whole run. make.names() here only
+        ## relabels the design matrix's own columns for this internal
+        ## contrast-formula step; grp's actual levels (used for DESeq2's
+        ## contrast= above, and for labelling/sample counts below) stay the
+        ## real values throughout - this doesn't change what's computed.
+        safe_levels <- make.names(levels(grp), unique = TRUE)
+        colnames(design)[seq_len(nlevels(grp))] <- safe_levels
         ## Per-array quality weights (Ritchie et al. 2006) down-weight noisy
         ## arrays, relevant since the training cohort mixes two platforms.
         aw <- limma::arrayWeights(expr, design)
         fit <- limma::lmFit(expr, design, weights = aw)
-        cm <- limma::makeContrasts(contrasts = paste0(levels(grp)[2], "-", levels(grp)[1]), levels = design)
+        cm <- limma::makeContrasts(contrasts = paste0(safe_levels[2], "-", safe_levels[1]), levels = design)
         fit2 <- tryCatch(limma::eBayes(limma::contrasts.fit(fit, cm)),
                           error = function(e) validate(need(FALSE, paste("limma could not fit this contrast:", conditionMessage(e)))))
         out <- limma::topTable(fit2, number = Inf, sort.by = "P")
@@ -571,6 +582,12 @@ mod_dge_server <- function(id, dataset, results) {
             span(class = "badge-down", sprintf("%s downregulated", format(n_down, big.mark = ","))))
       )
     })
+    ## The Result/Heatmap/Result table boxes are hidden behind conditionalPanel
+    ## until run_btn > 0, so by default Shiny suspends these outputs and they
+    ## miss the very first render that fires on that same click - the panel
+    ## un-hides but summary_ui/volcano/heatmap/dge_table stay blank until a
+    ## second click re-triggers them. Forcing them to always compute fixes it.
+    outputOptions(output, "summary_ui", suspendWhenHidden = FALSE)
 
     ## Publication-style volcano plot with up/down annotations and top-hit
     ## labels; a single reactive so the preview and PNG download match.
@@ -621,6 +638,7 @@ mod_dge_server <- function(id, dataset, results) {
       req(p)
       p
     })
+    outputOptions(output, "volcano", suspendWhenHidden = FALSE)
 
     ## Fixed 7x6in @ 300dpi, matching standard journal figure dimensions.
     output$download_volcano_png <- downloadHandler(
@@ -674,6 +692,7 @@ mod_dge_server <- function(id, dataset, results) {
       grid::grid.newpage()
       grid::grid.draw(ph$gtable)
     })
+    outputOptions(output, "heatmap", suspendWhenHidden = FALSE)
 
     output$download_heatmap_png <- downloadHandler(
       filename = function() "dge_heatmap.png",
@@ -696,6 +715,7 @@ mod_dge_server <- function(id, dataset, results) {
       DT::datatable(df, rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
+    outputOptions(output, "dge_table", suspendWhenHidden = FALSE)
 
     output$download_dge <- downloadHandler(
       filename = function() "differential_expression.csv",

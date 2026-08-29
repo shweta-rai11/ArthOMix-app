@@ -67,16 +67,18 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
         return(div(class = "empty-note", icon("triangle-exclamation"), "Could not determine any modalities for the active dataset."))
       }
       pc <- pheno_candidates(); bc <- batch_candidates()
+      default_col <- ch_classify_metadata_columns(multi_dataset$sample_meta)$suggested_default
       fluidRow(
         column(
           4,
           box(width = NULL, title = "Filters", status = "primary", solidHeader = FALSE,
               checkboxGroupInput(ns("sel_modalities"), "Select modalities", choices = names(d), selected = names(d)),
               numericInput(ns("min_overlap"), "Minimum sample overlap", value = 3, min = 1),
-              if (length(pc) > 0) selectInput(ns("pheno_col"), "Phenotype/outcome column", choices = c("(none)" = "", pc)),
+              if (length(pc) > 0) selectInput(ns("pheno_col"), "Phenotype/outcome column", choices = c("(none)" = "", pc),
+                                               selected = if (!is.null(default_col) && default_col %in% pc) default_col else ""),
               if (length(bc) > 0) selectInput(ns("batch_col"), "Batch/cohort column", choices = c("(none)" = "", bc)),
               if (identical(multi_dataset$source, "preloaded")) tagList(
-                selectInput(ns("preloaded_cell"), "Analysis cell (PCA / correlation / model evaluation - live recompute)", choices = MULTI_CELL_CHOICES),
+                selectInput(ns("preloaded_cell"), "Analysis cell (used for PCA, correlation, and model evaluation)", choices = MULTI_CELL_CHOICES),
                 div(class = "empty-note", icon("circle-info"), "Preloaded cohort has no bundled raw matrix. PCA/correlation/model evaluation below use one analysis cell's matched-sample subset, recomputed from its saved DIABLO fit.")
               )
           ),
@@ -124,14 +126,19 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
         ok = TRUE, descriptors = d_sel, ids = ids,
         overlap_matrix = ch_pairwise_overlap_matrix(ids),
         cells = cells_res$cells, cells_omitted_note = cells_res$omitted_note, readiness = readiness,
-        id_table = id_table, n_total = length(union_all), n_matched = length(full_overlap)
+        id_table = id_table, n_total = length(union_all), n_matched = length(full_overlap),
+        matched_summary = ch_matched_sample_summary(ids)
       )
     }, ignoreInit = TRUE)
 
     output$overview_ui <- renderUI({
       h <- tryCatch(harmonization_result(), error = function(e) NULL)
       if (is.null(h) || !isTRUE(h$ok)) return(multi_empty_state("Click \"Analyze Cohort\" to see results here."))
+      ms <- h$matched_summary
+      badge_color <- switch(ms$status, Matched = ARTHOMIX_COLORS$aqua, `Partially matched` = ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
       tagList(
+        div(class = "card", style = sprintf("padding:12px 14px; border-left:4px solid %s; margin-bottom:14px;", badge_color),
+            span(style = sprintf("color:%s; font-weight:700;", badge_color), ms$status), " - ", ms$sentence),
         div(style = "display:flex; gap:14px; flex-wrap:wrap;",
             lapply(names(h$descriptors), function(nm) {
               desc <- h$descriptors[[nm]]
@@ -146,7 +153,8 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
         box(width = NULL, title = "Batch and Cohort Summary", status = "primary", solidHeader = FALSE,
             uiOutput(ns("batch_summary_ui"))),
         box(width = NULL, title = "Data Completeness", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(completeness_plot_fn, ns("completeness_plot"), "Not enough data to draw a completeness plot.", height = "260px"))
+            multi_plot_or_empty(completeness_plot_fn, ns("completeness_plot"), "Not enough data to draw a completeness plot.", height = "260px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_completeness_png"), "Download plot (PNG)", class = "btn-sm")))
       )
     })
     output$readiness_table <- DT::renderDataTable({
@@ -170,11 +178,20 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       tagList(
         tags$table(class = "table table-condensed", style = "font-size:0.88em;",
                     tags$tbody(lapply(names(tab), function(l) tags$tr(tags$td(l), tags$td(tab[[l]]))))),
-        multi_plot_or_empty(function() ch_category_bar_plot(meta_df, bc, "Batch distribution"), ns("batch_plot"), height = "220px")
+        multi_plot_or_empty(batch_plot_fn, ns("batch_plot"), height = "220px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_batch_bar_png"), "Download plot (PNG)", class = "btn-sm"))
       )
     })
+    batch_plot_fn <- reactive({
+      bc <- req(input$batch_col); req(nzchar(bc))
+      ch_category_bar_plot(req(multi_dataset$sample_meta), bc, "Batch distribution")
+    })
+    output$batch_plot <- renderPlot(batch_plot_fn())
+    output$dl_batch_bar_png <- multi_png_download(batch_plot_fn, function() "cohort_harmonization_batch_distribution.png")
+
     completeness_plot_fn <- reactive({ h <- req(harmonization_result()); ch_completeness_heatmap_plot(h$ids) })
     output$completeness_plot <- renderPlot(completeness_plot_fn(), alt = "Modality by sample data-completeness heatmap")
+    output$dl_completeness_png <- multi_png_download(completeness_plot_fn, function() "cohort_harmonization_data_completeness.png")
 
     output$sample_match_ui <- renderUI({
       h <- tryCatch(harmonization_result(), error = function(e) NULL)
@@ -182,7 +199,8 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       tagList(
         box(width = NULL, title = "Pairwise Sample Overlap", status = "primary", solidHeader = FALSE,
             DT::dataTableOutput(ns("overlap_table")),
-            multi_plot_or_empty(overlap_heatmap_fn, ns("overlap_heatmap"), height = "300px")),
+            multi_plot_or_empty(overlap_heatmap_fn, ns("overlap_heatmap"), height = "300px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_overlap_heatmap_png"), "Download plot (PNG)", class = "btn-sm"))),
         box(width = NULL, title = "Sample-ID Harmonization", status = "primary", solidHeader = FALSE, collapsible = TRUE,
             DT::dataTableOutput(ns("id_table"))),
         box(width = NULL, title = "Sample Structure (PCA)", status = "primary", solidHeader = FALSE, collapsible = TRUE,
@@ -200,6 +218,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     })
     overlap_heatmap_fn <- reactive({ h <- req(harmonization_result()); ch_overlap_heatmap_plot(h$overlap_matrix) })
     output$overlap_heatmap <- renderPlot(overlap_heatmap_fn(), alt = "Pairwise sample overlap heatmap")
+    output$dl_overlap_heatmap_png <- multi_png_download(overlap_heatmap_fn, function() "cohort_harmonization_sample_overlap.png")
     output$id_table <- DT::renderDataTable({
       h <- req(harmonization_result())
       df <- req(h$id_table)
@@ -211,10 +230,19 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       rd <- ov_raw_dataset()
       live_names <- if (isTRUE(rd$ok)) names(rd$layers) else character(0)
       if (length(live_names) == 0) return(div(class = "empty-note", icon("circle-info"), if (!isTRUE(rd$ok)) rd$error else "Insufficient information - no per-sample matrix is available."))
+      ## "Color PCA by" offers every classified metadata column for this raw
+      ## dataset (not just batch-name-pattern matches, which was this panel's
+      ## only color option before) - defaults to the same suggested variable
+      ## the Filters box uses, fully overridable.
+      meta_cls <- ch_classify_metadata_columns(rd$sample_meta)
+      color_choices <- meta_cls$table$column %||% character(0)
       tagList(
         if (!is.null(rd$provenance)) div(class = "empty-note", icon("circle-info"), rd$provenance),
         selectInput(ns("pca_layer"), "Modality", choices = live_names),
-        multi_plot_or_empty(pca_plot_fn, ns("pca_plot"), height = "340px")
+        if (length(color_choices) > 0) selectInput(ns("pca_color_by"), "Color PCA by", choices = c("(none)" = "", color_choices),
+                                                     selected = meta_cls$suggested_default %||% ""),
+        multi_plot_or_empty(pca_plot_fn, ns("pca_plot"), height = "340px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_pca_png"), "Download plot (PNG)", class = "btn-sm"))
       )
     })
     outputOptions(output, "pca_ui", suspendWhenHidden = FALSE)
@@ -223,9 +251,10 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       rd <- req(ov_raw_dataset())
       mat <- rd$layers[[input$pca_layer]]
       req(mat)
-      multi_live_pca_plot(multi_live_pca(mat), rd$sample_meta, if (nzchar(input$batch_col %||% "")) input$batch_col else NULL)
+      multi_live_pca_plot(multi_live_pca(mat), rd$sample_meta, if (nzchar(input$pca_color_by %||% "")) input$pca_color_by else NULL)
     })
-    output$pca_plot <- renderPlot(pca_plot_fn(), alt = "PCA of the selected modality, colored by batch column when available")
+    output$pca_plot <- renderPlot(pca_plot_fn(), alt = "PCA of the selected modality, colored by the selected metadata column when available")
+    output$dl_pca_png <- multi_png_download(pca_plot_fn, function() sprintf("cohort_harmonization_pca_%s.png", make.names(input$pca_layer %||% "modality")))
 
     output$correlation_ui <- renderUI({
       h <- req(harmonization_result())
@@ -237,7 +266,8 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
           column(6, selectInput(ns("corr_a"), "Modality A", choices = live_names)),
           column(6, selectInput(ns("corr_b"), "Modality B", choices = live_names, selected = live_names[min(2, length(live_names))]))
         ),
-        multi_plot_or_empty(corr_plot_fn, ns("corr_plot"), height = "340px")
+        multi_plot_or_empty(corr_plot_fn, ns("corr_plot"), height = "340px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_corr_png"), "Download plot (PNG)", class = "btn-sm"))
       )
     })
     outputOptions(output, "correlation_ui", suspendWhenHidden = FALSE)
@@ -252,6 +282,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       multi_live_correlation_heatmap_plot(d$df)
     })
     output$corr_plot <- renderPlot(corr_plot_fn(), alt = "Cross-modality feature correlation heatmap")
+    output$dl_corr_png <- multi_png_download(corr_plot_fn, function() sprintf("cohort_harmonization_correlation_%s_vs_%s.png", make.names(input$corr_a %||% "A"), make.names(input$corr_b %||% "B")))
 
     ## =========================================================================
     ## Sample Explorer - browse/search every sample individually (which
@@ -274,7 +305,8 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
             if (length(live_names) > 0) tagList(
               selectInput(ns("explore_pca_layer"), "Highlight in PCA (modality)", choices = live_names),
               if (identical(multi_dataset$source, "preloaded")) div(class = "empty-note", icon("circle-info"), "Uses the selected analysis cell's matched-sample subset - the sample must be in that cell to appear."),
-              multi_plot_or_empty(explore_pca_fn, ns("explore_pca_plot"), "PCA needs at least 3 samples and 2 features.", height = "340px")
+              multi_plot_or_empty(explore_pca_fn, ns("explore_pca_plot"), "PCA needs at least 3 samples and 2 features.", height = "340px"),
+              div(class = "table-toolbar", downloadButton(ns("dl_explore_pca_png"), "Download plot (PNG)", class = "btn-sm"))
             ) else div(class = "empty-note", icon("circle-info"), if (!isTRUE(rd$ok)) rd$error else "Insufficient information - no per-sample matrix is available."))
       )
     })
@@ -313,6 +345,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       ch_sample_highlight_pca_plot(pca, input$explore_sample)
     })
     output$explore_pca_plot <- renderPlot(explore_pca_fn(), alt = "PCA with the selected sample highlighted")
+    output$dl_explore_pca_png <- multi_png_download(explore_pca_fn, function() sprintf("cohort_harmonization_sample_highlight_%s.png", make.names(input$explore_sample %||% "sample")))
 
     ## =========================================================================
     ## Run Model Evaluation - a separate, opt-in, expensive step (spec

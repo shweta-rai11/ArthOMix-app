@@ -194,9 +194,23 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     ## Gene-source panels (same-tissue, cross-tissue, cross-ancestry), each
     ## sex-stratified and preferring this session's live results over the
     ## bundled fallback, same convention as mod_diagnostic.R/mod_crosstissue.R.
+    ## Every bundled_* fallback below was only ever computed from the app's own
+    ## default merged cohort - only read/offer it when that exact dataset is
+    ## still active (dataset$is_bundled_reference), never for an uploaded,
+    ## GEO-fetched, or individual raw preloaded dataset. The reactiveValues
+    ## read itself can only happen inside a reactive consumer, so loading these
+    ## (cheap, static files - harmless regardless of active dataset) stays
+    ## unconditional here at module-setup time; the gate is applied instead at
+    ## each function's own call site below (same_tissue_panel/etc. are already
+    ## only invoked lazily from inside a reactive context) and around the
+    ## wgcna_hub_lookup() call further down.
     bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
     bundled_venn <- read_table_safe("FS_venn_membership.csv")
     wgcna_hub_lookup <- build_wgcna_hub_lookup()
+    wgcna_hub_lookup_gated <- function(gene) {
+      if (isTRUE(dataset$is_bundled_reference)) wgcna_hub_lookup(gene)
+      else list(module = NA_character_, disease_module = FALSE, kme = NA_real_, is_hub = FALSE, connectivity = NA_real_)
+    }
 
     same_tissue_panel <- function(sex_label) {
       live <- results$featureselection[[sex_label]]$consensus_genes
@@ -214,7 +228,8 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
             note = sprintf("%d genes - this project's bundled %s diagnostic consensus panel (MHC-excluded, recommended in NESTED_CV_AUTHORITATIVE.csv).", length(genes), sex_label)))
         }
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s panel available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No live %s panel yet - run Feature Selection on the currently loaded dataset first.", sex_label))
     }
 
     cross_tissue_panel <- function(sex_label) {
@@ -229,7 +244,8 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         return(list(genes = bundled, is_live = FALSE,
           note = sprintf("%d genes - this project's bundled %s panel, the one its own synovial validation used (MHC-retained).", length(bundled), sex_label)))
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s panel available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No live %s panel yet - run Feature Selection on the currently loaded dataset first.", sex_label))
     }
 
     cross_ancestry_panel <- function(sex_label) {
@@ -238,15 +254,18 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Cross-Ancestry replicated-biomarker list.", length(live))))
       }
-      bundled <- read_table_safe(sprintf("MR35_crossancestry_%s.csv", sex_label))
-      if (!is.null(bundled)) {
-        genes <- unique(bundled$gene[bundled$ancestry_class == "shared EUR+EAS"])
-        if (length(genes) >= 2) {
-          return(list(genes = genes, is_live = FALSE,
-            note = sprintf("%d genes - this project's bundled %s genes replicated in both European and East-Asian ancestry GWAS.", length(genes), sex_label)))
+      if (isTRUE(dataset$is_bundled_reference)) {
+        bundled <- read_table_safe(sprintf("MR35_crossancestry_%s.csv", sex_label))
+        if (!is.null(bundled)) {
+          genes <- unique(bundled$gene[bundled$ancestry_class == "shared EUR+EAS"])
+          if (length(genes) >= 2) {
+            return(list(genes = genes, is_live = FALSE,
+              note = sprintf("%d genes - this project's bundled %s genes replicated in both European and East-Asian ancestry GWAS.", length(genes), sex_label)))
+          }
         }
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s panel available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No live %s panel yet - run Cross-Ancestry MR on the currently loaded dataset first.", sex_label))
     }
 
     panel_fns <- list(same_tissue = same_tissue_panel, cross_tissue = cross_tissue_panel, cross_ancestry = cross_ancestry_panel)
@@ -377,7 +396,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
 
       string_deg <- fetch_string_degrees(genes)
       hub_table <- do.call(rbind, lapply(genes, function(g) {
-        w <- wgcna_hub_lookup(g)
+        w <- wgcna_hub_lookup_gated(g)
         sd <- string_deg[[g]]
         data.frame(
           gene = g,

@@ -100,7 +100,10 @@ mi_outcome_summary <- function(meta, col, sample_ids = NULL) {
   vals <- vals[!is.na(vals)]
   if (length(vals) == 0) return(list(column = col, n = 0, type = "categorical", n_classes = NA_integer_, class_counts = NULL, imbalanced = FALSE, values = vals))
   n_unique <- length(unique(vals))
-  is_numeric_like <- is.numeric(vals) && n_unique > min(10, max(3, floor(length(vals) / 3)))
+  ## Reuses ch_classify_column() (cohort_harmonization_helpers.R) so this
+  ## and Cohort Harmonization's own column classifier apply one cardinality
+  ## rule, not two independently-tuned thresholds.
+  is_numeric_like <- identical(ch_classify_column(vals), "continuous")
   fac <- if (is_numeric_like) NULL else factor(vals)
   tab <- if (!is.null(fac)) table(fac) else NULL
   list(

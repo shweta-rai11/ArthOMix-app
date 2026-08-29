@@ -47,12 +47,18 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
 
   html <- app$get_html("body")
   expect_false(grepl("shiny-output-error", html, fixed = TRUE))
-  ## mod_dataset.R's load_btn observer renders "Previewed <n> genes across <n>
-  ## samples..." on success, or "Could not load this dataset: ..." on failure -
-  ## check for the actual success text (this used to check for "Loaded", which
-  ## the real message never contains, so this assertion always failed whenever
-  ## the test was actually run).
+  ## mod_dataset.R's load_btn observer renders "Loaded <n> genes across <n>
+  ## samples..." on success (this pipeline is now immediately the active
+  ## dataset app-wide, not just a preview - see its own comment), or "Could
+  ## not load this dataset: ..." on failure.
   load_message <- app$get_html("#tx_dataset-load_message")
-  expect_true(grepl("Previewed", load_message, fixed = TRUE))
+  expect_true(grepl("Loaded", load_message, fixed = TRUE))
   expect_false(grepl("Could not load", load_message, fixed = TRUE))
+
+  ## Isolation: the active dataset (and its provenance) switched immediately -
+  ## no detour through Preprocessing needed. Every downstream sub-module reads
+  ## this same shared reactiveValues object, so checking it here is equivalent
+  ## to checking any of them.
+  header_html <- app$get_html("body")
+  expect_true(grepl("Your own data", header_html, fixed = TRUE))
 })

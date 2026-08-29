@@ -15,7 +15,7 @@ mod_overview_ui <- function(id) {
     id = ns("tabs"), type = "tabs",
     tabPanel(
       "Datasets", br(),
-      p(class = "submodule-desc", "The example cohort is built from two GEO series of whole-blood microarray data. Two more, used later for validation, are shown for context."),
+      p(class = "submodule-desc", "The NCBI GEO series accession(s) behind whichever dataset is currently active on the Dataset tab - preloaded, GEO-fetched, or uploaded."),
       withSpinner(uiOutput(ns("sources_ui")), color = "#2c6fbb", type = 6)
     ),
     tabPanel(
@@ -127,31 +127,47 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     ns <- session$ns
 
     ## ---- Datasets tab -----------------------------------------------------
+    ## Always visible; content follows whichever pipeline is currently active
+    ## (dataset$geo_ids, set alongside source_type wherever the Dataset tab's
+    ## three pipelines write dataset$source - see mod_dataset.R). Shows the
+    ## real NCBI GEO accession(s) behind the current dataset when there are
+    ## any (every preloaded pick, any successful GEO fetch), or a clear
+    ## "no GEO ID" message otherwise (the common case for an upload, which
+    ## has no known GEO provenance) - never the old fixed 4-source catalog
+    ## regardless of what's actually loaded.
 
     output$sources_ui <- renderUI({
-      cards <- lapply(GEO_SOURCES, function(s) {
-        eset <- get_raw_eset(s$gse)
+      ids <- dataset$geo_ids %||% character(0)
+      if (length(ids) == 0) {
+        return(div(class = "empty-note", icon("circle-info"),
+                    "No GEO ID found for the currently loaded dataset - it wasn't fetched from, or matched to, an NCBI GEO series."))
+      }
+      cards <- lapply(ids, function(gse_id) {
+        src <- Find(function(s) identical(s$gse, gse_id), GEO_SOURCES)
+        eset <- get_raw_eset(gse_id)
         div(
           class = "info-card",
           div(
             class = "module-card-title-row",
-            h4(s$gse),
-            tags$a(href = geo_link(s$gse), target = "_blank", rel = "noopener",
+            h4(gse_id),
+            tags$a(href = geo_link(gse_id), target = "_blank", rel = "noopener",
                     icon("up-right-from-square"), " NCBI GEO")
           ),
           if (!is.null(eset)) {
             tagList(
               p(class = "module-card-tagline",
                 tryCatch(Biobase::experimentData(eset)@title, error = function(e) NULL)),
-              p(strong("Role: "), s$role, br(), strong("Used for: "), s$used_in),
+              if (!is.null(src)) p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
               p(strong("Platform: "), Biobase::annotation(eset), br(),
                 strong("Samples: "), ncol(eset), ", ", strong("Probes: "), format(nrow(eset), big.mark = ","))
             )
-          } else {
+          } else if (!is.null(src)) {
             tagList(
-              p(strong("Role: "), s$role, br(), strong("Used for: "), s$used_in),
+              p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
               div(class = "empty-note", icon("triangle-exclamation"), "Raw file not found on disk.")
             )
+          } else {
+            p(class = "empty-note", icon("circle-info"), "Fetched live from NCBI GEO for the currently loaded dataset.")
           }
         )
       })
@@ -161,19 +177,31 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     ## QC tab source picker: raw individual datasets only (no merge/ComBat),
     ## plus the user's own upload if present.
 
+    ## Isolation: once an upload or GEO fetch is the active pipeline, these
+    ## pickers collapse to that one active dataset only - no preloaded/GEO
+    ## catalog choices at all. The preloaded pipeline keeps today's behavior
+    ## (browse any of the 4 fixed reference sources) unchanged.
     qc_source_choices <- reactive({
-      choices <- setNames(vapply(GEO_SOURCES, `[[`, character(1), "gse"),
-                            vapply(GEO_SOURCES, function(s) sprintf("%s (%s, raw)", s$gse, s$role), character(1)))
-      if (grepl("^Uploaded dataset:", dataset$source %||% "")) {
-        choices <- c(setNames("uploaded", paste0("Your uploaded data (", dataset$source, ")")), choices)
+      if (identical(dataset$source_type, "uploaded") || identical(dataset$source_type, "geo")) {
+        label <- if (identical(dataset$source_type, "geo")) {
+          paste0("Your GEO-fetched data (", dataset$source, ")")
+        } else {
+          paste0("Your uploaded data (", dataset$source, ")")
+        }
+        return(setNames("active", label))
       }
-      choices
+      setNames(vapply(GEO_SOURCES, `[[`, character(1), "gse"),
+               vapply(GEO_SOURCES, function(s) sprintf("%s (%s, raw)", s$gse, s$role), character(1)))
+    })
+
+    qc_source_default <- reactive({
+      if (identical(dataset$source_type, "uploaded") || identical(dataset$source_type, "geo")) "active" else GEO_SOURCES[[1]]$gse
     })
 
     resolve_qc_source <- function(source_id) {
-      if (identical(source_id, "uploaded")) {
+      if (identical(source_id, "active")) {
         req(dataset$expr, dataset$meta)
-        return(list(expr = dataset$expr, meta = dataset$meta, label = paste0("Your uploaded data: ", dataset$source)))
+        return(list(expr = dataset$expr, meta = dataset$meta, label = dataset$source %||% "Currently loaded dataset"))
       }
       d <- load_individual_dataset(source_id)
       validate(need(!is.null(d), paste("Raw data for", source_id, "was not found on disk.")))
@@ -184,7 +212,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     ## conditionalPanel picker doesn't reliably bind once inserted via insertTab.
     output$qc_source_ui_meta <- renderUI({
       selectInput(ns("qc_source_meta"), "Dataset to inspect", choices = qc_source_choices(),
-                  selected = GEO_SOURCES[[1]]$gse, width = "100%")
+                  selected = qc_source_default(), width = "100%")
     })
     qc_target_meta <- reactive({ req(input$qc_source_meta); resolve_qc_source(input$qc_source_meta) })
     output$qc_source_info_ui_meta <- renderUI({
@@ -196,7 +224,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
 
     output$qc_source_ui_expr <- renderUI({
       selectInput(ns("qc_source_expr"), "Dataset to inspect", choices = qc_source_choices(),
-                  selected = GEO_SOURCES[[1]]$gse, width = "100%")
+                  selected = qc_source_default(), width = "100%")
     })
     qc_target_expr <- reactive({ req(input$qc_source_expr); resolve_qc_source(input$qc_source_expr) })
     output$qc_source_info_ui_expr <- renderUI({
@@ -208,7 +236,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
 
     output$qc_source_ui <- renderUI({
       selectInput(ns("qc_source"), "Dataset to inspect", choices = qc_source_choices(),
-                  selected = GEO_SOURCES[[1]]$gse, width = "100%")
+                  selected = qc_source_default(), width = "100%")
     })
     qc_target <- reactive({ req(input$qc_source); resolve_qc_source(input$qc_source) })
     output$qc_source_info_ui <- renderUI({
@@ -478,14 +506,14 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           column(6, box(width = NULL, title = "After", status = "primary", solidHeader = FALSE,
                           plotOutput(ns("norm_after_plot"), height = 260)))
         ),
-        if (identical(input$qc_source, "uploaded")) {
+        if (identical(input$qc_source, "active")) {
           div(
             actionButton(ns("adopt_norm_btn"), "Use this normalised version for every sub-module", icon = icon("check"), class = "btn-success btn-sm"),
             uiOutput(ns("adopt_norm_msg"))
           )
         } else {
           p(class = "empty-note", icon("circle-info"),
-            "This is one of the app's fixed reference datasets, so it stays read-only here - only its diagnostics change, not the data every sub-module reads. Upload your own data on the Dataset tab to normalise it and use the result app-wide.")
+            "This is one of the app's fixed reference datasets, so it stays read-only here - only its diagnostics change, not the data every sub-module reads. Upload your own data, or fetch from NCBI GEO, on the Dataset tab to normalise it and use the result app-wide.")
         }
       )
     })
@@ -501,7 +529,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     output$norm_after_plot  <- renderPlot(norm_box_plot(norm_apply_result()$box_after))
 
     observeEvent(input$adopt_norm_btn, {
-      req(norm_apply_result(), identical(input$qc_source, "uploaded"))
+      req(norm_apply_result(), identical(input$qc_source, "active"))
       dataset$expr <- norm_apply_result()$expr_after
       dataset$source <- paste0(dataset$source, " (quantile-normalised)")
       output$adopt_norm_msg <- renderUI(
@@ -555,13 +583,26 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       specs
     })
 
+    ## Filter widget input ids are built from each metadata column's position,
+    ## never the raw column name - GEO's own raw pData column names routinely
+    ## contain spaces and colons (e.g. "disease state:ch1", confirmed live off
+    ## a real GSE93272 fetch), and Shiny's client dispatches messages keyed as
+    ## "inputType:inputId" - a colon (or a space, which breaks the jQuery
+    ## selector/DOM id) inside the id corrupts that routing and throws an
+    ## uncaught "No handler registered for type ..." error that kills the
+    ## whole session (confirmed live: the entire page goes grey/unresponsive -
+    ## a Shiny disconnection, not a rendering glitch). names(specs) has a
+    ## stable order across recomputation for a fixed active dataset, so the
+    ## same column always maps back to the same positional id.
+    filter_id <- function(specs, cl) paste0("f_", match(cl, names(specs)))
+
     output$filters <- renderUI({
       specs <- filter_spec()
       validate(need(length(specs) > 0, "No filterable columns in the current metadata."))
       tagList(
         lapply(names(specs), function(cl) {
           s <- specs[[cl]]
-          fid <- paste0("f_", cl)
+          fid <- filter_id(specs, cl)
           if (s$type == "categorical") {
             pickerInput(ns(fid), cl, choices = s$choices, selected = character(0),
                         multiple = TRUE, options = list(`actions-box` = TRUE, title = paste0("Choose ", cl, "... (optional)")))
@@ -579,7 +620,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     observeEvent(input$reset_btn, {
       specs <- filter_spec()
       for (cl in names(specs)) {
-        s <- specs[[cl]]; fid <- paste0("f_", cl)
+        s <- specs[[cl]]; fid <- filter_id(specs, cl)
         if (s$type == "categorical") updatePickerInput(session, fid, selected = character(0))
         else updateSliderInput(session, fid, value = c(s$min, s$max))
       }
@@ -589,7 +630,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       meta <- qc_target()$meta
       specs <- filter_spec()
       for (cl in names(specs)) {
-        s <- specs[[cl]]; val <- input[[paste0("f_", cl)]]
+        s <- specs[[cl]]; val <- input[[filter_id(specs, cl)]]
         if (s$type == "categorical") {
           if (length(val) > 0) meta <- meta[is.na(meta[[cl]]) | meta[[cl]] %in% val, , drop = FALSE]
         } else if (!is.null(val)) {

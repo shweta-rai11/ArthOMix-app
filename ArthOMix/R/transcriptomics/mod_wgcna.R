@@ -25,10 +25,24 @@ wgcna_encode_trait <- function(meta, col, levels_keep = NULL) {
   as.numeric(factor(v, levels = sort(unique(stats::na.omit(v)))))
 }
 
-## Reads the Step 4 per-trait level-filter checkbox ("trait_levels_<col>"); NULL for numeric traits.
-wgcna_trait_levels <- function(input, meta, col) {
+## Widget-id suffix for a trait column's "which levels?" checkbox group, built
+## from the column's position among eligible_cols (this module's own
+## eligible_traits(), the same full/stable list every time for a fixed active
+## dataset) rather than the raw column name - GEO's own raw pData column
+## names routinely contain spaces/colons (e.g. "disease state:ch1", confirmed
+## live off a real GSE93272 fetch), and Shiny's client dispatches messages
+## keyed as "inputType:inputId" - a colon (or a space, which breaks the
+## jQuery selector/DOM id) inside the id corrupts that routing and throws an
+## uncaught "No handler registered for type ..." error that kills the whole
+## session (confirmed live: the entire page goes grey/unresponsive - a Shiny
+## disconnection, not a rendering glitch). Same fix as mod_overview.R's
+## filter_id() for the identical risk there.
+wgcna_trait_widget_id <- function(col, eligible_cols) paste0("trait_levels_", match(col, eligible_cols))
+
+## Reads the Step 4 per-trait level-filter checkbox; NULL for numeric traits.
+wgcna_trait_levels <- function(input, meta, col, eligible_cols) {
   if (is.numeric(meta[[col]])) return(NULL)
-  input[[paste0("trait_levels_", col)]]
+  input[[wgcna_trait_widget_id(col, eligible_cols)]]
 }
 
 ## Picks the correlation function (bicor vs Pearson) matching Step 2's choice.
@@ -90,6 +104,23 @@ load_precomputed_wgcna_result <- function() {
     ## falls back to live computation for any other module/trait selection.
     hub_table_precomputed = res$hub_table
   )
+}
+
+## Step 2's counterpart to load_precomputed_wgcna_result() above: reads the same
+## data/processed/wgcna_results.rds for just the soft-power diagnostics (the
+## pickSoftThreshold fit table and the power actually used), so the app's own
+## bundled default dataset doesn't have to re-run pickSoftThreshold/softConnectivity
+## over its full ~15.7k-gene matrix live (a multi-minute computation - see the
+## comment on get_or_compute_wgcna_blocks() in global.R). connectivity is left NULL
+## since softConnectivity()'s raw per-gene output isn't saved by the offline script;
+## the scale-free check panel shows an explanatory message instead of that one plot.
+load_precomputed_wgcna_sft <- function() {
+  proc_dir <- PROCESSED_DIR
+  results_path <- file.path(proc_dir, "wgcna_results.rds")
+  validate(need(file.exists(results_path),
+                sprintf("No precomputed result found at %s.", results_path)))
+  res <- readRDS(results_path)
+  list(sft_df = res$sft_fit, power = res$soft_power, connectivity = NULL)
 }
 
 ## Icon+label+sublabel markup for a workflow-stepper tab (no step number, unlike mod_preprocessing.R's pp_step_title()).
@@ -222,7 +253,7 @@ mod_wgcna_ui <- function(id) {
           ),
           tabPanel(
             value = "Power", title = wgcna_step_title("wave-square", "Soft Power", "Network power"),
-            br(), uiOutput(ns("step2_ui"))
+            br(), uiOutput(ns("step2_controls_ui")), uiOutput(ns("step2_ui"))
           ),
           tabPanel(
             value = "Modules", title = wgcna_step_title("diagram-project", "Modules", "Detect & cluster"),
@@ -238,7 +269,7 @@ mod_wgcna_ui <- function(id) {
           ),
           tabPanel(
             value = "Enrichment", title = wgcna_step_title("flask", "Enrichment", "GO & KEGG"),
-            br(), uiOutput(ns("step6_ui"))
+            br(), uiOutput(ns("step6_controls_ui")), uiOutput(ns("step6_ui"))
           )
         )
       )
@@ -254,9 +285,22 @@ mod_wgcna_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## True when the active dataset is user-uploaded (raw or preprocessed); drives paper-methodology defaults in steps 1-3.
+    ## True whenever the active dataset is NOT the exact default merged training
+    ## cohort - i.e. uploaded, GEO-fetched, or an individual raw preloaded GSE
+    ## picked on its own; drives paper-methodology defaults in steps 1-3.
+    ## Despite the name (kept to avoid touching every call site below),
+    ## this is NOT "uploaded specifically" - it's dataset$is_bundled_reference
+    ## inverted, the same flag the rest of the app uses to gate the project's
+    ## own bundled/precomputed results. Originally checked only
+    ## source_type=="uploaded"/a "^Uploaded dataset" source-string prefix,
+    ## which meant a GEO-fetched dataset (e.g. a completely unrelated disease
+    ## fetched live from NCBI) still got shown "12, this project's own
+    ## choice" - a soft-power value calibrated specifically for the default
+    ## merged whole-blood RA cohort - instead of the generic "uploaded data"
+    ## defaults meant for exactly this situation. Confirmed live off a real
+    ## GSE21942 (multiple sclerosis) fetch.
     dataset_is_uploaded <- reactive({
-      isTRUE(grepl("^Uploaded dataset", dataset$source %||% ""))
+      !isTRUE(dataset$is_bundled_reference)
     })
 
     ## =====================================================================
@@ -425,7 +469,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           p(class = "submodule-desc", "Choose which genes go into the network - fewer, more variable genes run faster and add less noise."),
           if (uploaded) div(
             class = "empty-note", style = "margin-bottom: 10px;", icon("book"),
-            "You uploaded your own dataset, so the settings below (and in Soft Power / Modules) are pre-filled to match the published methodology: top 5,000 genes by highest median expression, power β = 7, minimum module size 66, merge cut height 0.3. Adjust any of them before you run."
+            "This isn't the app's default reference cohort, so the settings below (and in Soft Power / Modules) are pre-filled to match the published methodology's own general-purpose defaults: top 5,000 genes by highest median expression, power β = 7, minimum module size 66, merge cut height 0.3. Adjust any of them before you run."
           ),
           ## Defaults to "all genes" for this project's own dataset (matches Section 2.4.1's no-prefilter choice); uploaded data defaults to the paper's median top-N instead.
           radioButtons(
@@ -483,31 +527,68 @@ mod_wgcna_server <- function(id, dataset, results) {
     ## Step 2: Soft Power
     ## =====================================================================
 
-    sft_result <- eventReactive(input$compute_power_btn, {
-      texpr <- final_input()$texpr
-      powers <- c(1:10, seq(12, 20, 2))
-      corName <- wgcna_cor_fnc_name(input$cor_method)
-      ## Cached like net_result() below - pickSoftThreshold tests 12 power values, expensive to repeat.
-      get_or_compute_wgcna_blocks(
-        list(texpr = texpr, powers = powers, network_type = input$network_type,
-             cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
-        function() {
-          sft <- WGCNA::pickSoftThreshold(
-            texpr, powerVector = powers, networkType = input$network_type,
-            corFnc = wgcna_cor_fnc(input$cor_method), corOptions = list(use = "p"),
-            RsquaredCut = input$r_sq_cutoff, verbose = 0
-          )
-          power <- sft$powerEstimate
-          if (is.na(power)) power <- sft$fitIndices$Power[which.max(sft$fitIndices$SFT.R.sq)]
-          ## Degree-distribution check at the chosen power (the WGCNA paper's own scale-free diagnostic).
-          k <- WGCNA::softConnectivity(
-            texpr, corFnc = corName, corOptions = "use = 'p'",
-            type = input$network_type, power = power, verbose = 0
-          )
-          list(sft_df = sft$fitIndices, power = power, connectivity = k)
+    ## reactiveValues + observeEvent (matching Step 3's run_btn/net_store below) rather
+    ## than eventReactive: the compute here (pickSoftThreshold + softConnectivity, "the
+    ## single slowest step in this app" per global.R) previously ran lazily inside
+    ## step2_ui's own renderUI the first time something pulled sft_result() - which
+    ## meant clicking "Compute power" invalidated and re-executed that ENTIRE renderUI
+    ## (box, radio/slider inputs, the button itself) synchronously around the multi-
+    ## minute blocking call, so every click looked like nothing happened (no spinner
+    ## reachable until the whole box had already re-rendered) and any real error from
+    ## pickSoftThreshold/softConnectivity was swallowed by the `tryCatch(..., error =
+    ## function(e) NULL)` guards used everywhere sft_result() was read, indistinguishable
+    ## from "button not clicked yet". Running the compute in an observer instead keeps
+    ## it out of the render path entirely, and errors are captured into sft_store$error
+    ## instead of vanishing.
+    sft_store <- reactiveValues(result = NULL, error = NULL)
+
+    observeEvent(input$compute_power_btn, {
+      sft_store$error <- NULL
+      result <- tryCatch({
+        ## Loads the offline script's own soft-power fit instead of re-running
+        ## pickSoftThreshold/softConnectivity live over the full ~15.7k-gene default
+        ## matrix - mirrors net_store's identical short-circuit for Step 3 below.
+        ## Assigns sft_store$result directly (rather than through the `result <-`/
+        ## error-handling path below) since return() here exits this whole observer.
+        if (isTRUE(dataset$is_bundled_reference)) {
+          sft_store$result <- load_precomputed_wgcna_sft()
+          return(invisible(NULL))
         }
-      )
+        texpr <- final_input()$texpr
+        powers <- c(1:10, seq(12, 20, 2))
+        corName <- wgcna_cor_fnc_name(input$cor_method)
+        ## Cached like net_result() below - pickSoftThreshold tests 12 power values, expensive to repeat.
+        get_or_compute_wgcna_blocks(
+          list(texpr = texpr, powers = powers, network_type = input$network_type,
+               cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
+          function() {
+            sft <- WGCNA::pickSoftThreshold(
+              texpr, powerVector = powers, networkType = input$network_type,
+              corFnc = wgcna_cor_fnc(input$cor_method), corOptions = list(use = "p"),
+              RsquaredCut = input$r_sq_cutoff, verbose = 0
+            )
+            power <- sft$powerEstimate
+            if (is.na(power)) power <- sft$fitIndices$Power[which.max(sft$fitIndices$SFT.R.sq)]
+            ## Degree-distribution check at the chosen power (the WGCNA paper's own scale-free diagnostic).
+            k <- WGCNA::softConnectivity(
+              texpr, corFnc = corName, corOptions = "use = 'p'",
+              type = input$network_type, power = power, verbose = 0
+            )
+            list(sft_df = sft$fitIndices, power = power, connectivity = k)
+          }
+        )
+      }, error = function(e) e)
+      if (inherits(result, "error")) {
+        sft_store$error <- conditionMessage(result)
+      } else {
+        sft_store$result <- result
+      }
     }, ignoreInit = TRUE)
+
+    sft_result <- reactive({
+      req(sft_store$result)
+      sft_store$result
+    })
 
     effective_power <- reactive({
       if (identical(input$power_mode, "manual")) {
@@ -519,6 +600,10 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$power_status_ui <- renderUI({
+      if (!is.null(sft_store$error)) {
+        return(div(class = "empty-note", icon("triangle-exclamation"),
+                    paste("Could not compute soft power:", sft_store$error)))
+      }
       res <- tryCatch(sft_result(), error = function(e) NULL)
       if (is.null(res)) {
         return(div(class = "empty-note", icon("circle-info"), "Not computed yet. Click \"Compute power\"."))
@@ -573,6 +658,8 @@ mod_wgcna_server <- function(id, dataset, results) {
     scale_free_check_stats <- reactive({
       res <- tryCatch(sft_result(), error = function(e) NULL)
       req(res)
+      validate(need(!is.null(res$connectivity),
+                    "Not available for the precomputed default dataset (this diagnostic needs a live softConnectivity() run)."))
       k <- res$connectivity
       k <- k[is.finite(k)]
       validate(need(length(k) >= 20, "Too few genes have a valid connectivity value to check the scale-free fit."))
@@ -634,55 +721,65 @@ mod_wgcna_server <- function(id, dataset, results) {
       }
     )
 
-    output$step2_ui <- renderUI({
+    ## Controls only - deliberately NOT dependent on sft_result()/sft_store, so this box
+    ## (and the compute_power_btn inside it) doesn't get torn down and rebuilt - resetting
+    ## every input back to its hardcoded default - each time a computation finishes. See
+    ## the sft_store observer above for why the compute itself was pulled out of the render path.
+    output$step2_controls_ui <- renderUI({
       uploaded <- dataset_is_uploaded()
-      tagList(
-        box(
-          width = 12, title = tagList(icon("wave-square"), " Network settings"), status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "WGCNA raises gene-gene correlations to a power so the network is approximately scale-free. Pick the lowest power that reaches a good fit below."),
-          fluidRow(
-            column(
-              6,
-              ## Defaults to signed for this project's own data (Section 2.4.7:
-              ## avoids merging anti-correlated genes); unsigned (the WGCNA
-              ## package default) for uploaded data, since networkType is unstated in the paper.
-              radioButtons(ns("network_type"), "Network type",
-                           choiceNames = list(
-                             if (uploaded) "Signed" else "Signed (recommended)",
-                             if (uploaded) "Unsigned (recommended: paper default - unstated in the methodology, so left at the WGCNA package default)" else "Unsigned",
-                             "Signed hybrid"
-                           ),
-                           choiceValues = list("signed", "unsigned", "signed hybrid"),
-                           selected = if (uploaded) "unsigned" else "signed"),
-              radioButtons(ns("cor_method"), "Correlation method",
-                           choiceNames = list("Pearson (standard)", "Bicor (robust to outliers)"),
-                           choiceValues = list("pearson", "bicor"), selected = "pearson")
-            ),
-            column(
-              6,
-              ## R^2 >= 0.9 cutoff, per this project's own joint fit/connectivity criterion (Section 2.4.8).
-              sliderInput(ns("r_sq_cutoff"), HTML("Target scale-free fit (R<sup>2</sup>)"), min = 0.7, max = 0.95, value = 0.9, step = 0.01),
-              ## Defaults to manual power 12 for this project's data (Section 2.4.5, rejecting the auto-estimate's runaway connectivity); manual 7 (the paper's value) for uploaded data.
-              radioButtons(ns("power_mode"), "Power",
-                           choiceNames = list(
-                             "Automatic",
-                             if (uploaded) "Manual (recommended: 7, paper default)" else "Manual (recommended: 12, this project's own choice)"
-                           ),
-                           choiceValues = list("auto", "manual"), selected = "manual"),
-              conditionalPanel(
-                condition = sprintf("input['%s'] == 'manual'", ns("power_mode")),
-                numericInput(ns("manual_power"), "Power value", value = if (uploaded) 7 else 12, min = 1, max = 30, step = 1)
-              )
-            )
+      box(
+        width = 12, title = tagList(icon("wave-square"), " Network settings"), status = "primary", solidHeader = FALSE,
+        p(class = "submodule-desc", "WGCNA raises gene-gene correlations to a power so the network is approximately scale-free. Pick the lowest power that reaches a good fit below."),
+        fluidRow(
+          column(
+            6,
+            ## Defaults to signed for this project's own data (Section 2.4.7:
+            ## avoids merging anti-correlated genes); unsigned (the WGCNA
+            ## package default) for uploaded data, since networkType is unstated in the paper.
+            radioButtons(ns("network_type"), "Network type",
+                         choiceNames = list(
+                           if (uploaded) "Signed" else "Signed (recommended)",
+                           if (uploaded) "Unsigned (recommended: paper default - unstated in the methodology, so left at the WGCNA package default)" else "Unsigned",
+                           "Signed hybrid"
+                         ),
+                         choiceValues = list("signed", "unsigned", "signed hybrid"),
+                         selected = if (uploaded) "unsigned" else "signed"),
+            radioButtons(ns("cor_method"), "Correlation method",
+                         choiceNames = list("Pearson (standard)", "Bicor (robust to outliers)"),
+                         choiceValues = list("pearson", "bicor"), selected = "pearson")
           ),
-          actionButton(ns("compute_power_btn"), "Compute power", icon = icon("play"), class = "btn-primary btn-sm"),
-          div(style = "margin-top:8px;", uiOutput(ns("power_status_ui")))
+          column(
+            6,
+            ## R^2 >= 0.9 cutoff, per this project's own joint fit/connectivity criterion (Section 2.4.8).
+            sliderInput(ns("r_sq_cutoff"), HTML("Target scale-free fit (R<sup>2</sup>)"), min = 0.7, max = 0.95, value = 0.9, step = 0.01),
+            ## Defaults to manual power 12 for this project's data (Section 2.4.5, rejecting the auto-estimate's runaway connectivity); manual 7 (the paper's value) for uploaded data.
+            radioButtons(ns("power_mode"), "Power",
+                         choiceNames = list(
+                           "Automatic",
+                           if (uploaded) "Manual (recommended: 7, paper default)" else "Manual (recommended: 12, this project's own choice)"
+                         ),
+                         choiceValues = list("auto", "manual"), selected = "manual"),
+            conditionalPanel(
+              condition = sprintf("input['%s'] == 'manual'", ns("power_mode")),
+              numericInput(ns("manual_power"), "Power value", value = if (uploaded) 7 else 12, min = 1, max = 30, step = 1)
+            )
+          )
         ),
-        ## Gate: no result boxes until "Compute power" has been clicked.
-        if (is.null(tryCatch(sft_result(), error = function(e) NULL))) {
-          div(class = "empty-note", icon("circle-info"),
-              "Not computed yet. Set your options above, then click \"Compute power\" to see the diagnostics below.")
-        } else tagList(
+        actionButton(ns("compute_power_btn"), "Compute power", icon = icon("play"), class = "btn-primary btn-sm"),
+        if (!isTRUE(dataset$is_bundled_reference)) p(class = "submodule-desc", style = "margin-top:6px;",
+          "Can take several minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster."),
+        div(style = "margin-top:8px;", uiOutput(ns("power_status_ui")))
+      )
+    })
+
+    ## Gate + results only - re-renders when sft_result()/sft_store changes, but the
+    ## controls box above (with the button itself) is a separate output and stays put.
+    output$step2_ui <- renderUI({
+      ## Gate: no result boxes until "Compute power" has been clicked.
+      if (!is.null(sft_store$error) || is.null(tryCatch(sft_result(), error = function(e) NULL))) {
+        div(class = "empty-note", icon("circle-info"),
+            "Not computed yet. Set your options above, then click \"Compute power\" to see the diagnostics below.")
+      } else tagList(
           wgcna_result("chart-line", "Power diagnostics",
             wgcna_result_row(
               column(4, div(class = "wgcna-result-subtitle", "Scale-free fit"),
@@ -700,7 +797,6 @@ mod_wgcna_server <- function(id, dataset, results) {
             div(class = "table-toolbar", downloadButton(ns("download_scale_free_png"), "Download figure (PNG)", class = "btn-sm"))
           )
         )
-      )
     })
 
     ## =====================================================================
@@ -714,7 +810,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     observeEvent(input$run_btn, {
       net_store$error <- NULL
       result <- tryCatch({
-      if (isTRUE(grepl("^Example dataset:", dataset$source %||% ""))) {
+      if (isTRUE(dataset$is_bundled_reference)) {
         net_store$result <- load_precomputed_wgcna_result()
         net_store$source <- "loaded"
         return(invisible(NULL))
@@ -958,7 +1054,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           ),
           ## Instant for the default dataset (loads precomputed result); live compute for uploaded data.
           actionButton(ns("run_btn"), "Run", icon = icon("play"), class = "btn-primary btn-sm"),
-          if (!isTRUE(grepl("^Example dataset:", dataset$source %||% ""))) p(class = "submodule-desc", style = "margin-top:6px;",
+          if (!isTRUE(dataset$is_bundled_reference)) p(class = "submodule-desc", style = "margin-top:6px;",
             "Can take several minutes to tens of minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster for quick exploration."),
           div(style = "margin-top:8px;", uiOutput(ns("module_run_status_ui")))
         ),
@@ -1030,7 +1126,7 @@ mod_wgcna_server <- function(id, dataset, results) {
         p(class = "submodule-desc", "Each level you keep below becomes its own column in the heatmap (e.g. group -> \"RA\" and \"HC\" columns) - untick a level (e.g. \"other\") to drop it from the comparison."),
         lapply(cat_traits, function(cl) {
           lv <- sort(unique(stats::na.omit(as.character(meta[[cl]]))))
-          checkboxGroupInput(ns(paste0("trait_levels_", cl)), sprintf("\"%s\" levels to include", cl),
+          checkboxGroupInput(ns(wgcna_trait_widget_id(cl, eligible_traits())), sprintf("\"%s\" levels to include", cl),
                               choices = lv, selected = lv, inline = TRUE)
         })
       )
@@ -1053,7 +1149,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           used_names <- c(used_names, nm)
         } else {
           v <- as.character(v)
-          lv <- wgcna_trait_levels(input, net$meta, cl)
+          lv <- wgcna_trait_levels(input, net$meta, cl, eligible_traits())
           if (is.null(lv) || length(lv) == 0) lv <- sort(unique(stats::na.omit(v)))
           validate(need(length(lv) >= 2, sprintf("Select at least two levels for \"%s\" above.", cl)))
           in_set <- v %in% lv
@@ -1529,50 +1625,71 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    module_enrich <- eventReactive(input$run_enrich_btn, {
-      net <- net_result()
-      use_hub <- identical(input$enrich_gene_set, "hub")
-      gene_pool <- if (use_hub) {
-        hf <- hub_filtered()
-        validate(need(nrow(hf) > 0, "No hub genes available - set thresholds in Step 5 first."))
-        hf$gene
-      } else {
-        net$gene_module$gene[net$gene_module$module == input$enrich_module]
-      }
-      validate(need(length(gene_pool) >= 5, "Need at least 5 genes to test enrichment. Pick a larger module or lower the Step 5 thresholds."))
+    ## reactiveValues + observeEvent (matching net_store/sft_store above) rather than
+    ## eventReactive - enrichKEGG() in particular hits the live KEGG REST API, so a slow
+    ## or unreachable network makes this run for a while; running it in an observer
+    ## keeps that off the render path (so the controls box below isn't torn down/reset
+    ## on every click) and lets any real error - network failure, a term-mapping issue -
+    ## reach the UI instead of being swallowed by the `tryCatch(..., error = function(e)
+    ## NULL)` guards used everywhere module_enrich() is read.
+    enrich_store <- reactiveValues(result = NULL, error = NULL)
 
-      ## Background is the network's own gene universe (Step 1 output), not the whole dataset.
-      universe_symbols <- colnames(net$texpr)
-      map <- suppressMessages(AnnotationDbi::select(
-        org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
-      ))
-      map <- map[!is.na(map$ENTREZID) & !duplicated(map$SYMBOL), ]
-      gene_entrez <- map$ENTREZID[map$SYMBOL %in% gene_pool]
-      validate(need(length(gene_entrez) >= 3, "Fewer than 3 of these genes could be mapped to Entrez IDs in the analyzed gene set."))
+    observeEvent(input$run_enrich_btn, {
+      enrich_store$error <- NULL
+      result <- tryCatch({
+        net <- net_result()
+        use_hub <- identical(input$enrich_gene_set, "hub")
+        gene_pool <- if (use_hub) {
+          hf <- hub_filtered()
+          validate(need(nrow(hf) > 0, "No hub genes available - set thresholds in Step 5 first."))
+          hf$gene
+        } else {
+          net$gene_module$gene[net$gene_module$module == input$enrich_module]
+        }
+        validate(need(length(gene_pool) >= 5, "Need at least 5 genes to test enrichment. Pick a larger module or lower the Step 5 thresholds."))
 
-      ego <- if (identical(input$enrich_db, "GO_BP")) {
-        clusterProfiler::enrichGO(
-          gene = gene_entrez, universe = map$ENTREZID, OrgDb = org.Hs.eg.db,
-          keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH",
-          pvalueCutoff = 1, qvalueCutoff = 1
-        )
+        ## Background is the network's own gene universe (Step 1 output), not the whole dataset.
+        universe_symbols <- colnames(net$texpr)
+        map <- suppressMessages(AnnotationDbi::select(
+          org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
+        ))
+        map <- map[!is.na(map$ENTREZID) & !duplicated(map$SYMBOL), ]
+        gene_entrez <- map$ENTREZID[map$SYMBOL %in% gene_pool]
+        validate(need(length(gene_entrez) >= 3, "Fewer than 3 of these genes could be mapped to Entrez IDs in the analyzed gene set."))
+
+        ego <- if (identical(input$enrich_db, "GO_BP")) {
+          clusterProfiler::enrichGO(
+            gene = gene_entrez, universe = map$ENTREZID, OrgDb = org.Hs.eg.db,
+            keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH",
+            pvalueCutoff = 1, qvalueCutoff = 1
+          )
+        } else {
+          clusterProfiler::enrichKEGG(
+            gene = gene_entrez, universe = map$ENTREZID, organism = "hsa",
+            pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1
+          )
+        }
+        df <- as.data.frame(ego)
+        validate(need(nrow(df) > 0, "No enriched terms were found for this gene set."))
+        label <- if (use_hub) sprintf("hub genes (%s)", input$hub_module) else input$enrich_module
+        list(table = df, n_input = length(gene_pool), n_mapped = length(gene_entrez), label = label)
+      }, error = function(e) e)
+      if (inherits(result, "error")) {
+        enrich_store$error <- conditionMessage(result)
       } else {
-        clusterProfiler::enrichKEGG(
-          gene = gene_entrez, universe = map$ENTREZID, organism = "hsa",
-          pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1
-        )
+        enrich_store$result <- result
       }
-      df <- as.data.frame(ego)
-      validate(need(nrow(df) > 0, "No enriched terms were found for this gene set."))
-      label <- if (use_hub) sprintf("hub genes (%s)", input$hub_module) else input$enrich_module
-      list(table = df, n_input = length(gene_pool), n_mapped = length(gene_entrez), label = label)
     }, ignoreInit = TRUE)
 
+    module_enrich <- reactive({
+      req(enrich_store$result)
+      enrich_store$result
+    })
+
     output$enrich_summary_ui <- renderUI({
-      res <- tryCatch(module_enrich(), error = function(e) NULL)
-      if (is.null(res)) {
-        return(div(class = "empty-note", icon("circle-info"), "Not run yet. Click \"Run enrichment\" above."))
-      }
+      ## step6_ui above only renders this once module_enrich() has a result (its own
+      ## gate handles the error/not-run-yet states), so no need to re-check those here.
+      res <- module_enrich()
       df <- res$table %>% dplyr::filter(qvalue < input$enrich_qcut)
       tagList(
         p(strong(res$n_mapped), " of ", res$n_input, " genes (", res$label, ") mapped to Entrez IDs and used in the test."),
@@ -1604,26 +1721,40 @@ mod_wgcna_server <- function(id, dataset, results) {
       content = function(file) write.csv(module_enrich()$table, file, row.names = FALSE)
     )
 
+    ## Controls only - not dependent on module_enrich()/enrich_store, so this box
+    ## (including run_enrich_btn) doesn't get torn down and reset every time a run
+    ## finishes. See the enrich_store observer above for why the actual enrichment
+    ## call was pulled out of the render path.
+    output$step6_controls_ui <- renderUI({
+      box(
+        width = 12, title = tagList(icon("flask"), " Module enrichment"), status = "primary", solidHeader = FALSE,
+        p(class = "submodule-desc", "Tests whether a module (or its hub genes) is enriched for GO terms or KEGG pathways, against the genes analyzed in Step 1 as background."),
+        uiOutput(ns("enrich_picker_ui"))
+      )
+    })
+
+    ## Gate + results only - re-renders when module_enrich()/enrich_store changes, but
+    ## the controls box above (with the button itself) is a separate output and stays put.
     output$step6_ui <- renderUI({
+      ## Gate: no result boxes until "Run enrichment" has been clicked - and a real
+      ## failure (e.g. enrichKEGG's live KEGG API call failing) shows its own message
+      ## rather than falling back to the same "Not run yet" text a fresh tab would show.
+      if (!is.null(enrich_store$error)) {
+        return(div(class = "empty-note", icon("triangle-exclamation"),
+                    paste("Could not run enrichment:", enrich_store$error)))
+      }
+      if (is.null(tryCatch(module_enrich(), error = function(e) NULL))) {
+        return(div(class = "empty-note", icon("circle-info"),
+                    "Not run yet. Pick a module above, then click \"Run enrichment\" to see the results below."))
+      }
       tagList(
-        box(
-          width = 12, title = tagList(icon("flask"), " Module enrichment"), status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Tests whether a module (or its hub genes) is enriched for GO terms or KEGG pathways, against the genes analyzed in Step 1 as background."),
-          uiOutput(ns("enrich_picker_ui"))
+        wgcna_result("chart-column", "Result",
+          withSpinner(uiOutput(ns("enrich_summary_ui")), color = "#2c6fbb", type = 6),
+          withSpinner(plotOutput(ns("enrich_bar_plot"), height = 380), color = "#2c6fbb", type = 6)
         ),
-        ## Gate: no result boxes until "Run enrichment" has been clicked.
-        if (is.null(tryCatch(module_enrich(), error = function(e) NULL))) {
-          div(class = "empty-note", icon("circle-info"),
-              "Not run yet. Pick a module above, then click \"Run enrichment\" to see the results below.")
-        } else tagList(
-          wgcna_result("chart-column", "Result",
-            withSpinner(uiOutput(ns("enrich_summary_ui")), color = "#2c6fbb", type = 6),
-            withSpinner(plotOutput(ns("enrich_bar_plot"), height = 380), color = "#2c6fbb", type = 6)
-          ),
-          wgcna_result("table-list", "Enriched terms",
-            div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
-            DT::dataTableOutput(ns("enrich_table"))
-          )
+        wgcna_result("table-list", "Enriched terms",
+          div(class = "table-toolbar", downloadButton(ns("download_enrich"), "Download CSV", class = "btn-sm")),
+          DT::dataTableOutput(ns("enrich_table"))
         )
       )
     })

@@ -26,7 +26,7 @@ mod_multi_dataset_config <- list(
 MO_MAX_BLOCKS <- 8
 MO_BLOCK_IDS <- paste0("block", seq_len(MO_MAX_BLOCKS))
 
-MO_SOURCE_CHOICES <- c("Preloaded Dataset" = "preloaded", "Upload Dataset" = "upload", "Retrieve from GEO" = "geo")
+MO_SOURCE_CHOICES <- c("Reference / Example Dataset" = "preloaded", "Upload Dataset" = "upload", "Retrieve from GEO" = "geo")
 
 ## ---------------------------------------------------------------------------
 ## Small shared UI pieces
@@ -42,6 +42,14 @@ mo_status_badge <- function(status) {
     if (length(status$reasons) > 0) tags$ul(style = "margin:4px 0 0 0; padding-left:18px; font-size:0.85em; color:var(--color-ink-muted, #898781);",
                                               lapply(status$reasons, tags$li))
   )
+}
+
+## The pipeline tabs' shared "nothing loaded yet" message - phrased for
+## whichever source is actually selected, since preloaded/reference data
+## never clicks "Validate Datasets" (loading happens at "Load Reference
+## Dataset" instead).
+mo_load_first_msg <- function(dataset_source) {
+  if (identical(dataset_source, "preloaded")) "Click \"Load Reference Dataset\" above first." else "Add at least two datasets and click \"Validate Datasets\" first."
 }
 
 ## One dataset block (spec section 6): Samples / Features / Status card.
@@ -162,6 +170,7 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
     if (identical(mode, "upload")) tagList(
       fileInput(ns(paste0(bid, "_file")), "File (CSV, TSV, TXT, XLSX, or RDS)",
                 accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+      uiOutput(ns(paste0(bid, "_omics_type_note"))),
       ## Per-dataset metadata (optional) - merged by sample ID into the
       ## session's combined sample metadata alongside every other dataset's
       ## own upload here and the shared "Sample Metadata" file below, via
@@ -179,6 +188,11 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
       uiOutput(ns(paste0(bid, "_shape_ui")))
     ) else tagList(
       textInput(ns(paste0(bid, "_geo_acc")), "GEO accession", placeholder = "GSE12345"),
+      ## The actual trigger for observeEvent(input[[paste0(gbid, "_geo_fetch")]], ...)
+      ## below - without this button that handler could never fire (a real
+      ## bug: the GEO source was previously wired up server-side with no way
+      ## to invoke it from the UI at all).
+      actionButton(ns(paste0(bid, "_geo_fetch")), "Fetch from GEO", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
       ## GEO series already carry their own sample metadata (wired up
       ## automatically below on fetch) - this lets a user layer on
       ## additional columns of their own, same optional/merge semantics as
@@ -188,7 +202,7 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
       uiOutput(ns(paste0(bid, "_geo_platform_ui"))),
       uiOutput(ns(paste0(bid, "_geo_status")))
     ),
-    p(class = "submodule-desc", "Optional: rows must match sample IDs used in the metadata below.")
+    p(class = "submodule-desc", "Rows must match the sample IDs in your metadata.")
   )
 }
 
@@ -202,10 +216,12 @@ mod_multi_dataset_ui <- function(id) {
 
     conditionalPanel(
       condition = sprintf("input['%s'] == 'preloaded'", ns("dataset_source")),
-      box(width = NULL, title = "Preloaded dataset", status = "primary", solidHeader = FALSE,
-          selectInput(ns("preloaded_pick"), "Select a preloaded dataset",
+      box(width = NULL, title = "Reference / Example Dataset", status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc", "A real, bundled cohort provided so you can see how this workflow operates. It runs through the exact same pipeline as an uploaded dataset - nothing here uses a special analysis path."),
+          selectInput(ns("preloaded_pick"), "Select a reference dataset",
                       choices = c("RA anti-TNF Multi-Omics Dataset" = "ra_antitnf"), width = "100%"),
-          actionButton(ns("load_preloaded_btn"), "Load Dataset", icon = icon("database"), class = "btn-primary btn-sm"),
+          selectInput(ns("preloaded_cell"), "Analysis cell (matched sex x drug/outcome subset)", choices = MULTI_CELL_CHOICES, width = "100%"),
+          actionButton(ns("load_preloaded_btn"), "Load Reference Dataset", icon = icon("database"), class = "btn-primary btn-sm"),
           div(style = "margin-top:10px;", uiOutput(ns("preloaded_blocks_ui"))),
           div(style = "margin-top:10px;", uiOutput(ns("preloaded_activate_ui")))
       ),
@@ -214,19 +230,20 @@ mod_multi_dataset_ui <- function(id) {
       ## appear before the user has loaded anything.
       conditionalPanel(
         condition = sprintf("input['%s'] > 0", ns("load_preloaded_btn")),
-        box(width = NULL, title = "Table", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
+        ## collapsed = FALSE: same dynamic-box collapse-toggle issue as the
+        ## per-dataset blocks above - render expanded so the picker is
+        ## visible without depending on a click-to-expand that never binds.
+        box(width = NULL, title = "Table", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
             if (!MULTI_DATA_AVAILABLE) div(class = "empty-note", icon("triangle-exclamation"), "Not available in this deployment.")
             else tagList(
               selectInput(ns("table_pick"), NULL, choices = names(MULTI_TABLE_REGISTRY), width = "100%"),
               actionButton(ns("load_table_btn"), "Load", icon = icon("upload"), class = "btn-primary btn-sm")
-            )),
-        if (MULTI_DATA_AVAILABLE) box(width = NULL, title = "Preview", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
-            uiOutput(ns("preview_ui")))
+            ))
       )
     ),
 
     conditionalPanel(
-      condition = sprintf("input['%s'] == 'upload' || input['%s'] == 'geo'", ns("dataset_source"), ns("dataset_source")),
+      condition = sprintf("input['%s'] == 'upload' || input['%s'] == 'geo' || input['%s'] == 'preloaded'", ns("dataset_source"), ns("dataset_source"), ns("dataset_source")),
       fluidRow(
         column(
           4,
@@ -248,20 +265,24 @@ mod_multi_dataset_ui <- function(id) {
           ## dataset blocks + optional metadata) - sample matching method is
           ## only used one step later (Sample Matching tab, right column),
           ## so it lives there instead of adding another box the user would
-          ## have to scroll past just to reach this button.
-          actionButton(ns("validate_btn"), "Validate Datasets", icon = icon("check-double"), class = "btn-primary btn-sm", width = "100%")
+          ## have to scroll past just to reach this button. Preloaded/
+          ## reference data has no files to validate - "Load Reference
+          ## Dataset" above already reads it into the same pipeline below.
+          conditionalPanel(
+            condition = sprintf("input['%s'] == 'upload' || input['%s'] == 'geo'", ns("dataset_source"), ns("dataset_source")),
+            actionButton(ns("validate_btn"), "Validate Datasets", icon = icon("check-double"), class = "btn-primary btn-sm", width = "100%")
+          )
         ),
         column(8, uiOutput(ns("pipeline_ui")))
       ),
 
-      ## Dataset Summary / Data Provenance / Integrated Analysis (MOFA2) only
-      ## apply to an uploaded or GEO-fetched dataset - the preloaded dataset
-      ## has no per-file provenance to track and was never run through MOFA2
-      ## by the source pipeline (see mod_multi_live.R), so none of this is
-      ## shown for it at all. Each box below is also hidden until its own
-      ## step has actually run, never shown as an empty placeholder first.
+      ## Dataset Summary / Data Provenance apply to any source that has run
+      ## through this shared pipeline, including the reference dataset (its
+      ## own "Load Reference Dataset" click stands in for "Validate
+      ## Datasets" below). Each box is hidden until its own step has
+      ## actually run, never shown as an empty placeholder first.
       conditionalPanel(
-        condition = sprintf("input['%s'] > 0", ns("validate_btn")),
+        condition = sprintf("input['%s'] > 0 || input['%s'] > 0", ns("validate_btn"), ns("load_preloaded_btn")),
         hr(),
         box(width = NULL, title = "Dataset Summary", status = "primary", solidHeader = FALSE,
             DT::dataTableOutput(ns("summary_table"))),
@@ -283,8 +304,16 @@ mod_multi_dataset_ui <- function(id) {
 ## Finds which currently-configured block owns a given display label and
 ## returns its declared omics type - used once preprocessing/activation work
 ## from labels alone rather than block ids (labels are what the rest of the
-## pipeline, and multi_dataset$layers, key on).
+## pipeline, and multi_dataset$layers, key on). The reference/preloaded path
+## has no per-block "Omics type" picker (mi_preloaded_cell_dataset() always
+## names its two layers "Transcriptomics"/"Methylomics" via
+## MULTI_BLOCK_LABELS) - map those fixed labels directly so preprocessing
+## still offers the correct omics-appropriate normalization choices for it,
+## exactly as it would for an upload of the same omics type.
 mo_label_omics_type <- function(label, input, n_upload, n_geo, mode) {
+  if (identical(mode, "preloaded")) {
+    return(switch(label, Transcriptomics = "rnaseq", Methylomics = "methylation", "other"))
+  }
   ids <- if (identical(mode, "upload")) seq_len(n_upload) else seq_len(n_geo)
   bmode <- if (identical(mode, "upload")) "upload" else "geo"
   for (i in ids) {
@@ -378,35 +407,29 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       multi_read_registry_table(input$table_pick)
     }, ignoreInit = TRUE)
 
-    output$preview_ui <- renderUI({
-      if (!isTRUE(input$load_table_btn > 0)) return(multi_empty_state("Pick a table and click \"Load\" to preview it here."))
-      res <- tryCatch(loaded_table(), error = function(e) list(ok = FALSE))
-      if (!isTRUE(res$ok)) return(multi_empty_state("Could not read this table."))
-      df <- res$df
-      tagList(
-        p(class = "empty-note", icon("table"),
-          sprintf("%s: %s rows x %s columns.", input$table_pick, format(nrow(df), big.mark = ","), ncol(df))),
-        DT::dataTableOutput(ns("preview_table"))
-      )
-    })
-    output$preview_table <- DT::renderDataTable({
-      res <- req(loaded_table())
-      req(res$ok)
-      DT::datatable(res$df, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
-    })
-    outputOptions(output, "preview_table", suspendWhenHidden = FALSE)
     observeEvent(input$load_table_btn, {
       res <- loaded_table()
-      if (isTRUE(res$ok)) { multi_dataset$table_label <- input$table_pick; multi_dataset$df <- res$df }
+      if (isTRUE(res$ok)) multi_dataset$table_label <- input$table_pick
     }, ignoreInit = TRUE)
 
     output$preloaded_activate_ui <- renderUI({
       req(input$load_preloaded_btn > 0, identical(input$dataset_source, "preloaded"))
+      if (length(raw$mats) == 0) {
+        return(div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
+                    " Could not load this analysis cell - see the notification for details."))
+      }
       div(class = "empty-note", icon("circle-check"),
-          tags$strong(" Active analysis dataset: "), "RA anti-TNF Multi-Omics Dataset (Transcriptomics + Methylomics). ",
-          tags$em("Existing results available."))
+          tags$strong(" Reference / Example Dataset loaded: "), "RA anti-TNF Multi-Omics Dataset (Transcriptomics + Methylomics). ",
+          "Use the pipeline below (1. Preview and Validate through 5. Compatibility and Activate) - the same steps used for an uploaded dataset.")
     })
 
+    ## Populates the SAME raw$mats/raw$validations/raw$meta the Upload/GEO
+    ## branch fills at Validate time, from one preloaded analysis cell's own
+    ## saved DIABLO fit (mi_preloaded_cell_dataset(), already used this way by
+    ## mod_multi_overview.R/mod_multi_integration.R). Reusing this adapter -
+    ## rather than a special preloaded-only path - is what lets steps 1-5
+    ## below (including Batch Diagnostics) actually run on the reference
+    ## dataset instead of staying permanently empty.
     observeEvent(input$load_preloaded_btn, {
       req(identical(input$dataset_source, "preloaded"))
       multi_dataset$source <- "preloaded"
@@ -416,6 +439,18 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       multi_dataset$sample_meta <- NULL
       multi_dataset$overlap <- NULL
       multi_dataset$loaded_at <- Sys.time()
+
+      res <- mi_preloaded_cell_dataset(input$preloaded_cell)
+      if (!isTRUE(res$ok)) {
+        showNotification(res$error, type = "error")
+        raw$mats <- list(); raw$validations <- list(); raw$labels <- list(); raw$provenance <- list(); raw$meta <- NULL
+        return()
+      }
+      raw$mats <- res$layers
+      raw$validations <- stats::setNames(lapply(names(res$layers), function(nm) multi_live_validate_matrix(res$layers[[nm]], layer_label = nm)), names(res$layers))
+      raw$labels <- stats::setNames(as.list(names(res$layers)), names(res$layers))
+      raw$provenance <- stats::setNames(lapply(names(res$layers), function(nm) list(source = "Reference / Example Dataset", detail = res$provenance, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))), names(res$layers))
+      raw$meta <- res$sample_meta
     }, ignoreInit = TRUE)
 
     observeEvent(input$dataset_source, {
@@ -448,7 +483,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     ## column short enough that "Validate Datasets" doesn't need scrolling
     ## to reach.
     output$pipeline_ui <- renderUI({
-      if (length(raw$validations) == 0) return(multi_empty_state("Add at least two datasets and click \"Validate Datasets\"."))
+      if (length(raw$validations) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tabsetPanel(
         id = ns("pipeline_tabs"), type = "tabs",
         tabPanel("1. Preview and Validate", br(), uiOutput(ns("validate_ui"))),
@@ -527,6 +562,34 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         } else {
           output[[paste0(ubid, "_orient_note")]] <- renderUI(NULL)
         }
+
+        ## Structural omics-type hint (spec: detect from the data, not the
+        ## filename) - only advisory here, only meaningful when the user has
+        ## selected RNA-seq/Transcriptomics or Methylation specifically;
+        ## other omics types are never second-guessed. A confirmed rejection
+        ## for a genuine mismatch happens later, at Validate time.
+        otype_sel <- input[[paste0(ubid, "_type")]] %||% "other"
+        preview_mat <- tryCatch({
+          if (is.null(df) || ncol(df) < 2) NULL
+          else if (identical(orient_det$suggested %||% "samples_rows", "features_rows")) {
+            m <- t(as.matrix(vapply(df[, -1, drop = FALSE], function(x) suppressWarnings(as.numeric(x)), numeric(nrow(df)))))
+            colnames(m) <- as.character(df[[1]]); m
+          } else {
+            m <- as.matrix(vapply(df[, -1, drop = FALSE], function(x) suppressWarnings(as.numeric(x)), numeric(nrow(df))))
+            colnames(m) <- colnames(df)[-1]; m
+          }
+        }, error = function(e) NULL)
+        otype_det <- if (!is.null(preview_mat)) multi_live_detect_omics_type(preview_mat) else NULL
+        output[[paste0(ubid, "_omics_type_note")]] <- renderUI({
+          if (is.null(otype_det) || !otype_sel %in% c("rnaseq", "methylation")) return(NULL)
+          mismatch <- (identical(otype_sel, "rnaseq") && identical(otype_det$detected, "methylation")) ||
+            (identical(otype_sel, "methylation") && identical(otype_det$detected, "rnaseq")) ||
+            (otype_sel %in% c("rnaseq", "methylation") && identical(otype_det$detected, "unclassifiable"))
+          if (!mismatch) return(NULL)
+          div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
+              sprintf(" Structural check: %s Selected omics type above is %s - please confirm this is correct.", otype_det$reason,
+                      names(MULTI_LIVE_OMICS_TYPES)[match(otype_sel, MULTI_LIVE_OMICS_TYPES)] %||% otype_sel))
+        })
 
         block_shape[[ubid]] <- list(
           shape = shape_det$shape, shape_reason = shape_det$reason,
@@ -656,6 +719,27 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
             mats[[label]] <- res$mat
             provenance[[label]] <- list(source = "User Upload", detail = fi$name, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           }
+          ## Graceful rejection (spec: don't silently process an unsupported
+          ## or mislabeled omics type). Only enforced when the user has
+          ## specifically claimed RNA-seq/Transcriptomics or Methylation -
+          ## every other omics type in the dropdown is left untouched, since
+          ## this module's structural detector only distinguishes those two.
+          if (otype %in% c("rnaseq", "methylation")) {
+            det <- multi_live_detect_omics_type(mats[[label]])
+            mismatch <- identical(det$detected, "unclassifiable") ||
+              (identical(otype, "rnaseq") && identical(det$detected, "methylation")) ||
+              (identical(otype, "methylation") && identical(det$detected, "rnaseq"))
+            if (mismatch) {
+              showNotification(sprintf(
+                "%s: rejected. %s This dataset was selected as %s, but its structure %s. Supported omics types here are Transcriptomics and DNA Methylomics - if this is one of those, check the feature-ID column and value scale; otherwise pick its correct omics type above.",
+                label, det$reason,
+                names(MULTI_LIVE_OMICS_TYPES)[match(otype, MULTI_LIVE_OMICS_TYPES)] %||% otype,
+                if (identical(det$detected, "unclassifiable")) "could not be confidently classified as either" else sprintf("looks like %s instead", if (identical(det$detected, "methylation")) "DNA Methylomics" else "Transcriptomics")
+              ), type = "error", duration = 15)
+              mats[[label]] <- NULL
+              next
+            }
+          }
           validations[[label]] <- multi_live_validate_matrix(mats[[label]], layer_label = label)
           labels[[ubid]] <- label
           m <- mo_read_meta_file(input[[paste0(ubid, "_meta_file")]])
@@ -667,6 +751,21 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           gf <- geo_fetched[[gbid]]
           if (is.null(gf)) next
           label <- input[[paste0(gbid, "_label")]] %||% sprintf("Dataset %d", i)
+          otype <- input[[paste0(gbid, "_type")]] %||% "other"
+          if (otype %in% c("rnaseq", "methylation")) {
+            det <- multi_live_detect_omics_type(gf$mat)
+            mismatch <- identical(det$detected, "unclassifiable") ||
+              (identical(otype, "rnaseq") && identical(det$detected, "methylation")) ||
+              (identical(otype, "methylation") && identical(det$detected, "rnaseq"))
+            if (mismatch) {
+              showNotification(sprintf(
+                "%s: rejected. %s This dataset was selected as %s, but its structure %s.", label, det$reason,
+                names(MULTI_LIVE_OMICS_TYPES)[match(otype, MULTI_LIVE_OMICS_TYPES)] %||% otype,
+                if (identical(det$detected, "unclassifiable")) "could not be confidently classified as either Transcriptomics or DNA Methylomics" else sprintf("looks like %s instead", if (identical(det$detected, "methylation")) "DNA Methylomics" else "Transcriptomics")
+              ), type = "error", duration = 15)
+              next
+            }
+          }
           v <- multi_live_validate_matrix(gf$mat, layer_label = label)
           mats[[label]] <- gf$mat
           validations[[label]] <- v
@@ -705,7 +804,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
 
     output$validate_ui <- renderUI({
-      if (length(raw$validations) == 0) return(multi_empty_state("Add at least two datasets and click \"Validate Datasets\"."))
+      if (length(raw$validations) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tagList(
         div(style = "display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px;",
             lapply(names(raw$validations), function(nm) {
@@ -756,7 +855,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
     output$matching_ui <- renderUI({
       ov <- tryCatch(overlap(), error = function(e) NULL)
-      if (is.null(ov) || !isTRUE(ov$ok)) return(multi_empty_state("Validate at least two datasets first."))
+      if (is.null(ov) || !isTRUE(ov$ok)) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tagList(
         div(style = "display:flex; gap:10px; flex-wrap:wrap;",
             lapply(names(ov$per_layer), function(nm) div(class = "card", style = "flex:1 1 140px; text-align:center; padding:10px;",
@@ -793,7 +892,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
     ## ---- 3. Preprocessing -----------------------------------------------------
     output$preprocess_ui <- renderUI({
-      if (length(raw$mats) < 2) return(multi_empty_state("Validate at least two datasets first."))
+      if (length(raw$mats) < 2) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tagList(
         p(class = "submodule-desc", "Normalization choices are restricted to what's appropriate for each dataset's omics type."),
         uiOutput(ns("norm_controls")),
@@ -893,42 +992,78 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           selectInput(ns("batch_col"), "Batch column", choices = c("(none)" = "", meta_cols)),
           selectInput(ns("phenotype_col"), "Phenotype/group column", choices = c("(none)" = "", meta_cols))
         ),
-        h5("PCA before correction"),
-        multi_plot_or_empty(pca_before_fn, ns("pca_before"), height = "360px"),
+        h5("Before correction"),
+        fluidRow(
+          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_before_fn, ns("pca_before"), height = "340px")),
+          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_before_fn, ns("corr_before"), height = "340px"))
+        ),
         uiOutput(ns("confound_ui")),
         conditionalPanel(condition = sprintf("input['%s'] != '' && input['%s'] != ''", ns("batch_col"), ns("phenotype_col")), tagList(
           selectInput(ns("correct_method"), "Correction method", choices = c("ComBat (empirical Bayes)" = "combat", "limma::removeBatchEffect" = "limma")),
+          uiOutput(ns("confound_override_ui")),
           actionButton(ns("correct_btn"), "Apply batch correction", icon = icon("play"), class = "btn-primary btn-sm"),
-          h5("PCA after correction"),
-          multi_plot_or_empty(pca_after_fn, ns("pca_after"), height = "360px"),
-          uiOutput(ns("variance_diagnostic_ui"))
+          uiOutput(ns("batch_success_panel")),
+          uiOutput(ns("batch_after_ui"))
         ))
       )
     })
     pca_before_fn <- reactive(multi_live_pca_plot(multi_live_pca(proc$scaled_mats[[req(input$batch_layer)]]), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL))
     output$pca_before <- renderPlot(pca_before_fn())
+    corr_before_fn <- reactive({
+      d <- multi_live_sample_correlation_data(proc$scaled_mats[[req(input$batch_layer)]])
+      req(isTRUE(d$ok))
+      multi_live_correlation_heatmap_plot(d$df)
+    })
+    output$corr_before <- renderPlot(corr_before_fn())
 
     output$confound_ui <- renderUI({
       req(input$batch_col, input$phenotype_col, nzchar(input$batch_col), nzchar(input$phenotype_col), raw$meta)
       cc <- multi_live_confounding_check(raw$meta, input$batch_col, input$phenotype_col)
       if (is.null(cc)) return(NULL)
       if (isTRUE(cc$confounded)) {
-        div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
-            " The batch column appears confounded with the phenotype column - correcting for batch risks removing real biological signal. Proceed with caution.")
+        div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
+            " Potential confounding detected. The batch column and the phenotype column are strongly associated - batch correction may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
       } else {
         div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
       }
     })
+    confounded_now <- reactive({
+      req(input$batch_col, input$phenotype_col, nzchar(input$batch_col), nzchar(input$phenotype_col), raw$meta)
+      cc <- multi_live_confounding_check(raw$meta, input$batch_col, input$phenotype_col)
+      isTRUE(cc$confounded)
+    })
+    output$confound_override_ui <- renderUI({
+      if (!isTRUE(tryCatch(confounded_now(), error = function(e) FALSE))) return(NULL)
+      checkboxInput(ns("confound_override"), "I understand batch and phenotype appear confounded and want to proceed anyway.", value = FALSE)
+    })
 
     observeEvent(input$correct_btn, {
       req(proc$scaled_mats, input$batch_layer, input$batch_col, raw$meta)
+      confounded <- isTRUE(tryCatch(confounded_now(), error = function(e) FALSE))
+      ## validate(need(...)) renders into the nearest reactive OUTPUT context -
+      ## observeEvent() has none, so it previously failed completely silently
+      ## (a real bug: clicking "Apply batch correction" while blocked gave no
+      ## feedback at all). showNotification() + early return is the same
+      ## pattern already used a few lines below for a failed correction.
+      if (confounded && !isTRUE(input$confound_override)) {
+        showNotification("Batch correction is blocked because the batch variable appears confounded with the phenotype variable. Check the box above to proceed anyway.", type = "error")
+        return()
+      }
       m <- proc$scaled_mats[[input$batch_layer]]
       common <- intersect(rownames(m), rownames(raw$meta))
-      validate(need(length(common) >= 3, "Not enough samples with both data and batch metadata."))
+      if (length(common) < 3) {
+        showNotification("Not enough samples with both data and batch metadata.", type = "error")
+        return()
+      }
       batch <- raw$meta[common, input$batch_col]
       res <- multi_live_batch_correct(m[common, , drop = FALSE], batch, method = input$correct_method %||% "combat")
       if (!res$ok) { showNotification(res$error, type = "error"); return() }
       proc$batch_corrected <- res$mat
+      proc$batch_summary <- list(
+        dimensions = dim(res$mat), batch_col = input$batch_col, phenotype_col = input$phenotype_col,
+        method = res$method, n_batches = length(unique(batch)), layer = input$batch_layer,
+        timestamp = Sys.time()
+      )
       showNotification("Batch correction applied.", type = "message")
     })
     pca_after_fn <- reactive({
@@ -936,6 +1071,59 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       multi_live_pca_plot(multi_live_pca(proc$batch_corrected), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL)
     })
     output$pca_after <- renderPlot(pca_after_fn())
+    corr_after_fn <- reactive({
+      d <- multi_live_sample_correlation_data(req(proc$batch_corrected))
+      req(isTRUE(d$ok))
+      multi_live_correlation_heatmap_plot(d$df)
+    })
+    output$corr_after <- renderPlot(corr_after_fn())
+
+    ## Isolated from output$batch_ui on purpose (a real bug, found by testing
+    ## the running app): multi_plot_or_empty() eagerly EVALUATES its plot_fn
+    ## to decide plot-vs-empty-state, so calling it inline inside batch_ui's
+    ## own renderUI made that ENTIRE panel (including the batch_layer/
+    ## batch_col/phenotype_col/color_by selectInputs) reactively depend on
+    ## proc$batch_corrected. The instant correction succeeded, the whole
+    ## panel re-rendered from scratch with no `selected=`, resetting every
+    ## selectInput to blank - which then hid the confound warning, override
+    ## checkbox, success panel, and these very plots via their
+    ## conditionalPanel/req() gates. Keeping this section behind its own
+    ## uiOutput contains that dependency to just this block.
+    output$batch_after_ui <- renderUI({
+      tagList(
+        h5("After correction"),
+        fluidRow(
+          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_after_fn, ns("pca_after"), height = "340px")),
+          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_after_fn, ns("corr_after"), height = "340px"))
+        ),
+        uiOutput(ns("variance_diagnostic_ui")),
+        ## Gated on the corrected matrix actually existing, not merely on
+        ## the button having been clicked (a second real bug: the download
+        ## button previously appeared even after a blocked/failed attempt).
+        if (!is.null(proc$batch_corrected)) div(class = "table-toolbar", downloadButton(ns("dl_batch_corrected_csv"), "Download corrected data (CSV)", class = "btn-sm"))
+      )
+    })
+
+    ## Persistent status (spec: "Batch correction completed successfully" +
+    ## dimensions/batch variable/method), replacing reliance on the toast
+    ## notification alone, which disappears and can't be referred back to.
+    output$batch_success_panel <- renderUI({
+      s <- proc$batch_summary
+      if (is.null(s) || !identical(s$layer, input$batch_layer)) return(NULL)
+      div(class = "empty-note", icon("circle-check"),
+          tags$strong(" Batch correction completed successfully. "),
+          sprintf("Dimensions: %s samples x %s features. Batch variable: \"%s\" (%d level%s). Biological variable preserved: \"%s\". Method: %s.",
+                  format(s$dimensions[1], big.mark = ","), format(s$dimensions[2], big.mark = ","),
+                  s$batch_col, s$n_batches, if (s$n_batches == 1) "" else "s", s$phenotype_col,
+                  if (identical(s$method, "combat")) "ComBat (empirical Bayes)" else "limma::removeBatchEffect"))
+    })
+    output$dl_batch_corrected_csv <- downloadHandler(
+      filename = function() sprintf("%s_batch_corrected.csv", make.names(input$batch_layer %||% "dataset")),
+      content = function(file) {
+        m <- req(proc$batch_corrected)
+        utils::write.csv(m, file, row.names = TRUE)
+      }
+    )
 
     output$variance_diagnostic_ui <- renderUI({
       req(proc$batch_corrected, input$batch_col, input$phenotype_col, nzchar(input$batch_col), nzchar(input$phenotype_col))
@@ -971,7 +1159,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
     output$compat_ui <- renderUI({
       cmp <- tryCatch(compat(), error = function(e) NULL)
-      if (is.null(cmp) || length(cmp$per_layer) == 0) return(multi_empty_state("Validate at least two datasets first."))
+      if (is.null(cmp) || length(cmp$per_layer) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       overall_color <- if (identical(cmp$overall_label, "READY")) ARTHOMIX_COLORS$aqua
         else if (grepl("READY WITH REVIEW", cmp$overall_label)) ARTHOMIX_COLORS$yellow
         else ARTHOMIX_COLORS$red

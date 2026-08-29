@@ -207,22 +207,91 @@ ch_id_harmonization_table <- function(sample_id_lists) {
 ## outcome"). The user picks from these in a filter.
 ## ---------------------------------------------------------------------------
 
+## Column names that read as a sample/patient identifier rather than a
+## biological or technical grouping variable - shared by ch_detect_candidate_
+## columns() and ch_classify_metadata_columns() so both use the same rule.
+CH_ID_LIKE_NAME_REGEX <- "^(sample|id|patient|subject)([_.]?id)?$"
+
+## Value-shape classification of one metadata column: "identifier" (near-
+## all-unique - not a useful grouping/coloring variable), "continuous"
+## (numeric with high cardinality), else "categorical". Report-only, mirrors
+## the cardinality rule mi_outcome_summary() (multiomics_integration_live_
+## helpers.R) already uses for its own outcome-type check - unified here so
+## the two don't quietly disagree on a borderline column.
+ch_classify_column <- function(v) {
+  vv <- v[!is.na(v) & nzchar(trimws(as.character(v)))]
+  n_total <- length(vv)
+  if (n_total == 0) return("categorical")
+  nu <- length(unique(vv))
+  if (nu > 10 && (nu / n_total) > 0.9) return("identifier")
+  if (is.numeric(v) && nu > min(10, max(3, floor(n_total / 3)))) return("continuous")
+  "categorical"
+}
+
+## Classifies every metadata column and suggests a default categorical
+## grouping variable (spec: "sensible default, always user-overridable") -
+## first a name-keyword match (phenotype/response/group/...), else the first
+## reasonably balanced categorical column (no single level over 90% of
+## samples - a looser bar than mi_outcome_summary()'s 0.7 "imbalanced" flag
+## on purpose, since this only picks a *starting* selection, not an
+## eligibility gate).
+ch_classify_metadata_columns <- function(meta) {
+  if (is.null(meta) || ncol(meta) == 0) return(list(table = NULL, suggested_default = NULL))
+  id_like <- grepl(CH_ID_LIKE_NAME_REGEX, colnames(meta), ignore.case = TRUE)
+  rows <- lapply(colnames(meta), function(cn) {
+    v <- meta[[cn]]
+    type <- if (id_like[match(cn, colnames(meta))]) "identifier" else ch_classify_column(v)
+    nu <- length(unique(v[!is.na(v) & nzchar(trimws(as.character(v)))]))
+    data.frame(column = cn, type = type, n_unique = nu, stringsAsFactors = FALSE)
+  })
+  tbl <- do.call(rbind, rows)
+  categorical_cols <- tbl$column[tbl$type == "categorical"]
+  keyword_hit <- categorical_cols[grepl("phenotype|response|group|condition|treatment|outcome|status", categorical_cols, ignore.case = TRUE)]
+  suggested <- if (length(keyword_hit) > 0) keyword_hit[1] else {
+    balanced <- Filter(function(cn) {
+      tab <- table(as.character(meta[[cn]]))
+      length(tab) > 0 && (max(tab) / sum(tab)) <= 0.9
+    }, categorical_cols)
+    if (length(balanced) > 0) balanced[1] else if (length(categorical_cols) > 0) categorical_cols[1] else NULL
+  }
+  list(table = tbl, suggested_default = suggested)
+}
+
 ch_detect_candidate_columns <- function(meta, kind = c("phenotype", "batch")) {
   kind <- match.arg(kind)
   if (is.null(meta) || ncol(meta) == 0) return(character(0))
-  id_like <- grepl("^(sample|id|patient|subject)([_.]?id)?$", colnames(meta), ignore.case = TRUE)
+  id_like <- grepl(CH_ID_LIKE_NAME_REGEX, colnames(meta), ignore.case = TRUE)
   cols <- colnames(meta)[!id_like]
   if (identical(kind, "batch")) {
     return(cols[grepl("batch|cohort|study|platform|site|processing|run|plate", cols, ignore.case = TRUE)])
   }
-  out <- character(0)
-  for (cn in cols) {
-    v <- meta[[cn]]
-    nu <- length(unique(v[!is.na(v) & nzchar(trimws(as.character(v)))]))
-    if (is.numeric(v) && nu > 10) next
-    if (nu >= 2 && nu <= 10) out <- c(out, cn)
-  }
-  out
+  cls <- ch_classify_metadata_columns(meta)
+  intersect(cols, cls$table$column[cls$table$type == "categorical"])
+}
+
+## ---------------------------------------------------------------------------
+## 4b. Matched-sample summary sentence + tri-state status (spec: "42
+## transcriptomics / 39 methylomics / 35 matched / 83.3% overlap", and a
+## clear Matched/Partially matched/Unmatched call so an unmatched cohort is
+## never presented as if it were paired multi-omics data).
+## ---------------------------------------------------------------------------
+
+ch_matched_sample_summary <- function(id_sets) {
+  id_sets <- Filter(Negate(is.null), id_sets)
+  if (length(id_sets) == 0) return(list(per_modality = integer(0), n_matched = 0L, n_union = 0L, pct_overlap = 0, sentence = "No modalities available.", status = "Unmatched"))
+  per_modality <- vapply(id_sets, length, integer(1))
+  n_matched <- length(Reduce(intersect, id_sets))
+  n_union <- length(Reduce(union, id_sets))
+  pct_overlap <- if (n_union > 0) 100 * n_matched / n_union else 0
+  status <- if (length(id_sets) < 2) "Single modality"
+    else if (n_matched == 0) "Unmatched"
+    else if (n_matched == min(per_modality)) "Matched"
+    else "Partially matched"
+  sentence <- paste0(
+    paste(sprintf("%s: %s", names(id_sets), format(per_modality, big.mark = ",")), collapse = " / "),
+    if (length(id_sets) >= 2) sprintf(" / %s matched / %.1f%% overlap", format(n_matched, big.mark = ","), pct_overlap) else ""
+  )
+  list(per_modality = per_modality, n_matched = n_matched, n_union = n_union, pct_overlap = pct_overlap, sentence = sentence, status = status)
 }
 
 ## ---------------------------------------------------------------------------

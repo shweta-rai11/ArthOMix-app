@@ -1,22 +1,27 @@
 ## R/mod_candidates.R
 ## Candidate Gene Identification (Section 2.5): intersects a shared disease-associated
-## WGCNA module background with the female and male DEG lists separately, one Venn
-## diagram per sex. Reads WGCNA modules and DGE runs live from the shared `results` store.
+## WGCNA module background with a DEG list, and visualises/exports the Venn diagram and
+## candidate table. Sex-stratified (separate female/male panels) when the loaded
+## dataset has usable male/female metadata, otherwise one pooled panel (see
+## sex_available() below). Optionally narrows further by Mendelian
+## Randomization/Colocalization support if either was run this session. Reads WGCNA
+## modules and DGE runs live from the shared `results` store.
 
 mod_candidates_config <- list(
   id = "candidates", group = "Network",
   title = "Candidate Gene Identification",
-  description = "Intersect the disease-associated WGCNA module with the sex-based DEG list, and visualise and export the Venn diagram and candidate table.",
+  description = "Intersect the disease-associated WGCNA module with the DEG list (sex-stratified when the data supports it), optionally refined by MR/Colocalization support, and visualise and export the Venn diagram and candidate table.",
   icon = "star"
 )
 
 ## One sex panel (DEG picker, Venn vs. WGCNA background, candidate table), shared
-## template for both "female" and "male" prefixes, gated behind its own run button.
-mod_candidates_sex_panel_ui <- function(ns, prefix, title) {
+## template for "female"/"male" prefixes (and the sex-less "pooled" fallback below),
+## gated behind its own run button.
+mod_candidates_sex_panel_ui <- function(ns, prefix, title, btn_label = sprintf("Compute %s candidates", prefix)) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
     uiOutput(ns(paste0(prefix, "_deg_picker_ui"))),
-    actionButton(ns(paste0(prefix, "_run_btn")), sprintf("Compute %s candidates", prefix), icon = icon("play"), class = "btn-primary btn-sm"),
+    actionButton(ns(paste0(prefix, "_run_btn")), btn_label, icon = icon("play"), class = "btn-primary btn-sm"),
     div(style = "margin-top:10px;",
         withSpinner(uiOutput(ns(paste0(prefix, "_summary_ui"))), color = "#2c6fbb", type = 6),
         withSpinner(plotOutput(ns(paste0(prefix, "_venn")), height = 340), color = "#2c6fbb", type = 6),
@@ -46,6 +51,18 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
+    ## Whether the currently loaded dataset actually carries usable male-vs-female
+    ## metadata. A GEO fetch (or an upload) can leave meta$sex entirely NA when the
+    ## series has no sex column and the user maps it to "(none)" on the Dataset tab
+    ## (see mod_dataset.R) - and even when a sex column exists, it's only usable for
+    ## stratification if both sexes are actually represented. Sex-stratified candidate
+    ## identification (the female/male dual panels below) only makes sense when the
+    ## data supports it; otherwise this falls back to one pooled, non-stratified panel.
+    sex_available <- reactive({
+      m <- dataset$meta
+      !is.null(m) && "sex" %in% names(m) && length(unique(stats::na.omit(m$sex))) >= 2
+    })
+
     output$body_ui <- renderUI({
       pr <- prereqs()
       if (!pr$wgcna_ok || !pr$dge_ok) {
@@ -56,19 +73,38 @@ mod_candidates_server <- function(id, dataset, results) {
         return(
           box(
             width = 12, title = "Run WGCNA and Differential Expression first", status = "warning", solidHeader = FALSE,
-            p(class = "submodule-desc", "This tab intersects a WGCNA disease-module background with sex-stratified DEG lists - it cannot compute anything until both have actually been run this session. Still needed:"),
+            p(class = "submodule-desc", "This tab intersects a WGCNA disease-module background with DEG lists - it cannot compute anything until both have actually been run this session. Still needed:"),
             tags$ul(lapply(missing, tags$li)),
             p(class = "submodule-desc", "Once both are run, the module picker and \"Compute ... candidates\" buttons below become available - no need to reload.")
           )
         )
       }
-      tagList(
+      shared_boxes <- tagList(
         box(
           width = 12, title = "WGCNA module background", status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "The DEG data is taken from results$dge_runs and WGCNA data from results$wgcna in order to perform this sub-module."),
           uiOutput(ns("module_picker_ui"))
         ),
-        uiOutput(ns("gene_panel_box_ui")),
+        uiOutput(ns("gene_panel_box_ui"))
+      )
+      if (!isTRUE(sex_available())) {
+        return(tagList(
+          shared_boxes,
+          div(class = "empty-note", icon("circle-info"),
+              "No male/female metadata was found for the currently loaded dataset (a GEO fetch or upload without a mapped sex column leaves this unset) - showing one pooled candidate panel instead of separate female/male ones."),
+          mod_candidates_sex_panel_ui(ns, "pooled", "Candidate biomarkers (module background ∩ DEGs)", btn_label = "Compute candidates"),
+          box(
+            width = 12, title = "Final candidate gene set", status = "primary", solidHeader = FALSE,
+            p(class = "submodule-desc", "This is \"the\" candidate gene set going forward - what other tabs in the app (Feature Selection, Diagnostic Model, ...) read from results$candidates$final."),
+            uiOutput(ns("causal_refine_ui")),
+            withSpinner(uiOutput(ns("final_summary_ui")), color = "#2c6fbb", type = 6),
+            div(class = "table-toolbar", downloadButton(ns("final_download_table"), "Final set (CSV)", class = "btn-sm")),
+            DT::dataTableOutput(ns("final_table"))
+          )
+        ))
+      }
+      tagList(
+        shared_boxes,
         fluidRow(
           column(6, mod_candidates_sex_panel_ui(ns, "female", "Female candidates (module background ∩ female DEGs)")),
           column(6, mod_candidates_sex_panel_ui(ns, "male", "Male candidates (module background ∩ male DEGs)"))
@@ -77,6 +113,7 @@ mod_candidates_server <- function(id, dataset, results) {
           width = 12, title = "Final candidate gene set", status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Pick which of the two panels above (or their overlap) is \"the\" candidate gene set going forward - this choice is what other tabs in the app read from results$candidates$final."),
           uiOutput(ns("final_set_picker_ui")),
+          uiOutput(ns("causal_refine_ui")),
           withSpinner(uiOutput(ns("final_summary_ui")), color = "#2c6fbb", type = 6),
           div(class = "table-toolbar", downloadButton(ns("final_download_table"), "Final set (CSV)", class = "btn-sm")),
           DT::dataTableOutput(ns("final_table"))
@@ -124,9 +161,16 @@ mod_candidates_server <- function(id, dataset, results) {
     })
 
     ## Optional third gene set (bundled panel or pasted custom list); NULL/"(none)" is a
-    ## no-op. Upload-only: hidden unless dataset$source starts with "Uploaded dataset".
+    ## no-op. Hidden for the exact default bundled reference cohort (its own module/DEG
+    ## overlap is the point of reference there); shown for anything else - uploaded, a
+    ## GEO fetch, or an individual preloaded GSE alike. Previously only checked
+    ## source_type=="uploaded"/a "^Uploaded dataset" source-string prefix, which meant
+    ## this feature silently disappeared for GEO-fetched and individual-preloaded
+    ## datasets even though it applies just as well to them - the same class of gap
+    ## already fixed elsewhere (mod_wgcna.R, mod_diagnostic.R, mod_featureselection.R,
+    ## mod_enrichment.R, mod_nomogram.R) via the shared is_bundled_reference flag.
     output$gene_panel_box_ui <- renderUI({
-      req(grepl("^Uploaded dataset", dataset$source %||% ""))
+      req(!isTRUE(dataset$is_bundled_reference))
       box(
         width = 12, title = "Narrow further with a gene panel (optional)", status = "primary", solidHeader = FALSE,
         p(class = "submodule-desc", "Off by default - the module/DEG overlap above is unchanged unless you pick a panel here. When set, candidates are additionally intersected with this gene list, e.g. narrowing a general disease-module overlap down to genes in a specific biological process (ferroptosis, autophagy, whatever the panel covers) - the same 3-way intersection a published study's own curated gene list would apply."),
@@ -193,6 +237,17 @@ mod_candidates_server <- function(id, dataset, results) {
       selectInput(ns("male_deg_run"), "Male DEG contrast", choices = ch, selected = guess_run(ch, "\\bmale\\b|\\bM\\b"), selectize = FALSE)
     })
 
+    ## Sex-less fallback picker (see sex_available above) - no sex to guess a default
+    ## contrast from, so this just defaults to the most recently run one.
+    output$pooled_deg_picker_ui <- renderUI({
+      ch <- tryCatch(deg_run_choices(), error = function(e) NULL)
+      if (is.null(ch)) {
+        return(div(class = "empty-note", icon("circle-info"),
+          "Run Differential Expression first (Differential Expression tab)."))
+      }
+      selectInput(ns("pooled_deg_run"), "DEG contrast", choices = ch, selected = unname(utils::tail(ch, 1)), selectize = FALSE)
+    })
+
     ## Module background ∩ one sex's significant DEGs (+ optional gene panel), gated
     ## behind that sex's run button so changing inputs doesn't recompute automatically.
     sex_candidates <- function(deg_input_name, run_btn_name) {
@@ -248,14 +303,16 @@ mod_candidates_server <- function(id, dataset, results) {
 
     female_result <- sex_candidates("female_deg_run", "female_run_btn")
     male_result <- sex_candidates("male_deg_run", "male_run_btn")
+    pooled_result <- sex_candidates("pooled_deg_run", "pooled_run_btn")
 
-    ## Registers the summary/Venn/table/download outputs for one sex panel.
-    register_panel <- function(prefix, res) {
+    ## Registers the summary/Venn/table/download outputs for one panel (a sex panel,
+    ## or the sex-less "pooled" fallback).
+    register_panel <- function(prefix, res, btn_label = sprintf("Compute %s candidates", prefix)) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
         r <- tryCatch(res(), error = function(e) NULL)
         if (is.null(r)) {
           return(div(class = "empty-note", icon("circle-info"),
-            sprintf("Not run yet. Click \"Compute %s candidates\" above.", prefix)))
+            sprintf("Not run yet. Click \"%s\" above.", btn_label)))
         }
         tagList(
           p(strong(r$n_bg), " module-background genes, ", strong(r$n_deg), " significant DEGs (", r$contrast, ")",
@@ -265,8 +322,9 @@ mod_candidates_server <- function(id, dataset, results) {
         )
       })
 
-      ## Green for Female, brown for Male, matching this project's reference figures.
-      venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26")[[prefix]]
+      ## Green for Female, brown for Male, matching this project's reference figures;
+      ## the app's own primary blue for the sex-less "pooled" fallback panel.
+      venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26", pooled = "#2c6fbb")[[prefix]]
 
       venn_obj <- reactive({
         r <- tryCatch(res(), error = function(e) NULL)
@@ -297,6 +355,7 @@ mod_candidates_server <- function(id, dataset, results) {
 
     register_panel("female", female_result)
     register_panel("male", male_result)
+    register_panel("pooled", pooled_result, btn_label = "Compute candidates")
 
     ## Final candidate gene set: lets the user pick female/male/union/intersection as
     ## "the" set for downstream tabs. Defaults to Union, matching this project's own
@@ -340,34 +399,117 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
+    ## ---- Optional refinement by Mendelian Randomization / Colocalization ----
+    ## MR (mod_mr.R) and Colocalization (mod_coloc.R) are independent, optional
+    ## analyses in the Genetics section - a user without GWAS/eQTL summary stats for
+    ## their trait may never run either, and nothing here (or in Feature Selection,
+    ## Diagnostic Model, etc. downstream) requires them to. This only offers a filter
+    ## when there's actual overlap between genes tested this session
+    ## (results$mr$genes_tested / results$coloc$genes_tested) and the current
+    ## candidate set; if neither was run, or neither overlaps, nothing renders and
+    ## refined_final() just passes the base set through unchanged.
+    MR_P_CUT <- 0.05
+    COLOC_PP4_CUT <- 0.8
+
+    mr_supported_genes <- reactive({
+      gt <- results$mr$genes_tested
+      if (is.null(gt) || length(gt) == 0) return(character(0))
+      ps <- vapply(gt, function(e) e$p %||% NA_real_, numeric(1))
+      names(ps)[!is.na(ps) & ps < MR_P_CUT]
+    })
+
+    coloc_supported_genes <- reactive({
+      gt <- results$coloc$genes_tested
+      if (is.null(gt) || length(gt) == 0) return(character(0))
+      pp <- vapply(gt, function(e) e$pp_h4 %||% NA_real_, numeric(1))
+      names(pp)[!is.na(pp) & pp >= COLOC_PP4_CUT]
+    })
+
+    ## The candidate set before this optional refinement - whichever branch
+    ## (sex-stratified or pooled) is active per sex_available() above.
+    base_final <- reactive({
+      if (isTRUE(sex_available())) {
+        fc <- final_candidates()
+        list(genes = fc$genes, stats = fc$stats)
+      } else {
+        pr <- pooled_result()
+        list(genes = pr$overlap, stats = pr$stats)
+      }
+    })
+
+    output$causal_refine_ui <- renderUI({
+      base <- tryCatch(base_final(), error = function(e) NULL)
+      if (is.null(base) || length(base$genes) == 0) return(NULL)
+      mr_hits <- intersect(base$genes, mr_supported_genes())
+      coloc_hits <- intersect(base$genes, coloc_supported_genes())
+      if (length(mr_hits) == 0 && length(coloc_hits) == 0) return(NULL)
+      tagList(
+        tags$hr(),
+        p(strong("Optional: refine by causal genetic evidence."),
+          " Mendelian Randomization and Colocalization are separate, optional analyses (Genetics section) - skip this if you don't have GWAS/eQTL data for your trait; everything downstream works fine on the set above alone."),
+        if (length(mr_hits) > 0) checkboxInput(ns("require_mr"),
+          sprintf("Require Mendelian Randomization support (p < %.2f) - %d of %d candidates qualify", MR_P_CUT, length(mr_hits), length(base$genes)), value = FALSE),
+        if (length(coloc_hits) > 0) checkboxInput(ns("require_coloc"),
+          sprintf("Require Colocalization support (PP.H4 ≥ %.1f) - %d of %d candidates qualify", COLOC_PP4_CUT, length(coloc_hits), length(base$genes)), value = FALSE)
+      )
+    })
+
+    ## The actually-published set - what results$candidates$final holds, and what the
+    ## boxes/downloads below show. Equals base_final() untouched unless the user has
+    ## opted into one of the checkboxes above.
+    refined_final <- reactive({
+      base <- base_final()
+      genes <- base$genes
+      if (isTRUE(input$require_mr)) genes <- intersect(genes, mr_supported_genes())
+      if (isTRUE(input$require_coloc)) genes <- intersect(genes, coloc_supported_genes())
+      validate(need(length(genes) > 0, "No candidate genes pass the selected causal-evidence filter(s) above - uncheck one to continue."))
+      list(genes = genes, stats = base$stats[base$stats$gene %in% genes, , drop = FALSE])
+    })
+
     output$final_summary_ui <- renderUI({
-      fc <- final_candidates()
-      p(strong(length(fc$genes)), " genes in the final candidate set (",
-        switch(input$final_candidate_set, female = "female only", male = "male only", union = "found in either sex", intersection = "shared by both sexes"),
-        ").")
+      fc <- refined_final()
+      basis <- if (isTRUE(sex_available())) {
+        switch(input$final_candidate_set %||% "union",
+               female = "female only", male = "male only",
+               union = "found in either sex", intersection = "shared by both sexes")
+      } else "module ∩ DEG overlap"
+      refined_note <- if (isTRUE(input$require_mr) || isTRUE(input$require_coloc)) ", after the causal-evidence filter(s) above" else ""
+      p(strong(length(fc$genes)), " genes in the final candidate set (", basis, refined_note, ").")
     })
 
     output$final_table <- DT::renderDataTable({
-      DT::datatable(final_candidates()$stats, rownames = FALSE, filter = "top",
+      DT::datatable(refined_final()$stats, rownames = FALSE, filter = "top",
                      options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$final_download_table <- downloadHandler(
-      filename = function() sprintf("final_candidate_genes_%s.csv", input$final_candidate_set),
-      content = function(file) write.csv(final_candidates()$stats, file, row.names = FALSE)
+      filename = function() sprintf("final_candidate_genes_%s.csv", if (isTRUE(sex_available())) input$final_candidate_set %||% "union" else "pooled"),
+      content = function(file) write.csv(refined_final()$stats, file, row.names = FALSE)
     )
 
-    ## Read by the Assistant sub-module, same as every other analysis tab.
+    ## Read by the Assistant sub-module, same as every other analysis tab. Publishes
+    ## from whichever mode is actually active (sex_available()) - the other mode's
+    ## reactives never fire since their buttons were never rendered into the DOM.
     observe({
-      fr <- tryCatch(female_result(), error = function(e) NULL)
-      mr <- tryCatch(male_result(), error = function(e) NULL)
-      fc <- tryCatch(final_candidates(), error = function(e) NULL)
-      if (is.null(fr) && is.null(mr)) return()
-      results$candidates <- list(
-        female = if (!is.null(fr)) list(n_candidates = length(fr$overlap), genes = fr$overlap, contrast = fr$contrast) else NULL,
-        male = if (!is.null(mr)) list(n_candidates = length(mr$overlap), genes = mr$overlap, contrast = mr$contrast) else NULL,
-        final = if (!is.null(fc)) list(selection = input$final_candidate_set, n_candidates = length(fc$genes), genes = fc$genes) else NULL
-      )
+      fc <- tryCatch(refined_final(), error = function(e) NULL)
+      if (isTRUE(sex_available())) {
+        fr <- tryCatch(female_result(), error = function(e) NULL)
+        mr <- tryCatch(male_result(), error = function(e) NULL)
+        if (is.null(fr) && is.null(mr)) return()
+        results$candidates <- list(
+          female = if (!is.null(fr)) list(n_candidates = length(fr$overlap), genes = fr$overlap, contrast = fr$contrast) else NULL,
+          male = if (!is.null(mr)) list(n_candidates = length(mr$overlap), genes = mr$overlap, contrast = mr$contrast) else NULL,
+          final = if (!is.null(fc)) list(selection = input$final_candidate_set, n_candidates = length(fc$genes), genes = fc$genes) else NULL
+        )
+      } else {
+        pr <- tryCatch(pooled_result(), error = function(e) NULL)
+        if (is.null(pr)) return()
+        results$candidates <- list(
+          female = NULL, male = NULL,
+          final = if (!is.null(fc)) list(selection = "pooled", n_candidates = length(fc$genes), genes = fc$genes, contrast = pr$contrast)
+                  else list(selection = "pooled", n_candidates = length(pr$overlap), genes = pr$overlap, contrast = pr$contrast)
+        )
+      }
     })
   })
 }

@@ -4,8 +4,16 @@
 function(input, output, session) {
 
   ## ---- Shared dataset, read by every Transcriptomics submodule -----------
+  ## source_type ("uploaded"/"geo"/"preloaded") and is_bundled_reference (TRUE
+  ## only for the exact default merged cohort below) are the app-wide
+  ## provenance flags every downstream module gates on - set here for the
+  ## startup default, and by mod_dataset.R's three load handlers immediately
+  ## (not just staged_*) whenever the user switches pipeline.
   dataset <- local({
     d <- load_default_dataset()
+    d$source_type <- "preloaded"
+    d$is_bundled_reference <- TRUE
+    d$geo_ids <- MERGED_DEFAULT_GEO_IDS
     do.call(reactiveValues, d)
   })
 
@@ -26,8 +34,7 @@ function(input, output, session) {
   ## count, for anyone's own uploaded/merged/corrected data - so switching
   ## between the two is never ambiguous no matter which page you're on.
   output$active_dataset_badge <- renderUI({
-    src <- dataset$source %||% ""
-    is_default <- grepl("^Example dataset:", src)
+    is_default <- isTRUE(dataset$is_bundled_reference)
     n <- tryCatch(ncol(dataset$expr), error = function(e) NA)
     tags$span(
       class = paste("header-dataset-badge", if (is_default) "is-default" else "is-custom"),

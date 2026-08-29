@@ -85,6 +85,15 @@ fs_obs_weights <- function(y, mode, ratio) {
 ## Gene symbols are made syntactically safe (e.g. HLA-A) for the fits and
 ## translated back on the way out.
 fs_fit_sex <- function(X, y, params = list()) {
+  ## caret::train(classProbs = TRUE) below requires factor levels that are
+  ## valid R variable names - it make.names()s them internally to build its
+  ## own predicted-probability column names, so a raw group label with a
+  ## space (e.g. "multiple sclerosis") desyncs from any levels(y)-based
+  ## lookup once caret has already renamed its own columns to
+  ## "multiple.sclerosis". Sanitized once here, up front, matching
+  ## mod_diagnostic.R::diag_fit_sex()'s identical fix; callers keep the real
+  ## group names for their own display text, so nothing user-visible changes.
+  levels(y) <- make.names(levels(y), unique = TRUE)
   params <- utils::modifyList(FS_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- 1234
   p <- ncol(X)
@@ -312,29 +321,44 @@ mod_featureselection_ui <- function(id) {
           tabPanel(
             "LASSO", br(),
             uiOutput(ns("lasso_params_ui")),
-            fluidRow(
-              column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_lasso", "Female - LASSO"))),
-              column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_lasso", "Male - LASSO")))
-            ),
-            fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_lasso", "Pooled (all) - LASSO"))))
+            div(style = "margin-bottom:10px;",
+                actionButton(ns("lasso_show_btn"), "Show LASSO Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
+            conditionalPanel(
+              condition = sprintf("input['%s'] > 0", ns("lasso_show_btn")),
+              fluidRow(
+                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_lasso", "Female - LASSO"))),
+                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_lasso", "Male - LASSO")))
+              ),
+              fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_lasso", "Pooled (all) - LASSO"))))
+            )
           ),
           tabPanel(
             "Random Forest", br(),
             uiOutput(ns("rf_params_ui")),
-            fluidRow(
-              column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_rf", "Female - Random Forest"))),
-              column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_rf", "Male - Random Forest")))
-            ),
-            fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_rf", "Pooled (all) - Random Forest"))))
+            div(style = "margin-bottom:10px;",
+                actionButton(ns("rf_show_btn"), "Show Random Forest Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
+            conditionalPanel(
+              condition = sprintf("input['%s'] > 0", ns("rf_show_btn")),
+              fluidRow(
+                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_rf", "Female - Random Forest"))),
+                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_rf", "Male - Random Forest")))
+              ),
+              fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_rf", "Pooled (all) - Random Forest"))))
+            )
           ),
           tabPanel(
             "SVM-RFE", br(),
             uiOutput(ns("svm_params_ui")),
-            fluidRow(
-              column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_svm", "Female - SVM-RFE"))),
-              column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_svm", "Male - SVM-RFE")))
-            ),
-            fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_svm", "Pooled (all) - SVM-RFE"))))
+            div(style = "margin-bottom:10px;",
+                actionButton(ns("svm_show_btn"), "Show SVM-RFE Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
+            conditionalPanel(
+              condition = sprintf("input['%s'] > 0", ns("svm_show_btn")),
+              fluidRow(
+                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_svm", "Female - SVM-RFE"))),
+                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_svm", "Male - SVM-RFE")))
+              ),
+              fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_svm", "Pooled (all) - SVM-RFE"))))
+            )
           ),
           tabPanel(
             "Overlap", br(),
@@ -352,8 +376,7 @@ mod_featureselection_ui <- function(id) {
         )
         ))
       )
-    ),
-    uiOutput(ns("references_box_ui"))
+    )
   )
 }
 
@@ -450,9 +473,26 @@ mod_featureselection_server <- function(id, dataset, results) {
 
     # "project" candidates: live Candidate Gene Identification output, else bundled MR-prioritised lists.
     # "pooled" has no candidate list of its own (candidate discovery is sex-stratified), so it uses the
-    # union of the female/male panels instead.
+    # union of the female/male panels instead. The bundled lists were only ever computed from the app's
+    # own default merged cohort - only offer them when that exact dataset is still active
+    # (dataset$is_bundled_reference), never for an uploaded/GEO/individual-preloaded dataset.
     project_candidate_genes <- function(sex_label) {
       if (identical(sex_label, "pooled")) {
+        ## Candidate Gene Identification writes a genuinely non-sex-stratified
+        ## panel to results$candidates$final (selection == "pooled") when the
+        ## loaded dataset has no usable male/female metadata (see
+        ## mod_candidates.R's sex_available()) - a live GEO fetch mapped to
+        ## "(none)" for sex, most commonly. That IS the pooled candidate set
+        ## for this dataset, so it's checked first, ahead of the
+        ## union(female, male) derivation below (which only applies when the
+        ## dataset *does* support sex-stratified discovery and both panels
+        ## have been run).
+        cand_final <- results$candidates$final
+        if (!is.null(cand_final) && identical(cand_final$selection, "pooled") && length(cand_final$genes) >= 2) {
+          return(list(genes = cand_final$genes, is_live = TRUE,
+                      note = sprintf("%d genes from this session's live pooled candidate panel (Candidate Gene Identification - no sex-stratified metadata on this dataset).",
+                                     length(cand_final$genes))))
+        }
         live_f <- results$candidates$female$genes
         live_m <- results$candidates$male$genes
         live <- unique(c(live_f, live_m))
@@ -461,19 +501,21 @@ mod_featureselection_server <- function(id, dataset, results) {
                       note = sprintf("%d genes - union of this session's live candidate panels (%d female, %d male).",
                                      length(live), length(unique(live_f)), length(unique(live_m)))))
         }
-        mhc <- if (isTRUE(input$mhc_exclude)) "_noMHC" else ""
-        bf <- read_table_safe(sprintf("FS_input_female%s.csv", mhc))
-        bm <- read_table_safe(sprintf("FS_input_male%s.csv", mhc))
-        genes_f <- if (!is.null(bf) && "gene" %in% colnames(bf)) unique(as.character(bf$gene)) else character(0)
-        genes_m <- if (!is.null(bm) && "gene" %in% colnames(bm)) unique(as.character(bm$gene)) else character(0)
-        genes <- unique(c(genes_f, genes_m))
-        if (length(genes) >= 2) {
-          return(list(genes = genes, is_live = FALSE,
-                      note = sprintf("%d genes - union of the bundled female + male candidate lists (%d female, %d male).",
-                                     length(genes), length(genes_f), length(genes_m))))
+        if (isTRUE(dataset$is_bundled_reference)) {
+          mhc <- if (isTRUE(input$mhc_exclude)) "_noMHC" else ""
+          bf <- read_table_safe(sprintf("FS_input_female%s.csv", mhc))
+          bm <- read_table_safe(sprintf("FS_input_male%s.csv", mhc))
+          genes_f <- if (!is.null(bf) && "gene" %in% colnames(bf)) unique(as.character(bf$gene)) else character(0)
+          genes_m <- if (!is.null(bm) && "gene" %in% colnames(bm)) unique(as.character(bm$gene)) else character(0)
+          genes <- unique(c(genes_f, genes_m))
+          if (length(genes) >= 2) {
+            return(list(genes = genes, is_live = FALSE,
+                        note = sprintf("%d genes - union of the bundled female + male candidate lists (%d female, %d male).",
+                                       length(genes), length(genes_f), length(genes_m))))
+          }
         }
         return(list(genes = character(0), is_live = FALSE,
-                    note = "No pooled candidate genes available (no live or bundled female/male candidates found)."))
+                    note = "No pooled candidate genes available - run Candidate Gene Identification on the currently loaded dataset first."))
       }
       live <- results$candidates[[sex_label]]$genes
       if (!is.null(live) && length(live) >= 2) {
@@ -481,15 +523,17 @@ mod_featureselection_server <- function(id, dataset, results) {
                     note = sprintf("%d genes from this session's live %s candidate panel.",
                                    length(live), sex_label)))
       }
-      fname <- sprintf("FS_input_%s%s.csv", sex_label, if (isTRUE(input$mhc_exclude)) "_noMHC" else "")
-      bundled <- read_table_safe(fname)
-      if (!is.null(bundled) && nrow(bundled) >= 2 && "gene" %in% colnames(bundled)) {
-        return(list(genes = unique(as.character(bundled$gene)), is_live = FALSE,
-                    note = sprintf("%d genes from the bundled %s candidate list (%s).",
-                                   nrow(bundled), sex_label, fname)))
+      if (isTRUE(dataset$is_bundled_reference)) {
+        fname <- sprintf("FS_input_%s%s.csv", sex_label, if (isTRUE(input$mhc_exclude)) "_noMHC" else "")
+        bundled <- read_table_safe(fname)
+        if (!is.null(bundled) && nrow(bundled) >= 2 && "gene" %in% colnames(bundled)) {
+          return(list(genes = unique(as.character(bundled$gene)), is_live = FALSE,
+                      note = sprintf("%d genes from the bundled %s candidate list (%s).",
+                                     nrow(bundled), sex_label, fname)))
+        }
       }
       list(genes = character(0), is_live = FALSE,
-           note = sprintf("No %s candidate genes available.", sex_label))
+           note = sprintf("No live %s candidate genes yet - run Candidate Gene Identification on the currently loaded dataset first.", sex_label))
     }
 
     # fast path: precomputed LASSO/RF/SVM-RFE run (ml_features.rds / ml_features_noMHC.rds), served
@@ -597,11 +641,21 @@ mod_featureselection_server <- function(id, dataset, results) {
     output$project_source_ui <- renderUI({
       f_live <- results$candidates$female$genes
       m_live <- results$candidates$male$genes
-      has_live <- length(f_live) >= 2 && length(m_live) >= 2
+      has_sex_live <- length(f_live) >= 2 && length(m_live) >= 2
+      ## Pooled (no sex-stratified metadata) live panel from Candidate Gene
+      ## Identification - see project_candidate_genes("pooled") above for why
+      ## this is checked separately from the female/male panels.
+      cand_final <- results$candidates$final
+      has_pooled_live <- is.null(results$candidates$female) && is.null(results$candidates$male) &&
+        !is.null(cand_final) && identical(cand_final$selection, "pooled") && length(cand_final$genes) >= 2
+      has_live <- has_sex_live || has_pooled_live
       tagList(
-        if (has_live) {
+        if (has_sex_live) {
           div(class = "empty-note", icon("check"),
               sprintf("Using live candidates: %d female / %d male genes.", length(f_live), length(m_live)))
+        } else if (has_pooled_live) {
+          div(class = "empty-note", icon("check"),
+              sprintf("Using %d live pooled candidates (this dataset has no sex-stratified metadata).", length(cand_final$genes)))
         } else {
           div(class = "empty-note", icon("circle-info"),
               "No live candidates yet - run Candidate Gene Identification first, or use the bundled example lists below.")
@@ -651,7 +705,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           if (big) sprintf(" Reduced to the top %d most variable genes per sex first.", FS_MAX_CANDIDATE_GENES) else ""
         )))
       }
-      if (!isTRUE(grepl("^Example dataset:", dataset$source %||% ""))) {
+      if (!isTRUE(dataset$is_bundled_reference)) {
         return(note("clock", "A non-default dataset is loaded, so this runs live."))
       }
       if (fs_any_customized()) {
@@ -716,7 +770,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       use_fast_path <- identical(input$data_source, "project") &&
         !isTRUE(cand_project$is_live) && !any_customized &&
         identical(input$ref_group, "HC") && identical(input$comp_group, "RA") &&
-        isTRUE(grepl("^Example dataset:", dataset$source %||% ""))
+        isTRUE(dataset$is_bundled_reference)
 
       if (use_fast_path) {
         fit <- load_precomputed_fs(sex_label, isTRUE(input$mhc_exclude))
@@ -875,26 +929,10 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(fs_has_run())
       mod_featureselection_params_box(
         ns, "consensus", "Overlap",
-        "All three methods are intersected by default. Untick any to use a smaller subset, then re-run.",
+        "All three methods are intersected by default. Pick LASSO only, any two, or all three - the overlap below updates instantly, no re-run needed.",
         checkboxGroupInput(ns("consensus_methods"), "Methods to intersect",
                             choices = c("LASSO" = "LASSO", "Random Forest" = "RandomForest", "SVM-RFE" = "SVM_RFE"),
                             selected = c("LASSO", "RandomForest", "SVM_RFE"), inline = TRUE)
-      )
-    })
-
-    output$references_box_ui <- renderUI({
-      req(fs_has_run())
-      box(
-        width = 12, title = "References", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Background reading for the methods used on this tab."),
-        tags$ul(
-          class = "dge-ref-list",
-          tags$li(strong("LASSO (glmnet): "), "Friedman J, Hastie T, Tibshirani R (2010). Regularization Paths for Generalized Linear Models via Coordinate Descent. ", tags$em("Journal of Statistical Software"), ", 33(1)."),
-          tags$li(strong("Random forests: "), "Breiman L (2001). Random Forests. ", tags$em("Machine Learning"), ", 45, 5-32; and Liaw A, Wiener M (2002). Classification and Regression by randomForest. ", tags$em("R News"), ", 2(3)."),
-          tags$li(strong("SVM-RFE: "), "Guyon I, Weston J, Barnhill S, Vapnik V (2002). Gene Selection for Cancer Classification using Support Vector Machines. ", tags$em("Machine Learning"), ", 46, 389-422."),
-          tags$li(strong("caret (hyperparameter tuning): "), "Kuhn M (2008). Building Predictive Models in R Using the caret Package. ", tags$em("Journal of Statistical Software"), ", 28(5).")
-        ),
-        p(class = "submodule-desc", strong("Ask ArthOChat"), " above for a plain-language walkthrough of any method on this page.")
       )
     })
 
@@ -1147,22 +1185,30 @@ mod_featureselection_server <- function(id, dataset, results) {
         }
       )
 
-      # Consensus/Overlap - Venn, wording, and table all key off r$consensus_methods so a 2-method
-      # selection renders a genuine 2-circle Venn rather than a hardcoded 3-way intersection
+      # Consensus/Overlap - live-reactive to the "Methods to intersect" checkboxes
+      # (input$consensus_methods) so picking LASSO only, any two, or all three
+      # re-intersects the already-fitted r$sets instantly, with no re-run needed.
       method_labels <- c(LASSO = "LASSO", RandomForest = "Random Forest", SVM_RFE = "SVM-RFE")
+      consensus_used_methods <- function(r) {
+        chosen <- intersect(input$consensus_methods %||% names(r$sets), names(r$sets))
+        if (length(chosen) == 0) names(r$sets) else chosen
+      }
+      consensus_used_genes <- function(r, used) Reduce(intersect, r$sets[used])
       consensus_venn_obj <- reactive({
         r <- res()
         req(r)
-        used <- r$consensus_methods %||% names(r$sets)
-        draw_overlap_venn(r$sets[used], title = sprintf("%s: %d-gene consensus", tools::toTitleCase(sex_label), length(r$consensus)), fill_high = sex_color)
+        used <- consensus_used_methods(r)
+        genes <- consensus_used_genes(r, used)
+        draw_overlap_venn(r$sets[used], title = sprintf("%s: %d-gene consensus", tools::toTitleCase(sex_label), length(genes)), fill_high = sex_color)
       })
       output[[paste0(sex_label, "_consensus_summary")]] <- renderUI({
         r <- res()
         if (is.null(r)) return(not_yet_note())
-        used <- r$consensus_methods %||% names(r$sets)
+        used <- consensus_used_methods(r)
+        genes <- consensus_used_genes(r, used)
         tagList(
-          p(strong(length(r$consensus)), sprintf(" genes selected by %s: ", paste(unname(method_labels[used]), collapse = " ∩ ")),
-            if (length(r$consensus) > 0) paste(r$consensus, collapse = ", ") else "none", "."),
+          p(strong(length(genes)), sprintf(" genes selected by %s: ", paste(unname(method_labels[used]), collapse = " ∩ ")),
+            if (length(genes) > 0) paste(genes, collapse = ", ") else "none", "."),
           p(class = "submodule-desc", r$candidate_note)
         )
       })
@@ -1170,11 +1216,13 @@ mod_featureselection_server <- function(id, dataset, results) {
       output[[paste0(sex_label, "_consensus_table")]] <- DT::renderDataTable({
         r <- res()
         req(r)
+        used <- consensus_used_methods(r)
+        genes <- consensus_used_genes(r, used)
         df <- data.frame(gene = union(union(r$lasso_genes, r$rf_genes), r$svm_genes), stringsAsFactors = FALSE)
         df$lasso <- df$gene %in% r$lasso_genes
         df$random_forest <- df$gene %in% r$rf_genes
         df$svm_rfe <- df$gene %in% r$svm_genes
-        df$consensus <- df$gene %in% r$consensus
+        df$consensus <- df$gene %in% genes
         df <- df[order(-df$consensus, df$gene), ]
         DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
       })
@@ -1182,11 +1230,13 @@ mod_featureselection_server <- function(id, dataset, results) {
         filename = function() sprintf("%s_consensus_genes.csv", sex_label),
         content = function(file) {
           r <- res()
+          used <- consensus_used_methods(r)
+          genes <- consensus_used_genes(r, used)
           df <- data.frame(gene = union(union(r$lasso_genes, r$rf_genes), r$svm_genes), stringsAsFactors = FALSE)
           df$lasso <- df$gene %in% r$lasso_genes
           df$random_forest <- df$gene %in% r$rf_genes
           df$svm_rfe <- df$gene %in% r$svm_genes
-          df$consensus <- df$gene %in% r$consensus
+          df$consensus <- df$gene %in% genes
           write.csv(df, file, row.names = FALSE)
         }
       )

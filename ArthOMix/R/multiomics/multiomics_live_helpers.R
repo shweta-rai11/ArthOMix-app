@@ -249,6 +249,33 @@ multi_live_validate_matrix <- function(mat, layer_label = "layer") {
   )
 }
 
+## Structural (not filename-based) omics-type detection: feature ID pattern
+## (mcc_detect_id_type(), multiomics_concordance_live_helpers.R - already
+## distinguishes Illumina CpG probe IDs from gene/Ensembl/Entrez IDs) plus
+## value-range shape (mcc_detect_methylation_value_type() - beta/M-value vs.
+## other). Report-only: never transforms data, only says what the structure
+## looks like and flags a mismatch for the caller to surface, so a user's
+## own omics-type selection is corroborated rather than silently trusted or
+## silently overridden.
+multi_live_detect_omics_type <- function(mat) {
+  if (is.null(mat) || !is.matrix(mat) || ncol(mat) == 0) return(list(ok = FALSE, detected = "unclassifiable", id_type = NA_character_, value_type = NA_character_, reason = "No feature columns to inspect."))
+  id_type <- mcc_detect_id_type(colnames(mat))
+  value_type <- mcc_detect_methylation_value_type(mat)
+  detected <- if (identical(id_type, "Illumina CpG probe ID")) "methylation"
+    else if (id_type %in% c("Gene symbol", "Ensembl Gene ID", "Entrez ID")) "rnaseq"
+    else "unclassifiable"
+  corroborated <- !(
+    (identical(detected, "methylation") && !value_type %in% c("beta", "M-value")) ||
+    (identical(detected, "rnaseq") && identical(value_type, "beta"))
+  )
+  list(
+    ok = !identical(detected, "unclassifiable"),
+    detected = detected, id_type = id_type, value_type = value_type,
+    corroborated = corroborated,
+    reason = sprintf("Feature IDs look like %s; value range looks like %s.", id_type, value_type)
+  )
+}
+
 ## Builds the "Omics | Samples | Features | Missing % | Zero variance |
 ## Duplicate IDs" summary table (spec section 3), from real per-layer
 ## validation results, never hardcoded.
@@ -403,12 +430,19 @@ multi_live_pca <- function(mat) {
 
 ## Batch-vs-phenotype confounding check (spec section 8-9: warn before
 ## "correcting away" real biology) - a plain contingency-table association
-## test, not a claim of causality.
+## test, not a claim of causality. `confounded` is driven by the structural
+## signal the spec's own example describes ("Batch 1 = all controls" - at
+## least one batch level maps to exactly one phenotype level, so batch and
+## phenotype cannot be told apart for it); the chi-square p-value is
+## reported alongside as context, not used to gate the flag - requiring
+## p > 0.05 here previously meant a textbook complete-confounding case
+## (which drives p toward 0, a highly significant association) was never
+## actually flagged.
 multi_live_confounding_check <- function(meta, batch_col, phenotype_col) {
   if (is.null(meta) || !all(c(batch_col, phenotype_col) %in% colnames(meta))) return(NULL)
   tab <- table(meta[[batch_col]], meta[[phenotype_col]])
   p <- tryCatch(stats::chisq.test(tab, simulate.p.value = TRUE, B = 2000)$p.value, error = function(e) NA_real_)
-  list(table = tab, p_value = p, confounded = !is.na(p) && p > 0.05 && any(rowSums(tab > 0) == 1))
+  list(table = tab, p_value = p, confounded = any(rowSums(tab > 0) == 1))
 }
 
 ## Variance in PC1/PC2 explained by batch vs. by phenotype (spec section 9's
@@ -443,6 +477,23 @@ multi_live_batch_correct <- function(mat, batch, method = c("combat", "limma"), 
   }, error = function(e) e)
   if (inherits(out, "error")) return(list(ok = FALSE, mat = NULL, error = paste("Batch correction failed:", conditionMessage(out))))
   list(ok = TRUE, mat = t(out), error = NULL, method = method)
+}
+
+## Sample-by-sample correlation for ONE matrix (batch-diagnostics before/
+## after view, not the cross-omics feature-by-feature correlation below) -
+## capped to `max_samples` rows for legibility, reshaped into the same
+## long-format columns (featureA/featureB/r) multi_live_correlation_heatmap_
+## plot() already expects, so that plotting function is reused unchanged.
+multi_live_sample_correlation_data <- function(mat, method = c("pearson", "spearman"), max_samples = 60) {
+  method <- match.arg(method)
+  if (is.null(mat) || nrow(mat) < 3) return(list(ok = FALSE, error = "Fewer than 3 samples to correlate."))
+  truncated <- nrow(mat) > max_samples
+  if (truncated) mat <- mat[seq_len(max_samples), , drop = FALSE]
+  cm <- tryCatch(stats::cor(t(mat), method = method, use = "pairwise.complete.obs"), error = function(e) NULL)
+  if (is.null(cm)) return(list(ok = FALSE, error = "Sample correlation could not be computed."))
+  df <- as.data.frame(as.table(cm))
+  colnames(df) <- c("featureA", "featureB", "r")
+  list(ok = TRUE, df = df, truncated = truncated, n_samples = nrow(mat))
 }
 
 ## ---------------------------------------------------------------------------
@@ -679,7 +730,7 @@ multi_geo_layer_fetch <- function(accession) {
 multi_geo_platform_matrix <- function(eset, collapse_genes = TRUE) {
   ex <- tryCatch(Biobase::exprs(eset), error = function(e) NULL)
   if (is.null(ex) || nrow(ex) == 0 || ncol(ex) == 0) {
-    return(list(ok = FALSE, error = "This GEO series has no expression matrix in its series matrix file. Download the raw/supplementary file and upload it as a dataset instead."))
+    return(list(ok = FALSE, error = "No expression matrix here - download the raw file and upload it instead."))
   }
   used_collapse <- FALSE
   if (isTRUE(collapse_genes)) {

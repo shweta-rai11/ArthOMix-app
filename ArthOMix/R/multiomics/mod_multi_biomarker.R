@@ -41,7 +41,7 @@ mod_multi_biomarker_ui <- function(id) {
         box(
           width = NULL, title = "1. Data source", status = "primary", solidHeader = FALSE,
           radioButtons(ns("data_source"), "Data source",
-                       choices = c("Active Multi-Omics Dataset (Dataset Workspace)" = "active", "Preloaded RA anti-TNF cohort - live recompute" = "preloaded"),
+                       choices = c("Active Multi-Omics Dataset (Dataset Workspace)" = "active", "Reference / Example Dataset (RA anti-TNF cohort)" = "preloaded"),
                        selected = "active", inline = TRUE),
           conditionalPanel(condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
                             selectInput(ns("preloaded_cell"), "Analysis cell", choices = MULTI_CELL_CHOICES, width = "100%")),

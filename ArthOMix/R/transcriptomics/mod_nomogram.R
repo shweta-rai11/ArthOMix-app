@@ -210,11 +210,7 @@ mod_nomogram_ui <- function(id) {
             uiOutput(ns("preset_panel_ui")),
             conditionalPanel(
               condition = sprintf("input['%s'] == 'own'", ns("gene_source")),
-              radioButtons(
-                ns("own_cohort"), "Fit & evaluate on",
-                choiceNames = list("Same-tissue (blood, current dataset)", "Cross-tissue (synovium, GSE89408)"),
-                choiceValues = list("blood", "synovium"), selected = "blood"
-              ),
+              uiOutput(ns("own_cohort_ui")),
               textAreaInput(ns("gene_list"), "Gene panel (2-12 genes; this project's own panels use 4-7)", rows = 5, placeholder = "TNF\nIL6\nSTAT3\n...")
             ),
             tags$hr(),
@@ -342,7 +338,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
-      if (!is.null(bundled_venn)) {
+      if (!is.null(bundled_venn) && isTRUE(dataset$is_bundled_reference)) {
         genes <- unique(bundled_venn$gene[
           bundled_venn$candidate_set == "noMHC" & bundled_venn$sex == sex_label &
           as.character(bundled_venn$in_consensus) == "TRUE"
@@ -352,7 +348,8 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
             note = sprintf("%d genes - this project's bundled %s diagnostic consensus panel (MHC-excluded).", length(genes), sex_label)))
         }
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s panel available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No live %s panel yet - run Feature Selection on the currently loaded dataset first.", sex_label))
     }
 
     nom_cross_tissue_panel <- function(sex_label) {
@@ -376,18 +373,36 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Cross-Ancestry replicated-biomarker list.", length(live))))
       }
-      bundled <- read_table_safe(sprintf("MR35_crossancestry_%s.csv", sex_label))
-      if (!is.null(bundled)) {
-        genes <- unique(bundled$gene[bundled$ancestry_class == "shared EUR+EAS"])
-        if (length(genes) >= 2) {
-          return(list(genes = genes, is_live = FALSE,
-            note = sprintf("%d genes - replicated in European AND transferable to East-Asian ancestry GWAS (this project's bundled %s cross-ancestry table).", length(genes), sex_label)))
+      if (isTRUE(dataset$is_bundled_reference)) {
+        bundled <- read_table_safe(sprintf("MR35_crossancestry_%s.csv", sex_label))
+        if (!is.null(bundled)) {
+          genes <- unique(bundled$gene[bundled$ancestry_class == "shared EUR+EAS"])
+          if (length(genes) >= 2) {
+            return(list(genes = genes, is_live = FALSE,
+              note = sprintf("%d genes - replicated in European AND transferable to East-Asian ancestry GWAS (this project's bundled %s cross-ancestry table).", length(genes), sex_label)))
+          }
         }
       }
-      list(genes = character(0), is_live = FALSE, note = sprintf("No %s panel available.", sex_label))
+      list(genes = character(0), is_live = FALSE,
+           note = sprintf("No live %s panel yet - run Cross-Ancestry MR on the currently loaded dataset first.", sex_label))
     }
 
     panel_fns <- list(same_tissue = nom_same_tissue_panel, cross_tissue = nom_cross_tissue_panel, cross_ancestry = nom_cross_ancestry_panel)
+
+    ## GSE89408 is a fixed bundled synovial cohort, unrelated to whatever the
+    ## user just fetched from NCBI GEO - offering it as a "Fit & evaluate on"
+    ## choice only makes sense when the loaded dataset is itself blood (the
+    ## preloaded/uploaded case). For a GEO fetch, skip the choice entirely;
+    ## current_cohort() below already falls back to "blood" (the fetched
+    ## dataset) when input$own_cohort is absent.
+    output$own_cohort_ui <- renderUI({
+      if (identical(dataset$source_type, "geo")) return(NULL)
+      radioButtons(
+        ns("own_cohort"), "Fit & evaluate on",
+        choiceNames = list("Same-tissue (blood, current dataset)", "Cross-tissue (synovium, GSE89408)"),
+        choiceValues = list("blood", "synovium"), selected = "blood"
+      )
+    })
 
     output$preset_panel_ui <- renderUI({
       src <- input$gene_source %||% "own"

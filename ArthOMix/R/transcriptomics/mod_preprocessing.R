@@ -25,11 +25,17 @@ mod_pp_field_hint <- function(text) {
 }
 
 ## Name-based column guesser, shared by mod_pp_source_server's colmap and the batch-upload path.
+## Term-by-term, not one combined OR regex checked column-by-column - see
+## mod_dataset.R's guess_col() for why that distinction matters in practice.
 pp_guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
-  hit <- cols[tolower(cols) %in% tolower(exact)]
-  if (length(hit) > 0) return(hit[1])
-  hit <- cols[grepl(paste(contains, collapse = "|"), cols, ignore.case = TRUE)]
-  if (length(hit) > 0) return(hit[1])
+  for (term in exact) {
+    hit <- cols[tolower(cols) == tolower(term)]
+    if (length(hit) > 0) return(hit[1])
+  }
+  for (term in contains) {
+    hit <- cols[grepl(term, cols, ignore.case = TRUE)]
+    if (length(hit) > 0) return(hit[1])
+  }
   fallback
 }
 
@@ -567,6 +573,77 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
+    ## Merge Datasets/Batch Correction/Data Exploration assume a multi-batch/
+    ## preloaded-style workflow that doesn't apply to a single uploaded or
+    ## single fetched-GEO dataset - hidden whenever upload or GEO fetch is
+    ## the active pipeline; visible again for preloaded, where the app's own
+    ## multi-cohort merge/batch-correction workflow still applies.
+    ## Preprocessing's own per-source "Data source" radio (upload/bundled
+    ## cohort/currently loaded) is untouched - that picker is this tab's own
+    ## general utility for feeding *any* source into a merge, independent of
+    ## which of the 3 top-level Dataset-tab pipelines is currently active.
+    ##
+    ## This sub-module's own tabsetPanel (ns("tabs")) isn't necessarily in the
+    ## DOM yet when this observer fires - every TX sub-module's server() runs
+    ## immediately for every session, but its UI is only actually inserted
+    ## later, on demand, via the Sub-modules grid's "Add" button, and in the
+    ## common flow (load GEO/upload data from the Dataset tab, *then* go add
+    ## Preprocessing from Sub-modules afterward) that can be well after this
+    ## observer already fired once for the current source_type - a one-shot
+    ## bounded retry here previously gave up after ~6s and never got another
+    ## chance to apply, so a Preprocessing module added later always rendered
+    ## with every tab visible regardless of source_type. shiny::hideTab()/
+    ## showTab() hard-throw a client JS error ("There is no tabsetPanel...")
+    ## if their target isn't present yet - confirmed live, this fired on
+    ## every single session at startup before this sub-module had ever been
+    ## added. Plain jQuery does not have that problem (an empty selection's
+    ## .hide()/.show() is a normal no-op), so drive this via shinyjs::runjs()
+    ## instead: apply immediately if the tabset already exists, otherwise
+    ## watch for it via MutationObserver (unbounded, unlike the old fixed
+    ## retry) so it fires correctly no matter how much later the module gets
+    ## added, then disconnect once applied.
+    observeEvent(dataset$source_type, {
+      hide <- dataset$source_type %in% c("uploaded", "geo")
+      shinyjs::runjs(sprintf(
+        "(function(){
+           var sel = '#%s';
+           var hide = %s;
+           function applyVisibility(tabset) {
+             var targets = ['Merge datasets', 'Batch correction', 'Explore'];
+             var lis = targets.map(function(v){ return tabset.find('a[data-value=\"' + v + '\"]').closest('li'); });
+             if (!lis.some(function(li){ return li.length; })) return;
+             if (hide) {
+               var activeHidden = lis.some(function(li){ return li.hasClass('active'); });
+               if (activeHidden) tabset.find('a[data-value=\"Preprocessing\"]').tab('show');
+               lis.forEach(function(li){ li.hide(); });
+             } else {
+               lis.forEach(function(li){ li.show(); });
+             }
+           }
+           var existing = $(sel);
+           if (existing.length) { applyVisibility(existing); return; }
+           var observer = new MutationObserver(function(){
+             var tabset = $(sel);
+             if (tabset.length) { observer.disconnect(); applyVisibility(tabset); }
+           });
+           observer.observe(document.body, { childList: true, subtree: true });
+           setTimeout(function(){ observer.disconnect(); }, 600000);
+         })();",
+        ns("tabs"), if (hide) "true" else "false"
+      ))
+    }, ignoreNULL = FALSE)
+
+    ## merged()/result() below are eventReactive-driven - they only (re)compute
+    ## on their own explicit Merge/Batch-correct button click, never silently,
+    ## so switching the active pipeline can't make them display a mix of
+    ## datasets. Their own per-source picker's "Currently loaded dataset"
+    ## option (mod_pp_source_server's current_source(), used by both) already
+    ## reads dataset$staged_expr/dataset$expr fresh on every click - the same
+    ## explicit re-run contract every other Run button in this app already
+    ## has (DE, WGCNA, ...), not something new introduced here. The Merge/
+    ## Batch tabs themselves are hidden entirely for the uploaded pipeline
+    ## (above), so there's no exposure there either.
+
     ## Progress signal for the right-column "Pipeline summary" timeline; each step only
     ## advances on its own explicit button click (preprocess / merge / batch-correct).
     pp_progress <- reactive({
@@ -646,8 +723,12 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
     output$preloaded_status_ui <- renderUI({
       if (is.null(input$preloaded_run) || input$preloaded_run == 0) {
-        return(p(class = "empty-note", icon("circle-info"),
-                  "Select one or more cohorts above, then click \"Load and Preprocess Selected Cohorts\"."))
+        msg <- if (dataset$source_type %in% c("geo", "uploaded")) {
+          "Click \"Preprocess\" to run it on the currently loaded dataset."
+        } else {
+          "Select one or more cohorts above, then click \"Load and Preprocess Selected Cohorts\"."
+        }
+        return(p(class = "empty-note", icon("circle-info"), msg))
       }
       res <- preloaded_results()
       if (is.null(res)) {
@@ -668,8 +749,48 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       }))
     })
 
+    ## GEO-fetch and upload pipelines: each is a single already-loaded dataset, so the
+    ## bundled-cohort picker and the own-upload box (both aimed at building a multi-cohort
+    ## merge) would only confuse - just preprocess the currently loaded dataset in place.
+    ## Fixed hidden "__current__" selection keeps preloaded_run/preloaded_results/
+    ## pp_preloaded_read (used by the "preloaded" pipeline's full UI below) completely
+    ## unchanged.
+    output$single_dataset_note <- renderUI({
+      if (is.null(dataset$expr)) {
+        return(div(class = "empty-note", icon("triangle-exclamation"),
+                    if (identical(dataset$source_type, "uploaded"))
+                      "Nothing is currently loaded. Upload a dataset on the Dataset tab first."
+                    else
+                      "Nothing is currently loaded. Fetch a GEO series on the Dataset tab first."))
+      }
+      div(class = "empty-note", icon("check"),
+          sprintf("Using %s: %s genes x %s samples.", dataset$source %||% "Currently Loaded Dataset",
+                   format(nrow(dataset$expr), big.mark = ","), ncol(dataset$expr)))
+    })
+
     ## Feeds merge_inputs() below: pick bundled cohorts or the currently-loaded dataset, no upload here.
     output$preprocessing_tab_ui <- renderUI({
+      if (dataset$source_type %in% c("geo", "uploaded")) {
+        is_upload <- identical(dataset$source_type, "uploaded")
+        return(box(
+          width = 12,
+          title = tagList(icon("broom"), if (is_upload) " Preprocess Uploaded Data" else " Preprocess Fetched GEO Data"),
+          status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc",
+            if (is_upload)
+              "Preprocesses the dataset uploaded on the Dataset tab. A single uploaded dataset is already one dataset, so merging and batch correction don't apply here."
+            else
+              "Preprocesses the dataset fetched from NCBI GEO on the Dataset tab. A single fetched series is already one dataset, so merging and batch correction don't apply here."),
+          uiOutput(ns("single_dataset_note")),
+          shinyjs::hidden(checkboxGroupInput(ns("preloaded_selected"), "Cohorts",
+                              choices = c("Currently Loaded Dataset" = "__current__"), selected = "__current__")),
+          radioButtons(ns("preloaded_log2"), "Log2 Transform",
+                       choiceNames = list("Auto-detect (recommended)", "Force log2", "Skip (raw RNA-seq counts)"),
+                       choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
+          actionButton(ns("preloaded_run"), "Preprocess", icon = icon("play"), class = "btn-primary btn-sm"),
+          div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui")))
+        ))
+      }
       tagList(
         box(
           width = 12, title = tagList(icon("database"), " Preloaded Data"), status = "primary", solidHeader = FALSE,
@@ -1345,7 +1466,17 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             cs_covar_mod <- if (length(cs_covar_cols) > 0) {
               meta_mod <- meta
               for (cl in cs_covar_cols) meta_mod[[cl]] <- ifelse(is.na(meta_mod[[cl]]), "Unknown", meta_mod[[cl]])
-              stats::model.matrix(stats::as.formula(paste("~", paste(cs_covar_cols, collapse = " + "))), data = meta_mod)
+              ## Backtick-quoted, not renamed - real GEO metadata column names
+              ## routinely contain spaces/colons (e.g. "disease state:ch1"),
+              ## which as.formula() can't parse unquoted; confirmed live this
+              ## crashed the whole ComBat-seq run for exactly such a column
+              ## selected as a covariate to protect. Backticks let the column
+              ## keep its real name in meta_mod (still matched by name), just
+              ## quoted for the formula parser - no make.names()-style
+              ## relabeling needed since nothing downstream needs to display
+              ## these formula terms.
+              covar_terms <- paste0("`", cs_covar_cols, "`")
+              stats::model.matrix(stats::as.formula(paste("~", paste(covar_terms, collapse = " + "))), data = meta_mod)
             } else {
               NULL
             }
@@ -1441,7 +1572,11 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           mod <- if (length(protect) > 0) {
             meta_mod <- meta
             for (cl in protect) meta_mod[[cl]] <- ifelse(is.na(meta_mod[[cl]]), "Unknown", meta_mod[[cl]])
-            stats::model.matrix(stats::as.formula(paste("~", paste(protect, collapse = " + "))), data = meta_mod)
+            ## Backtick-quoted, not renamed - see the identical fix + comment
+            ## on cs_covar_mod above (ComBat-seq path); same crash, same fix,
+            ## for ComBat's own "protect" covariates.
+            protect_terms <- paste0("`", protect, "`")
+            stats::model.matrix(stats::as.formula(paste("~", paste(protect_terms, collapse = " + "))), data = meta_mod)
           } else {
             NULL
           }
@@ -1735,18 +1870,31 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       res <- result()
       dataset$expr <- res$expr_combat
       dataset$meta <- res$meta
-      ## dataset_is_uploaded()-style checks elsewhere (mod_wgcna.R, mod_candidates.R,
-      ## mod_overview.R) key off a "^Uploaded dataset" prefix to distinguish this
-      ## project's own data from a user's. res$sources traces back through
+      ## Other modules key their own "is this the app's default reference cohort"
+      ## checks off dataset$is_bundled_reference now (set below), not this label
+      ## string - but the label itself still needs to say "Uploaded"/"Preloaded"
+      ## accurately for display, so this file keeps its own prefix logic.
+      ## res$sources traces back through
       ## merged()/pp_preloaded_read() to each component's own staged label, so it
       ## already contains "Uploaded dataset:"/"NCBI GEO:" iff a component actually
       ## came from the Dataset tab's upload or GEO-fetch - a run built entirely from
       ## bundled cohorts (either merge_mode) must not be labelled as an upload just
       ## because it passed through this preprocessing/batch-correction step.
-      was_uploaded <- grepl("Uploaded dataset:|NCBI GEO:", res$sources %||% "")
-      dataset$source <- paste0(if (was_uploaded) "Uploaded dataset (preprocessed + " else "Preloaded dataset (preprocessed + ",
+      was_uploaded <- grepl("Uploaded dataset:", res$sources %||% "")
+      was_geo <- !was_uploaded && grepl("NCBI GEO:", res$sources %||% "")
+      dataset$source <- paste0(if (was_uploaded || was_geo) "Uploaded dataset (preprocessed + " else "Preloaded dataset (preprocessed + ",
                                 if (isTRUE(res$skip_combat)) "normalised" else "batch-corrected", "): ",
                                 res$sources %||% "your data")
+      ## Preserves provenance through the merge/batch-correction step - a run
+      ## built entirely from bundled cohorts stays "preloaded"; any component
+      ## traced back to the Dataset tab's upload or GEO fetch makes the whole
+      ## result "uploaded"/"geo" (same substring logic was_uploaded/was_geo
+      ## above already use). Never bundled-reference once processed here - the
+      ## project's own precomputed panel/result CSVs were computed by a
+      ## different pipeline than this live merge/batch-correction UI, so they
+      ## no longer apply even if the input was the exact default cohort.
+      dataset$source_type <- if (was_uploaded) "uploaded" else if (was_geo) "geo" else "preloaded"
+      dataset$is_bundled_reference <- FALSE
       output$activate_status_ui <- renderUI(
         div(class = "empty-note", icon("check"), "This is now the active dataset. Every other sub-module will use it.")
       )
