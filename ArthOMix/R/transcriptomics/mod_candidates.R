@@ -173,7 +173,7 @@ mod_candidates_server <- function(id, dataset, results) {
       req(!isTRUE(dataset$is_bundled_reference))
       box(
         width = 12, title = "Narrow further with a gene panel (optional)", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Off by default - the module/DEG overlap above is unchanged unless you pick a panel here. When set, candidates are additionally intersected with this gene list, e.g. narrowing a general disease-module overlap down to genes in a specific biological process (ferroptosis, autophagy, whatever the panel covers) - the same 3-way intersection a published study's own curated gene list would apply."),
+        p(class = "submodule-desc", "Off by default - the module/DEG overlap above is unchanged unless you pick a panel here. When set, it narrows the overlap to genes in a specific biological process or panel."),
         uiOutput(ns("gene_panel_picker_ui"))
       )
     })
@@ -491,6 +491,13 @@ mod_candidates_server <- function(id, dataset, results) {
     ## from whichever mode is actually active (sex_available()) - the other mode's
     ## reactives never fire since their buttons were never rendered into the DOM.
     observe({
+      ## Prereq gate: after a dataset switch the run-button eventReactives below still
+      ## hold the previous dataset's cached results, so never republish them.
+      pr <- prereqs()
+      if (!isTRUE(pr$wgcna_ok) || !isTRUE(pr$dge_ok)) {
+        results$candidates <- NULL
+        return()
+      }
       fc <- tryCatch(refined_final(), error = function(e) NULL)
       if (isTRUE(sex_available())) {
         fr <- tryCatch(female_result(), error = function(e) NULL)

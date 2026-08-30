@@ -95,11 +95,23 @@ function(input, output, session) {
     ## tool. Deliberately independent of `beta` (still NULL in preloaded
     ## mode - see METH_DATA_ROOT's comment in global.R for why the ~2.1GB
     ## QC'd matrix isn't bundled).
-    preloaded = FALSE
+    preloaded = FALSE,
+    ## Which of the three Dataset-tab pipelines is currently active -
+    ## "preloaded"/"upload"/"geo". `preloaded` above only distinguishes
+    ## preloaded-vs-not, so upload and GEO were previously indistinguishable
+    ## downstream; sub-modules that need to tell them apart read this instead.
+    source_type = NULL
   )
   methyl_results <- reactiveValues()
   mod_methyl_dataset_server("mx_dataset", methyl_dataset)
   lapply(MX_MODULES, function(m) m$server(paste0("mx_", m$config$id), methyl_dataset, methyl_results))
+  ## Switching pipelines invalidates any cross-module cached result (e.g. a
+  ## live WGCNA/DMR run published for Candidate CpGs to pick up) so nothing
+  ## from the previous pipeline lingers - mirrors the transcriptomics
+  ## `results` reset keyed on `dataset$source` in this same file.
+  observeEvent(methyl_dataset$source, {
+    for (nm in names(methyl_results)) methyl_results[[nm]] <- NULL
+  }, ignoreInit = TRUE)
 
   ## ---- Cross-Omics: shared dataset + computed-results store, separate
   ## from `dataset`/`methyl_dataset` above - starts NULL until the
@@ -152,6 +164,12 @@ function(input, output, session) {
   multi_results <- reactiveValues()
   mod_multi_dataset_server("mo_dataset", multi_dataset, multi_results)
   lapply(MULTI_MODULES, function(m) m$server(paste0("mo_", m$config$id), multi_dataset, multi_results))
+  ## Switching pipelines (or reactivating with new data) invalidates any
+  ## cross-module cached result, mirroring the transcriptomics `results`
+  ## reset keyed on `dataset$source` and methylomics' on `methyl_dataset$source`.
+  observeEvent(multi_dataset$source, {
+    for (nm in names(multi_results)) multi_results[[nm]] <- NULL
+  }, ignoreInit = TRUE)
 
   ## ---- ArthOChat: one shared assistant session for the whole app, living in
   ## its own slide-out drawer (see ui.R) rather than nested inside a

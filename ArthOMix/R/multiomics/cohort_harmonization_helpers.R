@@ -478,27 +478,3 @@ ch_evaluate_binary_outcome <- function(mat_list, y, k_folds = 5, seed = 1, max_f
     majority_baseline = as.numeric(max(prop.table(tab)))
   )
 }
-
-## Plain-language conclusion built only from the numbers actually computed
-## above - never a canned "significantly improves" claim (spec section 25).
-ch_honest_conclusion <- function(res) {
-  if (!isTRUE(res$ok)) return(sprintf("No reliable integrated prediction was performed: %s", res$error %||% "not available."))
-  lines <- sprintf("%d matched samples with a valid binary outcome, %d-fold cross-validation.", res$n, res$k_folds)
-  if (is.na(res$fused_auc)) {
-    return(paste(c(lines, "Fused model could not be evaluated (need at least 2 modalities with usable features)."), collapse = " "))
-  }
-  ci_txt <- if (!any(is.na(res$fused_ci))) sprintf(" [%.2f-%.2f]", res$fused_ci[1], res$fused_ci[2]) else ""
-  beats_chance <- !is.na(res$fused_ci[1]) && res$fused_ci[1] > 0.5
-  lines <- c(lines, sprintf("Integrated model: AUROC %.2f%s. Chance: AUROC 0.50.", res$fused_auc, ci_txt))
-  lines <- c(lines, sprintf("Evidence of improvement over chance: %s.", if (beats_chance) "Yes" else "No"))
-  if (!is.na(res$best_single_auc)) {
-    diff <- res$fused_auc - res$best_single_auc
-    p_txt <- if (!is.na(res$vs_single_p)) sprintf(" (DeLong p = %.3f)", res$vs_single_p) else ""
-    verdict <- if (!is.na(res$vs_single_p) && res$vs_single_p < 0.05 && diff > 0) "Evidence of improvement"
-      else if (diff > 0.03) "Weak evidence of improvement"
-      else "No convincing evidence of improvement"
-    lines <- c(lines, sprintf("Best single-omics model (%s): AUROC %.2f.", res$best_single, res$best_single_auc))
-    lines <- c(lines, sprintf("%s over the best single-omics model%s.", verdict, p_txt))
-  }
-  paste(lines, collapse = " ")
-}

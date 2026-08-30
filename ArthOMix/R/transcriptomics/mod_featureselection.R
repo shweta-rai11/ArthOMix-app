@@ -45,6 +45,20 @@ FS_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 ## genes first, in fs_build_sex() below, with a note shown on-screen.
 FS_MAX_CANDIDATE_GENES <- 200
 
+## Minimum samples required in EACH group (e.g. HC and RA, within one sex) for
+## LASSO/RF/SVM-RFE to fit at all - checked in fs_build_sex() below. fs_fit_sex()
+## already scales its own CV fold count down to whatever's actually available
+## (`nf <- max(2, min(cv_folds, min_class))`), so this floor exists only to stop
+## a fit degenerating to a near-meaningless 2-fold split (1 sample per class per
+## fold) - at 4, every method still gets at least a real 4-fold CV.
+FS_MIN_GROUP_SAMPLES <- 4
+
+## A second, higher bar purely for the UI caveat below FS_MIN_GROUP_SAMPLES - a
+## fit between the two thresholds runs (and its CV fold count is still valid),
+## but with fewer than this many samples in its smallest group, results should
+## be read as exploratory rather than a fit anyone should treat as final.
+FS_RELIABLE_GROUP_SAMPLES <- 6
+
 ## Default hyperparameters, matching this project's own analysis script;
 ## overridable per-method from the UI (see fs_fit_sex()'s `params`).
 FS_DEFAULT_PARAMS <- list(
@@ -208,11 +222,21 @@ fs_sex_panel <- function(ns, run_btn_id, ...) {
 }
 
 ## One technique's result box (summary/plot/table/download); instantiated per method x sex.
-mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height = 300) {
+## clickable = TRUE (used only for the Overlap/consensus panel, which draws a Venn
+## diagram whose regions correspond to real gene sets) wires the plot's click event
+## through to the server, so clicking a region can filter the table below to just
+## that region's genes - see the "_plot_click" observer in register_sex_technique_outputs().
+mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height = 300, clickable = FALSE) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
     withSpinner(uiOutput(ns(paste0(prefix, "_summary"))), color = "#2563EB", type = 6),
-    withSpinner(plotOutput(ns(paste0(prefix, "_plot")), height = plot_height), color = "#2563EB", type = 6),
+    withSpinner(
+      plotOutput(ns(paste0(prefix, "_plot")), height = plot_height,
+                 click = if (clickable) ns(paste0(prefix, "_plot_click")) else NULL),
+      color = "#2563EB", type = 6
+    ),
+    if (clickable) div(class = "empty-note", style = "margin-top: -4px; margin-bottom: 8px;", icon("hand-pointer"),
+                        "Click a region of the diagram to filter the table below to just that region's genes."),
     div(class = "table-toolbar", downloadButton(ns(paste0(prefix, "_download")), "Genes (CSV)", class = "btn-sm")),
     DT::dataTableOutput(ns(paste0(prefix, "_table")))
   )
@@ -325,9 +349,9 @@ mod_featureselection_ui <- function(id) {
                 actionButton(ns("lasso_show_btn"), "Show LASSO Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
             conditionalPanel(
               condition = sprintf("input['%s'] > 0", ns("lasso_show_btn")),
-              fluidRow(
-                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_lasso", "Female - LASSO"))),
-                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_lasso", "Male - LASSO")))
+              div(class = "fs-pair-row",
+                fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_lasso", "Female - LASSO")),
+                fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_lasso", "Male - LASSO"))
               ),
               fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_lasso", "Pooled (all) - LASSO"))))
             )
@@ -339,9 +363,9 @@ mod_featureselection_ui <- function(id) {
                 actionButton(ns("rf_show_btn"), "Show Random Forest Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
             conditionalPanel(
               condition = sprintf("input['%s'] > 0", ns("rf_show_btn")),
-              fluidRow(
-                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_rf", "Female - Random Forest"))),
-                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_rf", "Male - Random Forest")))
+              div(class = "fs-pair-row",
+                fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_rf", "Female - Random Forest")),
+                fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_rf", "Male - Random Forest"))
               ),
               fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_rf", "Pooled (all) - Random Forest"))))
             )
@@ -353,9 +377,9 @@ mod_featureselection_ui <- function(id) {
                 actionButton(ns("svm_show_btn"), "Show SVM-RFE Results", icon = icon("eye"), class = "btn-outline-primary btn-sm")),
             conditionalPanel(
               condition = sprintf("input['%s'] > 0", ns("svm_show_btn")),
-              fluidRow(
-                column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_svm", "Female - SVM-RFE"))),
-                column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_svm", "Male - SVM-RFE")))
+              div(class = "fs-pair-row",
+                fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_svm", "Female - SVM-RFE")),
+                fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_svm", "Male - SVM-RFE"))
               ),
               fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_svm", "Pooled (all) - SVM-RFE"))))
             )
@@ -363,11 +387,11 @@ mod_featureselection_ui <- function(id) {
           tabPanel(
             "Overlap", br(),
             uiOutput(ns("consensus_params_ui")),
-            fluidRow(
-              column(6, fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_consensus", "Female - Overlap", plot_height = 340))),
-              column(6, fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_consensus", "Male - Overlap", plot_height = 340)))
+            div(class = "fs-pair-row",
+              fs_sex_panel(ns, "run_female_btn", mod_featureselection_technique_panel(ns, "female_consensus", "Female - Overlap", plot_height = 340, clickable = TRUE)),
+              fs_sex_panel(ns, "run_male_btn", mod_featureselection_technique_panel(ns, "male_consensus", "Male - Overlap", plot_height = 340, clickable = TRUE))
             ),
-            fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_consensus", "Pooled (all) - Overlap", plot_height = 340))))
+            fluidRow(column(12, fs_sex_panel(ns, "run_pooled_btn", mod_featureselection_technique_panel(ns, "pooled_consensus", "Pooled (all) - Overlap", plot_height = 340, clickable = TRUE))))
           )
         ),
         box(
@@ -808,12 +832,17 @@ mod_featureselection_server <- function(id, dataset, results) {
 
       X <- t(expr_sub[genes, , drop = FALSE])
       y <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
-      validate(need(all(table(y) >= 6), sprintf("Each group needs at least 6 %s samples for feature selection.", sex_label)))
+      grp_counts <- table(y)
+      validate(need(all(grp_counts >= FS_MIN_GROUP_SAMPLES), sprintf(
+        "Each group needs at least %d %s samples for feature selection (this contrast has %s). This is about patients, not candidate genes - a larger candidate gene panel doesn't add patients to a group.",
+        FS_MIN_GROUP_SAMPLES, sex_label, paste(sprintf("%s = %d", names(grp_counts), as.integer(grp_counts)), collapse = ", ")
+      )))
 
       fit <- fs_fit_sex(X, y, params = adv_params)
       fit$candidate_note <- cand$note
       fit$n_ref <- sum(y == input$ref_group)
       fit$n_comp <- sum(y == input$comp_group)
+      fit$min_group_n <- min(grp_counts)
       fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
       fit$mhc_mode <- if (identical(input$data_source, "project")) (if (isTRUE(input$mhc_exclude)) "exclude" else "include") else "n/a"
       fit
@@ -831,19 +860,66 @@ mod_featureselection_server <- function(id, dataset, results) {
       fs_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
 
+    # Each fs_result_*() is an eventReactive, so it holds the fit from whichever dataset was loaded
+    # when its Run button was last clicked - switching datasets would otherwise leave that fit on
+    # screen labelled as the current one. Marked stale per sex here, cleared by that sex's own Run
+    # button below, and read by fs_result_or_null()/fs_result_error_msg() so every downstream
+    # summary/plot/table/Venn falls back to the "not run yet" empty state.
+    fs_stale <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
+    observeEvent(dataset$source, {
+      fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE
+    }, ignoreInit = TRUE)
+    fs_is_stale <- function(sex_label) isTRUE(fs_stale[[sex_label]])
+
+    # Reads one sex's fs_result_*() and returns its real validate()/need() failure message, or
+    # NULL if it hasn't failed. Distinguishes a genuine failure from "hasn't been run yet": both
+    # are eventReactive halts of the same shiny "validation" class, but eventReactive's own
+    # pre-first-click halt (ignoreInit's req(FALSE)) always carries an EMPTY message, while a
+    # validate(need(...)) failure inside fs_build_sex() always carries the real one - so
+    # `nzchar()` on the caught message tells them apart. Every other read of fs_result_*()
+    # elsewhere in this file (`tryCatch(..., error = function(e) NULL)`) collapsed both cases to
+    # NULL, which made a real failure (e.g. too few female samples for this contrast) look
+    # exactly like the button never having been clicked - the bug behind "Female result is not
+    # showing" with no indication why.
+    fs_result_error_msg <- function(sex_label) {
+      if (fs_is_stale(sex_label)) return(NULL)
+      fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
+      tryCatch({ fr(); NULL }, error = function(e) {
+        msg <- conditionMessage(e)
+        if (nzchar(msg)) msg else NULL
+      })
+    }
+
+    # Single stale-aware read of one sex's fit: NULL both when it has never been run and when the
+    # last run belongs to a dataset that is no longer loaded.
+    fs_result_or_null <- function(sex_label) {
+      if (fs_is_stale(sex_label)) return(NULL)
+      fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
+      tryCatch(fr(), error = function(e) NULL)
+    }
+
     # reveals the results area on the first Run click (stays visible after); raw id since shinyjs auto-namespaces
     fs_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_female_btn, {
       fs_has_run(TRUE)
+      fs_stale$female <- FALSE
       shinyjs::show(id = "fs_results_wrap")
+      err <- fs_result_error_msg("female")
+      if (!is.null(err)) showNotification(paste("Female feature selection failed:", err), type = "error", duration = 10)
     }, ignoreInit = TRUE)
     observeEvent(input$run_male_btn, {
       fs_has_run(TRUE)
+      fs_stale$male <- FALSE
       shinyjs::show(id = "fs_results_wrap")
+      err <- fs_result_error_msg("male")
+      if (!is.null(err)) showNotification(paste("Male feature selection failed:", err), type = "error", duration = 10)
     }, ignoreInit = TRUE)
     observeEvent(input$run_pooled_btn, {
       fs_has_run(TRUE)
+      fs_stale$pooled <- FALSE
       shinyjs::show(id = "fs_results_wrap")
+      err <- fs_result_error_msg("pooled")
+      if (!is.null(err)) showNotification(paste("Pooled feature selection failed:", err), type = "error", duration = 10)
     }, ignoreInit = TRUE)
 
     output$lasso_params_ui <- renderUI({
@@ -1025,62 +1101,92 @@ mod_featureselection_server <- function(id, dataset, results) {
     })
 
     output$saved_runs_ui <- renderUI({
-      res_f <- tryCatch(fs_result_female(), error = function(e) NULL)
-      res_m <- tryCatch(fs_result_male(), error = function(e) NULL)
-      res_p <- tryCatch(fs_result_pooled(), error = function(e) NULL)
-      status_row <- function(sex, r) {
-        if (is.null(r)) {
-          tags$li(icon("circle-minus", style = "color: #8A929C;"), sprintf(" %s feature selection - not run yet", sex))
+      res_f <- fs_result_or_null("female")
+      res_m <- fs_result_or_null("male")
+      res_p <- fs_result_or_null("pooled")
+      status_row <- function(sex, sex_label, r) {
+        if (!is.null(r)) {
+          ## Ran (cleared FS_MIN_GROUP_SAMPLES), but still below FS_RELIABLE_GROUP_SAMPLES -
+          ## flagged, not blocked, so a genuinely small group (e.g. 4-5 patients) still
+          ## produces a result, just clearly marked as exploratory.
+          low_n <- !isTRUE(r$fast_path) && !is.null(r$min_group_n) && r$min_group_n < FS_RELIABLE_GROUP_SAMPLES
+          return(tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s feature selection completed: ", sex)),
+                          sprintf("%d consensus genes%s", length(r$consensus), if (isTRUE(r$fast_path)) " (instant)" else " (live)"),
+                          if (low_n) span(style = "color: #b8860b;", sprintf(" - smallest group has only %d samples, treat as exploratory", r$min_group_n)) else NULL))
+        }
+        ## Real validate() failure (e.g. too few female samples) vs. genuinely never clicked -
+        ## see fs_result_error_msg() above; both used to render as this same "not run yet" row.
+        err <- fs_result_error_msg(sex_label)
+        if (!is.null(err)) {
+          tags$li(icon("triangle-exclamation", style = "color: #c0392b;"), strong(sprintf(" %s feature selection failed: ", sex)), err)
         } else {
-          tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s feature selection completed: ", sex)),
-                  sprintf("%d consensus genes%s", length(r$consensus), if (isTRUE(r$fast_path)) " (instant)" else " (live)"))
+          tags$li(icon("circle-minus", style = "color: #8A929C;"), sprintf(" %s feature selection - not run yet", sex))
         }
       }
       tagList(
         p(class = "submodule-desc", style = "margin-bottom: 4px;", "Status:"),
         tags$ul(style = "padding-left: 18px; margin-bottom: 0; list-style: none;",
-                status_row("Female", res_f),
-                status_row("Male", res_m),
-                status_row("Pooled (all)", res_p))
+                status_row("Female", "female", res_f),
+                status_row("Male", "male", res_m),
+                status_row("Pooled (all)", "pooled", res_p))
       )
     })
 
     # renders each sex's summary line independently, showing "not run yet" for the others
     output$summary_ui <- renderUI({
-      res_f <- tryCatch(fs_result_female(), error = function(e) NULL)
-      res_m <- tryCatch(fs_result_male(), error = function(e) NULL)
-      res_p <- tryCatch(fs_result_pooled(), error = function(e) NULL)
+      res_f <- fs_result_or_null("female")
+      res_m <- fs_result_or_null("male")
+      res_p <- fs_result_or_null("pooled")
       mhc_mode <- if (identical(input$data_source, "project")) (if (isTRUE(input$mhc_exclude)) "exclude" else "include") else "n/a"
-      sex_line <- function(sex, r) {
-        if (is.null(r)) return(p(strong(sprintf("%s: ", sex)), "not run yet."))
-        p(strong(sprintf("%s: ", sex)),
-          if (isTRUE(r$fast_path)) icon("bolt") else NULL,
-          sprintf(" %d candidate genes, %d samples (%d vs %d) → %d LASSO / %d random forest / %d SVM-RFE → %d consensus%s.",
-                  r$n_input, r$n_samples, r$n_comp, r$n_ref,
-                  length(r$lasso_genes), length(r$rf_genes), length(r$svm_genes), length(r$consensus),
-                  if (isTRUE(r$fast_path)) " (instant, precomputed)" else " (live)"))
+      sex_line <- function(sex, sex_label, r) {
+        if (!is.null(r)) {
+          low_n <- !isTRUE(r$fast_path) && !is.null(r$min_group_n) && r$min_group_n < FS_RELIABLE_GROUP_SAMPLES
+          return(p(strong(sprintf("%s: ", sex)),
+            if (isTRUE(r$fast_path)) icon("bolt") else NULL,
+            sprintf(" %d candidate genes, %d samples (%d vs %d) → %d LASSO / %d random forest / %d SVM-RFE → %d consensus%s.",
+                    r$n_input, r$n_samples, r$n_comp, r$n_ref,
+                    length(r$lasso_genes), length(r$rf_genes), length(r$svm_genes), length(r$consensus),
+                    if (isTRUE(r$fast_path)) " (instant, precomputed)" else " (live)"),
+            if (low_n) span(style = "color: #b8860b;",
+              sprintf(" Smallest group has only %d samples (below the recommended %d) - treat this fit as exploratory, not a reliable panel.",
+                      r$min_group_n, FS_RELIABLE_GROUP_SAMPLES)) else NULL))
+        }
+        ## Same never-run vs. actually-failed distinction as status_row() above.
+        err <- fs_result_error_msg(sex_label)
+        if (!is.null(err)) return(p(strong(sprintf("%s: ", sex)), span(style = "color: #c0392b;", sprintf("failed - %s", err))))
+        p(strong(sprintf("%s: ", sex)), "not run yet.")
       }
       tagList(
         p(strong("Contrast: "), sprintf("%s vs %s", input$comp_group %||% "?", input$ref_group %||% "?"),
           if (!identical(mhc_mode, "n/a")) sprintf(" (MHC region %s)", if (identical(mhc_mode, "exclude")) "excluded" else "included") else NULL, "."),
-        sex_line("Female", res_f), sex_line("Male", res_m), sex_line("Pooled (all)", res_p)
+        sex_line("Female", "female", res_f), sex_line("Male", "male", res_m), sex_line("Pooled (all)", "pooled", res_p)
       )
     })
 
     # returns NULL (not a req()-halt) when a sex hasn't been run yet, so outputs can show "not run yet"
-    res_sex <- function(sex_label) reactive({
-      fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
-      tryCatch(fr(), error = function(e) NULL)
-    })
+    res_sex <- function(sex_label) reactive(fs_result_or_null(sex_label))
 
     # binds all summary/plot/table/download outputs for one sex's LASSO/RF/SVM-RFE/consensus boxes
     register_sex_technique_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
-      not_yet_note <- function() {
-        div(class = "empty-note", icon("circle-info"),
-            "No result yet. Click Run Female, Run Male, or Run All (pooled) on the left.")
-      }
       sex_title <- tools::toTitleCase(sex_label)
+      # Shows the real validate()/need() failure (e.g. too few female samples for this contrast)
+      # instead of the generic "not run yet" note when this sex's Run button WAS clicked but
+      # fs_build_sex() failed - see fs_result_error_msg() above for how the two are told apart.
+      # plot/table outputs below use validate(need(...)) rather than req(): a req() halt is silent,
+      # so the previous dataset's already-rendered content would stay in the DOM.
+      not_yet_msg <- function() {
+        err <- fs_result_error_msg(sex_label)
+        if (!is.null(err)) return(sprintf("%s feature selection failed: %s", sex_title, err))
+        if (fs_is_stale(sex_label)) {
+          return("Not run for the currently loaded dataset yet. Click Run Female, Run Male, or Run All (pooled) on the left.")
+        }
+        "No result yet. Click Run Female, Run Male, or Run All (pooled) on the left."
+      }
+      not_yet_note <- function() {
+        failed <- !is.null(fs_result_error_msg(sex_label))
+        div(class = "empty-note", icon(if (failed) "triangle-exclamation" else "circle-info"), not_yet_msg())
+      }
 
       # LASSO
       output[[paste0(sex_label, "_lasso_summary")]] <- renderUI({
@@ -1093,12 +1199,12 @@ mod_featureselection_server <- function(id, dataset, results) {
       # r <- res() first (not inline plot(res()$cv)) so req()'s halt doesn't hit plot()'s S3 dispatch
       output[[paste0(sex_label, "_lasso_plot")]] <- renderPlot({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         plot(r$cv)
       })
       output[[paste0(sex_label, "_lasso_table")]] <- DT::renderDataTable({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         DT::datatable(data.frame(gene = r$lasso_genes, stringsAsFactors = FALSE), rownames = FALSE,
                       options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
       })
@@ -1120,7 +1226,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_rf_plot")]] <- renderPlot({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         df <- head(data.frame(gene = names(r$gini), importance = as.numeric(r$gini), stringsAsFactors = FALSE), 20)
         p <- ggplot(df, aes(x = reorder(gene, importance), y = importance)) +
           geom_col(fill = sex_color) +
@@ -1133,7 +1239,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_rf_table")]] <- DT::renderDataTable({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         df <- data.frame(gene = names(r$gini), gini_importance = round(as.numeric(r$gini), 4), stringsAsFactors = FALSE)
         df$selected <- df$gene %in% r$rf_genes
         DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
@@ -1160,7 +1266,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_svm_plot")]] <- renderPlot({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         df <- data.frame(k = r$svm_curve$k, error = r$svm_curve$err)
         # marks whichever panel size was actually used - CV-optimal k or manual k
         marker_k <- if (identical(r$svm_panel_mode, "manual")) length(r$svm_genes) else r$svm_curve$best
@@ -1171,7 +1277,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_svm_table")]] <- DT::renderDataTable({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         df <- data.frame(gene = r$svm_rank, rank = seq_along(r$svm_rank), stringsAsFactors = FALSE)
         df$selected <- df$gene %in% r$svm_genes
         DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
@@ -1196,26 +1302,45 @@ mod_featureselection_server <- function(id, dataset, results) {
       consensus_used_genes <- function(r, used) Reduce(intersect, r$sets[used])
       consensus_venn_obj <- reactive({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         used <- consensus_used_methods(r)
         genes <- consensus_used_genes(r, used)
         draw_overlap_venn(r$sets[used], title = sprintf("%s: %d-gene consensus", tools::toTitleCase(sex_label), length(genes)), fill_high = sex_color)
+      })
+      ## Which Venn region (if any) the user's last click on this plot landed in -
+      ## a pure reactive (not a stored reactiveVal), so it's always consistent with
+      ## whatever's currently drawn: it re-resolves automatically if the "Methods to
+      ## intersect" checkboxes change the diagram, and reading input$..._plot_click
+      ## before any click throws (caught below) rather than resolving to a stale value.
+      consensus_clicked_region <- reactive({
+        click <- input[[paste0(sex_label, "_consensus_plot_click")]]
+        req(click)
+        r <- res(); req(r)
+        used <- consensus_used_methods(r)
+        venn_region_at_point(r$sets[used], click$x, click$y)
       })
       output[[paste0(sex_label, "_consensus_summary")]] <- renderUI({
         r <- res()
         if (is.null(r)) return(not_yet_note())
         used <- consensus_used_methods(r)
         genes <- consensus_used_genes(r, used)
+        clicked <- tryCatch(consensus_clicked_region(), error = function(e) NULL)
         tagList(
           p(strong(length(genes)), sprintf(" genes selected by %s: ", paste(unname(method_labels[used]), collapse = " ∩ ")),
             if (length(genes) > 0) paste(genes, collapse = ", ") else "none", "."),
+          if (!is.null(clicked)) {
+            div(class = "empty-note", icon("filter"),
+                sprintf("Table filtered to the \"%s\" region (%d gene%s): %s. Click elsewhere on the diagram to show all genes again.",
+                        gsub("/", " ∩ ", clicked$name, fixed = TRUE), clicked$count, if (clicked$count == 1) "" else "s",
+                        if (clicked$count > 0) paste(clicked$item, collapse = ", ") else "none"))
+          },
           p(class = "submodule-desc", r$candidate_note)
         )
       })
       output[[paste0(sex_label, "_consensus_plot")]] <- renderPlot({ consensus_venn_obj() })
       output[[paste0(sex_label, "_consensus_table")]] <- DT::renderDataTable({
         r <- res()
-        req(r)
+        validate(need(!is.null(r), not_yet_msg()))
         used <- consensus_used_methods(r)
         genes <- consensus_used_genes(r, used)
         df <- data.frame(gene = union(union(r$lasso_genes, r$rf_genes), r$svm_genes), stringsAsFactors = FALSE)
@@ -1223,6 +1348,8 @@ mod_featureselection_server <- function(id, dataset, results) {
         df$random_forest <- df$gene %in% r$rf_genes
         df$svm_rfe <- df$gene %in% r$svm_genes
         df$consensus <- df$gene %in% genes
+        clicked <- tryCatch(consensus_clicked_region(), error = function(e) NULL)
+        if (!is.null(clicked)) df <- df[df$gene %in% clicked$item, , drop = FALSE]
         df <- df[order(-df$consensus, df$gene), ]
         DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
       })

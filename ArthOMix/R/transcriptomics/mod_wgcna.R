@@ -554,34 +554,46 @@ mod_wgcna_server <- function(id, dataset, results) {
           sft_store$result <- load_precomputed_wgcna_sft()
           return(invisible(NULL))
         }
-        texpr <- final_input()$texpr
-        powers <- c(1:10, seq(12, 20, 2))
-        corName <- wgcna_cor_fnc_name(input$cor_method)
-        ## Cached like net_result() below - pickSoftThreshold tests 12 power values, expensive to repeat.
-        get_or_compute_wgcna_blocks(
-          list(texpr = texpr, powers = powers, network_type = input$network_type,
-               cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
-          function() {
-            sft <- WGCNA::pickSoftThreshold(
-              texpr, powerVector = powers, networkType = input$network_type,
-              corFnc = wgcna_cor_fnc(input$cor_method), corOptions = list(use = "p"),
-              RsquaredCut = input$r_sq_cutoff, verbose = 0
-            )
-            power <- sft$powerEstimate
-            if (is.na(power)) power <- sft$fitIndices$Power[which.max(sft$fitIndices$SFT.R.sq)]
-            ## Degree-distribution check at the chosen power (the WGCNA paper's own scale-free diagnostic).
-            k <- WGCNA::softConnectivity(
-              texpr, corFnc = corName, corOptions = "use = 'p'",
-              type = input$network_type, power = power, verbose = 0
-            )
-            list(sft_df = sft$fitIndices, power = power, connectivity = k)
-          }
-        )
+        ## withProgress gives the user immediate visible feedback (a progress bar,
+        ## Shiny's own existing mechanism - already used the same way for the
+        ## identical live-compute step in mod_methyl_wgcna.R) the instant this
+        ## click is received, instead of the UI looking frozen for however long
+        ## pickSoftThreshold/softConnectivity take on the uploaded matrix.
+        withProgress(message = "Computing soft-threshold power - testing candidate powers can take a while on large uploaded datasets...", value = 0.15, {
+          texpr <- final_input()$texpr
+          powers <- c(1:10, seq(12, 20, 2))
+          corName <- wgcna_cor_fnc_name(input$cor_method)
+          incProgress(0.15, detail = "Preparing expression matrix")
+          ## Cached like net_result() below - pickSoftThreshold tests 12 power values, expensive to repeat.
+          out <- get_or_compute_wgcna_blocks(
+            list(texpr = texpr, powers = powers, network_type = input$network_type,
+                 cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
+            function() {
+              sft <- WGCNA::pickSoftThreshold(
+                texpr, powerVector = powers, networkType = input$network_type,
+                corFnc = wgcna_cor_fnc(input$cor_method), corOptions = list(use = "p"),
+                RsquaredCut = input$r_sq_cutoff, verbose = 0
+              )
+              power <- sft$powerEstimate
+              if (is.na(power)) power <- sft$fitIndices$Power[which.max(sft$fitIndices$SFT.R.sq)]
+              ## Degree-distribution check at the chosen power (the WGCNA paper's own scale-free diagnostic).
+              k <- WGCNA::softConnectivity(
+                texpr, corFnc = corName, corOptions = "use = 'p'",
+                type = input$network_type, power = power, verbose = 0
+              )
+              list(sft_df = sft$fitIndices, power = power, connectivity = k)
+            }
+          )
+          incProgress(0.6, detail = "Done")
+          out
+        })
       }, error = function(e) e)
       if (inherits(result, "error")) {
         sft_store$error <- conditionMessage(result)
+        showNotification(paste("Soft-threshold power computation failed:", sft_store$error), type = "error", duration = 10)
       } else {
         sft_store$result <- result
+        showNotification("Soft-threshold power computed successfully.", type = "message", duration = 4)
       }
     }, ignoreInit = TRUE)
 
@@ -816,55 +828,83 @@ mod_wgcna_server <- function(id, dataset, results) {
         return(invisible(NULL))
       }
 
-      fi <- final_input()
-      texpr <- fi$texpr
-      power <- tryCatch(effective_power(), error = function(e) NA)
-      validate(need(!is.null(power) && length(power) == 1 && is.finite(power),
-                    "Compute the network power in Step 2 first, or switch to a manual power there."))
+      ## withProgress (Shiny's own progress-bar mechanism, already used the same way for
+      ## the identical blockwiseModules() step in mod_methyl_wgcna.R) shows visible,
+      ## staged feedback the instant Run is clicked, so this doesn't look frozen while
+      ## the network is built - especially important on a larger uploaded dataset,
+      ## where blockwiseModules() can take minutes.
+      withProgress(message = "WGCNA analysis started...", value = 0.05, {
+        incProgress(0.1, detail = "Validating expression data")
+        fi <- final_input()
+        texpr <- fi$texpr
+        power <- tryCatch(effective_power(), error = function(e) NA)
+        validate(need(!is.null(power) && length(power) == 1 && is.finite(power),
+                      "Compute the network power in Step 2 first, or switch to a manual power there."))
 
-      ## Cached by digest of matrix + settings (get_or_compute_wgcna_blocks in global.R).
-      ## reassignThreshold: 0 for this project's data (Table 2.x, membership by topological overlap alone); package default 1e-06 for uploaded data, since the paper doesn't mention it.
-      reassign_threshold <- if (dataset_is_uploaded()) 1e-06 else 0
-      net <- get_or_compute_wgcna_blocks(
-        list(texpr = texpr, power = power, network_type = input$network_type,
-             tom_type = input$tom_type, cor_method = input$cor_method,
-             deep_split = input$deep_split, min_module_size = input$min_module_size,
-             merge_cut_height = input$merge_cut_height,
-             pam_respects_dendro = isTRUE(input$pam_respects_dendro),
-             reassign_threshold = reassign_threshold),
-        function() WGCNA::blockwiseModules(
-          texpr,
-          power = power, networkType = input$network_type, TOMType = input$tom_type,
-          corType = input$cor_method,
-          deepSplit = input$deep_split, minModuleSize = input$min_module_size,
-          reassignThreshold = reassign_threshold, mergeCutHeight = input$merge_cut_height,
-          pamRespectsDendro = isTRUE(input$pam_respects_dendro),
-          ## Fixed seed (matches 06_WGCNA.R's CFG$seed = 1234) - PAM-stage reassignment is stochastic, and module colors are size-rank based, so an unpinned seed could relabel modules between runs.
-          randomSeed = 1234,
-          numericLabels = FALSE, maxBlockSize = ncol(texpr) + 1, verbose = 0
+        incProgress(0.15, detail = "Preparing expression matrix")
+        ## Cached by digest of matrix + settings (get_or_compute_wgcna_blocks in global.R).
+        ## reassignThreshold: 0 for this project's data (Table 2.x, membership by topological overlap alone); package default 1e-06 for uploaded data, since the paper doesn't mention it.
+        reassign_threshold <- if (dataset_is_uploaded()) 1e-06 else 0
+
+        incProgress(0.15, detail = "Constructing the network and detecting modules")
+        net <- get_or_compute_wgcna_blocks(
+          list(texpr = texpr, power = power, network_type = input$network_type,
+               tom_type = input$tom_type, cor_method = input$cor_method,
+               deep_split = input$deep_split, min_module_size = input$min_module_size,
+               merge_cut_height = input$merge_cut_height,
+               pam_respects_dendro = isTRUE(input$pam_respects_dendro),
+               reassign_threshold = reassign_threshold),
+          function() WGCNA::blockwiseModules(
+            texpr,
+            power = power, networkType = input$network_type, TOMType = input$tom_type,
+            corType = input$cor_method,
+            deepSplit = input$deep_split, minModuleSize = input$min_module_size,
+            reassignThreshold = reassign_threshold, mergeCutHeight = input$merge_cut_height,
+            pamRespectsDendro = isTRUE(input$pam_respects_dendro),
+            ## Fixed seed (matches 06_WGCNA.R's CFG$seed = 1234) - PAM-stage reassignment is stochastic, and module colors are size-rank based, so an unpinned seed could relabel modules between runs.
+            randomSeed = 1234,
+            numericLabels = FALSE, maxBlockSize = ncol(texpr) + 1, verbose = 0
+          )
         )
-      )
-      module_colors <- net$colors
-      MEs <- net$MEs
+        incProgress(0.3, detail = "Calculating module eigengenes")
+        module_colors <- net$colors
+        MEs <- net$MEs
 
-      gene_module <- data.frame(gene = colnames(texpr), module = module_colors, stringsAsFactors = FALSE)
-      gene_module <- gene_module[order(gene_module$module), ]
+        gene_module <- data.frame(gene = colnames(texpr), module = module_colors, stringsAsFactors = FALSE)
+        gene_module <- gene_module[order(gene_module$module), ]
 
-      net_store$result <- list(
-        texpr = texpr, meta = fi$meta, power = power,
-        network_type = input$network_type, tom_type = input$tom_type, cor_method = input$cor_method,
-        module_colors = module_colors, MEs = MEs,
-        dendro = net$dendrograms[[1]], block_colors = module_colors[net$blockGenes[[1]]],
-        gene_module = gene_module,
-        module_sizes = as.data.frame(table(module = module_colors)),
-        hub_table_precomputed = NULL,
-        n_genes = ncol(texpr), n_samples = nrow(texpr),
-        n_modules = length(unique(module_colors[module_colors != "grey"]))
-      )
-      net_store$source <- "computed"
+        incProgress(0.2, detail = "Generating results")
+        net_store$result <- list(
+          texpr = texpr, meta = fi$meta, power = power,
+          network_type = input$network_type, tom_type = input$tom_type, cor_method = input$cor_method,
+          module_colors = module_colors, MEs = MEs,
+          dendro = net$dendrograms[[1]], block_colors = module_colors[net$blockGenes[[1]]],
+          gene_module = gene_module,
+          module_sizes = as.data.frame(table(module = module_colors)),
+          hub_table_precomputed = NULL,
+          n_genes = ncol(texpr), n_samples = nrow(texpr),
+          n_modules = length(unique(module_colors[module_colors != "grey"]))
+        )
+        net_store$source <- "computed"
+      })
       }, error = function(e) e)
-      if (inherits(result, "error")) net_store$error <- conditionMessage(result)
-    })
+      if (inherits(result, "error")) {
+        net_store$error <- conditionMessage(result)
+        showNotification(paste("WGCNA analysis could not be completed:", net_store$error), type = "error", duration = 10)
+      } else {
+        showNotification("WGCNA analysis completed successfully. Results are now available.", type = "message", duration = 5)
+      }
+    ## ignoreInit = TRUE (matching the compute_power_btn/run_enrich_btn observers above/below,
+    ## which already had it) - without it, this observer also fires once automatically the
+    ## instant the module mounts, using whatever input values happen to exist at that exact
+    ## moment. Step 2's power_mode/manual_power inputs are sent from client to server
+    ## asynchronously after their own initial render, so this phantom mount-time run almost
+    ## always executes before that round-trip completes, fails validation ("Compute the
+    ## network power in Step 2 first..."), and silently sets net_store$error (now also
+    ## surfaced as an error toast) before the user has clicked anything. The user's genuine
+    ## first click could then race the same round-trip and occasionally fail too, requiring a
+    ## second click to actually see results - this is the fix for that.
+    }, ignoreInit = TRUE)
 
     net_result <- reactive({
       req(net_store$result)
@@ -1634,6 +1674,22 @@ mod_wgcna_server <- function(id, dataset, results) {
     ## NULL)` guards used everywhere module_enrich() is read.
     enrich_store <- reactiveValues(result = NULL, error = NULL)
 
+    ## Local caches (sft_store/net_store/enrich_store and the Step 4/5 has-run
+    ## flags), unlike results$wgcna, aren't covered by server.R's own
+    ## `observeEvent(dataset$source, {results reset})` - without this, switching
+    ## the active dataset (e.g. one preloaded GSE to another, or Preloaded ->
+    ## Upload -> Preloaded) would leave Step 2-6's plots and tables showing the
+    ## previous dataset's soft-power/network/module-trait/hub/enrichment results
+    ## until the user re-clicks each step's Compute/Run button, with no visual
+    ## indication they're stale.
+    observeEvent(dataset$source, {
+      sft_store$result <- NULL; sft_store$error <- NULL
+      net_store$result <- NULL; net_store$source <- NULL; net_store$error <- NULL
+      enrich_store$result <- NULL; enrich_store$error <- NULL
+      wgcna_traits_has_run(FALSE)
+      wgcna_hubs_has_run(FALSE)
+    }, ignoreInit = TRUE)
+
     observeEvent(input$run_enrich_btn, {
       enrich_store$error <- NULL
       result <- tryCatch({
@@ -1648,36 +1704,47 @@ mod_wgcna_server <- function(id, dataset, results) {
         }
         validate(need(length(gene_pool) >= 5, "Need at least 5 genes to test enrichment. Pick a larger module or lower the Step 5 thresholds."))
 
-        ## Background is the network's own gene universe (Step 1 output), not the whole dataset.
-        universe_symbols <- colnames(net$texpr)
-        map <- suppressMessages(AnnotationDbi::select(
-          org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
-        ))
-        map <- map[!is.na(map$ENTREZID) & !duplicated(map$SYMBOL), ]
-        gene_entrez <- map$ENTREZID[map$SYMBOL %in% gene_pool]
-        validate(need(length(gene_entrez) >= 3, "Fewer than 3 of these genes could be mapped to Entrez IDs in the analyzed gene set."))
+        ## withProgress (same mechanism used for Steps 2/3 above) - enrichGO/enrichKEGG
+        ## routinely take 15-30+ seconds (org.Hs.eg.db/GO.db lookups, or a live KEGG REST
+        ## call), and previously gave no visible feedback at all while running, which read
+        ## as "the button doesn't do anything" even though it was working correctly.
+        withProgress(message = "Running enrichment...", value = 0.1, {
+          ## Background is the network's own gene universe (Step 1 output), not the whole dataset.
+          incProgress(0.2, detail = "Mapping gene symbols to Entrez IDs")
+          universe_symbols <- colnames(net$texpr)
+          map <- suppressMessages(AnnotationDbi::select(
+            org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
+          ))
+          map <- map[!is.na(map$ENTREZID) & !duplicated(map$SYMBOL), ]
+          gene_entrez <- map$ENTREZID[map$SYMBOL %in% gene_pool]
+          validate(need(length(gene_entrez) >= 3, "Fewer than 3 of these genes could be mapped to Entrez IDs in the analyzed gene set."))
 
-        ego <- if (identical(input$enrich_db, "GO_BP")) {
-          clusterProfiler::enrichGO(
-            gene = gene_entrez, universe = map$ENTREZID, OrgDb = org.Hs.eg.db,
-            keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH",
-            pvalueCutoff = 1, qvalueCutoff = 1
-          )
-        } else {
-          clusterProfiler::enrichKEGG(
-            gene = gene_entrez, universe = map$ENTREZID, organism = "hsa",
-            pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1
-          )
-        }
-        df <- as.data.frame(ego)
-        validate(need(nrow(df) > 0, "No enriched terms were found for this gene set."))
-        label <- if (use_hub) sprintf("hub genes (%s)", input$hub_module) else input$enrich_module
-        list(table = df, n_input = length(gene_pool), n_mapped = length(gene_entrez), label = label)
+          incProgress(0.2, detail = if (identical(input$enrich_db, "GO_BP")) "Testing GO Biological Process terms" else "Querying KEGG pathways")
+          ego <- if (identical(input$enrich_db, "GO_BP")) {
+            clusterProfiler::enrichGO(
+              gene = gene_entrez, universe = map$ENTREZID, OrgDb = org.Hs.eg.db,
+              keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH",
+              pvalueCutoff = 1, qvalueCutoff = 1
+            )
+          } else {
+            clusterProfiler::enrichKEGG(
+              gene = gene_entrez, universe = map$ENTREZID, organism = "hsa",
+              pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1
+            )
+          }
+          incProgress(0.4, detail = "Generating results")
+          df <- as.data.frame(ego)
+          validate(need(nrow(df) > 0, "No enriched terms were found for this gene set."))
+          label <- if (use_hub) sprintf("hub genes (%s)", input$hub_module) else input$enrich_module
+          list(table = df, n_input = length(gene_pool), n_mapped = length(gene_entrez), label = label)
+        })
       }, error = function(e) e)
       if (inherits(result, "error")) {
         enrich_store$error <- conditionMessage(result)
+        showNotification(paste("Enrichment could not be completed:", enrich_store$error), type = "error", duration = 10)
       } else {
         enrich_store$result <- result
+        showNotification("Enrichment completed successfully. Results are now available.", type = "message", duration = 5)
       }
     }, ignoreInit = TRUE)
 
@@ -1787,7 +1854,19 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     ## Forces every step's UI to render on mount instead of only when its tab is first viewed
-    ## (Shiny's default suspendWhenHidden = TRUE would leave later steps' inputs NULL until visited).
-    for (step in paste0("step", 1:6, "_ui")) outputOptions(output, step, suspendWhenHidden = FALSE)
+    ## (Shiny's default suspendWhenHidden = TRUE would leave later steps' inputs NULL until
+    ## visited). Includes step2_controls_ui/step6_controls_ui - the boxes holding the actual
+    ## power_mode/manual_power/network_type/... inputs, split out from step2_ui/step6_ui so
+    ## they don't get torn down on every compute (see the comments above those outputs) - not
+    ## just "step1_ui".."step6_ui" themselves. Without this, a user who clicks "Run" on the
+    ## Modules tab without ever visiting the Soft Power tab first hits
+    ## input$power_mode/input$manual_power being NULL server-side (never instantiated), which
+    ## makes effective_power() silently fall through to sft_result() and fail validate()'s
+    ## "Compute the network power in Step 2 first" check even though Step 2 is pre-filled with
+    ## a usable manual power - i.e. Run looks broken for any dataset that isn't the bundled
+    ## reference (which short-circuits Steps 2/3 entirely via load_precomputed_wgcna_result()).
+    for (step in c(paste0("step", 1:6, "_ui"), "step2_controls_ui", "step6_controls_ui")) {
+      outputOptions(output, step, suspendWhenHidden = FALSE)
+    }
   })
 }

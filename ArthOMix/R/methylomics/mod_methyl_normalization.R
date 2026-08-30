@@ -63,6 +63,160 @@ mod_methyl_normalization_ui <- function(id) {
 ## Sub-tab title (icon + label), matching mod_methyl_qc.R's qc_tab_title().
 norm_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
 
+## ---- Pure (non-reactive) run pipeline, for use inside callr::r_bg() ----------------
+## Everything Run Normalization/Compare Methods actually computes is defined here as
+## plain functions over a `ctx` snapshot (built once, synchronously, from reactive
+## inputs) rather than reading input$/methyl_dataset$ directly - a callr::r_bg()
+## worker is a fresh R process with no reactive context and none of this app's loaded
+## packages/sourced files, so these must not touch either. Kept at file scope (not
+## inside moduleServer) so the worker function (see methyl_norm_bg_worker() below) can
+## source just this file plus its two dependencies to get everything it needs.
+
+methyl_norm_sample_scope_ctx <- function(ctx) {
+  mat <- ctx$beta
+  keep <- rep(TRUE, ncol(mat)); notes <- character(0)
+  if (isTRUE(ctx$f_sample_missing)) {
+    f <- methyl_filter_samples_missingness(mat, ctx$sample_missing_max %||% 0.1)
+    keep <- keep & f$keep; notes <- c(notes, f$note)
+  }
+  if (isTRUE(ctx$f_sample_detrate) && !is.null(ctx$detp)) {
+    fp <- methyl_sample_failed_probe_pct(mat, ctx$detp, ctx$detp_thresh %||% 0.01)
+    if (isTRUE(fp$ok)) {
+      det_rate <- 100 - fp$pct[colnames(mat)]
+      keep2 <- !is.na(det_rate) & det_rate >= (ctx$min_det_rate %||% 95)
+      keep <- keep & keep2
+      notes <- c(notes, sprintf("%d sample(s) below %.0f%% minimum detection rate removed.", sum(!keep2), ctx$min_det_rate %||% 95))
+    }
+  }
+  list(mat = mat[, keep, drop = FALSE],
+       rg = if (!is.null(ctx$rg_set)) tryCatch(ctx$rg_set[, keep], error = function(e) NULL) else NULL,
+       mset = if (!is.null(ctx$mset)) tryCatch(ctx$mset[, keep], error = function(e) NULL) else NULL,
+       removed_samples = colnames(mat)[!keep], notes = notes)
+}
+
+methyl_norm_build_probe_filters_ctx <- function(m, ctx) {
+  filters <- list()
+  if (isTRUE(ctx$f_probe_missing)) filters$probe_missing <- methyl_filter_missing(m, ctx$probe_missing_max %||% 0.05)
+  if (isTRUE(ctx$f_snp) && isTRUE(ctx$is_illumina)) filters$snp <- methyl_filter_snp(m, ctx$anno)
+  if (isTRUE(ctx$f_sexchr) && isTRUE(ctx$is_illumina)) filters$sex_chr <- methyl_filter_sex_chr(m, ctx$anno, mode = "remove_xy")
+  if (isTRUE(ctx$f_chr) && isTRUE(ctx$is_illumina)) filters$chromosome <- methyl_filter_chromosome(m, ctx$anno, ctx$exclude_chr %||% character(0))
+  if (isTRUE(ctx$f_crossreactive) && isTRUE(ctx$is_illumina)) filters$cross_reactive <- methyl_filter_cross_reactive(m, ctx$cross_reactive_ids)
+  if (isTRUE(ctx$f_island)) filters$island <- methyl_filter_island_relation(m, ctx$norm_anno, ctx$island_categories %||% character(0))
+  if (isTRUE(ctx$f_generegion)) filters$gene_region <- methyl_filter_gene_region(m, ctx$norm_anno, ctx$gene_regions %||% character(0))
+  filters
+}
+
+methyl_norm_run_one_method_ctx <- function(method_key, mat_in, rg_in, mset_in, ctx) {
+  switch(method_key,
+    noob = methyl_norm_noob(rg_in, ctx$noob_offset %||% 15, ctx$noob_dye %||% "single"),
+    funnorm = methyl_norm_funnorm(rg_in, ctx$funnorm_npcs %||% 2),
+    swan = methyl_norm_swan(rg_in, mset_in),
+    dasen = methyl_norm_dasen(mset_in),
+    stratified_quantile = methyl_norm_stratified_quantile(rg_in),
+    noob_swan = methyl_norm_noob_swan(rg_in, ctx$noob_offset %||% 15, ctx$noob_dye %||% "single"),
+    noob_bmiq = methyl_norm_noob_bmiq(rg_in, ctx$anno, ctx$noob_offset %||% 15, ctx$noob_dye %||% "single",
+                                       ctx$bmiq_nfit %||% 50000, ctx$bmiq_nl %||% 3, ctx$bmiq_tol %||% 0.001),
+    bmiq = methyl_norm_bmiq(mat_in, ctx$anno, ctx$bmiq_nfit %||% 50000, ctx$bmiq_nl %||% 3, ctx$bmiq_tol %||% 0.001),
+    pbc = methyl_norm_pbc(mat_in, ctx$anno),
+    quantile = methyl_norm_quantile(mat_in),
+    none = list(ok = TRUE, beta = mat_in, note = "No normalization applied - matrix kept exactly as loaded."),
+    list(ok = FALSE, reason = "Unknown method.")
+  )
+}
+
+methyl_norm_group_labels_ctx <- function(sample_ids, ctx) {
+  sheet <- ctx$sample_sheet
+  if (is.null(sheet) || is.null(ctx$group_col_check) || !nzchar(ctx$group_col_check)) return(NULL)
+  ids <- methyl_sheet_sample_ids(sheet, sample_ids)
+  stats::setNames(as.character(sheet[[ctx$group_col_check]]), ids)[sample_ids]
+}
+
+## One end-to-end run: sample filters -> method -> probe filters -> before/after
+## comparison on the shared probe set. Returns a `reason` on failure instead of
+## throwing - `ctx` is a plain snapshot built once by make_norm_ctx() below.
+methyl_norm_run_full_ctx <- function(method_key, ctx) {
+  sc <- methyl_norm_sample_scope_ctx(ctx)
+  if (ncol(sc$mat) < 2) return(list(ok = FALSE, reason = "Fewer than 2 samples remain after the selected sample filters - relax the thresholds above."))
+  is_matrix_method <- method_key %in% METHYL_NORM_MATRIX_METHOD_KEYS
+
+  if (is_matrix_method) {
+    filters <- methyl_norm_build_probe_filters_ctx(sc$mat, ctx)
+    keep <- rep(TRUE, nrow(sc$mat)); for (f in filters) keep <- keep & f$keep
+    mat_in <- sc$mat[keep, , drop = FALSE]
+    res <- methyl_norm_run_one_method_ctx(method_key, mat_in, sc$rg, sc$mset, ctx)
+  } else {
+    filters <- list()
+    res <- methyl_norm_run_one_method_ctx(method_key, sc$mat, sc$rg, sc$mset, ctx)
+    if (isTRUE(res$ok)) {
+      filters <- methyl_norm_build_probe_filters_ctx(res$beta, ctx)
+      keep <- rep(TRUE, nrow(res$beta)); for (f in filters) keep <- keep & f$keep
+      res$beta <- res$beta[keep, , drop = FALSE]
+    }
+  }
+  if (!isTRUE(res$ok)) return(res)
+  if (nrow(res$beta) < 1) return(list(ok = FALSE, reason = "All probes were removed by the selected filters - relax them and try again."))
+
+  common_probes <- intersect(rownames(sc$mat), rownames(res$beta))
+  before <- sc$mat[common_probes, , drop = FALSE]
+  after <- res$beta[common_probes, , drop = FALSE]
+  filter_notes <- c(sc$notes, vapply(filters, `[[`, character(1), "note"))
+  removed_probes <- setdiff(rownames(sc$mat), common_probes)
+
+  group_labels <- methyl_norm_group_labels_ctx(colnames(after), ctx)
+  validation <- methyl_norm_validation(before, after, ctx$anno, group_labels)
+
+  list(ok = TRUE, method = method_key, method_label = names(ctx$available_methods)[ctx$available_methods == method_key],
+       before = before, after = after, note = res$note,
+       removed_probes = removed_probes, removed_samples = sc$removed_samples, filter_notes = filter_notes,
+       n_probes_before = nrow(sc$mat), n_samples_before = ncol(sc$mat),
+       validation = validation, run_at = Sys.time())
+}
+
+## Runs inside a fresh callr::r_bg() process, which starts with none of this app's
+## loaded packages/sourced files - only what's passed via `args` and what this
+## function loads/sources itself. Deliberately narrow (not global.R's full ~30
+## packages/78 files): just what methyl_norm_run_full_ctx() and its callees need.
+methyl_norm_bg_worker <- function(method_key, ctx, app_dir) {
+  ## qc.R has a couple of top-level (not-inside-a-function) constants that reference
+  ## these two global.R color palettes - defining them here is cheaper than sourcing
+  ## the whole of global.R (~30 package library() calls) just to satisfy that.
+  assign("%||%", function(a, b) if (is.null(a)) b else a, envir = .GlobalEnv)
+  assign("ARTHOMIX_COLORS", list(blue = "#2a78d6", orange = "#eb6834", aqua = "#1baf7a", yellow = "#eda100",
+                                  magenta = "#e87ba4", violet = "#4a3aa7", red = "#e34948",
+                                  ink = "#0b0b0b", ink_secondary = "#52514e", ink_muted = "#898781",
+                                  grid = "#e1e0d9", axis = "#c3c2b7"), envir = .GlobalEnv)
+  assign("ARTHOMIX_STATUS", list(good = "#0ca30c", warning = "#fab219", critical = "#d03b3b"), envir = .GlobalEnv)
+  for (pkg in c("wateRmelon", "minfi", "limma", "ChAMP")) requireNamespace(pkg, quietly = TRUE)
+  for (f in c("annotation.R", "qc.R", "normalization.R", "mod_methyl_normalization.R")) {
+    source(file.path(app_dir, "R", "methylomics", f))
+  }
+  methyl_norm_run_full_ctx(method_key, ctx)
+}
+
+## Same rationale/worker-loading as methyl_norm_bg_worker() above, for Compare Methods.
+methyl_norm_compare_bg_worker <- function(sel, ctx, app_dir) {
+  ## qc.R has a couple of top-level (not-inside-a-function) constants that reference
+  ## these two global.R color palettes - defining them here is cheaper than sourcing
+  ## the whole of global.R (~30 package library() calls) just to satisfy that.
+  assign("%||%", function(a, b) if (is.null(a)) b else a, envir = .GlobalEnv)
+  assign("ARTHOMIX_COLORS", list(blue = "#2a78d6", orange = "#eb6834", aqua = "#1baf7a", yellow = "#eda100",
+                                  magenta = "#e87ba4", violet = "#4a3aa7", red = "#e34948",
+                                  ink = "#0b0b0b", ink_secondary = "#52514e", ink_muted = "#898781",
+                                  grid = "#e1e0d9", axis = "#c3c2b7"), envir = .GlobalEnv)
+  assign("ARTHOMIX_STATUS", list(good = "#0ca30c", warning = "#fab219", critical = "#d03b3b"), envir = .GlobalEnv)
+  for (pkg in c("wateRmelon", "minfi", "limma", "ChAMP")) requireNamespace(pkg, quietly = TRUE)
+  for (f in c("annotation.R", "qc.R", "normalization.R", "mod_methyl_normalization.R")) {
+    source(file.path(app_dir, "R", "methylomics", f))
+  }
+  out <- lapply(seq_along(sel), function(i) {
+    r <- methyl_norm_run_full_ctx(sel[i], ctx)
+    r$key <- sel[i]
+    r
+  })
+  names(out) <- sel
+  out
+}
+
 mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -359,20 +513,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       if (isTRUE(pl$ok)) pl$ids else NULL
     })
 
-    ## Every filter's keep-vector; caller applies before running for matrix
-    ## methods, or on the resulting beta for raw-intensity methods.
-    build_probe_filters <- function(m) {
-      filters <- list()
-      if (isTRUE(input$f_probe_missing)) filters$probe_missing <- methyl_filter_missing(m, input$probe_missing_max %||% 0.05)
-      if (isTRUE(input$f_snp) && isTRUE(is_illumina())) filters$snp <- methyl_filter_snp(m, anno_result())
-      if (isTRUE(input$f_sexchr) && isTRUE(is_illumina())) filters$sex_chr <- methyl_filter_sex_chr(m, anno_result(), mode = "remove_xy")
-      if (isTRUE(input$f_chr) && isTRUE(is_illumina())) filters$chromosome <- methyl_filter_chromosome(m, anno_result(), input$exclude_chr %||% character(0))
-      if (isTRUE(input$f_crossreactive) && isTRUE(is_illumina())) filters$cross_reactive <- methyl_filter_cross_reactive(m, cross_reactive_ids())
-      if (isTRUE(input$f_island)) filters$island <- methyl_filter_island_relation(m, norm_anno_result(), input$island_categories %||% character(0))
-      if (isTRUE(input$f_generegion)) filters$gene_region <- methyl_filter_gene_region(m, norm_anno_result(), input$gene_regions %||% character(0))
-      filters
-    }
-
     ## ---- Method picker ----------------------------------------------------
 
     cond_any <- function(input_id, values) paste(sprintf("input['%s'] == '%s'", ns(input_id), values), collapse = " || ")
@@ -406,7 +546,8 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
               )),
             conditionalPanel(condition = cond_any("method", c("swan", "dasen", "stratified_quantile", "pbc", "quantile", "none")),
               p(class = "empty-note", icon("circle-info"), "No additional tunable parameters for this method.")),
-            actionButton(ns("run_btn"), "Run Normalization", icon = icon("play"), class = "btn-primary")
+            actionButton(ns("run_btn"), "Run Normalization", icon = icon("play"), class = "btn-primary"),
+            uiOutput(ns("run_status_ui"), inline = TRUE)
         )
       )
     }
@@ -428,112 +569,95 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
           p(class = "submodule-desc", "Select two or more compatible methods to run side by side, using the same filters configured above. Nothing runs until you click Compare Methods."),
           checkboxGroupInput(ns("compare_methods_sel"), NULL, choices = am, inline = TRUE),
           actionButton(ns("compare_btn"), "Compare Methods", icon = icon("scale-balanced"), class = "btn-default btn-sm"),
+          uiOutput(ns("compare_status_ui"), inline = TRUE),
           withSpinner(uiOutput(ns("compare_result_ui")), color = "#2563EB", type = 6)
       )
     }
 
-    ## ---- Core: run one method on one (already sample-filtered) input ------
-    ## Returns list(ok, beta, note); shared by Run and Compare Methods.
-    run_one_method <- function(method_key, mat_in, rg_in, mset_in) {
-      switch(method_key,
-        noob = methyl_norm_noob(rg_in, input$noob_offset %||% 15, input$noob_dye %||% "single"),
-        funnorm = methyl_norm_funnorm(rg_in, input$funnorm_npcs %||% 2),
-        swan = methyl_norm_swan(rg_in, mset_in),
-        dasen = methyl_norm_dasen(mset_in),
-        stratified_quantile = methyl_norm_stratified_quantile(rg_in),
-        noob_swan = methyl_norm_noob_swan(rg_in, input$noob_offset %||% 15, input$noob_dye %||% "single"),
-        noob_bmiq = methyl_norm_noob_bmiq(rg_in, anno_result(), input$noob_offset %||% 15, input$noob_dye %||% "single",
-                                           input$bmiq_nfit %||% 50000, input$bmiq_nl %||% 3, input$bmiq_tol %||% 0.001),
-        bmiq = methyl_norm_bmiq(mat_in, anno_result(), input$bmiq_nfit %||% 50000, input$bmiq_nl %||% 3, input$bmiq_tol %||% 0.001),
-        pbc = methyl_norm_pbc(mat_in, anno_result()),
-        quantile = methyl_norm_quantile(mat_in),
-        none = list(ok = TRUE, beta = mat_in, note = "No normalization applied - matrix kept exactly as loaded."),
-        list(ok = FALSE, reason = "Unknown method.")
+    ## ---- Run Normalization --------------------------------------------
+    ## Snapshot of every reactive value methyl_norm_run_full_ctx()/its callees need -
+    ## built synchronously (fast) right before invoking the actual (potentially slow)
+    ## run in a background process, so that process never has to touch reactive state.
+    make_norm_ctx <- function() {
+      list(
+        beta = methyl_dataset$beta, rg_set = methyl_dataset$rg_set, mset = methyl_dataset$mset,
+        detp = methyl_dataset$detp, sample_sheet = methyl_dataset$sample_sheet,
+        anno = anno_result(), norm_anno = norm_anno_result(), is_illumina = isTRUE(is_illumina()),
+        cross_reactive_ids = cross_reactive_ids(), available_methods = available_methods(),
+        f_sample_missing = input$f_sample_missing, sample_missing_max = input$sample_missing_max,
+        f_sample_detrate = input$f_sample_detrate, detp_thresh = input$detp_thresh, min_det_rate = input$min_det_rate,
+        f_probe_missing = input$f_probe_missing, probe_missing_max = input$probe_missing_max,
+        f_snp = input$f_snp, f_sexchr = input$f_sexchr, f_chr = input$f_chr, exclude_chr = input$exclude_chr,
+        f_crossreactive = input$f_crossreactive, f_island = input$f_island, island_categories = input$island_categories,
+        f_generegion = input$f_generegion, gene_regions = input$gene_regions,
+        noob_offset = input$noob_offset, noob_dye = input$noob_dye, funnorm_npcs = input$funnorm_npcs,
+        bmiq_nfit = input$bmiq_nfit, bmiq_nl = input$bmiq_nl, bmiq_tol = input$bmiq_tol,
+        group_col_check = input$group_col_check
       )
     }
-
-    ## Sample-level filters + subsetting, shared by Run and Compare Methods.
-    sample_scope <- reactive({
-      mat <- methyl_dataset$beta
-      keep <- rep(TRUE, ncol(mat)); notes <- character(0)
-      if (isTRUE(input$f_sample_missing)) {
-        f <- methyl_filter_samples_missingness(mat, input$sample_missing_max %||% 0.1)
-        keep <- keep & f$keep; notes <- c(notes, f$note)
-      }
-      if (isTRUE(input$f_sample_detrate) && !is.null(methyl_dataset$detp)) {
-        fp <- methyl_sample_failed_probe_pct(mat, methyl_dataset$detp, input$detp_thresh %||% 0.01)
-        if (isTRUE(fp$ok)) {
-          det_rate <- 100 - fp$pct[colnames(mat)]
-          keep2 <- !is.na(det_rate) & det_rate >= (input$min_det_rate %||% 95)
-          keep <- keep & keep2
-          notes <- c(notes, sprintf("%d sample(s) below %.0f%% minimum detection rate removed.", sum(!keep2), input$min_det_rate %||% 95))
-        }
-      }
-      list(mat = mat[, keep, drop = FALSE],
-           rg = if (!is.null(methyl_dataset$rg_set)) tryCatch(methyl_dataset$rg_set[, keep], error = function(e) NULL) else NULL,
-           mset = if (!is.null(methyl_dataset$mset)) tryCatch(methyl_dataset$mset[, keep], error = function(e) NULL) else NULL,
-           removed_samples = colnames(mat)[!keep], notes = notes)
-    })
-
-    group_labels_for_check <- function(sample_ids) {
-      sheet <- methyl_dataset$sample_sheet
-      if (is.null(sheet) || is.null(input$group_col_check) || !nzchar(input$group_col_check)) return(NULL)
-      ids <- methyl_sheet_sample_ids(sheet, sample_ids)
-      stats::setNames(as.character(sheet[[input$group_col_check]]), ids)[sample_ids]
-    }
-
-    ## One end-to-end run: sample filters -> method -> probe filters ->
-    ## before/after comparison on the shared probe set. Returns a `reason`
-    ## on failure instead of throwing.
-    run_full <- function(method_key) {
-      sc <- sample_scope()
-      if (ncol(sc$mat) < 2) return(list(ok = FALSE, reason = "Fewer than 2 samples remain after the selected sample filters - relax the thresholds above."))
-      is_matrix_method <- method_key %in% METHYL_NORM_MATRIX_METHOD_KEYS
-
-      if (is_matrix_method) {
-        filters <- build_probe_filters(sc$mat)
-        keep <- rep(TRUE, nrow(sc$mat)); for (f in filters) keep <- keep & f$keep
-        mat_in <- sc$mat[keep, , drop = FALSE]
-        res <- run_one_method(method_key, mat_in, sc$rg, sc$mset)
-      } else {
-        filters <- list()
-        res <- run_one_method(method_key, sc$mat, sc$rg, sc$mset)
-        if (isTRUE(res$ok)) {
-          filters <- build_probe_filters(res$beta)
-          keep <- rep(TRUE, nrow(res$beta)); for (f in filters) keep <- keep & f$keep
-          res$beta <- res$beta[keep, , drop = FALSE]
-        }
-      }
-      if (!isTRUE(res$ok)) return(res)
-      if (nrow(res$beta) < 1) return(list(ok = FALSE, reason = "All probes were removed by the selected filters - relax them and try again."))
-
-      common_probes <- intersect(rownames(sc$mat), rownames(res$beta))
-      before <- sc$mat[common_probes, , drop = FALSE]
-      after <- res$beta[common_probes, , drop = FALSE]
-      filter_notes <- c(sc$notes, vapply(filters, `[[`, character(1), "note"))
-      removed_probes <- setdiff(rownames(sc$mat), common_probes)
-
-      group_labels <- group_labels_for_check(colnames(after))
-      validation <- methyl_norm_validation(before, after, anno_result(), group_labels)
-
-      list(ok = TRUE, method = method_key, method_label = names(available_methods())[available_methods() == method_key],
-           before = before, after = after, note = res$note,
-           removed_probes = removed_probes, removed_samples = sc$removed_samples, filter_notes = filter_notes,
-           n_probes_before = nrow(sc$mat), n_samples_before = ncol(sc$mat),
-           validation = validation, run_at = Sys.time())
-    }
-
-    ## ---- Run Normalization --------------------------------------------
 
     norm_has_run <- reactiveVal(FALSE)
     observeEvent(methyl_dataset$beta, norm_has_run(FALSE), ignoreNULL = TRUE)
 
-    norm_result <- eventReactive(input$run_btn, {
-      req(input$method)
-      validate(need(!is.null(methyl_dataset$beta), "Upload a dataset on the Dataset tab first."))
-      r <- withProgress(message = sprintf("Running %s", names(available_methods())[available_methods() == input$method]), value = 0.3, {
-        run_full(input$method)
+    ## The actual method fit (esp. BMIQ/PBC/Noob+BMIQ) can take a long time; running it
+    ## synchronously here would block the single-threaded R process for every session on
+    ## this server, not just the one that clicked Run. Run it in a genuinely separate OS
+    ## process via callr::r_bg() (polled from a lightweight observe()/invalidateLater()
+    ## loop) so the rest of the app - including other users - stays responsive while it
+    ## runs. Deliberately callr, not future/ExtendedTask: future's automatic globals
+    ## detection has to walk the calling environment chain to decide what a worker needs,
+    ## and inside this app's large nested moduleServer/session environment that walk was
+    ## measured to block the single-threaded main process for 30s+ per run - as bad as
+    ## the original synchronous bug it was meant to fix. callr serializes the worker
+    ## function/args directly with no environment scanning, so it doesn't have that cost.
+    norm_result_state <- reactiveVal(NULL)
+    METHYL_NORM_ASYNC_AVAILABLE <- isTRUE(ARTHOMIX_ASYNC_AVAILABLE) && requireNamespace("callr", quietly = TRUE)
+
+    if (METHYL_NORM_ASYNC_AVAILABLE) {
+      norm_bg_proc <- reactiveVal(NULL)
+
+      observeEvent(input$run_btn, {
+        req(input$method)
+        if (is.null(methyl_dataset$beta)) { norm_result_state(list(ok = FALSE, reason = "Upload a dataset on the Dataset tab first.")); return() }
+        proc <- callr::r_bg(
+          func = methyl_norm_bg_worker,
+          args = list(method_key = input$method, ctx = make_norm_ctx(), app_dir = getwd()),
+          supervise = TRUE
+        )
+        norm_bg_proc(proc)
       })
+
+      observe({
+        proc <- norm_bg_proc()
+        req(proc)
+        if (isTRUE(proc$is_alive())) { invalidateLater(400); return() }
+        r <- tryCatch(proc$get_result(), error = function(e) list(ok = FALSE, reason = paste("Background run failed:", conditionMessage(e))))
+        norm_bg_proc(NULL)
+        norm_result_state(r)
+      })
+
+      norm_running <- reactive(!is.null(norm_bg_proc()))
+    } else {
+      observeEvent(input$run_btn, {
+        req(input$method)
+        if (is.null(methyl_dataset$beta)) { norm_result_state(list(ok = FALSE, reason = "Upload a dataset on the Dataset tab first.")); return() }
+        r <- withProgress(message = sprintf("Running %s", names(available_methods())[available_methods() == input$method]), value = 0.3, {
+          methyl_norm_run_full_ctx(input$method, make_norm_ctx())
+        })
+        norm_result_state(r)
+      })
+      norm_running <- reactive(FALSE)
+    }
+
+    output$run_status_ui <- renderUI({
+      if (!isTRUE(norm_running())) return(NULL)
+      span(style = "font-size: 13px; margin-left: 10px;", icon("spinner", class = "fa-spin"),
+           " Running - this can take a while for BMIQ/PBC; the rest of the app stays usable meanwhile.")
+    })
+
+    norm_result <- reactive({
+      r <- norm_result_state()
+      req(r)
       validate(need(isTRUE(r$ok), r$reason %||% "Normalization failed."))
       r
     })
@@ -598,9 +722,9 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
                 icon(switch(interp$status, pass = "circle-check", warning = "triangle-exclamation", "circle-info")), " ", interp$text),
             fluidRow(
               valueBox(r$method_label, "Method", icon = icon("wave-square"), color = "light-blue", width = 3),
-              valueBox(sprintf("%s -> %s", format(r$n_samples_before, big.mark = ","), ncol(r$after)), "Samples", icon = icon("vial"), color = "purple", width = 3),
-              valueBox(sprintf("%s -> %s", format(r$n_probes_before, big.mark = ","), format(nrow(r$after), big.mark = ",")), "Probes", icon = icon("dna"), color = "green", width = 3),
-              valueBox(sprintf("%.2f%% -> %.2f%%", r$validation$missing_before, r$validation$missing_after), "Missingness", icon = icon("circle-question"), color = "yellow", width = 3)
+              valueBox(ncol(r$after), sprintf("Samples (%s before)", format(r$n_samples_before, big.mark = ",")), icon = icon("vial"), color = "purple", width = 3),
+              valueBox(format(nrow(r$after), big.mark = ","), sprintf("Probes (%s before)", format(r$n_probes_before, big.mark = ",")), icon = icon("dna"), color = "green", width = 3),
+              valueBox(sprintf("%.2f%%", r$validation$missing_after), sprintf("Missingness (%.2f%% before)", r$validation$missing_before), icon = icon("circle-question"), color = "yellow", width = 3)
             ),
             fluidRow(
               valueBox(sprintf("%.4f", stats::median(r$before, na.rm = TRUE)), "Median beta before", icon = icon("chart-line"), color = "light-blue", width = 3),
@@ -751,20 +875,70 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     })
 
     ## ---- Compare Methods ---------------------------------------------
+    ## Same blocking concern as Run Normalization above when BMIQ/PBC/Noob+BMIQ is
+    ## among the selected methods - same callr::r_bg() treatment.
 
-    compare_result <- eventReactive(input$compare_btn, {
-      sel <- input$compare_methods_sel
-      validate(need(length(sel) >= 2, "Select at least two methods to compare."))
-      out <- withProgress(message = "Comparing methods", value = 0, {
-        lapply(seq_along(sel), function(i) {
-          incProgress(1 / length(sel), detail = names(available_methods())[available_methods() == sel[i]])
-          r <- run_full(sel[i])
-          r$key <- sel[i]
-          r
-        })
+    compare_result_state <- reactiveVal(NULL)
+    compare_validation_msg <- reactiveVal(NULL)
+
+    if (METHYL_NORM_ASYNC_AVAILABLE) {
+      compare_bg_proc <- reactiveVal(NULL)
+
+      observeEvent(input$compare_btn, {
+        sel <- input$compare_methods_sel
+        if (length(sel) < 2) { compare_validation_msg("Select at least two methods to compare."); return() }
+        compare_validation_msg(NULL)
+        proc <- callr::r_bg(
+          func = methyl_norm_compare_bg_worker,
+          args = list(sel = sel, ctx = make_norm_ctx(), app_dir = getwd()),
+          supervise = TRUE
+        )
+        compare_bg_proc(proc)
       })
-      names(out) <- sel
-      out
+
+      observe({
+        proc <- compare_bg_proc()
+        req(proc)
+        if (isTRUE(proc$is_alive())) { invalidateLater(400); return() }
+        r <- tryCatch(proc$get_result(), error = function(e) e)
+        compare_bg_proc(NULL)
+        if (inherits(r, "error")) { compare_validation_msg(conditionMessage(r)); return() }
+        compare_result_state(r)
+      })
+
+      compare_running <- reactive(!is.null(compare_bg_proc()))
+    } else {
+      observeEvent(input$compare_btn, {
+        sel <- input$compare_methods_sel
+        if (length(sel) < 2) { compare_validation_msg("Select at least two methods to compare."); return() }
+        compare_validation_msg(NULL)
+        ctx <- make_norm_ctx()
+        out <- withProgress(message = "Comparing methods", value = 0, {
+          lapply(seq_along(sel), function(i) {
+            incProgress(1 / length(sel), detail = names(available_methods())[available_methods() == sel[i]])
+            r <- methyl_norm_run_full_ctx(sel[i], ctx)
+            r$key <- sel[i]
+            r
+          })
+        })
+        names(out) <- sel
+        compare_result_state(out)
+      })
+      compare_running <- reactive(FALSE)
+    }
+
+    output$compare_status_ui <- renderUI({
+      if (!isTRUE(compare_running())) return(NULL)
+      span(style = "font-size: 13px; margin-left: 10px;", icon("spinner", class = "fa-spin"),
+           " Comparing - this can take a while if BMIQ/PBC/Noob+BMIQ is selected; the rest of the app stays usable meanwhile.")
+    })
+
+    compare_result <- reactive({
+      msg <- compare_validation_msg()
+      validate(need(is.null(msg), msg))
+      r <- compare_result_state()
+      req(r)
+      r
     })
 
     output$compare_result_ui <- renderUI({

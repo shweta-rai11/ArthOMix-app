@@ -42,6 +42,46 @@ methyl_parse_sample_sheet <- function(datapath, filename) {
   list(ok = TRUE, df = df)
 }
 
+## Checks whether a parsed matrix looks transposed (samples x probes instead of
+## probes x samples) by comparing what fraction of rownames vs colnames look like
+## probe IDs (cg######/ch.#######/rs######## - CpG, SNP-control, and Type II
+## "ch." probes all seen on real Illumina manifests).
+methyl_detect_orientation <- function(mat) {
+  probe_pattern <- "^(cg|ch\\.|rs)[0-9]"
+  row_hits <- mean(grepl(probe_pattern, rownames(mat), ignore.case = TRUE))
+  col_hits <- mean(grepl(probe_pattern, colnames(mat) %||% character(0), ignore.case = TRUE))
+  list(row_hits = row_hits, col_hits = col_hits, transposed = col_hits > row_hits && col_hits > 0.5)
+}
+
+## Fail-soft check that an already-parsed matrix (i) is oriented probes x samples,
+## transposing automatically if it looks backwards, and (ii) actually looks like the
+## declared input scale - beta values must mostly fall in [0,1]; M-values are
+## unbounded, so only warns (rather than blocks) when they look suspiciously
+## beta-like. Never throws; always returns list(ok, mat, note, error).
+methyl_validate_matrix_upload <- function(mat, declared_scale) {
+  orient <- methyl_detect_orientation(mat)
+  notes <- character(0)
+  if (isTRUE(orient$transposed)) {
+    mat <- t(mat)
+    notes <- c(notes, "Detected this matrix was oriented samples x probes (column headers looked like probe IDs, the first column like sample names) - transposed automatically to probes x samples.")
+  }
+  vals <- mat[is.finite(mat)]
+  if (length(vals) == 0) {
+    return(list(ok = FALSE, error = "No finite numeric values found in this matrix - check it isn't entirely NA/blank."))
+  }
+  frac_in_unit <- mean(vals >= -0.05 & vals <= 1.05)
+  if (identical(declared_scale, "beta") && frac_in_unit < 0.95) {
+    return(list(ok = FALSE, error = sprintf(
+      "\"Beta values (0-1)\" is selected as the input scale, but %.0f%% of the values in this matrix fall outside 0-1 - this looks like M-values or a non-methylation dataset, not beta values. Switch \"Input scale\" to M-values if that's what this is, or double check this file is really methylation data.",
+      100 * (1 - frac_in_unit)
+    )))
+  }
+  if (identical(declared_scale, "m") && frac_in_unit > 0.99 && stats::sd(vals) < 0.5) {
+    notes <- c(notes, "Note: these values look like they could already be beta values (all within 0-1, low spread) rather than M-values - double-check \"Input scale\" above if downstream results look off.")
+  }
+  list(ok = TRUE, mat = mat, note = if (length(notes) > 0) paste(notes, collapse = " ") else NULL)
+}
+
 ## Optional probe-exclusion list: one probe ID per line, or first column of a CSV/TSV.
 methyl_parse_probe_list <- function(datapath, filename) {
   lines <- tryCatch(readLines(datapath, warn = FALSE), error = function(e) NULL)

@@ -277,7 +277,7 @@ multi_active_dataset_banner <- function(multi_dataset) {
   source <- md$source
   if (is.null(source) || !isTRUE(md$active %||% FALSE)) {
     return(div(class = "empty-note", icon("circle-info"),
-               "No active Multi-Omics dataset yet - pick one on the Dataset tab. Panels below show the bundled RA anti-TNF cohort."))
+               "No active Multi-Omics dataset yet - pick one on the Dataset tab, or choose the Preloaded/Reference option in this tab's own data-source selector to use the bundled RA anti-TNF cohort."))
   }
   if (identical(source, "preloaded")) {
     return(div(class = "empty-note", icon("circle-check"),

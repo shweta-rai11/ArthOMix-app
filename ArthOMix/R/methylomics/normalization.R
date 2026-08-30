@@ -348,31 +348,31 @@ methyl_type_bias_stat <- function(mat, anno_result) {
 methyl_norm_status <- function(mat, dataset, anno_result) {
   if (!is.null(dataset$rg_set)) {
     return(list(status = "raw", message =
-      "This dataset was derived directly from raw IDAT intensities and has not been normalized. A normalization step is recommended before downstream analysis.",
+      "Raw, unnormalized data - normalization is recommended before downstream analysis.",
       bias = NULL))
   }
   if (!identical(dataset$input_scale, "beta")) {
     return(list(status = "unknown", message =
-      "This matrix is on the M-value scale, which does not carry a straightforward probe-design-bias signature. Review the diagnostics below before deciding whether to normalize.",
+      "M-value scale - no probe-design-bias signature available; review diagnostics below.",
       bias = NULL))
   }
   bias <- methyl_type_bias_stat(mat, anno_result)
   if (!isTRUE(bias$ok)) {
     return(list(status = "unknown", message = sprintf(
-      "Unable to determine automatically (%s). Please review the data diagnostics before proceeding.", bias$reason), bias = NULL))
+      "Unable to determine automatically (%s).", bias$reason), bias = NULL))
   }
   if (bias$ks_stat < 0.03) {
     return(list(status = "no_bias_detected", message = sprintf(
-      "Type I and Type II probe beta-value distributions are closely aligned (Kolmogorov-Smirnov statistic = %.3f) - no evidence of uncorrected Type I/II probe-design bias. This speaks only to that specific signal, not to whether background/dye-bias/batch correction was applied upstream (not determinable from a beta matrix alone).", bias$ks_stat),
+      "No Type I/II probe-design bias detected (KS = %.3f).", bias$ks_stat),
       bias = bias))
   }
   if (bias$ks_stat > 0.06) {
     return(list(status = "bias_detected", message = sprintf(
-      "Type I and Type II probe beta-value distributions differ substantially (Kolmogorov-Smirnov statistic = %.3f), consistent with uncorrected Type I/II probe-design bias - the kind BMIQ/SWAN specifically address. This does not necessarily mean no normalization was ever applied: a dataset can be fully corrected for background/dye/batch effects and still show this residual difference if a probe-design-aware step was never run on it.", bias$ks_stat),
+      "Type I/II probe-design bias detected (KS = %.3f) - a BMIQ/SWAN-style correction would address it.", bias$ks_stat),
       bias = bias))
   }
   list(status = "unknown", message = sprintf(
-    "The Type I/Type II distribution difference (Kolmogorov-Smirnov statistic = %.3f) is inconclusive. Please review the data diagnostics before proceeding.", bias$ks_stat),
+    "Type I/II distribution difference is inconclusive (KS = %.3f).", bias$ks_stat),
     bias = bias)
 }
 
@@ -438,7 +438,7 @@ methyl_norm_validation <- function(before, after, anno_result, group_labels = NU
 methyl_norm_interpretation <- function(v) {
   if (isTRUE(v$signal_check$flagged)) {
     return(list(status = "warning", text = sprintf(
-      "Normalization completed, but a potential biological signal change was detected: PC1's association with the selected group column dropped from R² = %.3f to R² = %.3f. Review the before/after PCA and group-level distributions before selecting this result for downstream analysis.",
+      "Normalized, but PC1's association with the group column dropped from R² = %.3f to %.3f - review before selecting this result.",
       v$signal_check$r2_before, v$signal_check$r2_after)))
   }
   improved <- character(0)

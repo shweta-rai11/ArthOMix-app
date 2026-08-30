@@ -218,7 +218,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
-      if (!is.null(bundled_venn)) {
+      if (!is.null(bundled_venn) && isTRUE(dataset$is_bundled_reference)) {
         genes <- unique(bundled_venn$gene[
           bundled_venn$candidate_set == "noMHC" & bundled_venn$sex == sex_label &
           as.character(bundled_venn$in_consensus) == "TRUE"
@@ -238,7 +238,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
-      bundled <- switch(sex_label, female = bundled_synovium$fsig, male = bundled_synovium$msig, NULL)
+      bundled <- if (isTRUE(dataset$is_bundled_reference)) switch(sex_label, female = bundled_synovium$fsig, male = bundled_synovium$msig, NULL) else NULL
       bundled <- unique(as.character(bundled))
       if (length(bundled) >= 2) {
         return(list(genes = bundled, is_live = FALSE,
@@ -425,6 +425,9 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
 
     enrich_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, enrich_has_run(TRUE), ignoreInit = TRUE)
+    # result() is an eventReactive, so it keeps the previous dataset's run until Run is clicked
+    # again - retire it on a dataset switch instead of showing it as if it were the current one.
+    observeEvent(dataset$source, enrich_has_run(FALSE), ignoreInit = TRUE)
 
     ## Result boxes stay out of the DOM until "Run enrichment" is clicked once.
     output$result_box_ui <- renderUI({
@@ -443,7 +446,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     })
 
     output$below_result_ui <- renderUI({
-      req(enrich_has_run())
+      if (!enrich_has_run()) return(NULL)
       tagList(
         box(
           width = 12, title = tagList(icon("table"), "Enriched terms"), status = "primary", solidHeader = FALSE,
@@ -507,7 +510,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     })
 
     output$bar_plot <- renderPlot({
-      req(enrich_has_run())
+      validate(need(enrich_has_run(), "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       res <- result()
       df <- res$table %>% filter(qvalue < input$qval_cut) %>% arrange(qvalue) %>% head(15)
       validate(need(nrow(df) > 0, "No terms pass the current q-value cutoff."))
@@ -519,7 +522,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     })
 
     output$enrich_table <- DT::renderDataTable({
-      req(enrich_has_run())
+      validate(need(enrich_has_run(), "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       res <- result()
       DT::datatable(res$table, rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
@@ -534,7 +537,10 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     )
 
     output$gene_cards_ui <- renderUI({
-      req(enrich_has_run())
+      if (!enrich_has_run()) {
+        return(div(class = "empty-note", icon("circle-info"),
+                    "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
+      }
       cards <- result()$gene_cards
       validate(need(length(cards) > 0, "Gene card lookup unavailable (MyGene.info did not respond) or none of the input genes were found."))
       tagList(lapply(cards, function(g) {
@@ -562,7 +568,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     })
 
     output$hub_table_ui <- DT::renderDataTable({
-      req(enrich_has_run())
+      validate(need(enrich_has_run(), "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       ht <- result()$hub_table
       validate(need(!is.null(ht) && nrow(ht) > 0, "No hub-gene data for this list."))
       disp <- ht
@@ -574,7 +580,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     })
 
     output$string_network <- renderImage({
-      req(enrich_has_run())
+      validate(need(enrich_has_run(), "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       png_path <- result()$string_png
       validate(need(!is.null(png_path), "STRING network unavailable (string-db.org did not respond) or no interactions were found at this confidence threshold."))
       list(src = png_path, contentType = "image/png", width = "100%", alt = "STRING protein interaction network")

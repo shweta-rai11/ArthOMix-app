@@ -220,7 +220,13 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       sample_ids <- if (length(id_col) > 0) as.character(sheet[[id_col[1]]]) else rownames(sheet)
       grp <- stats::setNames(as.character(sheet[[input$live_group_col]]), sample_ids)[all_ids]
       counts <- table(grp, useNA = "no")
-      lvl_choices <- stats::setNames(names(counts), sprintf("%s (n=%d)", names(counts), as.integer(counts)))
+      ## table(<all-NA>, useNA="no") returns a 0-extent table whose names()
+      ## is NULL (not character(0)) - setNames(NULL, ...) errors ("attempt
+      ## to set an attribute on NULL"), which is exactly what happens when
+      ## the chosen subgroup column (e.g. "sex") has no usable values, as on
+      ## an uploaded/GEO dataset with no sex mapped.
+      lvl_names <- names(counts) %||% character(0)
+      lvl_choices <- stats::setNames(lvl_names, sprintf("%s (n=%d)", lvl_names, as.integer(counts)))
       choices <- c(stats::setNames("__all__", sprintf("All (n=%d)", length(all_ids))), lvl_choices)
       radioButtons(ns("live_stratum"), "Stratum", choices = choices, selected = "__all__", inline = TRUE)
     })
@@ -313,12 +319,16 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
     ## ==== TAB: Overview =========================================================
     ## Static dataset facts + a self-contained pass/warning/fail QC check; not an aggregate of the other tabs.
 
-    output$overview_ui <- renderUI({
+    ## Split from the summary below (which reads current_subgroup()) so that
+    ## the "Subgroup column" selectInput never sits in a renderUI that also
+    ## depends on a reactive derived from that very input - co-locating them
+    ## caused every live_group_col change to regenerate this exact selectInput,
+    ## which briefly re-reports its own (unchanged) value on rebind, adding an
+    ## extra settle round-trip (visible as the Overview tab flashing back to
+    ## its loading spinner) for no benefit.
+    output$overview_controls_ui <- renderUI({
       req(methyl_dataset$beta)
       sheet <- methyl_dataset$sample_sheet
-      batch_cols <- methyl_batch_columns(sheet)
-      sex_cols <- if (!is.null(sheet)) intersect(c("sex", "Sex", "SEX", "gender", "Gender"), colnames(sheet)) else character(0)
-      sg <- current_subgroup()
       tagList(
         div(class = "empty-note", icon("circle-info"),
             sprintf("Dataset loaded - %s probe(s) x %s sample(s) (%s). Nothing has been analyzed yet: open a tab below, set its parameters, and click that tab's own Run button.",
@@ -335,7 +345,17 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
               ),
               column(6, withSpinner(uiOutput(ns("live_stratum_ui")), color = "#2563EB", type = 6, proxy.height = "40px"))
             )
-        ),
+        )
+      )
+    })
+
+    output$overview_summary_ui <- renderUI({
+      req(methyl_dataset$beta)
+      sheet <- methyl_dataset$sample_sheet
+      batch_cols <- methyl_batch_columns(sheet)
+      sex_cols <- if (!is.null(sheet)) intersect(c("sex", "Sex", "SEX", "gender", "Gender"), colnames(sheet)) else character(0)
+      sg <- current_subgroup()
+      tagList(
         div(class = "card",
             div(class = "card-title", icon("database"), "Loaded dataset"),
             fluidRow(
@@ -357,6 +377,14 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
             actionButton(ns("run_overview_btn"), "Run Overview QC", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         uiOutput(ns("overview_gate"))
+      )
+    })
+
+    output$overview_ui <- renderUI({
+      req(methyl_dataset$beta)
+      tagList(
+        uiOutput(ns("overview_controls_ui")),
+        withSpinner(uiOutput(ns("overview_summary_ui")), color = "#2563EB", type = 6)
       )
     })
 
@@ -746,7 +774,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
             ) else tagList(
               p(class = "empty-note", icon("triangle-exclamation"), r$sex$reason),
               if (isTRUE(methyl_dataset$preloaded)) p(class = "empty-note", icon("circle-info"),
-                "The preloaded whole-blood dataset's bundled matrix has already had sex-chromosome probes removed by the original pipeline's own QC cascade (see the historical \"PCA outliers & chrY sex-check\" card above this live tool), so there are no chrX/chrY probes left here to predict sex from. Upload your own IDAT/matrix data (with sex-chromosome probes retained) to run this check live.")
+                "The preloaded matrix already had sex-chromosome probes removed - upload your own data (with sex-chromosome probes retained) to run this check live.")
             )
         ),
         if (isTRUE(r$sex$ok)) div(class = "card",

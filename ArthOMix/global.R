@@ -12,8 +12,12 @@ source("data_paths.R")
 ## Shiny's own default (5MB) is too small for a real expression matrix
 ## upload (e.g. a genome-wide RNA-seq counts CSV) - raise it for every
 ## fileInput in the app (Dataset tab, Preprocessing, Feature Selection's
-## own upload path, etc.), not just one.
-options(shiny.maxRequestSize = 200 * 1024^2)
+## own upload path, etc.), not just one. 200MB was too tight for a full
+## raw methylation beta-value matrix (a genome-wide 450K/EPIC CSV commonly
+## runs several hundred MB to low GBs - the app's own bundled preloaded
+## reference matrix is ~2.1GB, see the ExtendedTask comment below), so this
+## is raised to comfortably clear that scale for every vertical's upload.
+options(shiny.maxRequestSize = 3072 * 1024^2)
 
 ## Background execution for genuinely slow, blocking operations - currently
 ## only the Methylomics Dataset tab's preloaded ~2.1GB live beta matrix read
@@ -1939,15 +1943,17 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
       scale_fill_gradient(low = fill_low, high = fill_high, name = "Features") +
       scale_x_continuous(expand = expansion(mult = 0.12)) +
       scale_y_continuous(expand = expansion(mult = 0.12)) +
-      ## coord_equal(), not coord_cartesian(): ggVennDiagram's circles are
-      ## only actually round if the x/y scales stay 1:1 - coord_cartesian()
-      ## would silently replace ggVennDiagram's own coord_equal() (ggplot2
-      ## keeps only one coordinate system per plot), stretching the circles
-      ## to whatever aspect ratio the plot panel happens to render at.
-      coord_equal(clip = "off") +
       labs(title = auto_title) +
       theme(legend.position = "right", legend.text = element_text(size = 9),
             plot.title = element_text(face = "bold", size = 13, hjust = 0))
+    ## coord_equal(), not coord_cartesian() (ggVennDiagram's own default): circles
+    ## are only actually round if the x/y scales stay 1:1, and clip = "off" lets the
+    ## 2-set label fix below draw into the reserved left margin. Assigned directly
+    ## rather than via `p + coord_equal(...)` - `+` on a plot that already has a
+    ## coordinate system (ggVennDiagram always sets one) makes ggplot2 print
+    ## "Coordinate system already present ... replacing" on every single render;
+    ## direct assignment produces the identical final coord object silently.
+    p$coordinates <- coord_equal(clip = "off")
     ## The 2-set hjust = 1 fix above grows both category-name labels
     ## leftward, outside the panel, with no upper bound - scale expansion
     ## (a FRACTION of the data range) can't reserve enough absolute room
@@ -1972,6 +1978,55 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
       theme_arthomix() +
       theme(panel.grid.major.y = element_blank())
   }
+}
+
+## Companion to draw_overlap_venn() (same `sets` argument - a 2-7 element
+## named list of feature vectors) - given a click point in the plot's own
+## data coordinates (as reported by plotOutput(click = ...): input$xxx$x/$y),
+## returns which Venn region that point landed in, or NULL if it missed every
+## region (e.g. a click outside all circles, or on a set-name/percent label,
+## which sit outside their own region's fill). Reruns ggVennDiagram's own
+## layout (Venn()/process_data()) to get each region's exact drawn polygon -
+## draw_overlap_venn() doesn't expose that geometry itself, only the finished
+## plot - then does a standard point-in-polygon (ray casting / even-odd rule)
+## test against each one; base R only, no dependency beyond ggVennDiagram
+## itself (already required for the plot).
+venn_region_at_point <- function(sets, x, y) {
+  sets <- sets[lengths(sets) > 0]
+  if (length(sets) < 2 || length(sets) > 7 || is.null(x) || is.null(y)) return(NULL)
+  d <- tryCatch(ggVennDiagram::process_data(ggVennDiagram::Venn(sets)), error = function(e) NULL)
+  if (is.null(d)) return(NULL)
+  edge <- d$regionEdge
+  label <- d$regionLabel
+
+  point_in_polygon <- function(px, py, poly_x, poly_y) {
+    n <- length(poly_x)
+    inside <- FALSE
+    j <- n
+    for (i in seq_len(n)) {
+      if (((poly_y[i] > py) != (poly_y[j] > py)) &&
+          (px < (poly_x[j] - poly_x[i]) * (py - poly_y[i]) / (poly_y[j] - poly_y[i]) + poly_x[i])) {
+        inside <- !inside
+      }
+      j <- i
+    }
+    inside
+  }
+
+  ## Regions nest (e.g. region "1/2" is drawn entirely inside both set 1's and
+  ## set 2's own circles), so check the most specific region (most sets in its
+  ## id) first - otherwise a click inside a small overlap sliver would match
+  ## the larger single-set circle it happens to also sit inside of.
+  ids <- unique(edge$id)
+  ids <- ids[order(-lengths(strsplit(ids, "/", fixed = TRUE)))]
+  for (rid in ids) {
+    seg <- edge[edge$id == rid, , drop = FALSE]
+    if (nrow(seg) < 3 || !point_in_polygon(x, y, seg$X, seg$Y)) next
+    lab <- label[label$id == rid, , drop = FALSE]
+    if (nrow(lab) == 0) next
+    return(list(name = lab$name[1], item = lab$item[[1]], count = lab$count[1]))
+  }
+  NULL
 }
 
 ## A thin, rank-ordered bar chart shared by every QC metric: neutral blue

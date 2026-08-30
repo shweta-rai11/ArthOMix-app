@@ -5,7 +5,7 @@
 mod_overview_config <- list(
   id = "overview", group = "Data",
   title = "Overview and Datasets",
-  description = "The datasets overview, where quality control of the data can be performed. Users can either upload their own dataset or use pre-loaded data.",
+  description = "Quality control for the currently loaded dataset - preloaded or uploaded.",
   icon = "table-cells"
 )
 
@@ -239,6 +239,20 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                   selected = qc_source_default(), width = "100%")
     })
     qc_target <- reactive({ req(input$qc_source); resolve_qc_source(input$qc_source) })
+
+    ## The three on-demand panels below cache an eventReactive keyed to a click
+    ## count, which can't be reset server-side - so a stale flag per panel marks
+    ## their cached results as belonging to a previous dataset until re-run.
+    qc_stale <- reactiveVal(FALSE)
+    norm_stale <- reactiveVal(FALSE)
+    filter_stale <- reactiveVal(FALSE)
+    observeEvent(qc_target(), {
+      qc_stale(TRUE); norm_stale(TRUE); filter_stale(TRUE)
+    }, ignoreInit = TRUE)
+    observeEvent(input$run_qc_btn, qc_stale(FALSE), ignoreInit = TRUE)
+    observeEvent(input$run_norm_btn, norm_stale(FALSE), ignoreInit = TRUE)
+    observeEvent(input$apply_btn, filter_stale(FALSE), ignoreInit = TRUE)
+
     output$qc_source_info_ui <- renderUI({
       t <- qc_target()
       div(class = "empty-note", icon("circle-info"), strong(t$label), " - ",
@@ -316,6 +330,9 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       if (!isTruthy(input$run_qc_btn) || input$run_qc_btn == 0) {
         return(div(class = "empty-note", icon("circle-info"), "Not run yet - click Run outlier detection to check for technical outliers."))
       }
+      if (qc_stale()) {
+        return(div(class = "empty-note", icon("circle-info"), "Dataset changed - click Run outlier detection again to refresh."))
+      }
       qc <- sample_qc()
       n_flagged <- sum(qc$flag_signal | qc$flag_detected | qc$flag_cor)
       valueBox(n_flagged, "Samples flagged", icon = icon("triangle-exclamation"),
@@ -323,6 +340,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
 
     output$qc_plots_ui <- renderUI({
+      if (qc_stale()) return(NULL)
       req(sample_qc())
       tagList(
         fluidRow(
@@ -392,6 +410,9 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       if (!isTruthy(input$run_norm_btn) || input$run_norm_btn == 0) {
         return(div(class = "empty-note", icon("circle-info"), "Not run yet - click Run normalisation check to see whether samples are on a comparable scale."))
       }
+      if (norm_stale()) {
+        return(div(class = "empty-note", icon("circle-info"), "Dataset changed - click Run normalisation check again to refresh."))
+      }
       d <- norm_check()$diag
       needs <- needs_quantile_norm(d)
       tagList(
@@ -405,6 +426,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
 
     output$norm_views_ui <- renderUI({
+      if (norm_stale()) return(NULL)
       req(norm_check())
       tagList(
         box(
@@ -476,6 +498,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
 
     output$norm_apply_ui <- renderUI({
+      if (norm_stale()) return(NULL)
       req(norm_check())
       needs <- needs_quantile_norm(norm_check()$diag)
       tagList(
@@ -645,6 +668,9 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       if (!isTruthy(input$apply_btn) || input$apply_btn == 0) {
         return(div(class = "empty-note", icon("circle-info"), "Set any filters on the left (all optional), then click Apply filters. Everything shows by default."))
       }
+      if (filter_stale()) {
+        return(div(class = "empty-note", icon("circle-info"), "Dataset changed - click Apply filters again to refresh."))
+      }
       df <- filtered_meta()
       fluidRow(
         valueBox(nrow(df), "Samples selected", icon = icon("users"), color = "light-blue", width = 3),
@@ -655,6 +681,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
 
     output$filtered_views_ui <- renderUI({
+      if (filter_stale()) return(NULL)
       req(filtered_meta())
       tagList(
         fluidRow(

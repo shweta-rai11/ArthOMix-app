@@ -13,18 +13,24 @@
 
 CX_FIELD_PATTERNS <- list(
   gene = c("^gene[_ .]?symbol$", "^hgnc[_ .]?symbol$", "^symbol$", "^gene[_ .]?name$",
-           "^gene$", "^genes$", "^gene[_ .]?id$", "^geneid$"),
+           "^gene$", "^genes$", "^gene[_ .]?id$", "^geneid$",
+           "^ucsc[_ .]?refgene[_ .]?name$", "^overlapping[_ .]?genes?$"),
   cpg = c("^cpg[_ .]?id$", "^cpg$", "^probe[_ .]?id$", "^probeid$", "^probe$", "^illumina[_ .]?id$"),
   log2fc = c("^log2[_ .]?fc$", "^log2fc$", "^logfc$", "^log[_ .]?fold[_ .]?change$",
              "^fold[_ .]?change$", "^log2[_ .]?fold[_ .]?change$", "^lfc$"),
   dbeta = c("^delta[_ .]?beta$", "^dbeta$", "^d[_ .]?beta$", "^meandiff$", "^mean[_ .]?diff$",
             "^beta[_ .]?diff(erence)?$", "^methylation[_ .]?change$", "^methylation[_ .]?difference$"),
   beta = c("^beta$", "^beta[_ .]?value$", "^methylation[_ .]?beta$", "^avg[_ .]?beta$"),
-  pvalue = c("^p[_ .]?value$", "^pval$", "^p[_ .]?val$", "^pvalue$", "^p\\.value$"),
+  pvalue = c("^p[_ .]?value$", "^pval$", "^p[_ .]?val$", "^pvalue$", "^p\\.value$",
+             "^stouffer$", "^p[_ .]?bacon$"),
   fdr = c("^fdr$", "^adj\\.?p\\.?val$", "^adjusted[_ .]?p[_ .]?value$", "^padj$",
-          "^q[_ .]?value$", "^qval$", "^significance$", "^fdr[_ .]?bacon$"),
+          "^q[_ .]?value$", "^qval$", "^significance$", "^fdr[_ .]?bacon$",
+          "^dmr[_ .]?fdr$", "^min[_ .]?smoothed[_ .]?fdr$"),
   chr = c("^chr(omosome)?$", "^seqnames$"),
   pos = c("^pos(ition)?$", "^start$", "^bp$", "^coordinate$"),
+  end = c("^end$"),
+  n_cpgs = c("^no\\.?cpgs?$", "^n[_ .]?cpgs?$", "^num[_ .]?cpgs?$", "^ncpg$"),
+  region_id = c("^dmr[_ .]?id$", "^region[_ .]?id$"),
   region = c("^region$", "^feature$", "^genomic[_ .]?region$",
              "^ucsc[_ .]?refgene[_ .]?group$", "^annotation$"),
   island = c("^cpg[_ .]?island$", "^island$", "^relation[_ .]?to[_ .]?island$",
@@ -34,7 +40,8 @@ CX_FIELD_PATTERNS <- list(
 )
 
 CX_EXPRESSION_FIELDS <- c("gene", "log2fc", "pvalue", "fdr", "sample_id")
-CX_METHYLATION_FIELDS <- c("cpg", "gene", "dbeta", "beta", "pvalue", "fdr", "chr", "pos", "region", "island", "sample_id")
+CX_METHYLATION_FIELDS <- c("cpg", "gene", "dbeta", "beta", "pvalue", "fdr", "chr", "pos",
+                            "end", "n_cpgs", "region_id", "region", "island", "sample_id")
 
 cx_match_column <- function(cols, patterns, exclude = character(0)) {
   cols_lower <- tolower(trimws(cols))
@@ -90,6 +97,20 @@ cx_detect_sample_columns <- function(df, mapping) {
 
 cx_as_numeric_safe <- function(x) suppressWarnings(as.numeric(x))
 
+## Appends any source columns `mapping` didn't claim (e.g. AveExpr/t/dir on a
+## DEG upload, or width/strand/HMFDR on a DMR upload) onto the standardized
+## table, so nothing the user uploaded is silently dropped even though only
+## the canonical fields drive the integration itself. A leftover column whose
+## name collides with one of the standardized table's own reserved names is
+## dropped rather than overwriting it. Called before any row-filtering/dedup
+## so extras stay aligned with the rows they came from.
+cx_bind_extra_columns <- function(out, df, mapping) {
+  claimed <- unname(mapping[!is.na(mapping)])
+  leftover <- setdiff(colnames(df), c(claimed, colnames(out)))
+  if (length(leftover) == 0) return(out)
+  cbind(out, df[, leftover, drop = FALSE])
+}
+
 ## Builds the standardized gene-level expression table: gene, log2fc, pvalue,
 ## fdr. `mapping` is a named character vector as returned by
 ## cx_detect_columns()/user overrides (NA entries are simply skipped).
@@ -103,6 +124,7 @@ cx_standardize_expression <- function(df, mapping) {
     fdr = if (!is.na(mapping["fdr"])) cx_as_numeric_safe(df[[mapping["fdr"]]]) else NA_real_,
     stringsAsFactors = FALSE
   )
+  out <- cx_bind_extra_columns(out, df, mapping)
   out <- out[nzchar(out$gene) & !is.na(out$gene), , drop = FALSE]
   if (nrow(out) == 0) return(list(ok = FALSE, error = "No valid gene rows after standardization."))
   out <- cx_dedup_by_gene(out)
@@ -179,12 +201,19 @@ cx_standardize_methylation <- function(df, mapping) {
     fdr = if (!is.na(mapping["fdr"])) cx_as_numeric_safe(df[[mapping["fdr"]]]) else NA_real_,
     chr = if (!is.na(mapping["chr"])) as.character(df[[mapping["chr"]]]) else NA_character_,
     pos = if (!is.na(mapping["pos"])) cx_as_numeric_safe(df[[mapping["pos"]]]) else NA_real_,
+    ## end/n_cpgs/region_id are DMR-specific (region span, CpG count, region
+    ## identifier) - absent (NA) for a DMP upload, present when auto-detected
+    ## on a region-level file (e.g. DMRcate's end/no.cpgs columns).
+    end = if (!is.na(mapping["end"])) cx_as_numeric_safe(df[[mapping["end"]]]) else NA_real_,
+    n_cpgs = if (!is.na(mapping["n_cpgs"])) cx_as_numeric_safe(df[[mapping["n_cpgs"]]]) else NA_real_,
+    region_id = if (!is.na(mapping["region_id"])) as.character(df[[mapping["region_id"]]]) else NA_character_,
     region_raw = if (!is.na(mapping["region"])) as.character(df[[mapping["region"]]]) else NA_character_,
     island_context = if (!is.na(mapping["island"])) as.character(df[[mapping["island"]]]) else NA_character_,
     stringsAsFactors = FALSE
   )
   out$region <- cx_region_bucket(out$region_raw)
   out$region_fine <- cx_region_fine(out$region_raw)
+  out <- cx_bind_extra_columns(out, df, mapping)
   out <- out[nzchar(out$gene) & !is.na(out$gene), , drop = FALSE]
   if (nrow(out) == 0) return(list(ok = FALSE, error = "No valid gene rows after standardization."))
   list(ok = TRUE, df = out)

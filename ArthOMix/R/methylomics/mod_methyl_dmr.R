@@ -477,7 +477,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
               column(4,
                 tags$h5("Sex"),
                 radioButtons(ns("live_sex"), NULL, inline = TRUE, choices = mod_methyl_dmp_sex_choices(sheet, sc), selected = "__all__"),
-                if (is.null(sc)) p(class = "empty-note", icon("triangle-exclamation"), "No sex/gender column detected in the sample sheet - only \"All samples\" is available."),
+                if (length(mod_methyl_dmp_sex_choices(sheet, sc)) <= 1) p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only."),
 
                 tags$h5("Comparison"),
                 selectInput(ns("live_group_col"), "Group column", choices = cols,
@@ -776,6 +776,15 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         n_regions = nrow(r$dt),
         n_sig = sum(!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr < 0.05, na.rm = TRUE)
       )
+      ## Publishes the full live region table for Candidate CpGs (Module-DMR
+      ## Overlap) to pick up automatically, without a re-upload, once this ran
+      ## against an uploaded/GEO dataset - skipped for preloaded since
+      ## Candidate CpGs' own "Use Preloaded Data" path reproduces the
+      ## published DMR results from static files instead.
+      if (!isTRUE(methyl_dataset$preloaded)) {
+        methyl_results$dmr_table <- r$dt
+        methyl_results$dmr_meta <- list(comp = r$comp, ref = r$ref, sex_label = r$sex_label)
+      }
       live_has_run(TRUE)
     })
 
@@ -827,7 +836,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
               " - the ratio of observed to expected median test statistic across all tested CpGs (before region seeding); 1.0 indicates no inflation."),
             if (!is.na(r$lambda_gc) && r$lambda_gc > 1.1)
               p(class = "empty-note", icon("triangle-exclamation"),
-                "Genomic inflation is elevated (λ > 1.1). This live engine does not apply SVA/bacon correction - the app's own bundled reference pipeline found severe inflation from unrelated confounding in this dataset without it. Treat the CpG-level p-values seeding these regions (and the resulting region FDR) as potentially optimistic and cross-check against the default/SVA-corrected panel before drawing conclusions."),
+                "Genomic inflation is elevated (λ > 1.1) - this live engine doesn't apply SVA/bacon correction, so treat these region-level p-values/FDR as potentially optimistic."),
             withSpinner(plotOutput(ns("live_qq"), height = 320), color = "#2563EB", type = 6)
         ),
         div(class = "card",

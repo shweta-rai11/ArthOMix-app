@@ -1,9 +1,8 @@
 ## R/multiomics/mod_multi_overview.R
 ## Submodule: Cohort Harmonization - data-adaptive report on the Active
 ## Multi-Omics Dataset (multi_dataset, built on the Dataset Workspace tab):
-## which modalities are present, which samples are actually shared, whether
-## integration is feasible, and (only when a usable binary outcome exists)
-## an honest held-out evaluation against chance and single-omics baselines.
+## which modalities are present, which samples are actually shared, and
+## whether integration is feasible.
 ## Never assumes RNA-seq + methylation specifically - every check inspects
 ## whatever modalities the active dataset actually contains, and reports
 ## "Not detected"/"Insufficient information" rather than guessing when it
@@ -35,13 +34,13 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     pheno_candidates <- reactive(ch_detect_candidate_columns(multi_dataset$sample_meta, "phenotype"))
     batch_candidates <- reactive(ch_detect_candidate_columns(multi_dataset$sample_meta, "batch"))
 
-    ## Raw per-sample matrix source for PCA/correlation/model evaluation
-    ## only - descriptors()/harmonization_result() above are untouched and
-    ## keep reading multi_dataset directly (real, patient-ID-only for the
+    ## Raw per-sample matrix source for PCA/correlation only -
+    ## descriptors()/harmonization_result() above are untouched and keep
+    ## reading multi_dataset directly (real, patient-ID-only for the
     ## preloaded cohort, per ch_modality_descriptors_preloaded()). The
     ## preloaded cohort's modality descriptors never carry a raw matrix
     ## (has_raw_matrix=FALSE for all ~80 patients - no bundled full-cohort
-    ## matrix), so these three panels fall back to one analysis cell's own
+    ## matrix), so these two panels fall back to one analysis cell's own
     ## saved-fit matrices (mi_preloaded_cell_dataset(), the same live-recompute
     ## mechanism mod_multi_integration.R already uses) rather than staying
     ## permanently inert for the preloaded path.
@@ -66,25 +65,20 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       if (length(d) == 0) {
         return(div(class = "empty-note", icon("triangle-exclamation"), "Could not determine any modalities for the active dataset."))
       }
-      pc <- pheno_candidates(); bc <- batch_candidates()
-      default_col <- ch_classify_metadata_columns(multi_dataset$sample_meta)$suggested_default
+      bc <- batch_candidates()
       fluidRow(
         column(
           4,
           box(width = NULL, title = "Filters", status = "primary", solidHeader = FALSE,
               checkboxGroupInput(ns("sel_modalities"), "Select modalities", choices = names(d), selected = names(d)),
               numericInput(ns("min_overlap"), "Minimum sample overlap", value = 3, min = 1),
-              if (length(pc) > 0) selectInput(ns("pheno_col"), "Phenotype/outcome column", choices = c("(none)" = "", pc),
-                                               selected = if (!is.null(default_col) && default_col %in% pc) default_col else ""),
               if (length(bc) > 0) selectInput(ns("batch_col"), "Batch/cohort column", choices = c("(none)" = "", bc)),
               if (identical(multi_dataset$source, "preloaded")) tagList(
-                selectInput(ns("preloaded_cell"), "Analysis cell (used for PCA, correlation, and model evaluation)", choices = MULTI_CELL_CHOICES),
-                div(class = "empty-note", icon("circle-info"), "Preloaded cohort has no bundled raw matrix. PCA/correlation/model evaluation below use one analysis cell's matched-sample subset, recomputed from its saved DIABLO fit.")
+                selectInput(ns("preloaded_cell"), "Analysis cell (used for PCA and correlation)", choices = MULTI_CELL_CHOICES),
+                div(class = "empty-note", icon("circle-info"), "Preloaded cohort has no bundled raw matrix. PCA/correlation below use one analysis cell's matched-sample subset, recomputed from its saved DIABLO fit.")
               )
           ),
-          actionButton(ns("analyze_btn"), "Analyze Cohort", icon = icon("magnifying-glass-chart"), class = "btn-primary btn-sm", width = "100%"),
-          if (length(pc) > 0) div(style = "margin-top:8px;",
-              actionButton(ns("eval_btn"), "Run Model Evaluation", icon = icon("chart-line"), class = "btn-primary btn-sm", width = "100%"))
+          actionButton(ns("analyze_btn"), "Analyze Cohort", icon = icon("magnifying-glass-chart"), class = "btn-primary btn-sm", width = "100%")
         ),
         column(
           8,
@@ -92,12 +86,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
             id = ns("ch_tabs"), type = "tabs",
             tabPanel("Overview", br(), conditionalPanel(condition = sprintf("input['%s'] > 0", ns("analyze_btn")), uiOutput(ns("overview_ui")))),
             tabPanel("Sample Match", br(), conditionalPanel(condition = sprintf("input['%s'] > 0", ns("analyze_btn")), uiOutput(ns("sample_match_ui")))),
-            tabPanel("Sample Explorer", br(), conditionalPanel(condition = sprintf("input['%s'] > 0", ns("analyze_btn")), uiOutput(ns("sample_explorer_ui")))),
-            tabPanel(
-              "Model Evaluation", br(),
-              if (length(pc) == 0) div(class = "empty-note", icon("circle-info"), "No phenotype/outcome column detected - supervised prediction unavailable.")
-              else conditionalPanel(condition = sprintf("input['%s'] > 0", ns("eval_btn")), uiOutput(ns("model_eval_ui")))
-            )
+            tabPanel("Sample Explorer", br(), conditionalPanel(condition = sprintf("input['%s'] > 0", ns("analyze_btn")), uiOutput(ns("sample_explorer_ui"))))
           )
         )
       )
@@ -346,59 +335,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     })
     output$explore_pca_plot <- renderPlot(explore_pca_fn(), alt = "PCA with the selected sample highlighted")
     output$dl_explore_pca_png <- multi_png_download(explore_pca_fn, function() sprintf("cohort_harmonization_sample_highlight_%s.png", make.names(input$explore_sample %||% "sample")))
-
-    ## =========================================================================
-    ## Run Model Evaluation - a separate, opt-in, expensive step (spec
-    ## sections 16-18): held-out AUROC vs. baselines, only for a binary
-    ## outcome the user explicitly selected. Never fabricates an outcome,
-    ## never silently downgrades a failed evaluation.
-    ## =========================================================================
-    model_eval_result <- eventReactive(input$eval_btn, {
-      d <- descriptors()
-      sel <- intersect(input$sel_modalities %||% names(d), names(d))
-      live_mats <- Filter(function(dd) isTRUE(dd$has_raw_matrix), d[sel])
-      if (length(live_mats) == 0) {
-        return(list(ok = FALSE, error = "No raw per-sample matrix available - model evaluation requires an uploaded or GEO-fetched dataset."))
-      }
-      if (is.null(input$pheno_col) || !nzchar(input$pheno_col)) {
-        return(list(ok = FALSE, error = "Select a phenotype/outcome column first."))
-      }
-      meta_df <- multi_dataset$sample_meta
-      if (is.null(meta_df) || !input$pheno_col %in% colnames(meta_df)) {
-        return(list(ok = FALSE, error = "Selected phenotype column was not found in the active dataset's sample metadata."))
-      }
-      mat_list <- stats::setNames(lapply(names(live_mats), function(nm) multi_dataset$layers[[nm]]), names(live_mats))
-      y <- stats::setNames(meta_df[[input$pheno_col]], rownames(meta_df))
-      ch_evaluate_binary_outcome(mat_list, y)
-    }, ignoreInit = TRUE)
-
-    output$model_eval_ui <- renderUI({
-      res <- tryCatch(model_eval_result(), error = function(e) NULL)
-      if (is.null(res)) return(multi_empty_state("Click \"Run Model Evaluation\" to see results here."))
-      if (!isTRUE(res$ok)) return(div(class = "empty-note", icon("triangle-exclamation"), tags$strong("Prediction unavailable. "), res$error))
-      tagList(
-        div(style = "display:flex; gap:10px; flex-wrap:wrap;",
-            div(class = "card", style = "flex:1 1 140px; text-align:center; padding:10px;",
-                div(style = sprintf("font-size:1.3em; font-weight:600; color:%s;", ARTHOMIX_COLORS$blue), res$n),
-                div(style = "font-size:0.82em; color:var(--color-ink-muted, #898781);", "Matched samples")),
-            div(class = "card", style = "flex:1 1 140px; text-align:center; padding:10px;",
-                div(style = sprintf("font-size:1.3em; font-weight:600; color:%s;", ARTHOMIX_COLORS$aqua), res$k_folds),
-                div(style = "font-size:0.82em; color:var(--color-ink-muted, #898781);", "CV folds"))
-        ),
-        box(width = NULL, title = "Model Performance", status = "primary", solidHeader = FALSE,
-            DT::dataTableOutput(ns("model_perf_table"))),
-        box(width = NULL, title = "Honest Conclusion", status = "primary", solidHeader = FALSE,
-            p(ch_honest_conclusion(res)))
-      )
-    })
-    output$model_perf_table <- DT::renderDataTable({
-      res <- req(model_eval_result())
-      req(isTRUE(res$ok))
-      rows <- do.call(rbind, lapply(names(res$per_view_auc), function(nm) data.frame(Model = nm, AUROC = round(res$per_view_auc[[nm]], 3))))
-      rows <- rbind(rows, data.frame(Model = "Fused (all selected modalities)", AUROC = round(res$fused_auc, 3)))
-      rows <- rbind(rows, data.frame(Model = "Chance / majority-class baseline", AUROC = 0.5))
-      DT::datatable(rows, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
-    })
 
     ## Backward-compatible publish: multi_qc_scorecard()/
     ## multi_analysis_summary_table() (multiomics_helpers.R) read

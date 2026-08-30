@@ -43,7 +43,7 @@
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Validation",
   title = "Cross-Ancestry Validation",
-  description = "Validation of the diagnostic model based on different ancestral type and sex. Either work on preloaded data or upload your own data.",
+  description = "Cross-ancestry and sex-stratified validation of the diagnostic model, on preloaded or uploaded data.",
   icon = "earth-americas"
 )
 

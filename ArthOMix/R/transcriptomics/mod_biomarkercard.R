@@ -404,6 +404,10 @@ tbc_pick_case_control <- function(levels) {
     other <- setdiff(seq_along(lv), ctrl_idx[1])
     if (length(other) >= 1) return(list(case = lv[other[1]], control = lv[ctrl_idx[1]]))
   }
+  if (length(case_idx) >= 1) {
+    other <- setdiff(seq_along(lv), case_idx[1])
+    if (length(other) >= 1) return(list(case = lv[case_idx[1]], control = lv[other[1]]))
+  }
   list(case = lv[2], control = lv[1])
 }
 
@@ -727,7 +731,7 @@ tbc_external_db_banner <- function() {
   div(class = "data-source-callout",
       icon("circle-info"),
       tagList(tags$b("External databases queried live for the selected gene: "), paste(TBC_EXTERNAL_DB_NAMES, collapse = " | "),
-              tags$div(style = "margin-top:4px;", "Each is opt-in below - pick one, click Run, and it queries the real database directly. A result you don't see means the database itself returned nothing, or hasn't been run yet - never a fabricated value."))
+              tags$div(style = "margin-top:4px;", "Each is opt-in - a result you don't see means the database returned nothing, or hasn't been run yet, never a fabricated value."))
   )
 }
 
@@ -1036,7 +1040,7 @@ tbc_section_validation_evidence <- function(sgd, sgcv) {
     AUC = c(tbc_fmt_num(sgd$auc), tbc_fmt_num(sgcv$auc), "Not available"),
     Note = c("Single-gene, full-fit on the whole currently loaded dataset.",
              if (isTRUE(sgcv$ok)) sprintf("Single-gene, %d-fold cross-validation, pooled out-of-fold predictions.", sgcv$k) else (sgcv$reason %||% "Not available."),
-             "Not persisted to this app's shared results store - open the Diagnostic Classifier tab's own External Validation panel to run and view it directly."),
+             "Run and view this in the Diagnostic Classifier tab's own External Validation panel."),
     stringsAsFactors = FALSE
   )
   div(class = "card", div(class = "card-title", icon("shield-halved"), "Validation Evidence"),
@@ -1136,7 +1140,7 @@ tbc_section_biomarker_performance <- function(d, sgd, sgcv, train_roc_widget = N
   } else div(class = "empty-note", icon("circle-info"), sgcv$reason %||% "Not available.")
 
   external_body <- div(class = "empty-note", icon("triangle-exclamation"),
-    "No data available in this session. The Diagnostic Classifier tab has its own External Validation upload panel, but its results are not persisted to this app's shared results store, so this Biomarker Card cannot display them here - open that tab directly to run and view external validation for a chosen gene panel.")
+    "Not available here - the Diagnostic Classifier tab's External Validation panel isn't persisted to shared results. Open that tab to run/view it.")
 
   multi_table <- tbc_multi_gene_perf_table(d$diagnostic_match)
 
@@ -1738,7 +1742,7 @@ tbc_split_gene_text <- function(text) {
 mod_biomarkercard_config <- list(
   id = "biomarkercard", group = "Interpretation",
   title = "Biomarker Card",
-  description = "Single-gene or gene-panel biomarker intelligence workspace: preloaded or uploaded data, live GO/KEGG/Reactome/WikiPathways/Open Targets/HPA/STRING/DGIdb/PubMed lookups, and a downloadable report.",
+  description = "Single-gene or gene-panel biomarker lookup: preloaded/uploaded data, live GO/KEGG/Reactome/WikiPathways/Open Targets/HPA/STRING/DGIdb/PubMed queries, downloadable report.",
   icon = "id-card"
 )
 
@@ -1808,7 +1812,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
                                 uiOutput(ns("bmc_sig_results_ui"))
                               )),
             conditionalPanel(condition = sprintf("input['%s'] == 'upload'", ns("bmc_search_mode")),
-                              p(class = "submodule-desc", "Upload a gene-identifier list (one per line, or the first column of a CSV/TSV - gene symbols, NCBI Entrez IDs, or Ensembl Gene IDs, any mix), or a Diagnostic Classifier RDS export (that tab's own \"Save trained model\" download) - auto-detected by file extension. Every identifier is resolved and reported below; none are silently dropped."),
+                              p(class = "submodule-desc", "Upload a gene-identifier list (symbols, Entrez, or Ensembl IDs, one per line or first CSV/TSV column) or a Diagnostic Classifier RDS export - auto-detected by extension. Every identifier is resolved and reported; none are silently dropped."),
                               fileInput(ns("bmc_upload_file"), "Biomarker list (.csv, .txt, or .rds)", accept = c(".csv", ".txt", ".rds")),
                               actionButton(ns("bmc_upload_load_btn"), "Load Uploaded List", icon = icon("play"), class = "btn-sm"),
                               conditionalPanel(condition = sprintf("input['%s'] == 'panel'", ns("bmc_mode")),
@@ -1846,7 +1850,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
         if (!is.null(gene) && nzchar(gene)) {
           tagList(icon("circle-check", style = "color:#0ca30c;"), tags$b(sprintf("Selected: %s", gene)), " - click Generate to build the card.")
         } else {
-          tagList(icon("circle-info"), "Select a biomarker above (click a table row, or type a gene symbol) before clicking Generate.")
+          tagList(icon("circle-info"), "Select a biomarker above before clicking Generate.")
         }
       }
     })
@@ -2282,7 +2286,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
           tbc_external_db_banner(),
           div(class = "card",
               div(class = "card-title", icon("globe"), "Deep Dive: External Databases"),
-              p(class = "submodule-desc", "Pick a database, set your own query parameters, and run it live - each is independent and links straight to the real record so you can verify it yourself."),
+              p(class = "submodule-desc", "Each database is independent, queried live, and links to the real record for verification."),
               radioButtons(ns("bmc_db_choice"), NULL, inline = TRUE, choices = c(
                 "GO" = "go", "KEGG" = "kegg", "Reactome" = "reactome", "WikiPathways" = "wikipathways",
                 "Disease / Genetics (Open Targets)" = "opentargets", "Drug / Target (DGIdb)" = "dgidb",

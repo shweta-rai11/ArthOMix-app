@@ -373,12 +373,55 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
     ## ===================== 1. Data & Filters ============================
 
+    ## Whether a live WGCNA module assignment + DMR result from this same
+    ## session (uploaded/GEO pipeline) are available for auto-loading here
+    ## without a re-upload - published by mod_methyl_wgcna.R/mod_methyl_dmr.R
+    ## into the shared `results` (methyl_results) store, only when the
+    ## Dataset tab's active dataset isn't the preloaded one.
+    live_available <- reactive({
+      !is.null(results) && !is.null(results$wgcna_module_assignment) && !is.null(results$dmr_table) &&
+        !isTRUE(dataset$preloaded)
+    })
+
     has_loaded <- reactiveVal(FALSE)
-    observeEvent(input$load_btn, has_loaded(TRUE), ignoreInit = TRUE)
+    ## The "live" panel's button uses its own id (load_live_btn) rather than
+    ## reusing load_btn - conditionalPanel only toggles CSS display, so a
+    ## shared id between the always-rendered "live" and "upload" panels would
+    ## leave two DOM elements bound to the same Shiny input id, and Shiny's
+    ## input binding only wires up the first match (a real, empirically
+    ## verified "Duplicate input ID" bug, not just a lint warning). Both
+    ## buttons bump this single counter so one eventReactive can react to
+    ## either.
+    load_trigger <- reactiveVal(0)
+    observeEvent(input$load_btn, load_trigger(load_trigger() + 1), ignoreInit = TRUE)
+    observeEvent(input$load_live_btn, load_trigger(load_trigger() + 1), ignoreInit = TRUE)
+    observeEvent(load_trigger(), has_loaded(TRUE), ignoreInit = TRUE)
     observeEvent(input$data_source, has_loaded(FALSE), ignoreInit = TRUE)
 
-    loaded <- eventReactive(input$load_btn, {
-      if (identical(input$data_source, "upload")) {
+    ## No ignoreInit here (deliberately, unlike the button-driven original):
+    ## has_loaded() gates every reader of loaded() until load_trigger() first
+    ## moves off 0, so this eventReactive is never actually pulled until well
+    ## after session start - with ignoreInit=TRUE, that first-ever pull would
+    ## itself be misread as "the initial state to ignore" and permanently
+    ## swallow the click that produced it (verified empirically: the button
+    ## click registered, has_loaded() flipped TRUE, but this reactive's body
+    ## never ran and the panel stayed blank).
+    loaded <- eventReactive(load_trigger(), {
+      if (identical(input$data_source, "live")) {
+        validate(need(live_available(), "Run WGCNA (Network & Modules) and Differentially Methylated Regions on the current dataset first, then come back here."))
+        ma <- mcd_standardize_module_assign(results$wgcna_module_assignment)
+        validate(need(isTRUE(ma$ok), ma$reason %||% "Could not read the live WGCNA module assignment."))
+        dmr <- mcd_standardize_dmr(results$dmr_table)
+        validate(need(isTRUE(dmr$ok), dmr$reason %||% "Could not read the live DMR results."))
+
+        annot <- tryCatch(mcd_champ_full_annotation(), error = function(e) NULL)
+        annot_note <- if (is.null(annot)) "Genomic coordinate/annotation data (ChAMPdata::probe.features) is not available in this deployment - overlap and annotation-based filters cannot run." else NULL
+
+        list(source = "live", sex = NA_character_,
+             module_assign = ma$df, dmr = dmr$df, annotation = annot, cpg_stats = NULL,
+             detected = list(module_assignment = ma$detected, dmr_results = dmr$detected),
+             notes = c(annot_note, "No CpG-level p-value/FDR/Delta-Beta columns are available from the live DMR run - CpG-level significance/effect-size filters and columns will be omitted."))
+      } else if (identical(input$data_source, "upload")) {
         validate(need(!is.null(input$up_module_file), "Upload a CpG / WGCNA module assignment table before clicking \"Validate & Load Data\"."))
         validate(need(!is.null(input$up_dmr_file), "Upload a DMR results table before clicking \"Validate & Load Data\"."))
 
@@ -447,20 +490,41 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
              notes = c(annot_note,
                        if (is.null(cpg_stats)) sprintf("No preloaded CpG-level statistics are available for the %s stratum - CpG-level significance/effect-size filters and columns will be omitted.", sex)))
       }
-    }, ignoreInit = TRUE)
+    })
 
     output$data_source_ui <- renderUI({
+      ## Mirrors whichever pipeline is active on the Methylomics Dataset tab:
+      ## "Use Preloaded Data" only makes sense while the preloaded cohort is
+      ## the active dataset; otherwise this offers the live in-session
+      ## WGCNA+DMR result (when available) or a manual upload.
+      is_preloaded <- isTRUE(dataset$preloaded)
+      choice_names <- if (is_preloaded) {
+        list(tagList(icon("database"), " Use Preloaded Data"), tagList(icon("upload"), " Upload Data"))
+      } else if (live_available()) {
+        list(tagList(icon("bolt"), " Use my WGCNA + DMR results"), tagList(icon("upload"), " Upload Data"))
+      } else {
+        list(tagList(icon("upload"), " Upload Data"))
+      }
+      choice_values <- if (is_preloaded) list("preloaded", "upload")
+                        else if (live_available()) list("live", "upload")
+                        else list("upload")
+      default_selected <- if (is_preloaded) "preloaded" else if (live_available()) "live" else "upload"
+
       tagList(
         div(class = "card",
             div(class = "card-title", icon("database"), "Data source"),
             radioButtons(ns("data_source"), NULL, inline = TRUE,
-                         choiceNames = list(tagList(icon("database"), " Use Preloaded Data"), tagList(icon("upload"), " Upload Data")),
-                         choiceValues = list("preloaded", "upload"), selected = "preloaded"),
-            conditionalPanel(
+                         choiceNames = choice_names, choiceValues = choice_values, selected = default_selected),
+            if (is_preloaded) conditionalPanel(
               condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
               p(class = "submodule-desc", "Reproduces the sex-stratified WGCNA module assignments and DMR results already computed by this app's preloaded methylomics pipeline (script05_wgcna_sexstratified / script04_dmr_sexstratified) - nothing here reruns WGCNA or DMR calling."),
               radioButtons(ns("pre_sex"), "Sex / stratum", inline = TRUE, choices = c("Female" = "female", "Male" = "male"), selected = "female"),
               actionButton(ns("load_btn"), "Load Preloaded Data", icon = icon("play"), class = "btn-primary btn-sm")
+            ),
+            if (!is_preloaded && live_available()) conditionalPanel(
+              condition = sprintf("input['%s'] == 'live'", ns("data_source")),
+              p(class = "submodule-desc", "Uses the WGCNA module assignment and DMR results you already computed on this dataset, in this session - nothing to upload."),
+              actionButton(ns("load_live_btn"), "Load Live Results", icon = icon("play"), class = "btn-primary btn-sm")
             ),
             conditionalPanel(
               condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
@@ -605,7 +669,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
     ov_has_run <- reactiveVal(FALSE)
     observeEvent(input$overlap_run_btn, ov_has_run(TRUE), ignoreInit = TRUE)
-    observeEvent(input$load_btn, ov_has_run(FALSE), ignoreInit = TRUE)
+    observeEvent(load_trigger(), ov_has_run(FALSE), ignoreInit = TRUE)
 
     output$overlap_tab_ui <- renderUI({
       if (!has_loaded()) return(div(class = "empty-note", icon("circle-info"), "Select and load a data source on the \"Data & Filters\" tab first."))
@@ -705,7 +769,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
     modov_has_run <- reactiveVal(FALSE)
     observeEvent(input$modoverlap_run_btn, modov_has_run(TRUE), ignoreInit = TRUE)
-    observeEvent(input$load_btn, modov_has_run(FALSE), ignoreInit = TRUE)
+    observeEvent(load_trigger(), modov_has_run(FALSE), ignoreInit = TRUE)
 
     output$modoverlap_tab_ui <- renderUI({
       if (!has_loaded()) return(div(class = "empty-note", icon("circle-info"), "Load a data source on the \"Data & Filters\" tab first."))
@@ -849,7 +913,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
     cand_has_run <- reactiveVal(FALSE)
     observeEvent(input$cand_apply_btn, cand_has_run(TRUE), ignoreInit = TRUE)
-    observeEvent(input$load_btn, cand_has_run(FALSE), ignoreInit = TRUE)
+    observeEvent(load_trigger(), cand_has_run(FALSE), ignoreInit = TRUE)
     observeEvent(input$overlap_run_btn, cand_has_run(FALSE), ignoreInit = TRUE)
 
     output$cand_results_ui <- renderUI({
@@ -899,7 +963,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
     register_viz <- function(id_prefix, requires, plot_fn, filename) {
       has_run <- reactiveVal(FALSE)
       observeEvent(input[[paste0(id_prefix, "_btn")]], has_run(TRUE), ignoreInit = TRUE)
-      observeEvent(input$load_btn, has_run(FALSE), ignoreInit = TRUE)
+      observeEvent(load_trigger(), has_run(FALSE), ignoreInit = TRUE)
 
       output[[paste0(id_prefix, "_ui")]] <- renderUI({
         if (!has_run()) return(NULL)

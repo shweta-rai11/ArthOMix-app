@@ -226,7 +226,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     }, ignoreInit = TRUE)
 
     output$id_overlap_warning_ui <- renderUI({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       pct <- tryCatch(result()$id_overlap_pct, error = function(e) NA_real_)
       req(!is.na(pct), pct < 70)
       div(class = "empty-note", style = "margin-top: 8px;", icon("triangle-exclamation"),
@@ -235,6 +235,9 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
 
     deconv_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, deconv_has_run(TRUE), ignoreInit = TRUE)
+
+    ## Switching the active dataset invalidates this module's cached run.
+    observeEvent(dataset$source, { deconv_has_run(FALSE) }, ignoreInit = TRUE)
 
     output$not_run_note <- renderUI({
       if (deconv_has_run()) return(NULL)
@@ -345,20 +348,20 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     ## --- CIBERSORT outputs (primary) -----------------------------------
 
     output$cell_table <- DT::renderDataTable({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       DT::datatable(result()$cib$table, rownames = FALSE, filter = "top",
                      options = list(pageLength = 12, scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$cell_plot <- renderPlot({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       res <- result()
       gs <- tryCatch(cib_stats(), error = function(e) NULL)
       render_group_boxplot(res$cib$table, res$cib$cell_cols, res$group_col, gs, "CIBERSORT fraction")
     })
 
     output$stats_table <- DT::renderDataTable({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       gs <- tryCatch(cib_stats(), error = function(e) NULL)
       req(gs)
       st <- gs$table
@@ -386,20 +389,20 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     ## --- MCP-counter outputs (corroborating check) ---------------------
 
     output$mcp_table <- DT::renderDataTable({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       DT::datatable(result()$mcp$table, rownames = FALSE, filter = "top",
                      options = list(pageLength = 12, scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$mcp_plot <- renderPlot({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       res <- result()
       gs <- tryCatch(mcp_stats(), error = function(e) NULL)
       render_group_boxplot(res$mcp$table, res$mcp$cell_cols, res$group_col, gs, "MCP-counter score")
     })
 
     output$mcp_stats_table <- DT::renderDataTable({
-      req(deconv_has_run())
+      if (!deconv_has_run()) return(NULL)
       gs <- tryCatch(mcp_stats(), error = function(e) NULL)
       req(gs)
       st <- gs$table

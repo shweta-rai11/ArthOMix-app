@@ -101,6 +101,15 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
 
     mrs <- reactiveValues(df = NULL, loaded_at = NULL)
 
+    ## Preloaded and Upload are independent pipelines - switching the radio
+    ## clears whatever the other mode had loaded, so stale preloaded MR
+    ## results can't keep showing under "Upload your own data" (or vice
+    ## versa) just because its own Load button hasn't been clicked yet in
+    ## this mode - same fix as Biomarker Convergence's "1. Cohort" panel.
+    observeEvent(input$mr_source, {
+      mrs$df <- NULL; mrs$loaded_at <- NULL
+    }, ignoreInit = TRUE)
+
     observeEvent(input$load_mr, {
       res <- cx_mr_load_precomputed()
       if (!res$ok) { showNotification(res$error, type = "error"); return() }

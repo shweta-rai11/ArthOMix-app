@@ -796,7 +796,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
                     note = sprintf("%d genes from this session's live Feature Selection %s consensus panel.", length(live), sex_label)))
       }
       va <- val_active()
-      bundled <- switch(sex_label, female = va$fsig, male = va$msig, NULL)
+      bundled <- if (isTRUE(dataset$is_bundled_reference)) switch(sex_label, female = va$fsig, male = va$msig, NULL) else NULL
       bundled <- unique(as.character(bundled))
       if (length(bundled) >= 2) {
         return(list(genes = bundled, is_live = FALSE,
@@ -819,10 +819,10 @@ mod_crosstissue_server <- function(id, dataset, results) {
       has_live <- length(f_live) >= 2 && length(m_live) >= 2
       if (has_live) {
         div(class = "empty-note", icon("check"), sprintf("Live panel: %d F / %d M genes.", length(f_live), length(m_live)))
-      } else if (identical(input$val_source %||% "preloaded", "upload")) {
-        div(class = "empty-note", icon("triangle-exclamation"), "No live Feature Selection panel, and an uploaded validation cohort has no bundled consensus panel - run Feature Selection first, or paste a gene list instead.")
-      } else {
+      } else if (isTRUE(dataset$is_bundled_reference) && !identical(input$val_source %||% "preloaded", "upload")) {
         div(class = "empty-note", icon("circle-info"), "Bundled consensus panel (no live Feature Selection yet).")
+      } else {
+        div(class = "empty-note", icon("triangle-exclamation"), "No consensus panel available for the active dataset - run Feature Selection first, or paste a gene list instead.")
       }
     })
 
@@ -850,7 +850,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
                       note = "live DE run", is_live = TRUE))
         }
       }
-      if (!is.null(bundled_dge)) {
+      if (isTRUE(dataset$is_bundled_reference) && !is.null(bundled_dge)) {
         key <- switch(sex_label, female = "Female", male = "Male", pooled = "All", NULL)
         d <- if (!is.null(key)) bundled_dge$res[[key]] else NULL
         if (!is.null(d) && nrow(d) > 0) {
@@ -967,7 +967,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     lr_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "lr", "Logistic Regression",
-        "A straightforward logistic regression using all of the panel genes together, with no shrinkage or penalty applied to any gene - the method this project's own methodology (Section 2.11.5) actually uses. There's nothing to tune here. The number of cross-validation folds and how they're split (shared by all four models) are set once in \"Advanced filters\" on the left."
+        "Plain logistic regression over all panel genes, with no shrinkage (this project's own methodology, Section 2.11.5). Nothing to tune here - fold count and splitting are set in \"Advanced filters\" on the left."
       )
     }
 
@@ -978,7 +978,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     enet_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "enet", "Elastic Net",
-        "Elastic Net shrinks less-useful genes' effects toward zero, which helps when panel genes are correlated with each other. Its blend strength (\"alpha\") is picked automatically by trying every value in the grid below and keeping whichever cross-validates best; lambda.min (the setting with the lowest cross-validated error) is used by default.",
+        "Elastic Net shrinks less-useful genes toward zero, which helps when panel genes are correlated. Alpha is auto-tuned over the grid below; lambda.min is used by default.",
         tagList(
           numericInput(ns("enet_cv_folds"), "Inner tuning folds (alpha search)", value = CT_DEFAULT_PARAMS$enet_cv_folds, min = 3, max = 10, step = 1),
           textInput(ns("enet_alpha_grid"), "Alpha grid (0 = ridge … 1 = LASSO, comma-separated)", value = paste(CT_DEFAULT_PARAMS$enet_alpha_grid, collapse = ", ")),
@@ -1004,7 +1004,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     svm_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "svm", "SVM",
-        "SVM finds the boundary that best separates RA from Normal samples. \"Cost\" controls how strictly it tries to classify every training sample correctly - higher values fit the training data more closely but risk overfitting - and is picked automatically from the grid below. Uses a straight-line (linear) boundary by default.",
+        "SVM finds the boundary that best separates RA from Normal samples. \"Cost\" (how strictly it fits the training data) is auto-tuned from the grid below; the boundary is linear by default.",
         tagList(
           numericInput(ns("svm_cv_folds"), "Inner tuning folds (cost search)", value = CT_DEFAULT_PARAMS$svm_cv_folds, min = 3, max = 10, step = 1),
           radioButtons(ns("svm_kernel"), "Kernel", choices = c("Linear (default)" = "linear", "Radial" = "radial"), selected = "linear"),

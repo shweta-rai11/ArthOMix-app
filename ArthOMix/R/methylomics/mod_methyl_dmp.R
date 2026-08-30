@@ -376,7 +376,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
               column(4,
                 tags$h5("Sex"),
                 radioButtons(ns("live_sex"), NULL, inline = TRUE, choices = mod_methyl_dmp_sex_choices(sheet, sc), selected = "__all__"),
-                if (is.null(sc)) p(class = "empty-note", icon("triangle-exclamation"), "No sex/gender column detected in the sample sheet - only \"All samples\" is available."),
+                if (length(mod_methyl_dmp_sex_choices(sheet, sc)) <= 1) p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only."),
 
                 tags$h5("Comparison"),
                 selectInput(ns("live_group_col"), "Group column", choices = cols,
@@ -637,7 +637,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
               " - the ratio of observed to expected median test statistic across all tested CpGs; 1.0 indicates no inflation."),
             if (!is.na(r$lambda_gc) && r$lambda_gc > 1.1)
               p(class = "empty-note", icon("triangle-exclamation"),
-                "Genomic inflation is elevated (λ > 1.1). This live engine does not apply SVA/bacon correction - the app's own bundled reference pipeline found severe inflation on unrelated confounding in this dataset without it. Treat the p-values/FDR above as potentially optimistic and cross-check against the default/SVA-corrected panel before drawing conclusions."),
+                "Genomic inflation is elevated (λ > 1.1) - this live engine doesn't apply SVA/bacon correction, so treat these p-values/FDR as potentially optimistic."),
             withSpinner(plotOutput(ns("live_qq"), height = 320), color = "#2563EB", type = 6)
         ),
         div(class = "card",

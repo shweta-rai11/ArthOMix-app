@@ -370,7 +370,9 @@ dxm_plot_roc <- function(bundles_named, title, subtitle = NULL) {
     ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
     ggplot2::geom_step(linewidth = 1) + ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
     ggplot2::labs(x = "False Positive Rate (1 - Specificity)", y = "True Positive Rate (Sensitivity)",
-                  title = title, subtitle = subtitle, color = NULL) + dxm_theme()
+                  title = title, subtitle = subtitle, color = NULL) + dxm_theme() +
+    ggplot2::theme(legend.text = ggplot2::element_text(size = 8)) +
+    ggplot2::guides(color = ggplot2::guide_legend(nrow = 3, byrow = TRUE))
 }
 
 dxm_plot_cv_roc <- function(cv_roc, title) {
@@ -423,7 +425,9 @@ dxm_plot_roc_compare <- function(bundles_named, title) {
     ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
     ggplot2::geom_step(linewidth = 1) + ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
     ggplot2::labs(x = "False Positive Rate (1 - Specificity)", y = "True Positive Rate (Sensitivity)", title = title, color = NULL) +
-    dxm_theme()
+    dxm_theme() +
+    ggplot2::theme(legend.text = ggplot2::element_text(size = 8)) +
+    ggplot2::guides(color = ggplot2::guide_legend(nrow = 3, byrow = TRUE))
 }
 
 ## =============================================================================

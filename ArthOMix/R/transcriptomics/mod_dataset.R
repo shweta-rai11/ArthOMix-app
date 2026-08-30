@@ -151,7 +151,7 @@ mod_dataset_ui <- function(id) {
           div(class = "upload-step-label", "STEP 3 · Confirm"),
           actionButton(ns("load_btn"), "Upload Data", icon = icon("upload"), class = "btn-primary btn-sm"),
           div(class = "empty-note", style = "margin-top:6px;", icon("circle-info"),
-              "Loads exactly what you provide, as-is - no merging, normalising, or batch correction. For that, use Preprocessing and Batch Correction instead.")
+              "Loads exactly what you provide, as-is - no merging, normalising, or batch correction.")
         )
       )
     ),
@@ -411,7 +411,7 @@ mod_dataset_server <- function(id, dataset) {
         output$load_message <- renderUI(
           tagList(
             div(class = "empty-note", icon("check"),
-                sprintf("Loaded %s genes across %s samples, as-is - no merging, normalising, or batch correction. Every sub-module now runs on this dataset; optionally go to Preprocessing and pick \"Currently loaded dataset\" for that.",
+                sprintf("Loaded %s genes across %s samples, as-is. Every sub-module now runs on this dataset.",
                         format(nrow(result$expr), big.mark = ","), ncol(result$expr))),
             if (n_dup > 0) div(class = "empty-note", icon("triangle-exclamation"),
                 sprintf("%d duplicated feature identifier(s) were detected in this dataset. All rows are kept here, but downstream row-name-keyed steps (e.g. the Preprocessing merge tab) will keep only the first occurrence of each - rename duplicates in your source file if this is unintended.", n_dup))
@@ -593,10 +593,15 @@ mod_dataset_server <- function(id, dataset) {
         } else {
           ""
         }
+        ## Echoes the pre-Load "no gene-symbol annotation" banner (see geo_fetch_status
+        ## above) here too - a user who skimmed past that banner and clicked Load
+        ## should still see, in the one message that persists after loading, that
+        ## rows are raw probe/feature IDs rather than gene symbols.
+        probe_note <- if (!isTRUE(em$collapsed)) " Note: no gene-symbol annotation was found for this platform, so rows are raw probe/feature IDs, not gene symbols." else ""
         output$load_message <- renderUI(
           div(class = "empty-note", icon("check"),
-              sprintf("Loaded %s genes across %s samples. Every sub-module now runs on this GEO dataset; optionally go to Preprocessing and pick \"Currently loaded dataset\" to merge, normalise, or batch-correct it first.%s",
-                      format(nrow(result$expr), big.mark = ","), n_samples, wgcna_note))
+              sprintf("Loaded %s genes across %s samples. Every sub-module now runs on this GEO dataset.%s%s",
+                      format(nrow(result$expr), big.mark = ","), n_samples, wgcna_note, probe_note))
         )
       }
     })

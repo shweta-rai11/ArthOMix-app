@@ -180,7 +180,7 @@ mod_pp_source_ui <- function(id, default_gse = NULL, n_sources_id = NULL) {
         conditionalPanel(
           condition = sprintf("input['%s'] > 1", n_sources_id),
           p(class = "empty-note", icon("circle-info"),
-            "Combining more than one dataset: each one needs its own expression matrix + sample metadata pair, uploaded separately in its own box below. Every dataset's feature IDs must use the same identifier type across the board (e.g. all gene symbols, or all the same probe IDs) - the Merge step keeps only features common to every dataset, and fails below 20 shared features. Each dataset's Sample ID column should also be unique within that dataset.")
+            "Each dataset needs its own expression matrix + metadata pair below, using the same feature-ID type throughout (e.g. all gene symbols or all the same probe IDs) - Merge keeps only shared features and fails below 20. Each dataset's Sample ID column should be unique.")
         )
       },
       textInput(ns("label"), "Label for this dataset", value = "", placeholder = "e.g. GSE12345"),
@@ -292,30 +292,21 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
                   input$meta_file$name, nrow(preview$meta)))
     })
 
-    ## Same name-based column guess as mod_dataset.R's upload form.
-    guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
-      hit <- cols[tolower(cols) %in% tolower(exact)]
-      if (length(hit) > 0) return(hit[1])
-      hit <- cols[grepl(paste(contains, collapse = "|"), cols, ignore.case = TRUE)]
-      if (length(hit) > 0) return(hit[1])
-      fallback
-    }
-
     output$colmap <- renderUI({
       req(use_upload(), input$meta_file)
       cols <- colnames(meta_raw())
       tagList(
         selectInput(ns("map_id"), "Sample ID column", choices = cols,
-                    selected = guess_col(cols, c("sample", "sample_id", "id", "geo_accession", "accession")),
+                    selected = pp_guess_col(cols, c("sample", "sample_id", "id", "geo_accession", "accession")),
                     selectize = FALSE),
         selectInput(ns("map_group"), "Group / diagnosis column", choices = cols,
-                    selected = guess_col(cols, c("group", "diagnosis", "disease", "condition", "status", "phenotype")),
+                    selected = pp_guess_col(cols, c("group", "diagnosis", "disease", "condition", "status", "phenotype")),
                     selectize = FALSE),
         selectInput(ns("map_sex"), "Sex column (optional)", choices = c("(none)", cols),
-                    selected = guess_col(cols, c("sex", "gender"), fallback = "(none)"),
+                    selected = pp_guess_col(cols, c("sex", "gender"), fallback = "(none)"),
                     selectize = FALSE),
         selectInput(ns("map_batch"), "Batch column (optional)", choices = c("(none)", cols),
-                    selected = guess_col(cols, c("batch", "cohort", "platform", "dataset"), fallback = "(none)"),
+                    selected = pp_guess_col(cols, c("batch", "cohort", "platform", "dataset"), fallback = "(none)"),
                     selectize = FALSE)
       )
     })
@@ -885,7 +876,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           box(
             width = 12, title = tagList(icon("dna"), " Probe-to-gene collapsing (optional)"), status = "primary", solidHeader = FALSE,
             p(class = "submodule-desc",
-              "Turn this on if the datasets you loaded are still at probe level (e.g. raw Affymetrix probe IDs) rather than one row per gene already - useful for merging same-platform sources the way a published method describes, without leaving the app. Applies to every dataset selected below, using the same annotation file for all of them - for different platforms, collapse each dataset separately before uploading instead."),
+              "Turn this on if the loaded datasets are still at probe level (e.g. raw Affymetrix IDs) rather than one row per gene. Applies to every selected dataset using the same annotation file - for different platforms, collapse each dataset separately before uploading."),
             checkboxInput(ns("collapse_probes"), "My selected data is at probe level - collapse to one row per gene before merging", value = FALSE),
             conditionalPanel(
               condition = sprintf("input['%s']", ns("collapse_probes")),

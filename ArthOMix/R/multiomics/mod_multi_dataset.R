@@ -150,7 +150,19 @@ mo_preloaded_blocks_ui <- function() {
 ## Upload and GEO panels.
 mo_block_id <- function(i, mode) paste0(if (identical(mode, "geo")) "g" else "u", "block", i)
 
-mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
+## fileInputs can't be programmatically cleared by re-rendering with the same
+## inputId - a browser won't let JS reset an <input type=file>'s value, and a
+## freshly-mounted fileInput bound to an id that was already used never
+## re-pushes an "empty" value to the server, so input$<id> keeps resolving to
+## whatever was last uploaded under that id. Suffixing the id with the
+## Dataset tab's block_reset_gen() (bumped once per pipeline switch, see
+## mod_multi_dataset_server()) sidesteps that entirely: after a switch, these
+## ids have never been assigned any value, so they start genuinely NULL
+## rather than relying on a reset actually taking effect.
+mo_file_input_id <- function(bid, gen) paste0(bid, "_file_g", gen)
+mo_meta_file_input_id <- function(bid, gen) paste0(bid, "_meta_file_g", gen)
+
+mo_block_ui <- function(ns, i, mode = c("upload", "geo"), gen = 0) {
   mode <- match.arg(mode)
   bid <- mo_block_id(i, mode)
   box(
@@ -168,7 +180,7 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
     textInput(ns(paste0(bid, "_label")), "Display label", value = sprintf("Dataset %d", i)),
     uiOutput(ns(paste0(bid, "_feature_id_note"))),
     if (identical(mode, "upload")) tagList(
-      fileInput(ns(paste0(bid, "_file")), "File (CSV, TSV, TXT, XLSX, or RDS)",
+      fileInput(ns(mo_file_input_id(bid, gen)), "File (CSV, TSV, TXT, XLSX, or RDS)",
                 accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
       uiOutput(ns(paste0(bid, "_omics_type_note"))),
       ## Per-dataset metadata (optional) - merged by sample ID into the
@@ -176,7 +188,7 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
       ## own upload here and the shared "Sample Metadata" file below, via
       ## the same mo_merge_sample_meta() union-of-IDs logic (spec: no source
       ## silently overwrites another).
-      fileInput(ns(paste0(bid, "_meta_file")), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
+      fileInput(ns(mo_meta_file_input_id(bid, gen)), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
                 accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_orient_note"))),
       ## Wide (samples/features matrix) vs. long/tidy (one row per
@@ -197,7 +209,7 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo")) {
       ## automatically below on fetch) - this lets a user layer on
       ## additional columns of their own, same optional/merge semantics as
       ## the Upload branch's per-dataset metadata file above.
-      fileInput(ns(paste0(bid, "_meta_file")), "Additional sample metadata for this dataset (optional, CSV, first column = sample ID)",
+      fileInput(ns(mo_meta_file_input_id(bid, gen)), "Additional sample metadata for this dataset (optional, CSV, first column = sample ID)",
                 accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_geo_platform_ui"))),
       uiOutput(ns(paste0(bid, "_geo_status")))
@@ -412,8 +424,15 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       if (isTRUE(res$ok)) multi_dataset$table_label <- input$table_pick
     }, ignoreInit = TRUE)
 
+    ## Tracks "has Load been clicked since we last switched to this
+    ## pipeline" separately from input$load_preloaded_btn's own click count
+    ## (which is monotonic and never resets) - otherwise, switching away and
+    ## back to "preloaded" would show a false "could not load" warning below
+    ## from an earlier visit's click, before the user has done anything here.
+    preloaded_load_attempted <- reactiveVal(FALSE)
+
     output$preloaded_activate_ui <- renderUI({
-      req(input$load_preloaded_btn > 0, identical(input$dataset_source, "preloaded"))
+      req(preloaded_load_attempted(), identical(input$dataset_source, "preloaded"))
       if (length(raw$mats) == 0) {
         return(div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
                     " Could not load this analysis cell - see the notification for details."))
@@ -432,6 +451,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     ## dataset instead of staying permanently empty.
     observeEvent(input$load_preloaded_btn, {
       req(identical(input$dataset_source, "preloaded"))
+      preloaded_load_attempted(TRUE)
       multi_dataset$source <- "preloaded"
       multi_dataset$active <- TRUE
       multi_dataset$layers <- list()
@@ -453,11 +473,70 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       raw$meta <- res$sample_meta
     }, ignoreInit = TRUE)
 
+    ## Switching which pipeline is selected must not leave the previous
+    ## pipeline's data visible under the new one (spec sections 2/17/21):
+    ## clears the published Active dataset AND the in-progress wizard
+    ## staging state (raw/proc/geo_*), so steps 1-4 below go back to their
+    ## "load first" empty state instead of showing stale data. Fires on
+    ## every switch (Upload<->GEO included, not just leaving "preloaded").
     observeEvent(input$dataset_source, {
-      if (!identical(input$dataset_source, "preloaded")) {
-        multi_dataset$source <- NULL
-        multi_dataset$active <- FALSE
+      multi_dataset$source <- NULL
+      multi_dataset$active <- FALSE
+      multi_dataset$layers <- list()
+      multi_dataset$layer_meta <- list()
+      multi_dataset$sample_meta <- NULL
+      multi_dataset$overlap <- NULL
+      multi_dataset$loaded_at <- NULL
+
+      raw$mats <- list(); raw$validations <- list(); raw$labels <- list()
+      raw$provenance <- list(); raw$meta <- NULL
+      proc$filtered_mats <- NULL; proc$scaled_mats <- NULL; proc$batch_corrected <- NULL
+
+      for (nm in names(geo_raw_platforms)) geo_raw_platforms[[nm]] <- NULL
+      for (nm in names(geo_fetched)) geo_fetched[[nm]] <- NULL
+      for (nm in names(block_shape)) block_shape[[nm]] <- NULL
+
+      ## The per-block orientation/omics-type advisory notes (set by the
+      ## file-change observer below, keyed by the fixed ubid rather than a
+      ## generation-scoped id) would otherwise keep describing the previous
+      ## generation's file until a new one is chosen, even though the file
+      ## input itself is now genuinely empty - clear them explicitly here.
+      for (i in seq_len(MO_MAX_BLOCKS)) {
+        ubid <- mo_block_id(i, "upload")
+        output[[paste0(ubid, "_orient_note")]] <- renderUI(NULL)
+        output[[paste0(ubid, "_omics_type_note")]] <- renderUI(NULL)
       }
+
+      ## Also recreate the upload/GEO block widgets themselves (fresh
+      ## labels and default orientation) and drop any extra blocks the user
+      ## added, so switching pipelines and switching back starts clean.
+      n_upload_blocks(2)
+      n_geo_blocks(2)
+      block_reset_gen(block_reset_gen() + 1)
+
+      ## Recreating the block markup above (via block_reset_gen()) does NOT,
+      ## by itself, clear an already-chosen file: a browser won't let JS set
+      ## an <input type=file>'s value, and a fresh fileInput bound to the
+      ## *same* inputId as before never re-pushes an "empty" value to the
+      ## server on its own - input$<id> would keep resolving to the previous
+      ## pipeline's uploaded file/temp path indefinitely, and "Validate
+      ## Datasets" would silently re-ingest it even though the widget
+      ## visually looks empty. mo_file_input_id()/mo_meta_file_input_id()
+      ## (see their definitions above mo_block_ui()) solve this at the root
+      ## by suffixing every fileInput's own id with block_reset_gen() - the
+      ## bump just above means every block's file widgets get a genuinely
+      ## new id after this observer runs, one that has never held a value,
+      ## so there is nothing to leak regardless of file-input reset quirks.
+      ## The Sample Matching mapping file is the one other real fileInput
+      ## in this tab (see its definition/reader further below) and gets the
+      ## same generation suffix for the same reason.
+
+      ## The "Reference / Example Dataset" warning box (preloaded_activate_ui)
+      ## gates on this rather than the monotonic load_preloaded_btn click
+      ## count, so it doesn't show a false "could not load" warning just
+      ## because raw$mats was cleared above while an earlier visit's click
+      ## count is still > 0.
+      preloaded_load_attempted(FALSE)
     })
 
     ## =========================================================================
@@ -468,6 +547,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     ## =========================================================================
     n_upload_blocks <- reactiveVal(2)
     n_geo_blocks <- reactiveVal(2)
+    block_reset_gen <- reactiveVal(0)
     geo_raw_platforms <- reactiveValues()   # gblockN -> list(accession, platforms)
     geo_fetched <- reactiveValues()          # gblockN -> list(mat, meta, platform, accession, collapsed)
     raw <- reactiveValues(mats = list(), validations = list(), labels = list(), provenance = list(), meta = NULL)
@@ -484,6 +564,12 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     ## to reach.
     output$pipeline_ui <- renderUI({
       if (length(raw$validations) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
+      ## Generation-suffixed for the same reason as the per-block file
+      ## inputs (see mo_file_input_id()'s comment) - this panel only
+      ## re-renders once raw$validations is non-empty again after a fresh
+      ## Validate, i.e. already in the current generation, so this always
+      ## reads the right one.
+      gen <- block_reset_gen()
       tabsetPanel(
         id = ns("pipeline_tabs"), type = "tabs",
         tabPanel("1. Preview and Validate", br(), uiOutput(ns("validate_ui"))),
@@ -496,7 +582,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
               conditionalPanel(condition = sprintf("input['%s'] == 'patient_id'", ns("matching_method")),
                                 uiOutput(ns("patient_id_col_ui"))),
               conditionalPanel(condition = sprintf("input['%s'] == 'mapping'", ns("matching_method")),
-                                fileInput(ns("mapping_file"), "Sample mapping file (CSV, one column per dataset's own sample IDs)", accept = c(".csv")))
+                                fileInput(ns(paste0("mapping_file_g", gen)), "Sample mapping file (CSV, one column per dataset's own sample IDs)", accept = c(".csv")))
           ),
           uiOutput(ns("matching_ui"))
         ),
@@ -506,8 +592,23 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )
     })
 
-    output$upload_blocks_ui <- renderUI(tagList(lapply(seq_len(n_upload_blocks()), function(i) mo_block_ui(ns, i, mode = "upload"))))
-    output$geo_blocks_ui <- renderUI(tagList(lapply(seq_len(n_geo_blocks()), function(i) mo_block_ui(ns, i, mode = "geo"))))
+    ## block_reset_gen() is a dependency (and passed through as `gen`) so
+    ## these re-render with brand new widgets - fresh labels/orientation,
+    ## and, via mo_file_input_id()/mo_meta_file_input_id(), fresh fileInput
+    ## ids - every time the pipeline source is switched, not just when a
+    ## block is added. Without this, uiOutput never re-executes on a source
+    ## switch (it only depends on n_upload_blocks()/n_geo_blocks()), so the
+    ## previous pipeline's already-selected files/labels/orientation stay
+    ## bound to those input IDs and would be silently re-ingested if the
+    ## user clicked "Validate Datasets" again without re-choosing a file.
+    output$upload_blocks_ui <- renderUI({
+      gen <- block_reset_gen()
+      tagList(lapply(seq_len(n_upload_blocks()), function(i) mo_block_ui(ns, i, mode = "upload", gen = gen)))
+    })
+    output$geo_blocks_ui <- renderUI({
+      gen <- block_reset_gen()
+      tagList(lapply(seq_len(n_geo_blocks()), function(i) mo_block_ui(ns, i, mode = "geo", gen = gen)))
+    })
 
     output$add_upload_block_ui <- renderUI({
       if (n_upload_blocks() >= MO_MAX_BLOCKS) return(div(class = "submodule-desc", sprintf("Maximum of %d datasets per session.", MO_MAX_BLOCKS)))
@@ -539,8 +640,11 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         p(class = "submodule-desc", sprintf("Feature identifier: %s", MULTI_LIVE_FEATURE_ID_LABELS[[otype]] %||% "Feature ID"))
       })
 
-      observeEvent(input[[paste0(ubid, "_file")]], {
-        fi <- input[[paste0(ubid, "_file")]]
+      ## Reads the current generation's file id (mo_file_input_id()) so this
+      ## keeps working after a pipeline switch bumps block_reset_gen() and
+      ## the block is recreated with a new fileInput id.
+      observeEvent(input[[mo_file_input_id(ubid, block_reset_gen())]], {
+        fi <- input[[mo_file_input_id(ubid, block_reset_gen())]]
         req(fi)
         ## Preview read is XLSX/RDS-safe (multi_live_read_matrix() itself
         ## handles those at Validate time) - shape/orientation detection only
@@ -679,6 +783,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     ## ---- 1. Validate ---------------------------------------------------------
     observeEvent(input$validate_btn, {
       mode <- input$dataset_source
+      gen <- block_reset_gen()
       mats <- list(); validations <- list(); labels <- list(); provenance <- list()
 
       long_group_dfs <- list()
@@ -687,7 +792,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       if (identical(mode, "upload")) {
         for (i in seq_len(n_upload_blocks())) {
           ubid <- mo_block_id(i, "upload")
-          fi <- input[[paste0(ubid, "_file")]]
+          fi <- input[[mo_file_input_id(ubid, gen)]]
           if (is.null(fi)) next
           label <- input[[paste0(ubid, "_label")]] %||% sprintf("Dataset %d", i)
           otype <- input[[paste0(ubid, "_type")]] %||% "other"
@@ -742,7 +847,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           }
           validations[[label]] <- multi_live_validate_matrix(mats[[label]], layer_label = label)
           labels[[ubid]] <- label
-          m <- mo_read_meta_file(input[[paste0(ubid, "_meta_file")]])
+          m <- mo_read_meta_file(input[[mo_meta_file_input_id(ubid, gen)]])
           if (!is.null(m)) explicit_meta_dfs[[label]] <- m
         }
       } else if (identical(mode, "geo")) {
@@ -772,7 +877,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           labels[[gbid]] <- label
           provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           if (is.null(raw$meta) && !is.null(gf$meta)) raw$meta <- gf$meta
-          m <- mo_read_meta_file(input[[paste0(gbid, "_meta_file")]])
+          m <- mo_read_meta_file(input[[mo_meta_file_input_id(gbid, gen)]])
           if (!is.null(m)) explicit_meta_dfs[[label]] <- m
         }
       }
@@ -843,7 +948,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         res <- mo_apply_matching(mats, "patient_id", meta = raw$meta, patient_col = input$patient_id_col)
         mats <- res$mats
       } else if (identical(input$matching_method, "mapping")) {
-        mf <- input$mapping_file
+        mf <- input[[paste0("mapping_file_g", block_reset_gen())]]
         mapping_df <- if (!is.null(mf)) tryCatch(as.data.frame(data.table::fread(mf$datapath, showProgress = FALSE)), error = function(e) NULL) else NULL
         res <- mo_apply_matching(mats, "mapping", mapping_df = mapping_df)
         mats <- res$mats

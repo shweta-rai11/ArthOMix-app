@@ -97,7 +97,14 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
         list(
           ok = TRUE, layers = multi_dataset$layers, sample_meta = multi_dataset$sample_meta, outcome_col = NULL,
           label = sprintf("Active Multi-Omics Dataset (%s)", paste(names(multi_dataset$layers), collapse = " + ")),
-          provenance = sprintf("Active Multi-Omics Dataset from the Dataset Workspace tab (source: %s).", multi_dataset$source %||% "unknown")
+          provenance = sprintf("Active Multi-Omics Dataset from the Dataset Workspace tab (source: %s).", multi_dataset$source %||% "unknown"),
+          ## Authoritative per-layer omics type as selected on the Dataset tab -
+          ## used below to guess block roles instead of guessing from whatever
+          ## label the user happened to type.
+          omics_type = stats::setNames(
+            vapply(names(multi_dataset$layers), function(nm) multi_dataset$layer_meta[[nm]]$omics_type %||% "other", character(1)),
+            names(multi_dataset$layers)
+          )
         )
       }
     })
@@ -113,8 +120,13 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       if (!isTRUE(d$ok)) return(NULL)
       choices <- names(d$layers)
       if (length(choices) < 2) return(mi_stop("DIABLO requires two matched omics blocks (Transcriptomics + Methylomics); only one is available in this dataset."))
-      guess_t <- choices[grepl("transcript|rna|express|gene", choices, ignore.case = TRUE)]
-      guess_m <- choices[grepl("methyl|cpg|beta", choices, ignore.case = TRUE)]
+      if (!is.null(d$omics_type)) {
+        guess_t <- choices[d$omics_type[choices] %in% c("rnaseq", "mirna", "genomics")]
+        guess_m <- choices[d$omics_type[choices] == "methylation"]
+      } else {
+        guess_t <- choices[grepl("transcript|rna|express|gene", choices, ignore.case = TRUE)]
+        guess_m <- choices[grepl("methyl|cpg|beta", choices, ignore.case = TRUE)]
+      }
       sel_t <- if (length(guess_t) > 0) guess_t[1] else choices[1]
       sel_m <- if (length(guess_m) > 0) guess_m[1] else choices[min(2, length(choices))]
       tagList(

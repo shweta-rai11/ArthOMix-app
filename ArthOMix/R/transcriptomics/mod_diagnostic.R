@@ -910,14 +910,35 @@ mod_diagnostic_server <- function(id, dataset, results) {
            ref_group = input$ext_ref_group, comp_group = input$ext_comp_group)
     }, ignoreInit = TRUE)
 
+    ## Same never-run vs. actually-failed distinction as diag_result_error_msg() above,
+    ## for the External Validation upload pipeline - a separate, easy-to-miss failure
+    ## mode here is the chosen gene panel being empty (e.g. no live Feature Selection
+    ## panel yet for an uploaded reference dataset), which used to show the exact same
+    ## "Not run yet" text as never having clicked Run at all.
+    ext_result_error_msg <- function() {
+      tryCatch({ ext_result(); NULL }, error = function(e) {
+        msg <- conditionMessage(e)
+        if (nzchar(msg)) msg else NULL
+      })
+    }
+    observeEvent(input$run_ext_btn, {
+      err <- ext_result_error_msg()
+      if (!is.null(err)) showNotification(paste("External validation could not be completed:", err), type = "error", duration = 10)
+    }, ignoreInit = TRUE)
+
     output$ext_status_ui <- renderUI({
       r <- tryCatch(ext_result(), error = function(e) NULL)
-      if (is.null(r)) {
-        return(div(class = "empty-note", icon("circle-info"), "Not run yet. Upload files, map columns, then click Run."))
+      if (!is.null(r)) {
+        return(div(class = "empty-note", icon("check"),
+            sprintf("%d panel genes present in the external dataset, %d samples (%d %s vs %d %s). %s",
+                    length(r$genes), length(r$y), r$n_comp, r$comp_group, r$n_ref, r$ref_group, r$panel_note)))
       }
-      div(class = "empty-note", icon("check"),
-          sprintf("%d panel genes present in the external dataset, %d samples (%d %s vs %d %s). %s",
-                  length(r$genes), length(r$y), r$n_comp, r$comp_group, r$n_ref, r$ref_group, r$panel_note))
+      err <- ext_result_error_msg()
+      if (!is.null(err)) {
+        div(class = "empty-note", icon("triangle-exclamation"), sprintf("External validation failed: %s", err))
+      } else {
+        div(class = "empty-note", icon("circle-info"), "Not run yet. Upload files, map columns, then click Run.")
+      }
     })
 
     ext_gene_df <- reactive({
@@ -1034,12 +1055,30 @@ mod_diagnostic_server <- function(id, dataset, results) {
         wgcna = wgcna_panel_genes(sex_label),
         own_panel_genes(sex_label)
       )
+      ## Checked separately from the "present in the matrix" validate() below - an
+      ## empty panel (most commonly: an uploaded/GEO dataset with no live Feature
+      ## Selection run yet, since the bundled panel only applies to the default
+      ## reference cohort) needs its own message. Both used to collapse into the
+      ## same generic "fewer than 2 genes ... present in the matrix" text, which
+      ## reads as a data problem when the real issue is "run Feature Selection
+      ## first" - cand$note already has that exact, specific explanation.
+      validate(need(length(cand$genes) >= 1, sprintf("No gene panel available for %s: %s", sex_label, cand$note)))
       genes <- intersect(cand$genes, rownames(dataset$expr))
-      validate(need(length(genes) >= 2, sprintf("Fewer than 2 %s genes from the chosen panel are present in the currently loaded expression matrix.", sex_label)))
+      validate(need(length(genes) >= 2, sprintf(
+        "Fewer than 2 %s genes from the chosen panel are present in the currently loaded expression matrix (panel: %s).",
+        sex_label, cand$note
+      )))
 
       expr_sub <- dataset$expr[genes, common, drop = FALSE]
 
-      fit <- diag_fit_sex(expr_sub, y, params = diag_advanced_params())
+      ## withProgress (same mechanism already used in mod_wgcna.R/mod_featureselection.R)
+      ## - fitting 4 CV-tuned models per sex is genuinely slow, and previously gave no
+      ## visible feedback at all while running.
+      fit <- withProgress(
+        message = sprintf("Fitting %s diagnostic models (logistic regression, elastic net, random forest, SVM)...", sex_label),
+        value = 0.3,
+        diag_fit_sex(expr_sub, y, params = diag_advanced_params())
+      )
       fit$candidate_note <- cand$note
       fit$n_ref <- sum(y == input$ref_group); fit$n_comp <- sum(y == input$comp_group)
       fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
@@ -1048,17 +1087,22 @@ mod_diagnostic_server <- function(id, dataset, results) {
 
     ## Training and Testing tabs each have their own Run button per sex; both feed
     ## the same shared trigger below.
+    ## An eventReactive can't be reset to its unfired state, so this tracks whether
+    ## each sex's cached diag_result_*() still belongs to the active dataset; cleared
+    ## when dataset$source changes, set again when that sex's Run button is clicked.
+    diag_valid <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
+
     female_run_trigger <- reactiveVal(0)
     male_run_trigger <- reactiveVal(0)
     lapply(c("run_female_btn", "run_female_btn_test"), function(bid) {
-      observeEvent(input[[bid]], { female_run_trigger(isolate(female_run_trigger()) + 1) }, ignoreInit = TRUE)
+      observeEvent(input[[bid]], { diag_valid$female <- TRUE; female_run_trigger(isolate(female_run_trigger()) + 1) }, ignoreInit = TRUE)
     })
     lapply(c("run_male_btn", "run_male_btn_test"), function(bid) {
-      observeEvent(input[[bid]], { male_run_trigger(isolate(male_run_trigger()) + 1) }, ignoreInit = TRUE)
+      observeEvent(input[[bid]], { diag_valid$male <- TRUE; male_run_trigger(isolate(male_run_trigger()) + 1) }, ignoreInit = TRUE)
     })
     pooled_run_trigger <- reactiveVal(0)
     lapply(c("run_pooled_btn", "run_pooled_btn_test"), function(bid) {
-      observeEvent(input[[bid]], { pooled_run_trigger(isolate(pooled_run_trigger()) + 1) }, ignoreInit = TRUE)
+      observeEvent(input[[bid]], { diag_valid$pooled <- TRUE; pooled_run_trigger(isolate(pooled_run_trigger()) + 1) }, ignoreInit = TRUE)
     })
 
     diag_result_female <- eventReactive(female_run_trigger(), {
@@ -1071,10 +1115,54 @@ mod_diagnostic_server <- function(id, dataset, results) {
       diag_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
 
+    ## Reads one sex's diag_result_*() and returns its real validate()/need() failure
+    ## message, or NULL if it hasn't failed. Distinguishes a genuine failure (e.g. no
+    ## live gene panel for an uploaded dataset, too few samples in a group) from
+    ## "hasn't been run yet": both are eventReactive halts of the same shiny
+    ## "validation" class, but eventReactive's own pre-first-click halt always carries
+    ## an EMPTY message, while a validate(need(...)) failure inside diag_build_sex()
+    ## always carries the real one - so nzchar() on the caught message tells them
+    ## apart. Every existing read of diag_result_*() elsewhere in this file
+    ## (`tryCatch(..., error = function(e) NULL)`) collapsed both cases to NULL,
+    ## which made clicking Run on an uploaded dataset with no live Feature Selection
+    ## panel yet look exactly like the button doing nothing - no error, no result,
+    ## just a generic "not run yet" note with no explanation.
+    diag_result_error_msg <- function(sex_label) {
+      if (!isTRUE(diag_valid[[sex_label]])) return(NULL)
+      fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
+      tryCatch({ fr(); NULL }, error = function(e) {
+        msg <- conditionMessage(e)
+        if (nzchar(msg)) msg else NULL
+      })
+    }
+
+    ## Single read path for a sex's cached result: NULL both when it never ran and
+    ## when the cached fit belongs to a dataset the user has since switched away from.
+    diag_result_value <- function(sex_label) {
+      if (!isTRUE(diag_valid[[sex_label]])) return(NULL)
+      fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
+      tryCatch(fr(), error = function(e) NULL)
+    }
+    lapply(c("female", "male", "pooled"), function(sex_label) {
+      trigger <- switch(sex_label, female = female_run_trigger, male = male_run_trigger, pooled = pooled_run_trigger)
+      observeEvent(trigger(), {
+        err <- diag_result_error_msg(sex_label)
+        if (!is.null(err)) {
+          showNotification(sprintf("%s diagnostic models could not be completed: %s", tools::toTitleCase(sex_label), err),
+                            type = "error", duration = 10)
+        }
+      }, ignoreInit = TRUE)
+    })
+
     diag_has_run <- reactiveVal(FALSE)
     observeEvent(female_run_trigger(), diag_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(male_run_trigger(), diag_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(pooled_run_trigger(), diag_has_run(TRUE), ignoreInit = TRUE)
+
+    observeEvent(dataset$source, {
+      diag_valid$female <- FALSE; diag_valid$male <- FALSE; diag_valid$pooled <- FALSE
+      diag_has_run(FALSE)
+    }, ignoreInit = TRUE)
 
     ## Which model's params box to show: whichever pill was clicked most
     ## recently, in any sex's own Model Training tab.
@@ -1168,7 +1256,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     }
 
     output$model_params_ui <- renderUI({
-      req(diag_has_run())
+      if (!diag_has_run()) return(NULL)
       switch(active_model_pill(),
         "Elastic Net" = enet_params_box(),
         "Random Forest" = rf_params_box(),
@@ -1178,7 +1266,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     })
 
     output$references_box_ui <- renderUI({
-      req(diag_has_run())
+      if (!diag_has_run()) return(NULL)
       box(
         width = 12, title = "References", status = "primary", solidHeader = FALSE,
         tags$ul(
@@ -1218,42 +1306,47 @@ mod_diagnostic_server <- function(id, dataset, results) {
     observeEvent(diag_result_pooled(), save_result("pooled", diag_result_pooled()))
 
     output$saved_runs_ui <- renderUI({
-      res_f <- tryCatch(diag_result_female(), error = function(e) NULL)
-      res_m <- tryCatch(diag_result_male(), error = function(e) NULL)
-      res_p <- tryCatch(diag_result_pooled(), error = function(e) NULL)
-      status_row <- function(sex, r) {
-        if (is.null(r)) {
-          tags$li(icon("circle-minus", style = "color: #8A929C;"), sprintf(" %s diagnostic models - not run yet", sex))
-        } else {
+      res_f <- diag_result_value("female")
+      res_m <- diag_result_value("male")
+      res_p <- diag_result_value("pooled")
+      status_row <- function(sex, sex_label, r) {
+        if (!is.null(r)) {
           best_label <- c("Logistic Regression", "Elastic Net", "Random Forest", "SVM")[which.max(c(mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE)))]
-          tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s completed: ", sex)),
-                  sprintf("best CV-AUC = %s", best_label))
+          return(tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s completed: ", sex)),
+                          sprintf("best CV-AUC = %s", best_label)))
+        }
+        ## Real validate() failure vs. genuinely never clicked - see diag_result_error_msg() above.
+        err <- diag_result_error_msg(sex_label)
+        if (!is.null(err)) {
+          tags$li(icon("triangle-exclamation", style = "color: #c0392b;"), strong(sprintf(" %s failed: ", sex)), err)
+        } else {
+          tags$li(icon("circle-minus", style = "color: #8A929C;"), sprintf(" %s diagnostic models - not run yet", sex))
         }
       }
       tagList(
         p(class = "submodule-desc", style = "margin-bottom: 4px;", "Status:"),
         tags$ul(style = "padding-left: 18px; margin-bottom: 0; list-style: none;",
-                status_row("Female", res_f), status_row("Male", res_m), status_row("Pooled (all)", res_p))
+                status_row("Female", "female", res_f), status_row("Male", "male", res_m), status_row("Pooled (all)", "pooled", res_p))
       )
     })
 
     ## One-line results summary shown inside that sex's own tab.
     diag_result_line <- function(sex_label, r) {
-      if (is.null(r)) return(NULL)
-      p(strong("Result: "),
-        sprintf("%d genes, %d samples (%d vs %d), %s vs %s → CV-AUC logistic regression %.3f / elastic net %.3f / random forest %.3f / SVM %.3f.",
-                r$n_input, r$n_samples, r$n_comp, r$n_ref, r$comp_group, r$ref_group,
-                mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE)))
+      if (!is.null(r)) {
+        return(p(strong("Result: "),
+          sprintf("%d genes, %d samples (%d vs %d), %s vs %s → CV-AUC logistic regression %.3f / elastic net %.3f / random forest %.3f / SVM %.3f.",
+                  r$n_input, r$n_samples, r$n_comp, r$n_ref, r$comp_group, r$ref_group,
+                  mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))))
+      }
+      err <- diag_result_error_msg(sex_label)
+      if (!is.null(err)) p(strong("Result: "), span(style = "color: #c0392b;", sprintf("failed - %s", err))) else NULL
     }
-    output$female_result_line <- renderUI({ diag_result_line("female", tryCatch(diag_result_female(), error = function(e) NULL)) })
-    output$male_result_line <- renderUI({ diag_result_line("male", tryCatch(diag_result_male(), error = function(e) NULL)) })
-    output$pooled_result_line <- renderUI({ diag_result_line("pooled", tryCatch(diag_result_pooled(), error = function(e) NULL)) })
+    output$female_result_line <- renderUI({ diag_result_line("female", diag_result_value("female")) })
+    output$male_result_line <- renderUI({ diag_result_line("male", diag_result_value("male")) })
+    output$pooled_result_line <- renderUI({ diag_result_line("pooled", diag_result_value("pooled")) })
 
     ## Per-technique, per-sex (or pooled) outputs.
-    res_sex <- function(sex_label) reactive({
-      fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
-      tryCatch(fr(), error = function(e) NULL)
-    })
+    res_sex <- function(sex_label) reactive({ diag_result_value(sex_label) })
 
     build_train_perf_table <- function(rr) {
       rows <- list(
@@ -1318,9 +1411,17 @@ mod_diagnostic_server <- function(id, dataset, results) {
     register_sex_model_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
       test_color <- ARTHOMIX_COLORS$orange
-      ## Covers both "never run" and "run but failed validation" (boxes always exist in the static UI).
+      ## Shows the real validate()/need() failure (e.g. "no live gene panel - run
+      ## Feature Selection first") instead of the generic "not run yet" note when
+      ## this sex's Run button WAS clicked but diag_build_sex() failed - see
+      ## diag_result_error_msg() above for how the two are told apart.
       not_yet_note <- function() {
-        div(class = "empty-note", icon("circle-info"), "Not run yet, or the last run failed validation - check above.")
+        err <- diag_result_error_msg(sex_label)
+        if (!is.null(err)) {
+          div(class = "empty-note", icon("triangle-exclamation"), sprintf("%s diagnostic models failed: %s", tools::toTitleCase(sex_label), err))
+        } else {
+          div(class = "empty-note", icon("circle-info"), "Not run yet. Click Run above.")
+        }
       }
 
       lapply(DIAG_TECHNIQUES, function(tech) {
@@ -1355,14 +1456,14 @@ mod_diagnostic_server <- function(id, dataset, results) {
           )
         })
         output[[paste0(prefix, "_train_roc_plot")]] <- renderPlot({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           rr <- r[[key]]
           diag_roc_plot_traintest(rr$roc_full, rr$test,
                                    cv_mean = mean(rr$cv_auc, na.rm = TRUE), cv_sd = stats::sd(rr$cv_auc, na.rm = TRUE), cv_n = length(rr$cv_auc),
                                    title = sprintf("ROC - %s (%s)", label, tools::toTitleCase(sex_label)))
         })
         output[[paste0(prefix, "_train_cv_plot")]] <- renderPlot({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           rr <- r[[key]]
           df <- data.frame(fold = factor(seq_along(rr$cv_auc)), auc = rr$cv_auc)
           ggplot(df, aes(x = fold, y = auc)) +
@@ -1373,7 +1474,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
         })
         ## Plots the full hyperparameter search (alpha/mtry/cost vs CV score), chosen value marked.
         output[[paste0(prefix, "_train_tuning_plot")]] <- renderPlot({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           rr <- r[[key]]
           ts <- rr$tuning_search
           if (is.null(ts) || nrow(ts) < 2) {
@@ -1415,7 +1516,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
           )
         })
         output[[paste0(prefix, "_train_table")]] <- DT::renderDataTable({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           DT::datatable(build_train_perf_table(r[[key]]), rownames = FALSE, width = "100%",
                         options = list(pageLength = 15, dom = "t", scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact")
         })
@@ -1446,7 +1547,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
           )
         })
         output[[paste0(prefix, "_test_roc_plot")]] <- renderPlot({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           rr <- r[[key]]
           req(isTRUE(rr$test$available))
           diag_roc_plot_pub(rr$test$roc, color = test_color,
@@ -1454,7 +1555,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
                              ci = c(rr$test$ci_lo, rr$test$auc, rr$test$ci_hi))
         })
         output[[paste0(prefix, "_test_table")]] <- DT::renderDataTable({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           DT::datatable(build_test_perf_table(r[[key]]), rownames = FALSE, width = "100%",
                         options = list(pageLength = 15, dom = "t", scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact")
         })
@@ -1465,7 +1566,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       })
 
       output[[paste0(sex_label, "_train_compare_table")]] <- DT::renderDataTable({
-        r <- res(); req(r)
+        r <- res(); if (is.null(r)) return(NULL)
         df <- do.call(rbind, lapply(DIAG_TECHNIQUES, function(tech) {
           rr <- r[[tech$key]]
           data.frame(model = tech$label, training_auc = round(rr$full_auc, 3),
@@ -1475,7 +1576,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
         DT::datatable(df, rownames = FALSE, width = "100%", options = list(pageLength = 5, dom = "t", scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact")
       })
       output[[paste0(sex_label, "_test_compare_table")]] <- DT::renderDataTable({
-        r <- res(); req(r)
+        r <- res(); if (is.null(r)) return(NULL)
         df <- do.call(rbind, lapply(DIAG_TECHNIQUES, function(tech) {
           rr <- r[[tech$key]]
           data.frame(
@@ -1514,7 +1615,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
         ## One small ROC panel per gene (Train+Test overlaid), capped to top genes by training AUC.
         GENEROC_MAX_FACETS <- 24
         output[[plot_id]] <- renderPlot({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           gr_tr <- r$gene_roc_train; gr_te <- r$gene_roc_test
           auc_df <- gene_auc_df(gr_tr, gr_te)
           req(nrow(auc_df) > 0)
@@ -1571,7 +1672,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
           max(320, n_row * 230)
         })
         output[[table_id]] <- DT::renderDataTable({
-          r <- res(); req(r)
+          r <- res(); if (is.null(r)) return(NULL)
           DT::datatable(gene_auc_df(r$gene_roc_train, r$gene_roc_test), rownames = FALSE, width = "100%",
                         options = list(pageLength = 8, scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact") |>
             DT::formatStyle("hub", target = "row", backgroundColor = DT::styleEqual(c(TRUE, FALSE), c("#e6f4ea", "")))

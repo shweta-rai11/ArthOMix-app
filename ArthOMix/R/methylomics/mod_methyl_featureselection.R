@@ -389,9 +389,21 @@ methyl_fs_stability_run <- function(X, y, type = "bootstrap", n_resamples = 50, 
 methyl_fs_consensus_table <- function(id_lists, weights = NULL) {
   all_ids <- Reduce(union, id_lists)
   methods <- names(id_lists)
-  if (length(all_ids) == 0) return(list(table = data.frame(cpg = character(0)), all_ids = character(0)))
   w <- weights %||% stats::setNames(rep(1, length(methods)), methods)
   w <- w[methods]
+  if (length(all_ids) == 0) {
+    ## Every method selected zero CpGs (plausible on a small/noisy panel) -
+    ## still return the full expected column set (one 0/1 column per method,
+    ## n_methods, weighted_score), just with zero rows, so every downstream
+    ## consumer (Venn/UpSet/rank plot/heatmap/table) can keep assuming those
+    ## columns exist instead of special-casing an empty consensus.
+    empty <- stats::setNames(data.frame(cpg = character(0), stringsAsFactors = FALSE),
+                              "cpg")
+    for (m in methods) empty[[m]] <- integer(0)
+    empty$n_methods <- integer(0)
+    empty$weighted_score <- numeric(0)
+    return(list(table = empty, all_ids = character(0), methods = methods, weights = w))
+  }
   tbl <- data.frame(cpg = all_ids, stringsAsFactors = FALSE)
   for (m in methods) tbl[[m]] <- as.integer(tbl$cpg %in% id_lists[[m]])
   flag_mat <- as.matrix(tbl[, methods, drop = FALSE])
@@ -495,8 +507,12 @@ methyl_fs_correlation_reduce <- function(mat, ids, score, method = "pearson", r_
 ## Same chr/pos/gene join pattern as mod_methyl_dmp.R:648-655. CpG-island/genomic-region
 ## columns left NA - shared annotation.R only exposes chr/pos/Type/SNP-rs/gene.
 methyl_fs_annotate_panel <- function(ids, anno_result) {
-  df <- data.frame(cpg = ids, chr = NA_character_, pos = NA_real_, gene = NA_character_,
-                    cpg_island = NA_character_, genomic_region = NA_character_, stringsAsFactors = FALSE)
+  ## data.frame() can't recycle a length-1 NA against a length-0 `ids` (a
+  ## legitimate empty panel - e.g. every method selected zero CpGs) without
+  ## an explicit rep(), which throws "differing number of rows: 0, 1" instead.
+  n <- length(ids)
+  df <- data.frame(cpg = ids, chr = rep(NA_character_, n), pos = rep(NA_real_, n), gene = rep(NA_character_, n),
+                    cpg_island = rep(NA_character_, n), genomic_region = rep(NA_character_, n), stringsAsFactors = FALSE)
   if (isTRUE(anno_result$ok)) {
     a <- anno_result$anno
     hit <- df$cpg %in% rownames(a)
@@ -595,6 +611,26 @@ mod_methyl_fs_need_filters_note <- function() {
   div(class = "empty-note", icon("circle-info"), "Run Data & Filters first (see the Data & Filters tab).")
 }
 
+## Sex-stratification: female/male fit separately, pooled always available -
+## mirrors transcriptomics' three-build parallel-panel pattern
+## (R/transcriptomics/mod_featureselection.R), adapted to this file's own
+## sex-detection helpers (mod_methyl_dmp_sex_col/_choices) and its existing
+## one-Run-button-per-stage pipeline shape.
+FS_SEXES <- c("female", "male", "pooled")
+
+## Arranges up to 3 per-sex result cards: Female + Male side-by-side when both
+## are present, Pooled always full-width below - the methylomics-card-styled
+## analog of transcriptomics' fs-pair-row layout.
+mod_methyl_fs_sex_layout <- function(cards) {
+  fm <- cards[intersect(c("female", "male"), names(cards))]
+  pooled <- cards[["pooled"]]
+  tagList(
+    if (length(fm) == 2) fluidRow(column(6, fm[[1]]), column(6, fm[[2]]))
+    else if (length(fm) == 1) fluidRow(column(12, fm[[1]])),
+    if (!is.null(pooled)) fluidRow(column(12, pooled))
+  )
+}
+
 ## =============================================================================
 ## Server
 ## =============================================================================
@@ -643,12 +679,12 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         list(mat = mat, sheet = fs_own_sheet(), scale = det$scale, frac_out_of_range = det$frac_out_of_range,
              array_type = input$fs_upload_array_type %||% "450K", source_label = "Uploaded matrix", preloaded = FALSE)
       } else {
-        validate(need(!is.null(dataset$beta), "The preloaded dataset hasn't been loaded yet - open the Methylomics Dataset tab and click \"Load preloaded dataset\", or switch to \"Upload my own\" above."))
+        validate(need(!is.null(dataset$beta), "No dataset is loaded yet - open the Methylomics Dataset tab and load one (preloaded, upload, or GEO fetch), or switch to \"Upload my own\" above."))
         v <- dataset$beta[is.finite(dataset$beta)]
         frac_out <- if (length(v) > 0) mean((if (length(v) > 20000) v[sample.int(length(v), 20000)] else v) < -0.05 | (if (length(v) > 20000) v[sample.int(length(v), 20000)] else v) > 1.05) else 0
         list(mat = dataset$beta, sheet = dataset$sample_sheet, scale = dataset$input_scale %||% "beta",
              frac_out_of_range = frac_out, array_type = dataset$array_type %||% "450K",
-             source_label = dataset$source %||% "Preloaded", preloaded = TRUE)
+             source_label = dataset$source %||% "Dataset tab", preloaded = isTRUE(dataset$preloaded))
       }
     })
 
@@ -660,6 +696,33 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       colnames(src$sheet)
     })
 
+    ## Sex detection reuses this app's own DMP/DMR/WGCNA idiom
+    ## (mod_methyl_dmp_sex_col()/mod_methyl_dmp_sex_choices(), mod_methyl_dmp.R:102-123)
+    ## rather than inventing a bespoke sex-guessing reactive like transcriptomics does.
+    fs_sex_col <- reactive({ mod_methyl_dmp_sex_col(fs_active_source()$sheet) })
+    fs_sex_choices <- reactive({ mod_methyl_dmp_sex_choices(fs_active_source()$sheet, fs_sex_col()) })
+    fs_sex_available <- reactive({ length(fs_sex_choices()) > 1 })
+
+    ## "female"/"male" -> the raw sex-column value to filter on; "pooled" -> NULL
+    ## (skips the sex filter entirely, pooling every sample regardless of sex).
+    fs_sex_value_for <- function(sex_label) {
+      if (identical(sex_label, "pooled")) return(NULL)
+      ch <- fs_sex_choices()
+      rest <- ch[-1]
+      if (identical(sex_label, "female") && length(rest) >= 1) return(unname(rest[1]))
+      if (identical(sex_label, "male")   && length(rest) >= 2) return(unname(rest[2]))
+      NA_character_
+    }
+
+    fs_sex_display_label <- function(sex_label) {
+      if (identical(sex_label, "pooled")) return("Pooled (all samples)")
+      ch <- fs_sex_choices()
+      nm <- names(ch)[-1]
+      if (identical(sex_label, "female") && length(nm) >= 1) return(nm[1])
+      if (identical(sex_label, "male")   && length(nm) >= 2) return(nm[2])
+      tools::toTitleCase(sex_label)
+    }
+
     ## ---------------------------------------------------------------------
     ## Stage 1: Data & Filters
     ## ---------------------------------------------------------------------
@@ -668,12 +731,14 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       tagList(
         div(class = "card",
           div(class = "card-title", icon("filter"), "Data source"),
-          ## Gated on METH_RAW_DATA_AVAILABLE (raw beta matrix), not METH_DATA_AVAILABLE
-          ## (lighter precomputed tables) - a deployment can lack the raw matrix, in which
-          ## case dataset$beta never becomes non-NULL.
+          ## Gated dynamically on dataset$beta rather than the static
+          ## METH_RAW_DATA_AVAILABLE flag - this choice reads whatever is
+          ## actually loaded on the Methylomics Dataset tab (preloaded,
+          ## uploaded, or GEO-fetched alike), so it should only appear/default
+          ## once something has actually been loaded there.
           radioButtons(ns("fs_source"), NULL,
-                       choices = if (METH_RAW_DATA_AVAILABLE) c("Preloaded whole-blood cohort" = "preloaded", "Upload my own" = "upload") else c("Upload my own" = "upload"),
-                       selected = if (METH_RAW_DATA_AVAILABLE) "preloaded" else "upload", inline = TRUE),
+                       choices = if (!is.null(dataset$beta)) c("Use dataset loaded on the Dataset tab" = "preloaded", "Upload my own" = "upload") else c("Upload my own" = "upload"),
+                       selected = if (!is.null(dataset$beta)) "preloaded" else "upload", inline = TRUE),
           conditionalPanel(condition = sprintf("input['%s'] == 'upload'", ns("fs_source")),
             fluidRow(
               column(6,
@@ -762,7 +827,18 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
             p(class = "submodule-desc", "Beta values are convenient for interpretation (0-1 scale); M-values are the better-behaved scale for statistical modeling. This module derives M-values internally wherever a method needs them - the displayed matrix stays on whichever scale was detected/selected above.")
           )
         ),
-        actionButton(ns("filters_run_btn"), "Run Filters", icon = icon("play"), class = "btn-primary")
+        tags$h5(icon("venus-mars"), " Sex"),
+        if (!fs_sex_available())
+          p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - only \"Run All (pooled)\" is available.")
+        else
+          p(class = "empty-note", icon("circle-info"),
+            sprintf("%s and %s fit separately below; \"Run All (pooled)\" pools every sample regardless of sex - sex is never used as a covariate here.",
+                    fs_sex_display_label("female"), fs_sex_display_label("male"))),
+        div(style = "display:flex; gap:8px; flex-wrap: wrap;",
+            if (fs_sex_available()) actionButton(ns("run_female_btn"), sprintf("Run %s", fs_sex_display_label("female")), icon = icon("play"), class = "btn-primary btn-sm"),
+            if (fs_sex_available()) actionButton(ns("run_male_btn"), sprintf("Run %s", fs_sex_display_label("male")), icon = icon("play"), class = "btn-primary btn-sm"),
+            actionButton(ns("run_pooled_btn"), "Run All (pooled)", icon = icon("play"), class = "btn-primary btn-sm")
+        )
       )
     })
 
@@ -778,11 +854,21 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    filters_has_run <- reactiveVal(FALSE)
-    observeEvent(dataset$beta, filters_has_run(FALSE), ignoreNULL = TRUE)
-    observeEvent(input$fs_source, filters_has_run(FALSE))
+    ## Staleness: every sex's build goes stale when the source dataset changes,
+    ## cleared the moment that sex's own button is clicked again - mirrors
+    ## transcriptomics' fs_stale (R/transcriptomics/mod_featureselection.R:868-871).
+    fs_stale <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
+    observeEvent(dataset$beta, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE }, ignoreNULL = TRUE)
+    observeEvent(input$fs_source, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE })
+    observeEvent(input$run_female_btn, fs_stale$female <- FALSE, ignoreInit = TRUE)
+    observeEvent(input$run_male_btn,   fs_stale$male   <- FALSE, ignoreInit = TRUE)
+    observeEvent(input$run_pooled_btn, fs_stale$pooled <- FALSE, ignoreInit = TRUE)
 
-    fs_filter_result <- eventReactive(input$filters_run_btn, {
+    ## The one filter pipeline (missingness/variance/methylation-specific/
+    ## cross-reactive/MAF/imputation) - unchanged from before sex stratification,
+    ## just parameterized by which sex-value to restrict the sample set to first
+    ## (sex_value = NULL, the "pooled" case, skips that restriction entirely).
+    fs_build_filters <- function(sex_label, sex_value) {
       src <- fs_active_source()
       sheet <- src$sheet
       validate(need(!is.null(sheet) && !is.null(input$fs_group_col), "Load phenotype/sample metadata and pick a group column first."))
@@ -795,6 +881,17 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       validate(need(length(common) >= 10, "Fewer than 10 samples match between the matrix and the phenotype file."))
       mat0 <- src$mat[, common, drop = FALSE]
       ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
+
+      if (!is.null(sex_value)) {
+        validate(need(!is.na(sex_value), sprintf("No usable %s stratum is available in this dataset.", sex_label)))
+        sc <- fs_sex_col()
+        validate(need(!is.null(sc), "No sex column available to subset on."))
+        keep_sex <- !is.na(ph0[[sc]]) & as.character(ph0[[sc]]) == sex_value
+        validate(need(sum(keep_sex) >= 10, sprintf("Fewer than 10 samples remain after restricting to %s.", sex_label)))
+        mat0 <- mat0[, keep_sex, drop = FALSE]
+        ph0 <- ph0[keep_sex, , drop = FALSE]
+      }
+
       grp_raw <- as.character(ph0[[input$fs_group_col]])
       keep_s <- !is.na(grp_raw) & grp_raw %in% c(input$fs_ref_group, input$fs_comp_group)
       validate(need(sum(keep_s) >= 10, "Fewer than 10 samples in the chosen reference/comparison groups."))
@@ -857,17 +954,35 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
            group_col = input$fs_group_col, array_type = src$array_type, source_label = src$source_label,
            n_probes = nrow(beta_scale), n_samples = ncol(beta_scale), cascade = cascade,
            filter_notes = filter_notes, imputed_method = imputed_method, impute_fallback = impute_fallback,
-           anno = anno_result(), run_at = Sys.time())
-    })
+           anno = anno_result(), run_at = Sys.time(), sex_label = sex_label)
+    }
 
-    observeEvent(input$filters_run_btn, filters_has_run(TRUE), ignoreInit = TRUE)
+    fs_filter_result_female <- eventReactive(input$run_female_btn, { fs_build_filters("female", fs_sex_value_for("female")) }, ignoreInit = TRUE)
+    fs_filter_result_male   <- eventReactive(input$run_male_btn,   { fs_build_filters("male",   fs_sex_value_for("male")) },   ignoreInit = TRUE)
+    fs_filter_result_pooled <- eventReactive(input$run_pooled_btn, { fs_build_filters("pooled", NULL) }, ignoreInit = TRUE)
+
+    ## The shared "does this sex currently have a live, non-stale Stage-1
+    ## build?" accessor every downstream stage reads instead of a separate
+    ## has_run flag - mirrors transcriptomics' fs_result_or_null()
+    ## (R/transcriptomics/mod_featureselection.R:884-899). Calling an
+    ## eventReactive before its button has ever fired just raises a cheap
+    ## req()-style silent stop, caught here as a plain NULL.
+    fs_filter_result_for <- function(sex_label) {
+      if (isTRUE(fs_stale[[sex_label]])) return(NULL)
+      tryCatch(
+        switch(sex_label, female = fs_filter_result_female(), male = fs_filter_result_male(), pooled = fs_filter_result_pooled()),
+        error = function(e) NULL
+      )
+    }
+    fs_built_sexes <- reactive({ Filter(function(sx) !is.null(fs_filter_result_for(sx)), FS_SEXES) })
 
     output$fs_filter_result_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_filter_result()
-      tagList(
+      built <- fs_built_sexes()
+      if (length(built) == 0) return(mod_methyl_fs_empty_note())
+      cards <- stats::setNames(lapply(built, function(sx) {
+        r <- fs_filter_result_for(sx)
         div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Filter result"),
+          div(class = "card-title", icon("circle-check"), sprintf("Filter result - %s", fs_sex_display_label(sx))),
           div(class = "methyl-stats-row", fluidRow(
             valueBox(format(r$n_probes, big.mark = ","), "CpGs retained", icon = icon("dna"), color = "purple", width = 4),
             valueBox(r$n_samples, sprintf("Samples (%s vs %s)", r$comp_group, r$ref_group), icon = icon("users"), color = "light-blue", width = 4),
@@ -878,19 +993,64 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
               "k-NN imputation was requested but the \"impute\" package is not installed in this deployment - fell back to per-probe median imputation.")
           else NULL,
           tags$ul(lapply(r$filter_notes, tags$li)),
-          withSpinner(plotOutput(ns("fs_cascade_plot"), height = 260), color = "#2563EB", type = 6)
+          withSpinner(plotOutput(ns(paste0("fs_cascade_plot_", sx)), height = 260), color = "#2563EB", type = 6)
         )
-      )
+      }), built)
+      mod_methyl_fs_sex_layout(cards)
     })
 
-    output$fs_cascade_plot <- renderPlot({ req(filters_has_run()); methyl_plot_cascade(fs_filter_result()$cascade) })
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("fs_cascade_plot_", sx)]] <- renderPlot({
+        r <- fs_filter_result_for(sx); req(r)
+        methyl_plot_cascade(r$cascade)
+      })
+    })
+
+    ## ---------------------------------------------------------------------
+    ## Shared technique-stage factory (Stages 2-6) - the technique-layer half
+    ## of transcriptomics' build-layer/technique-layer split
+    ## (register_sex_technique_outputs(), R/transcriptomics/mod_featureselection.R:1170),
+    ## adapted to this file's existing one-Run-button-per-stage convention:
+    ## clicking a stage's own Run button fits `fit_fn` against every sex Stage 1
+    ## currently has a live build for, instead of tripling every stage's button.
+    ## ---------------------------------------------------------------------
+
+    fs_register_technique_stage <- function(run_btn_name, fit_fn) {
+      store <- reactiveValues(female = NULL, male = NULL, pooled = NULL)
+      lapply(FS_SEXES, function(sx) {
+        observeEvent(fs_filter_result_for(sx), store[[sx]] <- NULL, ignoreNULL = FALSE)
+      })
+      observeEvent(input[[run_btn_name]], {
+        for (sx in fs_built_sexes()) {
+          r <- fs_filter_result_for(sx)
+          store[[sx]] <- tryCatch(fit_fn(r), error = function(e) e)
+        }
+      }, ignoreInit = TRUE)
+      store
+    }
+
+    ## Renders a technique stage's up-to-3 per-sex cards (or the empty note).
+    ## `card_fn(sx, fit)` builds one sex's `.card` - `fit` may be a caught
+    ## `condition` (a real validate()/error failure) rather than a real result;
+    ## card_fn is expected to check `inherits(fit, "condition")` and show
+    ## conditionMessage(fit) in that case, so a real failure is never confused
+    ## with "not run yet" (mirrors transcriptomics' fs_result_error_msg()).
+    fs_render_technique_ui <- function(store, card_fn, need_run_note) {
+      present <- Filter(function(sx) !is.null(store[[sx]]), FS_SEXES)
+      if (length(present) == 0) return(mod_methyl_fs_empty_note(need_run_note))
+      cards <- stats::setNames(lapply(present, function(sx) card_fn(sx, store[[sx]])), present)
+      mod_methyl_fs_sex_layout(cards)
+    }
+
+    ## Shared "run this stage first" prompt shown when no sex has been built yet.
+    fs_need_build_note <- "Build at least one sex (Female/Male/Run All pooled) in Data & Filters, then Run this stage."
 
     ## ---------------------------------------------------------------------
     ## Stage 2: Univariate Selection
     ## ---------------------------------------------------------------------
 
     output$uni_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
+      if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
         div(class = "card-title", icon("chart-simple"), "Univariate Selection"),
         fluidRow(
@@ -924,16 +1084,15 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     })
 
     output$uni_covariate_ui <- renderUI({
-      r <- tryCatch(fs_filter_result(), error = function(e) NULL)
+      ## Covariate candidates don't depend on sex - any built stratum's group_col works.
+      built <- fs_built_sexes()
+      req(length(built) > 0)
+      r <- fs_filter_result_for(built[1])
       if (is.null(r) || is.null(fs_active_source()$sheet)) return(NULL)
       cand <- setdiff(colnames(fs_active_source()$sheet), r$group_col)
       if (length(cand) == 0) return(NULL)
       checkboxGroupInput(ns("uni_covariates"), "Covariate adjustment (linear-model methods only)", choices = cand, selected = character(0))
     })
-
-    uni_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), uni_has_run(FALSE))
-    observeEvent(input$uni_run_btn, uni_has_run(TRUE), ignoreInit = TRUE)
 
     ## r$beta/r$m/r$grp are restricted to the two Reference/Comparison levels, but
     ## ANOVA/Kruskal-Wallis can use >2; rebuild against the full phenotype column for those.
@@ -960,8 +1119,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       list(beta = beta_sub, m = methyl_beta_to_mvalue(beta_sub), y = y)
     }
 
-    fs_uni_result <- eventReactive(input$uni_run_btn, {
-      r <- fs_filter_result()
+    fs_uni_fit_one <- function(r) {
       is_linear <- input$uni_method %in% c("moderated_t", "t_test", "anova", "linear_regression", "pearson")
       ud <- fs_uni_multigroup_data(r, input$uni_method)
       y <- ud$y
@@ -980,40 +1138,45 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                                           dbeta_min = input$uni_dbeta_min, top_n = input$uni_top_n)
       list(ranked = sel$ranked, selected_ids = sel$selected_ids, method = input$uni_method,
            n_groups = nlevels(factor(as.character(y))), run_at = Sys.time())
-    })
+    }
 
-    output$uni_result_ui <- renderUI({
-      if (!uni_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_uni_result()
-      tagList(
-        div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Univariate result"),
-          p(strong(length(r$selected_ids)), sprintf(" of %d CpGs selected (%s%s).", nrow(r$ranked), r$method,
-                                                       if (r$method %in% c("anova", "kruskal")) sprintf(", %d groups", r$n_groups) else "")),
-          div(class = "table-toolbar", downloadButton(ns("uni_download"), "Ranked table (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("uni_table"))
-        )
+    fs_uni_store <- fs_register_technique_stage("uni_run_btn", fs_uni_fit_one)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("uni_table_", sx)]] <- DT::renderDataTable({
+        r <- fs_uni_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        DT::datatable(r$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+          DT::formatSignif(columns = intersect(c("statistic", "p", "fdr", "dbeta", "logfc"), colnames(r$ranked)), digits = 4)
+      })
+      outputOptions(output, paste0("uni_table_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("uni_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("univariate_selection_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_uni_store[[sx]]$ranked, file, row.names = FALSE)
       )
     })
 
-    output$uni_table <- DT::renderDataTable({
-      req(uni_has_run())
-      DT::datatable(fs_uni_result()$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
-        DT::formatSignif(columns = intersect(c("statistic", "p", "fdr", "dbeta", "logfc"), colnames(fs_uni_result()$ranked)), digits = 4)
+    output$uni_result_ui <- renderUI({
+      fs_render_technique_ui(fs_uni_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("Univariate result - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
+        div(class = "card",
+          div(class = "card-title", icon("circle-check"), sprintf("Univariate result - %s", fs_sex_display_label(sx))),
+          p(strong(length(r$selected_ids)), sprintf(" of %d CpGs selected (%s%s).", nrow(r$ranked), r$method,
+                                                       if (r$method %in% c("anova", "kruskal")) sprintf(", %d groups", r$n_groups) else "")),
+          div(class = "table-toolbar", downloadButton(ns(paste0("uni_download_", sx)), "Ranked table (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("uni_table_", sx)))
+        )
+      }, fs_need_build_note)
     })
-    outputOptions(output, "uni_table", suspendWhenHidden = FALSE)
-
-    output$uni_download <- downloadHandler(
-      filename = function() "univariate_selection.csv",
-      content = function(file) utils::write.csv(fs_uni_result()$ranked, file, row.names = FALSE)
-    )
 
     ## ---------------------------------------------------------------------
     ## Stage 3: Regularization (LASSO / Elastic Net)
     ## ---------------------------------------------------------------------
 
     output$reg_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
+      if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
         div(class = "card-title", icon("chart-line"), "Regularization - LASSO / Elastic Net"),
         fluidRow(
@@ -1038,12 +1201,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    reg_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), reg_has_run(FALSE))
-    observeEvent(input$reg_run_btn, reg_has_run(TRUE), ignoreInit = TRUE)
-
-    fs_reg_result <- eventReactive(input$reg_run_btn, {
-      r <- fs_filter_result()
+    fs_reg_fit_one <- function(r) {
       X <- t(r$m)
       w <- if (identical(input$reg_class_weight, "balanced")) {
         tb <- table(r$grp); ww <- max(tb) / tb; unname(ww[as.character(r$grp)])
@@ -1053,42 +1211,48 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                                   seed = input$reg_seed, max_selected = input$reg_max_selected, coef_threshold = input$reg_coef_threshold)
       fit$n_input <- ncol(X); fit$run_at <- Sys.time()
       fit
-    })
+    }
 
-    output$reg_result_ui <- renderUI({
-      if (!reg_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_reg_result()
-      tagList(
-        div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Regularization result"),
-          p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (lambda = %.5g).", r$n_input, r$lambda_used)),
-          withSpinner(plotOutput(ns("reg_plot"), height = 300), color = "#2563EB", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("reg_download"), "Selected CpGs (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("reg_table"))
-        )
+    fs_reg_store <- fs_register_technique_stage("reg_run_btn", fs_reg_fit_one)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("reg_plot_", sx)]] <- renderPlot({
+        r <- fs_reg_store[[sx]]; req(r); req(!inherits(r, "condition")); plot(r$cv)
+      })
+      output[[paste0("reg_table_", sx)]] <- DT::renderDataTable({
+        r <- fs_reg_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        DT::datatable(r$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+          DT::formatSignif(columns = c("coefficient", "abs_coefficient"), digits = 4)
+      })
+      outputOptions(output, paste0("reg_table_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("reg_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("regularization_selected_cpgs_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_reg_store[[sx]]$ranked, file, row.names = FALSE)
       )
     })
 
-    output$reg_plot <- renderPlot({ req(reg_has_run()); plot(fs_reg_result()$cv) })
-
-    output$reg_table <- DT::renderDataTable({
-      req(reg_has_run())
-      DT::datatable(fs_reg_result()$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
-        DT::formatSignif(columns = c("coefficient", "abs_coefficient"), digits = 4)
+    output$reg_result_ui <- renderUI({
+      fs_render_technique_ui(fs_reg_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("Regularization result - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
+        div(class = "card",
+          div(class = "card-title", icon("circle-check"), sprintf("Regularization result - %s", fs_sex_display_label(sx))),
+          p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (lambda = %.5g).", r$n_input, r$lambda_used)),
+          withSpinner(plotOutput(ns(paste0("reg_plot_", sx)), height = 300), color = "#2563EB", type = 6),
+          div(class = "table-toolbar", downloadButton(ns(paste0("reg_download_", sx)), "Selected CpGs (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("reg_table_", sx)))
+        )
+      }, fs_need_build_note)
     })
-    outputOptions(output, "reg_table", suspendWhenHidden = FALSE)
-
-    output$reg_download <- downloadHandler(
-      filename = function() "regularization_selected_cpgs.csv",
-      content = function(file) utils::write.csv(fs_reg_result()$ranked, file, row.names = FALSE)
-    )
 
     ## ---------------------------------------------------------------------
     ## Stage 4: Tree-Based Selection (Random Forest)
     ## ---------------------------------------------------------------------
 
     output$rf_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
+      if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
         div(class = "card-title", icon("tree"), "Tree-Based Selection - Random Forest"),
         fluidRow(
@@ -1116,12 +1280,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    rf_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), rf_has_run(FALSE))
-    observeEvent(input$rf_run_btn, rf_has_run(TRUE), ignoreInit = TRUE)
-
-    fs_rf_result <- eventReactive(input$rf_run_btn, {
-      r <- fs_filter_result()
+    fs_rf_fit_one <- function(r) {
       X <- t(r$m)
       maxnodes <- if (isTRUE(input$rf_maxnodes_unlimited)) NULL else input$rf_maxnodes
       ## classwt is one weight per class (named vector), unlike glmnet's per-observation weights.
@@ -1133,52 +1292,56 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                                importance_type = input$rf_importance_type, rule = input$rf_rule, top_n = input$rf_top_n, threshold = input$rf_top_n)
       fit$n_input <- ncol(X); fit$run_at <- Sys.time()
       fit
-    })
+    }
 
-    output$rf_result_ui <- renderUI({
-      if (!rf_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_rf_result()
-      tagList(
-        div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Random Forest result"),
-          p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (mtry = %d, %s).", r$n_input, r$mtry, r$importance_type)),
-          withSpinner(plotOutput(ns("rf_plot"), height = 340), color = "#2563EB", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("rf_download"), "Ranked table (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("rf_table"))
-        )
+    fs_rf_store <- fs_register_technique_stage("rf_run_btn", fs_rf_fit_one)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("rf_plot_", sx)]] <- renderPlot({
+        r <- fs_rf_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        df <- utils::head(r$ranked, 25)
+        ggplot(df, aes(x = reorder(cpg, importance), y = importance)) +
+          geom_col(fill = ARTHOMIX_COLORS$blue) + coord_flip() +
+          labs(x = NULL, y = r$importance_type) + theme_arthomix()
+      })
+      output[[paste0("rf_table_", sx)]] <- DT::renderDataTable({
+        r <- fs_rf_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        df <- r$ranked
+        df$selected <- df$cpg %in% r$selected_ids
+        DT::datatable(df, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+          DT::formatSignif(columns = "importance", digits = 4)
+      })
+      outputOptions(output, paste0("rf_table_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("rf_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("random_forest_ranked_cpgs_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_rf_store[[sx]]$ranked, file, row.names = FALSE)
       )
     })
 
-    output$rf_plot <- renderPlot({
-      req(rf_has_run())
-      r <- fs_rf_result()
-      df <- utils::head(r$ranked, 25)
-      ggplot(df, aes(x = reorder(cpg, importance), y = importance)) +
-        geom_col(fill = ARTHOMIX_COLORS$blue) + coord_flip() +
-        labs(x = NULL, y = r$importance_type) + theme_arthomix()
+    output$rf_result_ui <- renderUI({
+      fs_render_technique_ui(fs_rf_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("Random Forest result - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
+        div(class = "card",
+          div(class = "card-title", icon("circle-check"), sprintf("Random Forest result - %s", fs_sex_display_label(sx))),
+          p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (mtry = %d, %s).", r$n_input, r$mtry, r$importance_type)),
+          withSpinner(plotOutput(ns(paste0("rf_plot_", sx)), height = 340), color = "#2563EB", type = 6),
+          div(class = "table-toolbar", downloadButton(ns(paste0("rf_download_", sx)), "Ranked table (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("rf_table_", sx)))
+        )
+      }, fs_need_build_note)
     })
-
-    output$rf_table <- DT::renderDataTable({
-      req(rf_has_run())
-      df <- fs_rf_result()$ranked
-      df$selected <- df$cpg %in% fs_rf_result()$selected_ids
-      DT::datatable(df, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
-        DT::formatSignif(columns = "importance", digits = 4)
-    })
-    outputOptions(output, "rf_table", suspendWhenHidden = FALSE)
-
-    output$rf_download <- downloadHandler(
-      filename = function() "random_forest_ranked_cpgs.csv",
-      content = function(file) utils::write.csv(fs_rf_result()$ranked, file, row.names = FALSE)
-    )
 
     ## ---------------------------------------------------------------------
     ## Stage 5: RFE / Wrapper Selection
     ## ---------------------------------------------------------------------
 
     output$rfe_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
-      r <- fs_filter_result()
+      built <- fs_built_sexes()
+      if (length(built) == 0) return(mod_methyl_fs_need_filters_note())
+      r <- fs_filter_result_for(built[1])
       div(class = "card",
         div(class = "card-title", icon("arrows-to-dot"), "RFE / Wrapper Selection"),
         fluidRow(
@@ -1200,12 +1363,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    rfe_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), rfe_has_run(FALSE))
-    observeEvent(input$rfe_run_btn, rfe_has_run(TRUE), ignoreInit = TRUE)
-
-    fs_rfe_result <- eventReactive(input$rfe_run_btn, {
-      r <- fs_filter_result()
+    fs_rfe_fit_one <- function(r) {
       X <- t(r$m)
       sizes <- methyl_fs_rfe_sizes(input$rfe_sizes, ncol(X))
       ## methyl_fs_rfe_sizes() silently drops sizes <= 0 or > ncol(X); surfaced
@@ -1220,59 +1378,62 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }
       fit$flavor <- input$rfe_flavor; fit$n_input <- ncol(X); fit$run_at <- Sys.time(); fit$dropped_sizes <- dropped_sizes
       fit
+    }
+
+    fs_rfe_store <- fs_register_technique_stage("rfe_run_btn", fs_rfe_fit_one)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("rfe_plot_", sx)]] <- renderPlot({
+        r <- fs_rfe_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        if (identical(r$flavor, "svm")) {
+          df <- data.frame(k = r$curve$k, error = r$curve$err)
+          ggplot(df, aes(x = k, y = error)) + geom_line(color = ARTHOMIX_COLORS$blue) + geom_point(color = ARTHOMIX_COLORS$blue) +
+            geom_vline(xintercept = r$optimal_size, linetype = "dashed", color = "grey50") +
+            labs(x = "Top-k ranked CpGs", y = "CV classification error") + theme_arthomix()
+        } else {
+          ggplot(r$perf, aes(x = size, y = performance)) + geom_line(color = ARTHOMIX_COLORS$blue) + geom_point(color = ARTHOMIX_COLORS$blue) +
+            geom_vline(xintercept = r$optimal_size, linetype = "dashed", color = "grey50") +
+            labs(x = "Feature subset size", y = "CV performance") + theme_arthomix()
+        }
+      })
+      output[[paste0("rfe_table_", sx)]] <- DT::renderDataTable({
+        r <- fs_rfe_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        DT::datatable(r$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
+      })
+      outputOptions(output, paste0("rfe_table_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("rfe_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("rfe_ranked_cpgs_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_rfe_store[[sx]]$ranked, file, row.names = FALSE)
+      )
     })
 
     output$rfe_result_ui <- renderUI({
-      if (!rfe_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_rfe_result()
-      tagList(
+      fs_render_technique_ui(fs_rfe_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("RFE result - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
         div(class = "card",
-          div(class = "card-title", icon("circle-check"), "RFE result"),
+          div(class = "card-title", icon("circle-check"), sprintf("RFE result - %s", fs_sex_display_label(sx))),
           p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (optimal size = %s).", r$n_input, r$optimal_size)),
           if (length(r$dropped_sizes) > 0)
             p(class = "empty-note", icon("triangle-exclamation"),
               sprintf("%d requested size(s) (%s) exceeded the number of candidate CpGs and were dropped.",
                       length(r$dropped_sizes), paste(sort(r$dropped_sizes), collapse = ", ")))
           else NULL,
-          withSpinner(plotOutput(ns("rfe_plot"), height = 300), color = "#2563EB", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("rfe_download"), "Ranked table (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("rfe_table"))
+          withSpinner(plotOutput(ns(paste0("rfe_plot_", sx)), height = 300), color = "#2563EB", type = 6),
+          div(class = "table-toolbar", downloadButton(ns(paste0("rfe_download_", sx)), "Ranked table (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("rfe_table_", sx)))
         )
-      )
+      }, fs_need_build_note)
     })
-
-    output$rfe_plot <- renderPlot({
-      req(rfe_has_run())
-      r <- fs_rfe_result()
-      if (identical(r$flavor, "svm")) {
-        df <- data.frame(k = r$curve$k, error = r$curve$err)
-        ggplot(df, aes(x = k, y = error)) + geom_line(color = ARTHOMIX_COLORS$blue) + geom_point(color = ARTHOMIX_COLORS$blue) +
-          geom_vline(xintercept = r$optimal_size, linetype = "dashed", color = "grey50") +
-          labs(x = "Top-k ranked CpGs", y = "CV classification error") + theme_arthomix()
-      } else {
-        ggplot(r$perf, aes(x = size, y = performance)) + geom_line(color = ARTHOMIX_COLORS$blue) + geom_point(color = ARTHOMIX_COLORS$blue) +
-          geom_vline(xintercept = r$optimal_size, linetype = "dashed", color = "grey50") +
-          labs(x = "Feature subset size", y = "CV performance") + theme_arthomix()
-      }
-    })
-
-    output$rfe_table <- DT::renderDataTable({
-      req(rfe_has_run())
-      DT::datatable(fs_rfe_result()$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
-    })
-    outputOptions(output, "rfe_table", suspendWhenHidden = FALSE)
-
-    output$rfe_download <- downloadHandler(
-      filename = function() "rfe_ranked_cpgs.csv",
-      content = function(file) utils::write.csv(fs_rfe_result()$ranked, file, row.names = FALSE)
-    )
 
     ## ---------------------------------------------------------------------
     ## Stage 6: Stability Selection
     ## ---------------------------------------------------------------------
 
     output$stab_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
+      if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
         div(class = "card-title", icon("repeat"), "Stability Selection"),
         p(class = "submodule-desc", "Repeatedly resamples a LASSO base selector and tabulates how often each CpG is chosen - important for methylation data, where hundreds of thousands of CpGs can be highly correlated."),
@@ -1294,83 +1455,96 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    stab_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), stab_has_run(FALSE))
-    observeEvent(input$stab_run_btn, stab_has_run(TRUE), ignoreInit = TRUE)
-
-    fs_stab_result <- eventReactive(input$stab_run_btn, {
-      r <- fs_filter_result()
+    fs_stab_fit_one <- function(r) {
       X <- t(r$m)
       fit <- methyl_fs_stability_run(X, r$grp, type = input$stab_type, n_resamples = input$stab_n_resamples, fraction = input$stab_fraction,
                                       k = input$stab_k, repeats = input$stab_repeats, seed = input$stab_seed, freq_threshold = input$stab_freq_threshold)
       fit$n_input <- ncol(X); fit$run_at <- Sys.time()
       fit
+    }
+
+    fs_stab_store <- fs_register_technique_stage("stab_run_btn", fs_stab_fit_one)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("stab_plot_", sx)]] <- renderPlot({
+        r <- fs_stab_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        df <- utils::head(r$ranked, 30)
+        ggplot(df, aes(x = reorder(cpg, selection_frequency), y = selection_frequency)) +
+          geom_col(fill = ARTHOMIX_COLORS$aqua) + coord_flip() +
+          geom_hline(yintercept = input$stab_freq_threshold, linetype = "dashed", color = "grey50") +
+          labs(x = NULL, y = "Selection frequency") + theme_arthomix()
+      })
+      output[[paste0("stab_table_", sx)]] <- DT::renderDataTable({
+        r <- fs_stab_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        DT::datatable(r$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+          DT::formatSignif(columns = c("selection_frequency", "stability_score"), digits = 4)
+      })
+      outputOptions(output, paste0("stab_table_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("stab_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("stability_selection_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_stab_store[[sx]]$ranked, file, row.names = FALSE)
+      )
     })
 
     output$stab_result_ui <- renderUI({
-      if (!stab_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_stab_result()
-      tagList(
+      fs_render_technique_ui(fs_stab_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("Stability Selection result - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
         div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Stability Selection result"),
+          div(class = "card-title", icon("circle-check"), sprintf("Stability Selection result - %s", fs_sex_display_label(sx))),
           p(strong(length(r$selected_ids)), sprintf(" of %d candidate CpGs selected (>= %.0f%% of %d valid resamples).", r$n_input, input$stab_freq_threshold * 100, r$n_resamples)),
           if (r$n_resamples < r$n_resamples_requested)
             p(class = "empty-note", icon("triangle-exclamation"),
               sprintf("%d of %d requested resamples were degenerate (a single class) or failed to fit, and were excluded from the frequency calculation above.",
                       r$n_resamples_requested - r$n_resamples, r$n_resamples_requested))
           else NULL,
-          withSpinner(plotOutput(ns("stab_plot"), height = 300), color = "#2563EB", type = 6),
-          div(class = "table-toolbar", downloadButton(ns("stab_download"), "Ranked table (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("stab_table"))
+          withSpinner(plotOutput(ns(paste0("stab_plot_", sx)), height = 300), color = "#2563EB", type = 6),
+          div(class = "table-toolbar", downloadButton(ns(paste0("stab_download_", sx)), "Ranked table (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("stab_table_", sx)))
         )
-      )
+      }, fs_need_build_note)
     })
-
-    output$stab_plot <- renderPlot({
-      req(stab_has_run())
-      df <- utils::head(fs_stab_result()$ranked, 30)
-      ggplot(df, aes(x = reorder(cpg, selection_frequency), y = selection_frequency)) +
-        geom_col(fill = ARTHOMIX_COLORS$aqua) + coord_flip() +
-        geom_hline(yintercept = input$stab_freq_threshold, linetype = "dashed", color = "grey50") +
-        labs(x = NULL, y = "Selection frequency") + theme_arthomix()
-    })
-
-    output$stab_table <- DT::renderDataTable({
-      req(stab_has_run())
-      DT::datatable(fs_stab_result()$ranked, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
-        DT::formatSignif(columns = c("selection_frequency", "stability_score"), digits = 4)
-    })
-    outputOptions(output, "stab_table", suspendWhenHidden = FALSE)
-
-    output$stab_download <- downloadHandler(
-      filename = function() "stability_selection.csv",
-      content = function(file) utils::write.csv(fs_stab_result()$ranked, file, row.names = FALSE)
-    )
 
     ## ---------------------------------------------------------------------
     ## Stage 7: Consensus / Overlap (+ correlation reduction)
     ## ---------------------------------------------------------------------
 
-    fs_available_methods <- reactive({
-      avail <- c(Univariate = uni_has_run(), Regularization = reg_has_run(), TreeBased = rf_has_run(), RFE = rfe_has_run(), Stability = stab_has_run())
+    ## Per-sex method availability/ids - the direct analog of transcriptomics'
+    ## "Overlap" tab, computed independently for each sex using only that
+    ## sex's own upstream method results.
+    fs_available_methods_for <- function(sx) {
+      avail <- c(Univariate = !is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition"),
+                 Regularization = !is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition"),
+                 TreeBased = !is.null(fs_rf_store[[sx]]) && !inherits(fs_rf_store[[sx]], "condition"),
+                 RFE = !is.null(fs_rfe_store[[sx]]) && !inherits(fs_rfe_store[[sx]], "condition"),
+                 Stability = !is.null(fs_stab_store[[sx]]) && !inherits(fs_stab_store[[sx]], "condition"))
       names(avail)[avail]
-    })
-
-    fs_method_ids <- reactive({
+    }
+    fs_method_ids_for <- function(sx) {
       out <- list()
-      if (uni_has_run()) out$Univariate <- fs_uni_result()$selected_ids
-      if (reg_has_run()) out$Regularization <- fs_reg_result()$selected_ids
-      if (rf_has_run()) out$TreeBased <- fs_rf_result()$selected_ids
-      if (rfe_has_run()) out$RFE <- fs_rfe_result()$selected_ids
-      if (stab_has_run()) out$Stability <- fs_stab_result()$selected_ids
+      if ("Univariate" %in% fs_available_methods_for(sx)) out$Univariate <- fs_uni_store[[sx]]$selected_ids
+      if ("Regularization" %in% fs_available_methods_for(sx)) out$Regularization <- fs_reg_store[[sx]]$selected_ids
+      if ("TreeBased" %in% fs_available_methods_for(sx)) out$TreeBased <- fs_rf_store[[sx]]$selected_ids
+      if ("RFE" %in% fs_available_methods_for(sx)) out$RFE <- fs_rfe_store[[sx]]$selected_ids
+      if ("Stability" %in% fs_available_methods_for(sx)) out$Stability <- fs_stab_store[[sx]]$selected_ids
+      out
+    }
+    ## Union across every currently-built sex, just to populate the shared
+    ## method-picker/weights UI - the actual consensus computed per sex below
+    ## only ever uses whichever of these that specific sex actually has.
+    fs_consensus_avail_union <- reactive({
+      out <- character(0)
+      for (sx in fs_built_sexes()) out <- union(out, fs_available_methods_for(sx))
       out
     })
 
     output$consensus_ui <- renderUI({
-      if (!filters_has_run()) return(mod_methyl_fs_need_filters_note())
-      avail <- fs_available_methods()
+      if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
+      avail <- fs_consensus_avail_union()
       if (length(avail) == 0) {
-        return(mod_methyl_fs_empty_note("Run at least one method (Univariate/Regularization/Tree-Based/RFE/Stability) before computing consensus."))
+        return(mod_methyl_fs_empty_note("Run at least one method (Univariate/Regularization/Tree-Based/RFE/Stability) for at least one sex before computing consensus."))
       }
       div(class = "card",
         div(class = "card-title", icon("object-group"), "Consensus / Overlap"),
@@ -1385,67 +1559,174 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
             conditionalPanel(condition = sprintf("input['%s']", ns("consensus_use_weighted")), numericInput(ns("consensus_min_weighted"), "Minimum weighted score", value = 0.5, min = 0, max = 1, step = 0.05))
           )
         ),
+        p(class = "empty-note", icon("circle-info"), "Computed independently per sex, using whichever of the checked methods that sex actually has results for."),
         actionButton(ns("consensus_run_btn"), "Run Consensus Selection", icon = icon("play"), class = "btn-primary"),
         uiOutput(ns("consensus_result_ui"))
       )
     })
 
     output$consensus_weight_ui <- renderUI({
-      avail <- fs_available_methods()
+      avail <- fs_consensus_avail_union()
       req(length(avail) > 0)
       tagList(lapply(avail, function(m) numericInput(ns(paste0("consensus_w_", m)), sprintf("Weight: %s", m), value = 1, min = 0, max = 10, step = 0.5)))
     })
 
-    consensus_has_run <- reactiveVal(FALSE)
-    observeEvent(fs_filter_result(), consensus_has_run(FALSE))
-    observeEvent(input$consensus_run_btn, consensus_has_run(TRUE), ignoreInit = TRUE)
-
-    fs_consensus_result <- eventReactive(input$consensus_run_btn, {
-      ids <- fs_method_ids()
-      chosen <- intersect(input$consensus_methods %||% names(ids), names(ids))
-      validate(need(length(chosen) >= 1, "Pick at least one method."))
-      ids <- ids[chosen]
+    fs_consensus_fit_for <- function(sx) {
+      ids_all <- fs_method_ids_for(sx)
+      chosen <- intersect(input$consensus_methods %||% names(ids_all), names(ids_all))
+      if (length(chosen) == 0) return(simpleError(sprintf("None of the checked methods have a result for %s.", fs_sex_display_label(sx))))
+      ids <- ids_all[chosen]
       weights <- stats::setNames(vapply(chosen, function(m) input[[paste0("consensus_w_", m)]] %||% 1, numeric(1)), chosen)
       ct <- methyl_fs_consensus_table(ids, weights = weights)
-      sel <- methyl_fs_consensus_select(ct$table, min_methods = input$consensus_min_methods,
+      min_methods <- min(input$consensus_min_methods %||% 1, length(chosen))
+      sel <- methyl_fs_consensus_select(ct$table, min_methods = min_methods,
                                          min_weighted = if (isTRUE(input$consensus_use_weighted)) input$consensus_min_weighted else NULL)
-      list(table = ct$table, methods = chosen, weights = weights, selected_ids = sel,
-           min_methods = input$consensus_min_methods, run_at = Sys.time())
-    })
+      list(table = ct$table, methods = chosen, weights = weights, selected_ids = sel, min_methods = min_methods, run_at = Sys.time())
+    }
 
-    observeEvent(fs_consensus_result(), {
-      r <- fs_consensus_result()
+    fs_consensus_store <- reactiveValues(female = NULL, male = NULL, pooled = NULL)
+    lapply(FS_SEXES, function(sx) {
+      observeEvent(fs_filter_result_for(sx), fs_consensus_store[[sx]] <- NULL, ignoreNULL = FALSE)
+    })
+    observeEvent(input$consensus_run_btn, {
+      for (sx in fs_built_sexes()) fs_consensus_store[[sx]] <- tryCatch(fs_consensus_fit_for(sx), error = function(e) e)
+      ## Shares one result with other modules via the app-wide `results` cache -
+      ## prefers pooled (a single-target contract other modules already expect),
+      ## else the first sex that actually produced a result.
       if (!is.null(results)) {
-        results$featureselection <- list(
-          selected_cpgs = r$selected_ids, n_selected = length(r$selected_ids),
-          method_counts = vapply(r$methods, function(m) sum(r$table[[m]] == 1), integer(1)),
-          consensus_rule = sprintf(">= %d of %d methods", r$min_methods, length(r$methods))
-        )
+        for (sx in c("pooled", fs_built_sexes())) {
+          r <- fs_consensus_store[[sx]]
+          if (!is.null(r) && !inherits(r, "condition")) {
+            results$featureselection <- list(
+              selected_cpgs = r$selected_ids, n_selected = length(r$selected_ids),
+              method_counts = vapply(r$methods, function(m) sum(r$table[[m]] == 1), integer(1)),
+              consensus_rule = sprintf(">= %d of %d methods", r$min_methods, length(r$methods)), sex_label = sx
+            )
+            break
+          }
+        }
       }
+    }, ignoreInit = TRUE)
+
+    lapply(FS_SEXES, function(sx) {
+      output[[paste0("consensus_venn_", sx)]] <- renderPlot({
+        r <- fs_consensus_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        draw_overlap_venn(fs_method_ids_for(sx)[r$methods], title = sprintf("%d-CpG consensus", length(r$selected_ids)))
+      })
+      output[[paste0("consensus_upset_", sx)]] <- renderPlot({
+        r <- fs_consensus_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        methyl_fs_upset_plot(fs_method_ids_for(sx)[r$methods])
+      })
+      output[[paste0("consensus_rank_plot_", sx)]] <- renderPlot({
+        r <- fs_consensus_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        validate(need(nrow(r$table) > 0, "No CpGs met the consensus threshold for this stratum."))
+        methyl_fs_consensus_rank_plot(r$table)
+      })
+      output[[paste0("consensus_heatmap_", sx)]] <- renderPlot({
+        r <- fs_consensus_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        validate(need(nrow(r$table) > 0, "No CpGs met the consensus threshold for this stratum."))
+        methyl_fs_method_heatmap(r$table, r$methods)
+      })
+      output[[paste0("consensus_table_out_", sx)]] <- DT::renderDataTable({
+        r <- fs_consensus_store[[sx]]; req(r); req(!inherits(r, "condition"))
+        DT::datatable(r$table, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+          DT::formatSignif(columns = "weighted_score", digits = 4)
+      })
+      outputOptions(output, paste0("consensus_table_out_", sx), suspendWhenHidden = FALSE)
+      output[[paste0("consensus_download_", sx)]] <- downloadHandler(
+        filename = function() sprintf("consensus_intersection_table_%s.csv", sx),
+        content = function(file) utils::write.csv(fs_consensus_store[[sx]]$table, file, row.names = FALSE)
+      )
     })
 
     output$consensus_result_ui <- renderUI({
-      if (!consensus_has_run()) return(mod_methyl_fs_empty_note())
-      r <- fs_consensus_result()
-      tagList(
+      fs_render_technique_ui(fs_consensus_store, function(sx, r) {
+        if (inherits(r, "condition")) {
+          return(div(class = "card", div(class = "card-title", icon("triangle-exclamation"), sprintf("Consensus - %s", fs_sex_display_label(sx))),
+                      p(class = "empty-note", conditionMessage(r))))
+        }
         div(class = "card",
-          div(class = "card-title", icon("circle-check"), "Consensus result"),
+          div(class = "card-title", icon("circle-check"), sprintf("Consensus result - %s", fs_sex_display_label(sx))),
           p(strong(length(r$selected_ids)), sprintf(" CpGs meet the consensus threshold (>= %d of %d methods), across %s.",
                                                        r$min_methods, length(r$methods), paste(r$methods, collapse = ", "))),
           fluidRow(
-            column(6, tags$h5("Venn diagram"), withSpinner(plotOutput(ns("consensus_venn"), height = 320), color = "#2563EB", type = 6)),
-            column(6, tags$h5("UpSet-style plot"), withSpinner(plotOutput(ns("consensus_upset"), height = 320), color = "#2563EB", type = 6))
+            column(6, tags$h5("Venn diagram"), withSpinner(plotOutput(ns(paste0("consensus_venn_", sx)), height = 320), color = "#2563EB", type = 6)),
+            column(6, tags$h5("UpSet-style plot"), withSpinner(plotOutput(ns(paste0("consensus_upset_", sx)), height = 320), color = "#2563EB", type = 6))
           ),
           fluidRow(
-            column(6, tags$h5("Consensus ranking"), withSpinner(plotOutput(ns("consensus_rank_plot"), height = 320), color = "#2563EB", type = 6)),
-            column(6, tags$h5("Method comparison heatmap"), withSpinner(plotOutput(ns("consensus_heatmap"), height = 320), color = "#2563EB", type = 6))
+            column(6, tags$h5("Consensus ranking"), withSpinner(plotOutput(ns(paste0("consensus_rank_plot_", sx)), height = 320), color = "#2563EB", type = 6)),
+            column(6, tags$h5("Method comparison heatmap"), withSpinner(plotOutput(ns(paste0("consensus_heatmap_", sx)), height = 320), color = "#2563EB", type = 6))
           ),
-          div(class = "table-toolbar", downloadButton(ns("consensus_download"), "Intersection table (CSV)", class = "btn-sm")),
-          DT::dataTableOutput(ns("consensus_table_out"))
-        ),
+          div(class = "table-toolbar", downloadButton(ns(paste0("consensus_download_", sx)), "Intersection table (CSV)", class = "btn-sm")),
+          DT::dataTableOutput(ns(paste0("consensus_table_out_", sx)))
+        )
+      }, "Run at least one method for at least one sex, then Run Consensus Selection.")
+    })
+
+    ## ---------------------------------------------------------------------
+    ## Stage 8: Selected Features
+    ## ---------------------------------------------------------------------
+
+    ## A single trained panel/model is inherently one target - unlike
+    ## transcriptomics, which has no downstream "finalize one model" step, this
+    ## Stratum selector is the methylomics-specific bridge from 3 parallel
+    ## Consensus results down to the one stratum that gets finalized/exported.
+    fs_consensus_built_sexes <- reactive({
+      Filter(function(sx) !is.null(fs_consensus_store[[sx]]) && !inherits(fs_consensus_store[[sx]], "condition"), FS_SEXES)
+    })
+
+    output$fs_stratum_select_ui <- renderUI({
+      built <- fs_consensus_built_sexes()
+      req(length(built) > 0)
+      selectInput(ns("fs_stratum"), "Stratum to finalize / export",
+                  choices = stats::setNames(built, vapply(built, fs_sex_display_label, character(1))), selected = built[1])
+    })
+
+    ## req() here (not a silent NA fall-through) is load-bearing: this is read
+    ## by observeEvent(fs_final_panel(), ...) below, which runs eagerly from
+    ## session start regardless of whether this tab's UI has ever been opened.
+    ## Before any stratum is built, `built` is character(0) and `built[1]` is
+    ## NA - indexing fs_consensus_store[[NA_character_]] throws a real R error
+    ## ("key must be not be \"\" or NA"), and an error thrown inside an
+    ## observeEvent gets retried on every reactive flush instead of failing
+    ## once, which looked like the whole app hanging/dimmed (empirically
+    ## verified against a real Playwright-driven upload before this fix).
+    fs_selected_stratum <- reactive({
+      built <- fs_consensus_built_sexes()
+      req(length(built) > 0)
+      s <- input$fs_stratum %||% built[1]
+      if (!(s %in% built)) built[1] else s
+    })
+
+    corr_has_run <- reactiveVal(FALSE)
+    observeEvent(fs_selected_stratum(), corr_has_run(FALSE))
+    fs_corr_result <- eventReactive(input$corr_reduce_btn, {
+      sx <- fs_selected_stratum()
+      r <- fs_filter_result_for(sx); cr <- fs_consensus_store[[sx]]
+      validate(need(!is.null(r) && !is.null(cr) && !inherits(cr, "condition"), "Run Consensus Selection for this stratum first."))
+      score <- stats::setNames(cr$table$weighted_score, cr$table$cpg)
+      methyl_fs_correlation_reduce(r$beta, cr$selected_ids, score, method = input$corr_method, r_threshold = input$corr_threshold)
+    })
+    observeEvent(input$corr_reduce_btn, { corr_has_run(TRUE); shinyjs::show(id = "corr_wrap") }, ignoreInit = TRUE)
+
+    fs_final_panel <- reactive({
+      sx <- fs_selected_stratum()
+      cr <- fs_consensus_store[[sx]]
+      req(!is.null(cr), !inherits(cr, "condition"))
+      ids <- if (corr_has_run() && isTRUE(input$use_corr_reduced)) fs_corr_result()$reduced_ids else cr$selected_ids
+      list(ids = ids, table = cr$table[cr$table$cpg %in% ids, , drop = FALSE], sex_label = sx)
+    })
+
+    output$selected_ui <- renderUI({
+      built <- fs_consensus_built_sexes()
+      if (length(built) == 0) return(mod_methyl_fs_empty_note("Run Consensus Selection first."))
+      panel <- fs_final_panel()
+      tagList(
         div(class = "card",
+          div(class = "card-title", icon("sliders"), "Stratum"),
+          uiOutput(ns("fs_stratum_select_ui")),
           div(class = "card-title", icon("link-slash"), "Correlation-based CpG reduction (optional)"),
-          p(class = "submodule-desc", "Reduces the consensus panel for collinearity - only applied on click, and only to the (small) consensus panel above."),
+          p(class = "submodule-desc", "Reduces the selected stratum's Consensus panel for collinearity - only applied on click."),
           fluidRow(
             column(4, radioButtons(ns("corr_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), selected = "pearson")),
             column(4, numericInput(ns("corr_threshold"), "Correlation threshold", value = 0.8, min = 0.5, max = 0.99, step = 0.05)),
@@ -1453,49 +1734,24 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
           ),
           actionButton(ns("corr_reduce_btn"), "Reduce for collinearity", icon = icon("compress"), class = "btn-default btn-sm"),
           shinyjs::hidden(div(id = ns("corr_wrap"), uiOutput(ns("corr_result_ui"))))
+        ),
+        div(class = "card",
+          div(class = "card-title", icon("list-check"), sprintf("Selected Features - %s", fs_sex_display_label(panel$sex_label))),
+          p(strong(length(panel$ids)), " final CpGs."),
+          div(class = "table-toolbar",
+              downloadButton(ns("selected_download_csv"), "CSV", class = "btn-sm"),
+              downloadButton(ns("selected_download_tsv"), "TSV", class = "btn-sm"),
+              downloadButton(ns("selected_copy"), "Copy IDs (TXT)", class = "btn-sm")),
+          DT::dataTableOutput(ns("selected_table")),
+          shinyjs::hidden(div(id = ns("cpg_detail_wrap"), uiOutput(ns("cpg_detail_ui"))))
         )
       )
     })
 
-    output$consensus_venn <- renderPlot({
-      req(consensus_has_run())
-      r <- fs_consensus_result()
-      ids <- fs_method_ids()[r$methods]
-      draw_overlap_venn(ids, title = sprintf("%d-CpG consensus", length(r$selected_ids)))
-    })
-
-    output$consensus_upset <- renderPlot({
-      req(consensus_has_run())
-      methyl_fs_upset_plot(fs_method_ids()[fs_consensus_result()$methods])
-    })
-
-    output$consensus_rank_plot <- renderPlot({ req(consensus_has_run()); methyl_fs_consensus_rank_plot(fs_consensus_result()$table) })
-    output$consensus_heatmap <- renderPlot({ req(consensus_has_run()); methyl_fs_method_heatmap(fs_consensus_result()$table, fs_consensus_result()$methods) })
-
-    output$consensus_table_out <- DT::renderDataTable({
-      req(consensus_has_run())
-      DT::datatable(fs_consensus_result()$table, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
-        DT::formatSignif(columns = "weighted_score", digits = 4)
-    })
-    outputOptions(output, "consensus_table_out", suspendWhenHidden = FALSE)
-
-    output$consensus_download <- downloadHandler(
-      filename = function() "consensus_intersection_table.csv",
-      content = function(file) utils::write.csv(fs_consensus_result()$table, file, row.names = FALSE)
-    )
-
-    corr_has_run <- reactiveVal(FALSE)
-    fs_corr_result <- eventReactive(input$corr_reduce_btn, {
-      r <- fs_filter_result(); cr <- fs_consensus_result()
-      score <- stats::setNames(cr$table$weighted_score, cr$table$cpg)
-      methyl_fs_correlation_reduce(r$beta, cr$selected_ids, score, method = input$corr_method, r_threshold = input$corr_threshold)
-    })
-    observeEvent(input$corr_reduce_btn, { corr_has_run(TRUE); shinyjs::show(id = "corr_wrap") }, ignoreInit = TRUE)
-
     output$corr_result_ui <- renderUI({
       req(corr_has_run())
       r <- fs_corr_result()
-      cr <- fs_consensus_result()
+      cr <- fs_consensus_store[[fs_selected_stratum()]]
       tagList(
         p(sprintf("%d of %d CpGs removed for collinearity (|r| > %.2f); %d remain.",
                    length(cr$selected_ids) - length(r$reduced_ids), length(cr$selected_ids), input$corr_threshold, length(r$reduced_ids))),
@@ -1509,42 +1765,15 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     })
     outputOptions(output, "corr_dropped_table", suspendWhenHidden = FALSE)
 
-    ## ---------------------------------------------------------------------
-    ## Stage 8: Selected Features
-    ## ---------------------------------------------------------------------
-
-    fs_final_panel <- reactive({
-      req(consensus_has_run())
-      cr <- fs_consensus_result()
-      ids <- if (corr_has_run() && isTRUE(input$use_corr_reduced)) fs_corr_result()$reduced_ids else cr$selected_ids
-      list(ids = ids, table = cr$table[cr$table$cpg %in% ids, , drop = FALSE])
-    })
-
-    output$selected_ui <- renderUI({
-      if (!consensus_has_run()) return(mod_methyl_fs_empty_note("Run Consensus Selection first."))
-      panel <- fs_final_panel()
-      r <- fs_filter_result()
-      div(class = "card",
-        div(class = "card-title", icon("list-check"), "Selected Features"),
-        p(strong(length(panel$ids)), " final CpGs."),
-        div(class = "table-toolbar",
-            downloadButton(ns("selected_download_csv"), "CSV", class = "btn-sm"),
-            downloadButton(ns("selected_download_tsv"), "TSV", class = "btn-sm"),
-            downloadButton(ns("selected_copy"), "Copy IDs (TXT)", class = "btn-sm")),
-        DT::dataTableOutput(ns("selected_table")),
-        shinyjs::hidden(div(id = ns("cpg_detail_wrap"), uiOutput(ns("cpg_detail_ui"))))
-      )
-    })
-
     fs_selected_table_full <- reactive({
       panel <- fs_final_panel()
-      r <- fs_filter_result()
+      r <- fs_filter_result_for(panel$sex_label)
       anno_df <- methyl_fs_annotate_panel(panel$ids, r$anno)
       merge(panel$table, anno_df, by = "cpg", all.x = TRUE, sort = FALSE)[order(-panel$table$weighted_score[match(panel$table$cpg, panel$table$cpg)]), , drop = FALSE]
     })
 
     output$selected_table <- DT::renderDataTable({
-      req(consensus_has_run())
+      req(length(fs_consensus_built_sexes()) > 0)
       DT::datatable(fs_selected_table_full(), rownames = FALSE, filter = "top", selection = "single",
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact")
     })
@@ -1560,10 +1789,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       df <- fs_selected_table_full()
       row <- df[input$selected_table_rows_selected, , drop = FALSE]
       cpg <- row$cpg[1]
-      r <- fs_filter_result()
+      sx <- fs_selected_stratum()
       tagList(
         div(class = "card-title", icon("magnifying-glass"), sprintf("Detail: %s", cpg)),
-        p(strong("Methods selecting it: "), paste(names(fs_method_ids())[vapply(fs_method_ids(), function(s) cpg %in% s, logical(1))], collapse = ", ")),
+        p(strong("Methods selecting it: "), paste(names(fs_method_ids_for(sx))[vapply(fs_method_ids_for(sx), function(s) cpg %in% s, logical(1))], collapse = ", ")),
         p(strong("Consensus score: "), sprintf("%.3f (%d methods)", row$weighted_score[1], row$n_methods[1])),
         withSpinner(plotOutput(ns("cpg_detail_plot"), height = 260), color = "#2563EB", type = 6),
         DT::dataTableOutput(ns("cpg_detail_table"))
@@ -1573,8 +1802,8 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     output$cpg_detail_plot <- renderPlot({
       req(length(input$selected_table_rows_selected) > 0)
       cpg <- fs_selected_table_full()$cpg[input$selected_table_rows_selected]
-      r <- fs_filter_result()
-      req(cpg %in% rownames(r$beta))
+      r <- fs_filter_result_for(fs_selected_stratum())
+      req(r, cpg %in% rownames(r$beta))
       df <- data.frame(sample = colnames(r$beta), beta = r$beta[cpg, ], group = as.character(r$grp))
       ggplot(df, aes(x = group, y = beta, fill = group)) +
         geom_violin(alpha = 0.5) + geom_boxplot(width = 0.15, outlier.size = 0.6) +
@@ -1585,8 +1814,8 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     output$cpg_detail_table <- DT::renderDataTable({
       req(length(input$selected_table_rows_selected) > 0)
       cpg <- fs_selected_table_full()$cpg[input$selected_table_rows_selected]
-      r <- fs_filter_result()
-      req(cpg %in% rownames(r$beta))
+      r <- fs_filter_result_for(fs_selected_stratum())
+      req(r, cpg %in% rownames(r$beta))
       DT::datatable(data.frame(sample = colnames(r$beta), group = as.character(r$grp), beta = r$beta[cpg, ], row.names = NULL),
                     rownames = FALSE, options = list(scrollX = TRUE, pageLength = 5), class = "stripe hover compact")
     })
@@ -1610,8 +1839,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     ## ---------------------------------------------------------------------
 
     output$export_ui <- renderUI({
-      if (!consensus_has_run()) return(mod_methyl_fs_empty_note("Run Consensus Selection first."))
+      if (length(fs_consensus_built_sexes()) == 0) return(mod_methyl_fs_empty_note("Run Consensus Selection first."))
       tagList(
+        p(class = "empty-note", icon("circle-info"),
+          sprintf("Validating and exporting the \"%s\" stratum selected in Selected Features.", fs_sex_display_label(fs_selected_stratum()))),
         div(class = "card",
           div(class = "card-title", icon("vial"), "Validate selected panel"),
           fluidRow(
@@ -1650,7 +1881,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     observeEvent(input$validate_run_btn, validate_has_run(TRUE), ignoreInit = TRUE)
 
     fs_validate_result <- eventReactive(input$validate_run_btn, {
-      r <- fs_filter_result(); panel <- fs_final_panel()
+      r <- fs_filter_result_for(fs_selected_stratum()); panel <- fs_final_panel()
       validate(need(length(panel$ids) >= 2, "Need at least 2 selected CpGs to validate."))
       if (identical(input$validate_mode, "nested")) {
         res <- methyl_fs_validate_nested(r$beta, r$m, r$grp, uni_params = list(rule = "top_n", top_n = 100),
@@ -1681,18 +1912,19 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     outputOptions(output, "validate_table", suspendWhenHidden = FALSE)
 
     fs_model_export <- reactive({
-      r <- fs_filter_result(); panel <- fs_final_panel(); cr <- fs_consensus_result()
+      sx <- fs_selected_stratum()
+      r <- fs_filter_result_for(sx); panel <- fs_final_panel(); cr <- fs_consensus_store[[sx]]
       list(
-        schema_version = "1.0", module = "mod_methyl_featureselection", saved_at = Sys.time(),
+        schema_version = "1.0", module = "mod_methyl_featureselection", saved_at = Sys.time(), sex_label = sx,
         dataset = list(source_label = r$source_label, array_type = r$array_type, n_probes_input = r$n_probes,
                         n_samples = r$n_samples, group_col = r$group_col, reference_level = r$ref_group, comparison_level = r$comp_group),
         filters = list(notes = r$filter_notes, cascade = r$cascade, imputed_method = r$imputed_method),
         methods = list(
-          univariate = if (uni_has_run()) list(ran = TRUE, selected_ids = fs_uni_result()$selected_ids, ranked = fs_uni_result()$ranked) else list(ran = FALSE),
-          regularization = if (reg_has_run()) list(ran = TRUE, selected_ids = fs_reg_result()$selected_ids, coefficients = fs_reg_result()$coefficients) else list(ran = FALSE),
-          tree_based = if (rf_has_run()) list(ran = TRUE, selected_ids = fs_rf_result()$selected_ids, ranked = fs_rf_result()$ranked) else list(ran = FALSE),
-          rfe = if (rfe_has_run()) list(ran = TRUE, selected_ids = fs_rfe_result()$selected_ids, optimal_size = fs_rfe_result()$optimal_size) else list(ran = FALSE),
-          stability = if (stab_has_run()) list(ran = TRUE, selected_ids = fs_stab_result()$selected_ids, ranked = fs_stab_result()$ranked) else list(ran = FALSE)
+          univariate = if (!is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_uni_store[[sx]]$selected_ids, ranked = fs_uni_store[[sx]]$ranked) else list(ran = FALSE),
+          regularization = if (!is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_reg_store[[sx]]$selected_ids, coefficients = fs_reg_store[[sx]]$coefficients) else list(ran = FALSE),
+          tree_based = if (!is.null(fs_rf_store[[sx]]) && !inherits(fs_rf_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_rf_store[[sx]]$selected_ids, ranked = fs_rf_store[[sx]]$ranked) else list(ran = FALSE),
+          rfe = if (!is.null(fs_rfe_store[[sx]]) && !inherits(fs_rfe_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_rfe_store[[sx]]$selected_ids, optimal_size = fs_rfe_store[[sx]]$optimal_size) else list(ran = FALSE),
+          stability = if (!is.null(fs_stab_store[[sx]]) && !inherits(fs_stab_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_stab_store[[sx]]$selected_ids, ranked = fs_stab_store[[sx]]$ranked) else list(ran = FALSE)
         ),
         consensus = list(methods_used = cr$methods, min_methods_required = cr$min_methods, weights = cr$weights, selected_ids = cr$selected_ids, table = cr$table),
         correlation_reduction = list(applied = isTRUE(input$use_corr_reduced) && corr_has_run(),
@@ -1707,7 +1939,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     })
 
     output$save_rds <- downloadHandler(
-      filename = function() sprintf("methyl_featureselection_%s.rds", format(Sys.Date(), "%Y%m%d")),
+      filename = function() sprintf("methyl_featureselection_%s_%s.rds", fs_selected_stratum(), format(Sys.Date(), "%Y%m%d")),
       content = function(file) saveRDS(fs_model_export(), file)
     )
     output$export_ranking <- downloadHandler(
@@ -1716,14 +1948,15 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     )
     output$export_consensus <- downloadHandler(
       filename = function() "consensus_table.csv",
-      content = function(file) utils::write.csv(fs_consensus_result()$table, file, row.names = FALSE)
+      content = function(file) utils::write.csv(fs_consensus_store[[fs_selected_stratum()]]$table, file, row.names = FALSE)
     )
     output$export_summary <- downloadHandler(
       filename = function() "analysis_summary.txt",
       content = function(file) {
-        r <- fs_filter_result(); panel <- fs_final_panel()
+        r <- fs_filter_result_for(fs_selected_stratum()); panel <- fs_final_panel()
         lines <- c(
           "Methylomics ML Feature Selection - analysis summary",
+          sprintf("Stratum: %s", fs_sex_display_label(panel$sex_label)),
           sprintf("Dataset: %s", r$source_label),
           sprintf("CpGs after filtering: %d, Samples: %d", r$n_probes, r$n_samples),
           sprintf("Comparison: %s vs %s (column: %s)", r$comp_group, r$ref_group, r$group_col),

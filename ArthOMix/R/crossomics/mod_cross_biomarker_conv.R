@@ -72,6 +72,14 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
 
     raw <- reactiveValues(df = NULL, sex = NULL, loaded_at = NULL, missing_layer = NULL)
 
+    ## Preloaded and Upload are independent pipelines - switching the radio
+    ## clears whatever the other mode had loaded, so stale preloaded data
+    ## can't keep showing under "Upload your own data" (or vice versa) just
+    ## because its own Load button hasn't been clicked yet in this mode.
+    observeEvent(input$data_source, {
+      raw$df <- NULL; raw$sex <- NULL; raw$loaded_at <- NULL; raw$missing_layer <- NULL
+    }, ignoreInit = TRUE)
+
     observeEvent(input$load_table, {
       res <- cx_bc_load_precomputed(input$sex)
       if (!res$ok) { showNotification(res$error, type = "error"); return() }

@@ -57,6 +57,12 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     int_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, int_has_run(TRUE), ignoreInit = TRUE)
 
+    ## fit_result() is an eventReactive, so it keeps the previous dataset's fit
+    ## until Run is clicked again; clear the gate so nothing stale stays on screen.
+    observeEvent(dataset$source, {
+      int_has_run(FALSE)
+    }, ignoreInit = TRUE)
+
     fit_result <- eventReactive(input$run_btn, {
       req(input$ref_group, input$comp_group, input$ref_sex, input$comp_sex)
       validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
@@ -105,7 +111,7 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     })
 
     output$int_table <- DT::renderDataTable({
-      req(int_has_run())
+      if (!int_has_run()) return(NULL)
       DT::datatable(sig_table(), rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })

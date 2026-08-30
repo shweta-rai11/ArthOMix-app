@@ -464,7 +464,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
               if (identical(input$power_mode, "manual")) "manual override" else if (res$reached_cutoff) "first power reaching the target cutoff" else "best-observed fit - cutoff not reached by any tested power",
               row_at_power$SFT.R.sq, row_at_power$mean.k.)),
             if (gr$poor_sft_fit) p(class = "empty-note", icon("triangle-exclamation"),
-              "No strong scale-free topology fit was detected across the tested powers. Methylation networks may not reach conventional transcriptomic-style fit thresholds; consider widening the power range, reducing highly redundant CpGs, or evaluating the network on connectivity/interpretability rather than forcing a threshold."),
+              "No strong scale-free topology fit was detected across the tested powers - try widening the power range or reducing redundant CpGs."),
             fluidRow(
               column(6, withSpinner(plotOutput(ns("sft_r2_plot"), height = 300), color = "#2563EB", type = 6)),
               column(6, withSpinner(plotOutput(ns("sft_k_plot"), height = 300), color = "#2563EB", type = 6))
@@ -572,6 +572,21 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
            min_module_size = input$min_module_size, deep_split = as.integer(input$deep_split),
            merge_cut_height = input$merge_cut_height, max_block_size = input$max_block_size,
            stratum_label = f$stratum_label)
+    })
+
+    ## Publishes the live module assignment for Candidate CpGs (Module-DMR
+    ## Overlap) to pick up automatically, without a re-upload, once this ran
+    ## against an uploaded/GEO dataset. Skipped for the preloaded dataset since
+    ## Candidate CpGs' own "Use Preloaded Data" path already reproduces the
+    ## published module assignment from static files.
+    observeEvent(mx_wgcna_net(), {
+      if (!is.null(results) && !isTRUE(dataset$preloaded)) {
+        res <- mx_wgcna_net()
+        results$wgcna_module_assignment <- data.frame(
+          cpg = names(res$module_colors), module = as.character(res$module_colors),
+          stringsAsFactors = FALSE
+        )
+      }
     })
 
     output$modules_result_ui <- renderUI({
@@ -1019,8 +1034,8 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             radioButtons(ns("sex_stratum"), NULL, inline = TRUE, choices = sex_choices_r(), selected = mx_default_sex()),
             if (isTRUE(methyl_dataset$preloaded) && !is.null(sex_col()))
               p(class = "empty-note", icon("circle-info"), "The published analysis is sex-stratified - pick Female or Male to reproduce it per sex. \"All samples\" runs a live network across both sexes together, which was not part of the published methodology.")
-            else if (is.null(sex_col()))
-              p(class = "empty-note", icon("circle-info"), "No sex/gender column detected in the sample sheet - only \"All samples\" is available.")
+            else if (length(sex_choices_r()) <= 1)
+              p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only.")
         )
       )
     }

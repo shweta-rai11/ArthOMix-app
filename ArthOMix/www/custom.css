@@ -439,6 +439,27 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   border-bottom: 1px solid var(--color-border);
 }
 
+/* ---------- Feature Selection: female/male result pair rows ----------
+   Each LASSO/Random Forest/SVM-RFE/Overlap tab shows a Female box next to a Male
+   box, each gated behind its own Run button via conditionalPanel (rendered as
+   .shiny-panel-conditional, hidden with display:none until clicked). Fixed
+   Bootstrap column(6)/column(6) reserved half the row for a sex that hadn't
+   been run yet, leaving it permanently blank instead of letting the sex that
+   HAS run use that space. Flexbox instead: a hidden (display:none) conditional
+   panel drops out of the flex layout entirely, so a lone visible result gets
+   flex:1 all to itself and fills the row; once both are visible they split it
+   evenly again, same as the old 50/50 columns. */
+.fs-pair-row {
+  display: flex;
+  width: 100%;
+  gap: 20px;
+  align-items: flex-start;
+}
+.fs-pair-row > .shiny-panel-conditional {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 /* =============================================================================
    APP SHELL: header, primary navigation, sidebar, stepper, right-column panels
    ============================================================================= */

@@ -6,7 +6,7 @@
 mod_dge_config <- list(
   id = "dge", group = "Data",
   title = "Differential Expression",
-  description = "Perform a limma or DESeq2 model by comparing two levels of a metadata column and get the results based on sex (Female/Male).",
+  description = "Fit a limma or DESeq2 model comparing two levels of a metadata column, optionally stratified by sex (Female/Male).",
   icon = "chart-column"
 )
 
@@ -475,6 +475,12 @@ mod_dge_server <- function(id, dataset, results) {
     dge_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, dge_has_run(TRUE), ignoreInit = TRUE)
 
+    ## fit_result() is an eventReactive, so it keeps the previous dataset's fit
+    ## until Run is clicked again; clear the gate so nothing stale stays on screen.
+    observeEvent(dataset$source, {
+      dge_has_run(FALSE)
+    }, ignoreInit = TRUE)
+
     sig_table <- reactive({
       res <- fit_result()
       req(res)
@@ -634,6 +640,7 @@ mod_dge_server <- function(id, dataset, results) {
     ## Swallows a failed fit validation here (summary_ui already shows it)
     ## instead of repeating the same error in every dependent output.
     output$volcano <- renderPlot({
+      if (!dge_has_run()) return(NULL)
       p <- tryCatch(volcano_plot_obj(), error = function(e) NULL)
       req(p)
       p
@@ -680,6 +687,7 @@ mod_dge_server <- function(id, dataset, results) {
     })
 
     output$heatmap <- renderPlot({
+      if (!dge_has_run()) return(NULL)
       a <- tryCatch(heatmap_args(), error = function(e) NULL)
       req(a)
       ph <- pheatmap::pheatmap(
@@ -710,6 +718,7 @@ mod_dge_server <- function(id, dataset, results) {
     )
 
     output$dge_table <- DT::renderDataTable({
+      if (!dge_has_run()) return(NULL)
       df <- tryCatch(sig_table(), error = function(e) NULL)
       req(df)
       DT::datatable(df, rownames = FALSE, filter = "top",

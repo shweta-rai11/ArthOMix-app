@@ -328,6 +328,23 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       cross_ancestry = "Genes whose MR causal signal replicates in European AND transfers to East-Asian ancestry GWAS - fit in blood, since this project has no ancestry-stratified expression cohort."
     )
 
+    ## Resolves "female"/"male"/"pooled" to the actual value used in a live sex
+    ## column, same grepl("^f"/"^m") convention as mod_diagnostic.R's/
+    ## mod_featureselection.R's sex_levels() - an uploaded dataset's sex column
+    ## isn't guaranteed to be coded literally "F"/"M" (e.g. "Female"/"Male").
+    ## Only for dataset$meta$sex; the bundled synovium object's sex column is
+    ## fixed at "F"/"M" by this project's own preprocessing, so call sites
+    ## against `val$sex` keep the literal switch() instead.
+    nom_live_sex_code <- function(sex_label, sex_col) {
+      if (identical(sex_label, "pooled")) return(NULL)
+      lv <- unique(stats::na.omit(as.character(sex_col)))
+      f <- lv[grepl("^f", lv, ignore.case = TRUE)]
+      m <- lv[grepl("^m", lv, ignore.case = TRUE)]
+      lv_sorted <- sort(lv)
+      if (identical(sex_label, "female")) (if (length(f) > 0) f[1] else lv_sorted[1])
+      else (if (length(m) > 0) m[1] else lv_sorted[min(2, length(lv_sorted))])
+    }
+
     ## -----------------------------------------------------------------
     ## Gene-panel sources: live session data first, bundled fallback.
     ## -----------------------------------------------------------------
@@ -358,7 +375,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
         return(list(genes = live, is_live = TRUE,
           note = sprintf("%d genes - this session's live Feature Selection %s consensus panel, evaluated in synovium.", length(live), sex_label)))
       }
-      bundled <- if (!is.null(val)) switch(sex_label, female = val$fsig, male = val$msig, NULL) else NULL
+      bundled <- if (!is.null(val) && isTRUE(dataset$is_bundled_reference)) switch(sex_label, female = val$fsig, male = val$msig, NULL) else NULL
       bundled <- unique(as.character(bundled))
       if (length(bundled) >= 2) {
         return(list(genes = bundled, is_live = FALSE,
@@ -439,8 +456,8 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
           "Synovium contrast is fixed: Normal (reference) vs RA - GSE89408 has only these two groups."))
       }
       sex_label <- input$fit_sex %||% "female"
-      sex_code <- switch(sex_label, female = "F", male = "M", NULL)
       meta <- dataset$meta
+      sex_code <- nom_live_sex_code(sex_label, meta$sex)
       if (!is.null(sex_code) && !("sex" %in% colnames(meta))) {
         return(div(class = "empty-note", icon("triangle-exclamation"), "The loaded metadata has no 'sex' column - required for this per-sex nomogram."))
       }
@@ -503,6 +520,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
         tissue_label <- "Cross-tissue - synovium (GSE89408)"
       } else {
         meta <- dataset$meta
+        sex_code <- nom_live_sex_code(sex_label, meta$sex)
         if (!is.null(sex_code)) validate(need("sex" %in% colnames(meta), "The loaded dataset's metadata has no 'sex' column - required for this per-sex nomogram."))
         meta_sex <- if (is.null(sex_code)) meta else meta[!is.na(meta$sex) & meta$sex == sex_code, , drop = FALSE]
         validate(need(nrow(meta_sex) > 0, sprintf("No %s samples in the currently loaded dataset.", sex_label)))
