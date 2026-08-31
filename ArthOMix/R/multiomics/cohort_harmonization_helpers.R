@@ -165,9 +165,16 @@ ch_id_harmonization_table <- function(sample_id_lists) {
 
   status <- character(nrow(rows))
   reason <- character(nrow(rows))
+  ## Iterated by POSITION, not by name: `by_norm[["", ...]]` (i.e. looking
+  ## up a list element by an empty-string name via `[[`) always returns
+  ## NULL in base R, even when that element's real name genuinely is "" -
+  ## confirmed directly. Looking elements up by their integer position
+  ## instead sidesteps that entirely, so blank/empty identifiers (which
+  ## normalize to "") are no longer silently skipped.
   by_norm <- split(seq_len(nrow(rows)), rows$Normalized)
-  for (nrm in names(by_norm)) {
-    idx <- by_norm[[nrm]]
+  for (i_grp in seq_along(by_norm)) {
+    nrm <- names(by_norm)[i_grp]
+    idx <- by_norm[[i_grp]]
     if (!nzchar(nrm)) {
       status[idx] <- "Invalid"; reason[idx] <- "Empty or missing identifier."
       next
@@ -394,7 +401,15 @@ ch_evaluate_binary_outcome <- function(mat_list, y, k_folds = 5, seed = 1, max_f
 
   common <- Reduce(intersect, lapply(mat_list, rownames))
   common <- intersect(common, names(y))
-  if (any(duplicated(common))) return(list(ok = FALSE, error = "Duplicate sample IDs detected across the matched samples - resolve before evaluation."))
+  ## base::intersect() always de-duplicates its own output, so checking
+  ## duplicated(common) here can never fire regardless of how many
+  ## duplicate IDs the real inputs have - confirmed directly. The actual
+  ## question is whether any matrix (or `y`) has more than one row/entry
+  ## for an ID that IS part of the matched set - checked against each
+  ## input's own raw names, restricted to `common`, instead.
+  has_dup <- any(vapply(mat_list, function(m) anyDuplicated(rownames(m)[rownames(m) %in% common]) > 0, logical(1))) ||
+    anyDuplicated(names(y)[names(y) %in% common]) > 0
+  if (has_dup) return(list(ok = FALSE, error = "Duplicate sample IDs detected across the matched samples - resolve before evaluation."))
   if (length(common) < 10) return(list(ok = FALSE, error = sprintf("Only %d matched samples with a valid outcome - at least 10 are needed for reliable held-out evaluation.", length(common))))
 
   y <- droplevels(factor(y[common]))

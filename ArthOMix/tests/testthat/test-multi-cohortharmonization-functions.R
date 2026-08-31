@@ -152,23 +152,17 @@ test_that("ch_id_harmonization_table() marks 'Duplicate' (repeated within one mo
   expect_equal(unique(ambiguous$Status[ambiguous$Modality == "RNA"]), "Ambiguous")
 })
 
-## KNOWN BUG (reported, not fixed - see module report): documented to mark
-## blank/empty identifiers "Invalid" (line 152's "every ID gets an explicit
-## status... Invalid"), but this never happens. `by_norm <- split(seq_len(
-## nrow(rows)), rows$Normalized)` groups blank IDs under the name "" (an
-## empty string), then `idx <- by_norm[[nrm]]` looks it up via `[[""]]` -
-## base R's `[[` always returns NULL for a zero-length-string name lookup,
-## even when a list element is genuinely named "" (confirmed directly:
-## `split(1:3, c("","","x"))[[""]]` returns NULL despite `names(...)[1]`
-## being `""`). So `idx` is NULL, `status[NULL] <- "Invalid"` is a silent
-## no-op, and blank/empty IDs are left with Status/Reason == "" instead of
-## "Invalid"/"Empty or missing identifier." - silently unclassified rather
-## than flagged.
-test_that("ch_id_harmonization_table() KNOWN BUG: blank/empty identifiers are left with an empty Status instead of 'Invalid'", {
+## FIXED (was a KNOWN BUG): blank/empty identifiers were silently left with
+## an empty Status instead of "Invalid", because `by_norm[[nrm]]` looked
+## the group up via `[[""]]` - base R's `[[` always returns NULL for a
+## zero-length-string name lookup, even when a list element is genuinely
+## named "". ch_id_harmonization_table() now iterates by_norm by position
+## instead of by name, sidestepping that lookup entirely.
+test_that("ch_id_harmonization_table() marks blank/empty identifiers 'Invalid' (fixed - was silently left blank)", {
   out <- ch_id_harmonization_table(list(RNA = c("", "  ", "S2")))
   blank_rows <- out[out$Original %in% c("", "  "), ]
-  expect_true(all(blank_rows$Status == ""))  ## documented behavior would be "Invalid"
-  expect_false(any(blank_rows$Status == "Invalid"))
+  expect_true(all(blank_rows$Status == "Invalid"))
+  expect_true(all(blank_rows$Reason == "Empty or missing identifier."))
 })
 
 test_that("ch_id_harmonization_table() returns NULL when every modality's id set is NULL", {
@@ -384,23 +378,30 @@ test_that("ch_evaluate_binary_outcome() refuses a non-binary outcome and a too-s
   expect_true(grepl("at least 3 per class", out_imb$error))
 })
 
-## KNOWN BUG (reported, not fixed - see module report): the function's own
-## documented guard ("Duplicate sample IDs detected across the matched
-## samples - resolve before evaluation.", line 397) is unreachable dead code.
-## `common` is built as `intersect(Reduce(intersect, lapply(mat_list,
-## rownames)), names(y))` (line 395-396) - base R's `intersect()` always
-## returns unique values, so by the time `any(duplicated(common))` runs on
-## line 397, `common` can never contain a duplicate, regardless of how many
-## duplicate IDs exist in the input rownames/names(y). Confirmed directly:
-## a matrix with "S2" appearing 5 times returns ok=TRUE (and silently keeps
-## only the FIRST "S2" row via `m[common, , drop=FALSE]`) instead of
-## refusing. This test pins the CURRENT (buggy) behavior rather than the
-## documented intent.
-test_that("ch_evaluate_binary_outcome() KNOWN BUG: silently proceeds instead of refusing when sample IDs are duplicated", {
+## FIXED (was a KNOWN BUG): the function's own documented guard ("Duplicate
+## sample IDs detected across the matched samples - resolve before
+## evaluation.") was unreachable dead code, since `intersect()` always
+## de-duplicates its own output before the old `any(duplicated(common))`
+## check could ever see a duplicate. The check now looks for duplicates in
+## each input's own raw rownames/names (restricted to the matched set)
+## directly, before any intersect() call can hide them.
+test_that("ch_evaluate_binary_outcome() refuses when sample IDs are duplicated (fixed - was silently proceeding)", {
   ids <- c("S1", rep("S2", 5), paste0("S", 3:15))  ## S2 duplicated 5x, 15 rows total
   y <- factor(rep(c("A", "B"), length.out = length(ids))); names(y) <- ids
   X <- matrix(rnorm(length(ids) * 10), length(ids), 10, dimnames = list(ids, paste0("f", 1:10)))
   out <- ch_evaluate_binary_outcome(list(expression = X), y)
-  expect_true(out$ok)  ## documented behavior would be ok=FALSE with a "Duplicate sample IDs" error
-  expect_equal(out$n, length(unique(ids)))  ## the dedup silently collapses S2's 5 rows to 1
+  expect_false(out$ok)
+  expect_true(grepl("Duplicate sample IDs", out$error))
+})
+
+test_that("ch_evaluate_binary_outcome() still runs normally on genuinely unique sample IDs after the duplicate-check fix", {
+  set.seed(2200)
+  n <- 20
+  ids <- paste0("S", seq_len(n))
+  y <- factor(rep(c("A", "B"), each = n / 2)); names(y) <- ids
+  X <- matrix(rnorm(n * 10), n, 10, dimnames = list(ids, paste0("f", 1:10)))
+  X[y == "B", 1:3] <- X[y == "B", 1:3] + 3
+  out <- ch_evaluate_binary_outcome(list(expression = X), y)
+  expect_true(out$ok)
+  expect_equal(out$n, n)
 })

@@ -19,31 +19,33 @@ test_that("eda_parse_upload() parses a well-formed feature x sample CSV", {
   expect_equal(dim(res$expr), c(10L, 5L))
 })
 
-test_that("KNOWN BUG: eda_parse_upload() crashes (instead of returning ok=FALSE) on a single-feature-row upload with multiple sample columns", {
+test_that("eda_parse_upload() correctly parses a single-feature-row upload with multiple sample columns (fixed - previously crashed)", {
   ## Found via the malformed_expr.csv edge-case fixture, then reduced to this
   ## minimal, well-formed repro: any upload with exactly one data row (one
-  ## feature) and >1 sample column. eda_parse_upload()'s own header comment
-  ## promises "never throws, returns list(ok = FALSE, error = <message>)
-  ## instead", but its is.null(dim(expr)) fallback branch (added for the
-  ## opposite edge case - exactly one SAMPLE column with many feature rows)
-  ## always reshapes into an nrow x 1 matrix, which is wrong when vapply
-  ## instead collapsed to a vector because there was only one ROW - it then
-  ## assigns a length-1 `ids` vector as rownames on a multi-row matrix and
-  ## errors. Reported as a production bug (Category B), not fixed here per
-  ## the testing brief - this test pins the CURRENT (buggy) behavior so a
-  ## future fix is a deliberate, visible test change, not a silent regression.
+  ## feature) and >1 sample column. eda_parse_upload()'s is.null(dim(expr))
+  ## fallback branch used to always reshape into an nrow x 1 matrix (correct
+  ## only for the OPPOSITE edge case - one sample column, many feature
+  ## rows), which was wrong here since vapply collapses to a vector whenever
+  ## there is only one ROW, regardless of column count - it then assigned a
+  ## length-1 `ids` vector as rownames on a multi-row matrix and errored.
+  ## Fixed to reshape into ONE row (the single feature) by however many
+  ## real sample columns exist, using vapply's own output names.
   path <- withr::local_tempfile(fileext = ".csv")
   writeLines(c("id,S1,S2,S3,S4,S5", "GENE1,1,2,3,4,5"), path)
-  expect_error(eda_parse_upload(path, "one_row.csv"), "dimnames")
+  res <- eda_parse_upload(path, "one_row.csv")
+  expect_true(res$ok)
+  expect_equal(dim(res$expr), c(1L, 5L))
+  expect_equal(rownames(res$expr), "GENE1")
+  expect_equal(colnames(res$expr), c("S1", "S2", "S3", "S4", "S5"))
+  expect_equal(as.numeric(res$expr[1, ]), c(1, 2, 3, 4, 5))
 })
 
 test_that("eda_parse_upload() does not silently succeed with garbage on a genuinely malformed, ragged-row file", {
   ## This particular malformed fixture happens to collapse to the
-  ## single-row shape covered by the KNOWN BUG test above, so a raw error is
-  ## the current, already-documented behavior here too - not a second new
-  ## finding. Still asserted explicitly so a change in fread's own ragged-row
-  ## recovery (which would route this fixture down a different, non-crashing
-  ## path) is caught rather than assumed away.
+  ## single-row shape covered by the fixed test above, so it now parses
+  ## successfully too rather than raising a raw error - still asserted
+  ## explicitly so a change in fread's own ragged-row recovery is caught
+  ## rather than assumed away.
   path <- normalizePath(file.path(app_dir, "tests", "fixtures", "edge_cases", "malformed_expr.csv"), mustWork = TRUE)
   res <- tryCatch(eda_parse_upload(path, "malformed_expr.csv"), error = function(e) e)
   if (inherits(res, "error")) {

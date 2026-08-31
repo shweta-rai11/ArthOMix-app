@@ -55,7 +55,18 @@ eda_parse_upload <- function(datapath, filename) {
 
   numeric_part <- rest[, is_num_col, drop = FALSE]
   expr <- vapply(numeric_part, function(col) suppressWarnings(as.numeric(as.character(col))), numeric(nrow(numeric_part)))
-  if (is.null(dim(expr))) expr <- matrix(expr, ncol = 1, dimnames = list(NULL, colnames(numeric_part)[1]))
+  ## vapply() only ever collapses its result to a plain (named) vector - never
+  ## a matrix - when its FUN.VALUE template has length 1, i.e. when
+  ## nrow(numeric_part) == 1 (a single-feature-row upload): a single-
+  ## sample-column upload with many feature rows already returns a proper
+  ## matrix on its own (FUN.VALUE length > 1), confirmed directly, so this
+  ## branch is reached ONLY for the single-row case. Reshape into ONE row
+  ## (the single feature) by however many sample columns there actually
+  ## are, using vapply's own names(expr) (every sample's name) - the
+  ## previous `ncol = 1, colnames(numeric_part)[1]` reshape instead treated
+  ## the vector as one column of many rows and kept only the FIRST sample's
+  ## name, corrupting the matrix for every upload with >1 sample column here.
+  if (is.null(dim(expr))) expr <- matrix(expr, nrow = 1, dimnames = list(NULL, names(expr)))
   rownames(expr) <- ids
   colnames(expr) <- colnames(numeric_part)
 
