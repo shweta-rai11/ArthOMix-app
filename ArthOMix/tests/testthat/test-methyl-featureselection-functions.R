@@ -172,3 +172,62 @@ test_that("methyl_fs_correlation_reduce() drops the lower-scoring member of a hi
   expect_false("cg2" %in% out$reduced_ids)
   expect_true("cg3" %in% out$reduced_ids)
 })
+
+## ---- Model & Export -> Validate stage: seed reproducibility ------------------
+##
+## Bug fix regression test: the Validate stage's UI now has its own "Random
+## seed" input (validate_seed, mirroring reg_seed/rf_seed/rfe_seed/stab_seed)
+## which is threaded into methyl_fs_validate_nested()/_frozen()'s `seed=`
+## argument at the button-click call site. Verify here, at the function level
+## (mirroring test-diagnostic-functions.R's diag_split_train_test()
+## determinism test), that the seed actually controls the outer-fold
+## assignment deterministically - i.e. that changing the value the UI would
+## pass genuinely changes/reproduces results, rather than being silently
+## ignored in favor of the hardcoded seed=1234 default.
+
+test_that("methyl_fs_validate_nested() is deterministic for a fixed seed and changes with a different one", {
+  fx <- fs_separable_beta_fixture(n_per_group = 15, n_probes = 20)
+  uni_params <- list(rule = "top_n", top_n = 10)
+  lasso_params <- list(alpha = 1)
+
+  ## Same seed, called twice -> bit-identical outer-fold assignment and results
+  ## (this is what the UI's validate_seed input now reproducibly controls).
+  ## suppressWarnings: this fixture's injected signal is separable enough that
+  ## glm occasionally reports "fitted probabilities numerically 0 or 1" on some
+  ## folds - a benign, pre-existing caret/glm warning also seen in
+  ## test-methyl-diagnostic-functions.R, unrelated to what's under test here.
+  r1 <- suppressWarnings(methyl_fs_validate_nested(fx$beta, fx$m, fx$y, uni_params = uni_params, lasso_params = lasso_params,
+                                   classifier = "glm", outer_k = 5, repeats = 1, seed = 4242))
+  r2 <- suppressWarnings(methyl_fs_validate_nested(fx$beta, fx$m, fx$y, uni_params = uni_params, lasso_params = lasso_params,
+                                   classifier = "glm", outer_k = 5, repeats = 1, seed = 4242))
+  expect_identical(r1$per_fold, r2$per_fold)
+  expect_identical(r1$mean_auc, r2$mean_auc)
+
+  ## A different seed value (as if the user changed the new UI input) produces
+  ## a different outer-fold partition/result - proof the argument is actually
+  ## wired through and not silently overridden by a hardcoded default.
+  r3 <- suppressWarnings(methyl_fs_validate_nested(fx$beta, fx$m, fx$y, uni_params = uni_params, lasso_params = lasso_params,
+                                   classifier = "glm", outer_k = 5, repeats = 1, seed = 999))
+  expect_false(isTRUE(all.equal(r1$per_fold, r3$per_fold)))
+
+  ## And the function's own documented default (seed=1234, unchanged by this
+  ## fix) still behaves the same way when no seed is passed at all.
+  r_default <- suppressWarnings(methyl_fs_validate_nested(fx$beta, fx$m, fx$y, uni_params = uni_params, lasso_params = lasso_params,
+                                          classifier = "glm", outer_k = 5, repeats = 1))
+  r_1234 <- suppressWarnings(methyl_fs_validate_nested(fx$beta, fx$m, fx$y, uni_params = uni_params, lasso_params = lasso_params,
+                                       classifier = "glm", outer_k = 5, repeats = 1, seed = 1234))
+  expect_identical(r_default$per_fold, r_1234$per_fold)
+})
+
+test_that("methyl_fs_validate_frozen() is deterministic for a fixed seed and changes with a different one", {
+  fx <- fs_separable_beta_fixture(n_per_group = 15, n_probes = 20)
+  X <- t(fx$beta)
+
+  r1 <- suppressWarnings(methyl_fs_validate_frozen(X, fx$y, classifier = "glm", k = 5, repeats = 1, seed = 4242))
+  r2 <- suppressWarnings(methyl_fs_validate_frozen(X, fx$y, classifier = "glm", k = 5, repeats = 1, seed = 4242))
+  expect_identical(r1$resample_results, r2$resample_results)
+  expect_identical(r1$mean_auc, r2$mean_auc)
+
+  r3 <- suppressWarnings(methyl_fs_validate_frozen(X, fx$y, classifier = "glm", k = 5, repeats = 1, seed = 999))
+  expect_false(isTRUE(all.equal(r1$resample_results, r3$resample_results)))
+})

@@ -3,10 +3,10 @@
 ## interpretation, mirroring the "Select Biomarker" -> "Biomarker Card"
 ## pattern of the Transcriptomics/Methylomics Biomarker Cards
 ## (mod_biomarkercard.R / mod_methyl_biomarkercard.R), but scoped to what is
-## actually multiomics-specific: does a candidate gene<->CpG pair have
+## actually multiomics-specific: does a candidate gene–CpG pair have
 ## Transcriptomics-only, Methylomics-only, or Multiomics-supported evidence?
 ##
-## Data source: exclusively multi_results$concordance$df (Gene<->CpG
+## Data source: exclusively multi_results$concordance$df (Gene–CpG
 ## Concordance, mod_multi_concordance.R) - the one table in this app that
 ## already joins a candidate gene's expression evidence to its CpG's
 ## methylation evidence, with DIABLO/SNF/Joint cross-omics support flags.
@@ -20,12 +20,12 @@
 ## short "not available" state rather than fabricating sample-level values.
 ##
 ## This module never writes to multi_results - it is read-only interpretation
-## on top of what Gene<->CpG Concordance (and, for DIABLO cross-reference,
+## on top of what Gene–CpG Concordance (and, for DIABLO cross-reference,
 ## Biomarker Discovery) has already produced.
 
 mod_multi_biomarkercard_config <- list(
   id = "biomarkercard", title = "Biomarker Card", icon = "id-card", group = "Interpretation",
-  description = "Integrated gene<->CpG biomarker interpretation: expression, methylation, and cross-omics evidence for one candidate at a time."
+  description = "Integrated gene–CpG biomarker interpretation: expression, methylation, and cross-omics evidence for one candidate at a time."
 )
 
 mod_multi_biomarkercard_ui <- function(id) {
@@ -98,7 +98,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Real Gene<->CpG Concordance table, or NULL if it hasn't been run this
+    ## Real Gene–CpG Concordance table, or NULL if it hasn't been run this
     ## session. Every read of multi_results/multi_dataset below happens
     ## inside a reactive/render/observe consumer, never at moduleServer
     ## setup time.
@@ -124,7 +124,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     mbc_selected <- reactiveVal(NULL)  # list(gene_symbol=, cpg=)
     has_card <- reactiveVal(FALSE)
 
-    ## Stale-selection guard: a new dataset, or a re-run of Gene<->CpG
+    ## Stale-selection guard: a new dataset, or a re-run of Gene–CpG
     ## Concordance, can change or remove the pair currently on the card -
     ## never leave a generated card pointing at results that no longer exist.
     observeEvent(multi_results$concordance, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
@@ -154,7 +154,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
                        choices = c("Browse Integrated Biomarkers" = "browse", "Type a gene or CpG" = "type")),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'browse'", ns("mbc_search_mode")),
-            p(class = "submodule-desc", "Click a row to select that gene↔CpG pair, then click \"Generate Biomarker Card\"."),
+            p(class = "submodule-desc", "Click a row to select that gene–CpG pair, then click \"Generate Biomarker Card\"."),
             DT::dataTableOutput(ns("mbc_browse_table"))
           ),
           conditionalPanel(
@@ -231,7 +231,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     output$mbc_selection_status_ui <- renderUI({
       sel <- mbc_selected()
       if (is.null(sel)) tagList(icon("circle-info"), "Select a biomarker above before clicking Generate.")
-      else tagList(icon("circle-check", style = "color:#0ca30c;"), tags$b(sprintf("Selected: %s ↔ %s", sel$gene_symbol, sel$cpg)), " - click Generate to build the card.")
+      else tagList(icon("circle-check", style = "color:#0ca30c;"), tags$b(sprintf("Selected: %s – %s", sel$gene_symbol, sel$cpg)), " - click Generate to build the card.")
     })
 
     observeEvent(input$mbc_generate_btn, { if (!is.null(mbc_selected())) has_card(TRUE) }, ignoreInit = TRUE)
@@ -253,7 +253,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
       if (is.null(rows)) return(div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), "This biomarker is no longer present in the current results. Go back and re-select one."))
       r <- rows[1, ]
       tagList(
-        h4(icon("dna"), sprintf(" %s ↔ %s", mbc_val(r$gene_symbol), mbc_val(r$cpg))),
+        h4(icon("dna"), sprintf(" %s – %s", mbc_val(r$gene_symbol), mbc_val(r$cpg))),
         tabsetPanel(
           id = ns("mbc_card_subtabs"), type = "tabs",
           tabPanel("Overview", br(), mbc_section_overview(r)),
@@ -264,7 +264,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
           tabPanel("Integrated Evidence", br(), mbc_section_integrated(r)),
           tabPanel("Patient Evidence", br(), box(width = NULL, title = "Patient Evidence", status = "primary", solidHeader = FALSE, uiOutput(ns("mbc_patient_ui")))),
           tabPanel("Download", br(), box(width = NULL, title = "Download", status = "primary", solidHeader = FALSE,
-                                          p(class = "submodule-desc", "Full annotated row(s) for this gene↔CpG pair, as computed by Gene–CpG Concordance."),
+                                          p(class = "submodule-desc", "Full annotated row(s) for this gene–CpG pair, as computed by Gene–CpG Concordance."),
                                           downloadButton(ns("mbc_dl"), "Download CSV", class = "btn-sm")))
         )
       )
@@ -367,7 +367,7 @@ mbc_section_dataset <- function(rows) {
                    mbc_row("Strata in this result", strata)
         ),
         if (nrow(rows) > 1) tagList(
-          p(class = "submodule-desc", "This gene↔CpG pair has more than one row below (e.g. per-sex strata):"),
+          p(class = "submodule-desc", "This gene–CpG pair has more than one row below (e.g. per-sex strata):"),
           mbc_html_table(data.frame(
             Stratum = if ("sex" %in% colnames(rows)) rows$sex else rep("Pooled", nrow(rows)),
             Log2FC = round(rows$log2fc, 3), `Expr FDR` = signif(rows$expr_fdr, 3),

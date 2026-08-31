@@ -275,6 +275,15 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
           selectInput(ns("cluster_method"), NULL, choices = MI_SNF_CLUSTER_METHODS, selected = "spectral"),
           p(class = "submodule-desc", "Partitions the same fused network regardless of technique."),
           hr(),
+          h5("Reproducibility"),
+          ## SNFtool::spectralClustering() (and cluster::pam for the "PAM"
+          ## technique) are k-means-based internally, so identical
+          ## K/Alpha/T settings can still yield different cluster
+          ## assignments run to run without a fixed seed - same
+          ## reproducibility gap Multi-omics Integration's own SNF tab
+          ## closes with its "Random seed" field.
+          numericInput(ns("seed"), "Random seed", value = 1, min = 1),
+          hr(),
           uiOutput(ns("summary_pre")),
           if (isTRUE(e$ok)) div(
             if (isTRUE(input$k_auto) || isTRUE(input$alpha_auto) || isTRUE(input$t_auto)) mi_warn("Auto-tuning plus the default stability check may take longer for larger cohorts.") else NULL,
@@ -287,13 +296,14 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     output$summary_pre <- renderUI({
       v2 <- req(sc_val2())
       tags$div(class = "submodule-desc", tags$strong("Planned run: "), sprintf(
-        "Modalities: %s | Matched patients: %d | K: %s | Alpha: %s | T: %s | Clusters: %s | Technique: %s",
+        "Modalities: %s | Matched patients: %d | K: %s | Alpha: %s | T: %s | Clusters: %s | Technique: %s | Seed: %s",
         paste(names(sc_ready()$layers), collapse = " + "), v2$n_shared,
         if (isTRUE(input$k_auto)) sprintf("Auto-tuned (starting near %s)", input$k) else input$k,
         if (isTRUE(input$alpha_auto)) sprintf("Auto-tuned (starting near %.2f)", input$alpha %||% MI_SNF_ALPHA_RANGE$default) else input$alpha,
         if (isTRUE(input$t_auto)) sprintf("Auto-converged (up to %d)", max(MI_SNF_T_CANDIDATES)) else (input$t %||% "-"),
         if (isTRUE(input$cluster_auto)) "Auto-estimated (eigengap)" else input$n_clusters,
-        names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == (input$cluster_method %||% "spectral")]
+        names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == (input$cluster_method %||% "spectral")],
+        input$seed %||% 1
       ))
     })
 
@@ -304,7 +314,12 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       t_mode = if (isTRUE(input$t_auto)) "automatic" else "manual",
       k = input$k, alpha = input$alpha, t = input$t,
       cluster_mode = if (isTRUE(input$cluster_auto)) "automatic" else "manual", n_clusters = input$n_clusters,
-      cluster_method = input$cluster_method %||% "spectral"
+      cluster_method = input$cluster_method %||% "spectral",
+      ## Threaded into set.seed() inside sfc_snf_run()/mi_snf_run()
+      ## (snf_clustering_helpers.R / multiomics_integration_live_helpers.R),
+      ## right before their kmeans-based SNFtool::spectralClustering()/
+      ## cluster::pam() calls.
+      seed = input$seed %||% 1
     ))
 
     ## =========================================================================
@@ -510,7 +525,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
                   mi_stat_card(sprintf("%.2f", stab$mean_ari), "Mean ARI"), mi_stat_card(sprintf("%.2f", stab$sd_ari), "SD ARI"),
                   mi_stat_card(stab$n_resamples, "Successful resamples")),
               multi_plot_or_empty(function() sfc_stability_plot(stab), ns("st_plot"), height = "300px"),
-              p(class = "submodule-desc", sprintf("Verdict thresholds: mean ARI >= %.2f = Stable, >= %.2f = Moderately stable, else Unstable.", SFC_STABILITY_THRESHOLDS$stable, SFC_STABILITY_THRESHOLDS$moderate)),
+              p(class = "submodule-desc", sprintf("Verdict thresholds: mean ARI >= %.2f = Stable, >= %.2f = Moderately stable, else Unstable. (This is a per-sample cluster-membership-agreement stability, distinct from Biomarker Discovery's feature-selection-frequency stability, which uses its own >=%.0f%% “Stable” cutoff on a different, uncorrected-proportion scale.)", SFC_STABILITY_THRESHOLDS$stable, SFC_STABILITY_THRESHOLDS$moderate, MB_STABILITY_THRESHOLDS$stable * 100)),
               div(class = "table-toolbar", downloadButton(ns("dl_stability"), "Download stability metrics (CSV)", class = "btn-sm"))
             )),
         box(width = NULL, title = "Recompute stability with custom settings", status = "primary", solidHeader = FALSE,

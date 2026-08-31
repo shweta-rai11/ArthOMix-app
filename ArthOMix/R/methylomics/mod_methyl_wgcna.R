@@ -529,6 +529,13 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
                 column(3, numericInput(ns("min_kme_to_stay"), "Minimum KME to stay", value = 0.3, min = 0, max = 1, step = 0.01)),
                 column(3, numericInput(ns("min_core_kme"), "Minimum core KME", value = 0.5, min = 0, max = 1, step = 0.01))
               ),
+              ## Seed is fixed at 1234 (matching 05_wgcna_sexstratified.R's CFG$seed) for the
+              ## preloaded dataset, since blockwiseModules() runs live even there and module
+              ## colors (size-rank based) must stay stable to match the published pipeline's
+              ## figures. No such reason applies to an uploaded matrix, so expose it there.
+              if (!isTRUE(methyl_dataset$preloaded)) fluidRow(
+                column(3, numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1))
+              ),
               p(class = "empty-note", icon("circle-info"), "Maximum block size controls memory use on large probe sets - the published pipeline lowered this from 20,000 to 5,000 after a single 20,000×20,000 signed TOM exceeded available RAM; raise it only if this deployment has memory to spare."),
               actionButton(ns("modules_btn"), "Run WGCNA", icon = icon("play"), class = "btn-primary")
             )
@@ -544,12 +551,16 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(sft), "Compute the soft-threshold power first."))
       texpr <- t(f$mat)
       cor_type <- if (identical(sft$cor_method, "bicor")) "bicor" else "pearson"
+      ## Fixed at 1234 for the preloaded dataset to match the published pipeline's
+      ## CFG$seed (module colors are size-rank based and would relabel between runs
+      ## otherwise); user-adjustable for uploaded data, where no such pipeline exists.
+      net_seed <- if (isTRUE(methyl_dataset$preloaded)) 1234 else (input$net_seed %||% 1234)
       key_parts <- list(texpr = texpr, power = input$net_power, network_type = sft$network_type, tom_type = input$tom_type,
                          cor_type = cor_type, deep_split = as.integer(input$deep_split), min_module_size = input$min_module_size,
                          merge_cut_height = input$merge_cut_height, max_block_size = input$max_block_size,
                          pam_stage = isTRUE(input$pam_stage), pam_respects_dendro = isTRUE(input$pam_respects_dendro),
                          reassign_threshold = input$reassign_threshold, min_kme_to_stay = input$min_kme_to_stay,
-                         min_core_kme = input$min_core_kme)
+                         min_core_kme = input$min_core_kme, seed = net_seed)
       net <- withProgress(message = "Running WGCNA (blockwiseModules) - this can take a while on large probe sets...", value = 0.3, {
         get_or_compute_meth_wgcna_blocks(key_parts, function() {
           WGCNA::blockwiseModules(
@@ -558,7 +569,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             mergeCutHeight = input$merge_cut_height, maxBlockSize = input$max_block_size,
             pamStage = isTRUE(input$pam_stage), pamRespectsDendro = isTRUE(input$pam_respects_dendro),
             reassignThreshold = input$reassign_threshold, minKMEtoStay = input$min_kme_to_stay,
-            minCoreKME = input$min_core_kme, numericLabels = FALSE, saveTOMs = FALSE, randomSeed = 1234, verbose = 0
+            minCoreKME = input$min_core_kme, numericLabels = FALSE, saveTOMs = FALSE, randomSeed = net_seed, verbose = 0
           )
         })
       })
@@ -602,6 +613,16 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
               res$stratum_label, n_real, length(res$module_colors), nrow(res$texpr), res$power)),
             if (gr$all_grey) p(class = "empty-note", icon("triangle-exclamation"), "No real modules were detected - everything fell into the grey (unassigned) module. Try a lower minimum module size, a different power, or less aggressive variability filtering."),
             if (!gr$all_grey && gr$single_module) p(class = "empty-note", icon("triangle-exclamation"), "Only one real module was detected - the network may be under-resolved at these settings."),
+            ## blockwiseModules() splits large CpG sets (e.g. the default
+            ## 20,000-CpG preloaded network) into multiple TOM blocks, each
+            ## with its own dendrogram - only block 1 is actually plotted
+            ## below, so make that explicit rather than letting it look like
+            ## the whole network. Module sizes/hub CpGs/enrichment further
+            ## down this tab are computed across every block, not just this one.
+            if (length(res$net$dendrograms) > 1) p(class = "submodule-desc", icon("circle-info"), sprintf(
+              "This CpG set was split into %d WGCNA blocks; the dendrogram below shows block 1 of %d only (%s of %s total CpGs). Module sizes, hub CpGs, and enrichment results elsewhere in this tab are computed across all blocks.",
+              length(res$net$dendrograms), length(res$net$dendrograms),
+              format(length(res$net$blockGenes[[1]]), big.mark = ","), format(length(res$module_colors), big.mark = ","))),
             fluidRow(
               column(6, withSpinner(plotOutput(ns("dendro_plot"), height = 340), color = "#2563EB", type = 6)),
               column(6, withSpinner(plotOutput(ns("module_size_plot"), height = 340), color = "#2563EB", type = 6))
@@ -644,14 +665,27 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
     tab_traits_ui <- function() {
       net <- tryCatch(mx_wgcna_net(), error = function(e) NULL)
       sheet <- methyl_dataset$sample_sheet
+      ## A column already regressed out as a residualization covariate
+      ## (Data & Filtering step) is excluded from the trait choices here -
+      ## picking it as the module-trait target too would compare the
+      ## network against a signal that was already subtracted from it,
+      ## silently producing a near-zero, meaningless correlation.
+      f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
+      used_covariates <- if (!is.null(f)) f$resid_covariates %||% character(0) else character(0)
+      trait_choices <- if (!is.null(sheet)) setdiff(colnames(sheet), used_covariates) else character(0)
       tagList(
         div(class = "card",
             div(class = "card-title", icon("table-cells"), "Module-Trait Analysis"),
             if (is.null(net)) p(class = "empty-note", icon("circle-info"), "Run WGCNA (Network & Modules) before continuing.")
             else if (is.null(sheet)) p(class = "empty-note", icon("circle-info"), "No sample sheet available - module-trait correlation needs phenotype metadata.")
+            else if (length(trait_choices) == 0) p(class = "empty-note", icon("triangle-exclamation"), "Every sample-sheet column was already used as a residualization covariate - no trait column remains to correlate against. Rebuild the filtered matrix without residualizing the column you want to test.")
             else tagList(
+              if (length(used_covariates) > 0) p(class = "empty-note", icon("circle-info"), sprintf(
+                "Column(s) already regressed out during residualization (%s) are excluded below, to avoid comparing the network against a signal already subtracted from it.",
+                paste(used_covariates, collapse = ", "))),
               fluidRow(
-                column(4, selectInput(ns("trait_col"), "Trait column", choices = colnames(sheet), selected = trait_col_default() %||% colnames(sheet)[1])),
+                column(4, selectInput(ns("trait_col"), "Trait column", choices = trait_choices,
+                                       selected = if (isTRUE(trait_col_default() %in% trait_choices)) trait_col_default() else trait_choices[1])),
                 column(4, radioButtons(ns("mt_cor_method"), "Correlation method", choices = c("Pearson" = "pearson", "Spearman" = "spearman"), selected = "pearson")),
                 column(4, radioButtons(ns("mt_correction"), "Multiple testing correction", choices = c("Benjamini-Hochberg (FDR)" = "BH", "Bonferroni" = "bonferroni"), selected = "BH"))
               ),
@@ -668,6 +702,15 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(net), "Run WGCNA (Network & Modules) first."))
       sheet <- methyl_dataset$sample_sheet
       validate(need(!is.null(sheet), "No sample sheet available."))
+      ## Belt-and-suspenders guard alongside tab_traits_ui()'s choice-list
+      ## exclusion above - covers the (unlikely but possible) case of a
+      ## stale trait_col selection surviving a rebuilt filtered matrix.
+      f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
+      used_covariates <- if (!is.null(f)) f$resid_covariates %||% character(0) else character(0)
+      validate(need(
+        !(input$trait_col %in% used_covariates),
+        sprintf("\"%s\" was already regressed out as a residualization covariate when the filtered matrix was built - correlating the network against it now would compare the signal against itself. Pick a different trait column, or rebuild the filtered matrix (Data & Filtering) without residualizing this column.", input$trait_col)
+      ))
       ids <- methyl_sheet_sample_ids(sheet, rownames(net$texpr))
       common <- intersect(rownames(net$texpr), ids)
       validate(need(length(common) >= 3, "Fewer than 3 samples match between the network and the sample sheet."))

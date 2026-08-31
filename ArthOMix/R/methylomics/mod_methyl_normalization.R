@@ -169,6 +169,12 @@ methyl_norm_run_full_ctx <- function(method_key, ctx) {
        before = before, after = after, note = res$note,
        removed_probes = removed_probes, removed_samples = sc$removed_samples, filter_notes = filter_notes,
        n_probes_before = nrow(sc$mat), n_samples_before = ncol(sc$mat),
+       ## Only set for bmiq/noob_bmiq (methyl_norm_bmiq()'s per-sample fit
+       ## failure flag, normalization.R) - NULL/absent for every other
+       ## method, where the whole matrix is uniformly transformed by
+       ## definition. See filtered_body renderUI below for where this is
+       ## surfaced.
+       bmiq_failed_samples = res$failed_samples, bmiq_sample_ok = res$sample_ok,
        validation = validation, run_at = Sys.time())
 }
 
@@ -849,7 +855,17 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         h5(sprintf("Removed probes (%d)", length(r$removed_probes))),
         if (length(r$removed_probes) > 0) DT::dataTableOutput(ns("removed_probes_table")) else p(class = "empty-note", icon("circle-check"), "No probes were removed."),
         h5(sprintf("Removed samples (%d)", length(r$removed_samples))),
-        if (length(r$removed_samples) > 0) DT::dataTableOutput(ns("removed_samples_table")) else p(class = "empty-note", icon("circle-check"), "No samples were removed.")
+        if (length(r$removed_samples) > 0) DT::dataTableOutput(ns("removed_samples_table")) else p(class = "empty-note", icon("circle-check"), "No samples were removed."),
+        ## Per-sample BMIQ (bmiq / noob_bmiq) can fail on individual samples
+        ## and silently fall back to their raw, unnormalized values for just
+        ## that column - flag which samples that happened to, distinct from
+        ## samples removed by a filter above.
+        if (length(r$bmiq_failed_samples %||% character(0)) > 0) tagList(
+          h5(sprintf("Samples where BMIQ failed - left unnormalized (%d)", length(r$bmiq_failed_samples))),
+          p(class = "empty-note", icon("triangle-exclamation"),
+            sprintf("BMIQ could not fit these sample(s); their values in \"After\" are the same raw input as \"Before\", not normalized: %s.",
+                    paste(r$bmiq_failed_samples, collapse = ", ")))
+        ) else NULL
       )
     })
     output$removed_probes_table <- DT::renderDataTable({

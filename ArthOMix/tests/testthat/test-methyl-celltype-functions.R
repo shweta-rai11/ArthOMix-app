@@ -117,8 +117,19 @@ test_that("methyl_ct_run_epidish() (real EpiDISH::epidish, RPC) approximately re
   res <- methyl_ct_run_epidish(bulk, ref_mat, method = "RPC")
   expect_true(res$ok)
   est <- res$fractions["S1", ]
-  expect_equal(unname(est["CellA"]), 0.7, tolerance = 0.05)
-  expect_equal(unname(est["CellB"]), 0.3, tolerance = 0.05)
+  ## Absolute-difference bound (not expect_equal(..., tolerance=)): the intent
+  ## here is "estimated fraction within 0.05 of the true fraction", but
+  ## expect_equal()'s `tolerance` is interpreted as a *relative* difference
+  ## under testthat's all.equal()-based edition 2 and differently again under
+  ## edition 3's waldo::compare(); for a value as small as 0.3 that distinction
+  ## flips a 0.025 absolute (and passing) deviation into a test failure under
+  ## edition 3. expect_lt() on the raw absolute difference is edition-agnostic
+  ## and states the actual intended bound directly (verified against real
+  ## testthat 3.3.2: this file fails under Config/testthat/edition: 3 with the
+  ## old expect_equal(tolerance=) form, and passes under both editions with
+  ## this form).
+  expect_lt(abs(unname(est["CellA"]) - 0.7), 0.05)
+  expect_lt(abs(unname(est["CellB"]) - 0.3), 0.05)
   expect_equal(sum(est), 1, tolerance = 1e-6)  ## EpiDISH's own sum-to-one constraint
 })
 

@@ -50,7 +50,9 @@ multi_live_read_matrix <- function(path, orientation = c("samples_rows", "featur
   ext <- tolower(tools::file_ext(filename %||% path))
   raw <- tryCatch({
     if (identical(ext, "rds")) {
-      readRDS(path)
+      loaded <- safe_read_rds(path)
+      if (!isTRUE(loaded$ok)) stop(loaded$error)
+      loaded$value
     } else if (ext %in% c("xlsx", "xls")) {
       if (!requireNamespace("openxlsx", quietly = TRUE)) {
         stop("The openxlsx package is not installed in this deployment - export as CSV/TSV instead.")
@@ -295,17 +297,60 @@ multi_live_qc_summary_table <- function(validations) {
 ## ---------------------------------------------------------------------------
 
 ## Real per-layer + shared sample counts across N uploaded layers - never
-## silently merges mismatched samples (spec section 4).
+## silently merges mismatched samples (spec section 4). Matching uses the
+## SAME normalization ch_id_harmonization_table() (cohort_harmonization_
+## helpers.R) already reports by, via the one shared ch_normalize_id() -
+## previously this did a byte-exact intersect() while the harmonization
+## report normalized case/whitespace before claiming a match, so a user
+## could see "Patient01" x "patient_01" reported as a "Normalized match" in
+## the QC report while this, the actual join, silently dropped both samples
+## as unmatched. A normalized ID that is duplicated WITHIN one layer (e.g.
+## "Patient01" and "PATIENT01" both present in the same layer) is ambiguous
+## and is only matched via an exact byte-for-byte tiebreak - never silently
+## resolved to one of them. Matched rows in every returned matrix are
+## renamed to one shared canonical ID (the first layer's own spelling, in
+## `mat_list` order) so `shared_ids` indexes consistently into every matrix
+## in the returned `mats`.
 multi_live_sample_overlap <- function(mat_list) {
   mat_list <- Filter(Negate(is.null), mat_list)
   if (length(mat_list) < 2) return(list(ok = FALSE, error = "Upload at least two omics layers to assess sample overlap."))
+
   ids_by_layer <- lapply(mat_list, rownames)
-  shared <- Reduce(intersect, ids_by_layer)
   per_layer <- vapply(ids_by_layer, length, integer(1))
+
+  ## Byte-exact matches - always trusted, even where the normalized form is
+  ## ambiguous within a layer (spec: require exact match as a tiebreak).
+  exact_shared <- Reduce(intersect, ids_by_layer)
+
+  ## Normalized matches - only where the normalized ID is unambiguous
+  ## (appears at most once) within every single layer.
+  norm_by_layer <- lapply(ids_by_layer, ch_normalize_id)
+  dup_by_layer <- lapply(norm_by_layer, function(x) duplicated(x) | duplicated(x, fromLast = TRUE))
+  unambig_norm_by_layer <- Map(function(nrm, dup) unique(nrm[!dup & nzchar(nrm)]), norm_by_layer, dup_by_layer)
+  shared_norm <- Reduce(intersect, unambig_norm_by_layer)
+  ## Canonical raw spelling per shared normalized ID = the first layer's own
+  ## value (mat_list order) - deterministic, never a fabricated new ID.
+  canonical <- stats::setNames(vapply(shared_norm, function(nrm) ids_by_layer[[1]][norm_by_layer[[1]] == nrm][1], character(1)), shared_norm)
+
+  mats_out <- Map(function(m, ids, nrm) {
+    rn <- ids
+    norm_hit <- !(rn %in% exact_shared) & nrm %in% shared_norm
+    rn[norm_hit] <- unname(canonical[nrm[norm_hit]])
+    rownames(m) <- rn
+    m
+  }, mat_list, ids_by_layer, norm_by_layer)
+
+  shared <- union(exact_shared, unname(canonical[shared_norm]))
+  ambiguous <- unique(unlist(Map(function(nrm, dup) unique(nrm[dup & nzchar(nrm)]), norm_by_layer, dup_by_layer)))
+
   list(
-    ok = TRUE, per_layer = setNames(per_layer, names(mat_list)),
+    ok = TRUE, mats = mats_out, per_layer = setNames(per_layer, names(mat_list)),
     n_shared = length(shared), shared_ids = shared,
-    layer_only = lapply(seq_along(mat_list), function(i) setdiff(ids_by_layer[[i]], shared))
+    layer_only = lapply(seq_along(mat_list), function(i) {
+      ids <- ids_by_layer[[i]]; nrm <- norm_by_layer[[i]]
+      ids[!(ids %in% exact_shared) & !(nrm %in% shared_norm)]
+    }),
+    n_ambiguous = length(ambiguous), ambiguous_ids = ambiguous
   )
 }
 

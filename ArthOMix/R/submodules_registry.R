@@ -239,9 +239,7 @@ build_mo_context <- function(multi_dataset, multi_results, focus_id = NULL) {
 
 ## Whole-app fallback context - every Transcriptomics sub-module plus the
 ## Cross-Omics integration summary. Used when no single omics module is in
-## view (Home/Modules landing pages) and kept under its original name since
-## FEATURE_SELECTION_GUIDE.md and the thesis chapter already cite it by name
-## as ArthOChat's context builder.
+## view (Home/Modules landing pages) as ArthOChat's context builder.
 build_assistant_context <- function(dataset, results, cross_results = NULL) {
   paste(build_tx_context(dataset, results), "", build_cx_context(cross_results %||% list(), focus_id = "integration"), sep = "\n")
 }

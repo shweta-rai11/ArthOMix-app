@@ -152,10 +152,18 @@ ch_pairwise_overlap_matrix <- function(sample_id_lists) {
 ## Duplicate / Unmatched / Ambiguous / Invalid.
 ## ---------------------------------------------------------------------------
 
+## Single normalization rule for a sample/patient identifier - trim
+## whitespace, fold case. This is the ONLY place that definition lives; both
+## the harmonization report below AND the real join that actually merges
+## omics layers (mo_apply_matching()/multi_live_sample_overlap(), mod_multi_
+## dataset.R / multiomics_live_helpers.R) call this same function, so a
+## report of "matched" can never disagree with what the real join did.
+ch_normalize_id <- function(x) trimws(tolower(as.character(x)))
+
 ch_id_harmonization_table <- function(sample_id_lists) {
   sample_id_lists <- Filter(Negate(is.null), sample_id_lists)
   if (length(sample_id_lists) == 0) return(NULL)
-  norm_id <- function(x) trimws(tolower(as.character(x)))
+  norm_id <- ch_normalize_id
 
   rows <- do.call(rbind, lapply(names(sample_id_lists), function(mod) {
     ids <- as.character(sample_id_lists[[mod]])

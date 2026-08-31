@@ -115,7 +115,12 @@ methyl_norm_bmiq <- function(mat, anno_result, nfit = 50000, nL = 3, tol = 0.001
                   nfit_used, if (nfit_used < nfit) sprintf(", reduced from %d - fewer probes of one Infinium type than that", nfit) else "",
                   sum(keep), dv$n_dropped,
                   if (length(failed) > 0) sprintf(" %d sample(s) failed and were left unnormalized: %s.", length(failed), paste(failed, collapse = ", ")) else "")
-  list(ok = TRUE, beta = out, note = note, failed_samples = failed)
+  ## Column-level flag (named by sample) distinguishing actually-BMIQ-corrected
+  ## columns from ones left as raw input after a failed fit - `note`'s prose
+  ## already says this, but a caller/UI needs a structured flag to act on it
+  ## (e.g. badge affected sample columns) rather than parsing free text.
+  sample_ok <- stats::setNames(!(colnames(out) %in% failed), colnames(out))
+  list(ok = TRUE, beta = out, note = note, failed_samples = failed, sample_ok = sample_ok)
 }
 
 ## Peak-based correction (Dedeurwaerder et al. 2011) via ChAMP's unexported
@@ -156,7 +161,8 @@ methyl_norm_noob_bmiq <- function(rg_set, anno_result, offset = 15, dye_method =
   if (!isTRUE(step1$ok)) return(step1)
   step2 <- methyl_norm_bmiq(step1$beta, anno_result, nfit = nfit, nL = nL, tol = tol)
   if (!isTRUE(step2$ok)) return(list(ok = FALSE, reason = sprintf("Noob succeeded but the BMIQ step failed: %s", step2$reason)))
-  list(ok = TRUE, beta = step2$beta, note = sprintf("Sequential Noob -> BMIQ. Noob: %s BMIQ: %s", step1$note, step2$note))
+  list(ok = TRUE, beta = step2$beta, note = sprintf("Sequential Noob -> BMIQ. Noob: %s BMIQ: %s", step1$note, step2$note),
+       failed_samples = step2$failed_samples, sample_ok = step2$sample_ok)
 }
 
 methyl_norm_noob_swan <- function(rg_set, offset = 15, dye_method = "single") {

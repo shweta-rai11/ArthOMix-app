@@ -245,6 +245,13 @@ sfc_snf_run <- function(layers, params = list()) {
     max(2, min(as.integer(params$n_clusters), max_k_clusters))
   } else if (!is.null(est)) est[["Eigen-gap best"]] else 2
 
+  ## SNFtool::spectralClustering() is k-means-based internally - same
+  ## reproducibility gap as the multi-omics path (mi_snf_run(), which the
+  ## >=2-block branch above delegates to and already seeds); seeded here too
+  ## for the single-omics fallback so both branches of this function are
+  ## equally reproducible for a given `params$seed`.
+  seed <- as.integer(params$seed %||% 1)
+  set.seed(seed)
   clusters <- tryCatch(SNFtool::spectralClustering(W, K = n_clusters), error = function(e) NULL)
   if (is.null(clusters)) return(list(ok = FALSE, error = "Spectral clustering failed on this block's similarity network."))
   names(clusters) <- rownames(layers[[1]])
@@ -256,7 +263,7 @@ sfc_snf_run <- function(layers, params = list()) {
       k_mode = if (k_manual) "manual" else "automatic", alpha_mode = if (alpha_manual) "manual" else "automatic",
       t_mode = "not applicable (single-omics, no fusion step)",
       n_clusters = n_clusters, cluster_mode = cluster_mode, n_samples = n, standardize = standardize,
-      mode = "single_omics"
+      mode = "single_omics", seed = seed
     )
   )
 }
@@ -386,6 +393,23 @@ sfc_clinical_run <- function(clusters, sample_meta, vars, kind = c("categorical"
 ## everywhere a verdict is shown (never re-derived per call).
 ## ---------------------------------------------------------------------------
 
+## NOTE on the 0.75 cutoff vs. Biomarker Discovery's own stability metric:
+## Biomarker Discovery's MB_STABILITY_THRESHOLDS (multiomics_biomarker_
+## helpers.R) uses a different "stable" cutoff (0.8). This is deliberate,
+## not an oversight - the two are not the same statistic and are not meant
+## to share one bar. SFC_STABILITY_THRESHOLDS classifies a mean Adjusted
+## Rand Index between two full sample-partitions (subsampled SNF clustering
+## vs. the full-cohort reference clustering, sfc_stability_run()/mi_ari()) -
+## ARI is chance-corrected (0 expected under random labelings, 1 at perfect
+## agreement), and conventional cutoffs for "excellent"/"high" clustering
+## agreement by ARI (e.g. Hubert & Arabie 1985; Ben-Hur et al. 2002) sit
+## around 0.75. MB_STABILITY_THRESHOLDS instead classifies a per-feature
+## *selection frequency* - a plain, uncorrected-for-chance proportion of CV
+## repeats that selected a given feature - where the stability-selection
+## literature's typical "reliable" cutoffs run higher, around 0.6-0.9
+## (Meinshausen & Buhlmann 2010), with this app choosing 0.8. Forcing these
+## two constants to match would paper over that the underlying statistics
+## live on different effective scales.
 SFC_STABILITY_THRESHOLDS <- list(stable = 0.75, moderate = 0.5)
 
 sfc_stability_verdict <- function(mean_ari) {
@@ -505,6 +529,7 @@ sfc_summary_lines <- function(res, stability = NULL, clinical_note = NULL) {
     sprintf("K: %s (%s)", p$k, p$k_mode),
     sprintf("Alpha: %s (%s)", if (is.na(p$alpha)) "-" else sprintf("%.2f", p$alpha), p$alpha_mode),
     sprintf("T: %s", if (is.na(p$t)) "not applicable (single-omics)" else sprintf("%s (%s)", p$t, p$t_mode)),
+    sprintf("Random seed: %s", p$seed %||% "-"),
     sprintf("Cluster stability: %s", if (!is.null(stability) && isTRUE(stability$ok)) sprintf("%s (mean ARI = %.2f across %d resamples)", stability$verdict, stability$mean_ari, stability$n_resamples) else "Not computed"),
     if (!is.null(clinical_note)) clinical_note
   )

@@ -16,7 +16,7 @@
 
 mod_cross_biomarker_conv_config <- list(
   id = "biomarkerconv", title = "Biomarker Convergence", icon = "diagram-project", group = "Data",
-  description = "Shows the pipeline's own precomputed eQTL-MR and mQTL-MR evidence per gene, and where the two converge."
+  description = "Loads and relabels precomputed eQTL-MR and mQTL-MR evidence at configurable significance thresholds."
 )
 
 mod_cross_biomarker_conv_ui <- function(id) {
@@ -156,11 +156,25 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       cols <- intersect(c("gene", "eQTL_MR_OR", "eQTL_MR_pval", "eQTL_MR_FDR", "eQTL_MHC_region", "eQTL_MR_significant"), colnames(d))
       d[, cols, drop = FALSE]
     })
+    ## Shared by the eQTL-MR and eQTL-mQTL tabs below: how many rows in a table that
+    ## carries eQTL_MHC_region sit in the MHC region (chr6, ~25-34Mb) - the single most
+    ## notorious horizontal-pleiotropy hotspot in autoimmune-disease genetics, where an
+    ## MR estimate is more likely to reflect regional LD than the gene's own causal
+    ## effect. NULL (renders nothing) when there's nothing to warn about.
+    cx_bc_mhc_warning <- function(d) {
+      if (is.null(d) || !"eQTL_MHC_region" %in% colnames(d)) return(NULL)
+      n_mhc <- sum(d$eQTL_MHC_region %in% TRUE)
+      if (n_mhc == 0) return(NULL)
+      p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
+        sprintf("%d of %d row(s) here fall in the MHC region - treat these as considerably less reliable than non-MHC hits, regardless of how significant they look.", n_mhc, nrow(d)))
+    }
+
     output$eqtl_tab_ui <- renderUI({
       df <- tryCatch(bc_df(), error = function(e) NULL)
       if (is.null(df)) return(cx_empty_state("Load a table on the \"1. Cohort\" panel to see results here."))
       tagList(
         p(class = "submodule-desc", sprintf("%s of %s genes have an eQTL-MR causal-expression instrument in this panel.", format(sum(df$in_eQTL_MR_panel %in% TRUE), big.mark = ","), format(nrow(df), big.mark = ","))),
+        cx_bc_mhc_warning(eqtl_df()),
         div(class = "table-toolbar", downloadButton(ns("dl_eqtl_csv"), "CSV", class = "btn-sm")),
         DT::dataTableOutput(ns("eqtl_table"))
       )
@@ -215,6 +229,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
         else if (n_both == 0) p(class = "empty-note", icon("circle-info"),
           "0 here doesn't necessarily mean something is wrong: both files/panels are loaded, but this loaded data's eQTL-MR and mQTL-MR gene sets simply don't share any genes (this is expected for independently-uploaded files with unrelated candidate gene lists; the preloaded pipeline data always has some overlap, once genes with real mQTL-MR evidence that this table's own join had dropped are backfilled)."),
         p(class = "submodule-desc", sprintf("%s genes have BOTH an eQTL-MR and an mQTL-MR instrument - genetic evidence for a causal effect on both expression and methylation, independent of the DEG/DMP/DMR observational layers.", format(n_both, big.mark = ","))),
+        cx_bc_mhc_warning(eqtl_mqtl_df()),
         div(class = "table-toolbar", downloadButton(ns("dl_eqtl_mqtl_csv"), "CSV", class = "btn-sm")),
         DT::dataTableOutput(ns("eqtl_mqtl_table"))
       )

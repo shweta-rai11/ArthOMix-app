@@ -156,6 +156,86 @@ test_that("mi_diablo_run() (real mixOmics::tune.block.splsda/block.splsda/perf) 
   expect_true(all(panel_df$view %in% c("expression", "methylation")))
 })
 
+## ---- params$seed - the DIABLO tab's "Random seed" UI control ---------------
+## Regression test for a real bug: the "Random seed" numeric input existed in
+## mod_multi_integration.R's Advanced parameters panel but was never threaded
+## into d_params()/mi_diablo_run() at all, so changing it had zero effect on
+## the fit. Worse: mixOmics::tune.block.splsda()/perf() (the sgccda method)
+## each have their OWN `seed` argument (default NULL) and unconditionally
+## call `set.seed(seed)` internally - with seed=NULL that's `set.seed(NULL)`,
+## which re-randomizes from system entropy on every call, silently
+## overriding any set.seed() the caller did beforehand. So the real fix is
+## params$seed reaching those two calls' own `seed=` argument directly
+## (confirmed against the installed mixOmics source), not merely calling
+## set.seed() around mi_diablo_run() from the outside.
+
+test_that("mixOmics::tune.block.splsda()/perf() ignore an external set.seed() unless their own seed= argument is set (documents why mi_diablo_run() must pass params$seed through directly)", {
+  skip_if_not_installed("mixOmics")
+  ## set.seed(NULL) (mixOmics's own default when no seed is supplied)
+  ## re-randomizes regardless of prior state - this is the mechanism that
+  ## made the "Random seed" UI field a no-op even where an external
+  ## set.seed() call had been added around the whole run.
+  set.seed(42); v1 <- runif(1)
+  set.seed(42); set.seed(NULL); v2 <- runif(1)
+  set.seed(42); set.seed(NULL); v3 <- runif(1)
+  expect_false(isTRUE(all.equal(v2, v3)))  ## set.seed(NULL) itself is non-reproducible
+})
+
+test_that("mi_diablo_run(params$seed=...) makes the fit depend only on the supplied seed, not on whatever RNG state happened to precede the call", {
+  skip_if_not_installed("mixOmics")
+  n <- 30
+  y <- factor(rep(c("A", "B"), each = n / 2))
+  ids <- paste0("S", seq_len(n))
+  set.seed(300)
+  expr <- matrix(rnorm(n * 20), n, 20, dimnames = list(ids, paste0("g", 1:20)))
+  expr[y == "B", 1:5] <- expr[y == "B", 1:5] + 2
+  meth <- matrix(rnorm(n * 20), n, 20, dimnames = list(ids, paste0("cg", 1:20)))
+  meth[y == "B", 1:5] <- meth[y == "B", 1:5] - 2
+  layers <- list(expression = expr, methylation = meth)
+  names(y) <- ids
+  ## keepx_mode defaults to "automatic" (no keepx_manual supplied) so this
+  ## exercises the real, stochastic mixOmics::tune.block.splsda() CV-fold
+  ## path - the part a no-op seed would leave at the mercy of whatever RNG
+  ## state (or mixOmics's own internal re-randomization) happened at call
+  ## time.
+  base_params <- list(folds = 3, nrepeat = 1, validation_mode = "manual", validation_method = "mfold")
+
+  ## Deliberately scramble the global RNG state differently before each call
+  ## - if params$seed actually reaches mixOmics's own seed= argument (rather
+  ## than being silently ignored, or merely wrapped in an outer set.seed()
+  ## that mixOmics's internal set.seed(NULL) would override), both calls
+  ## below must still land on bit-identical results despite starting from
+  ## different prior RNG states.
+  set.seed(111); invisible(runif(1))
+  res_1 <- mi_diablo_run(layers, y, ids, params = c(base_params, list(seed = 42)))
+  set.seed(222); invisible(runif(50))
+  res_2 <- mi_diablo_run(layers, y, ids, params = c(base_params, list(seed = 42)))
+
+  expect_true(res_1$ok); expect_true(res_2$ok)
+  expect_identical(res_1$params$seed, 42L)
+  expect_identical(res_1$params$keepX, res_2$params$keepX)
+  sel_1 <- mi_diablo_selected_features_df(res_1$fit)
+  sel_2 <- mi_diablo_selected_features_df(res_2$fit)
+  expect_identical(sel_1$feature, sel_2$feature)
+  expect_identical(sel_1$loading, sel_2$loading)
+  perf_1 <- mi_diablo_performance_summary(res_1)
+  perf_2 <- mi_diablo_performance_summary(res_2)
+  expect_identical(perf_1$ber, perf_2$ber)
+
+  ## Without any params$seed at all (mi_diablo_run()'s pre-existing default,
+  ## still exercised by every OTHER test in this file and by
+  ## mod_multi_biomarker.R's own call path, both left untouched by this fix)
+  ## the two runs are NOT forced to agree, since mixOmics's own seed=NULL
+  ## default re-randomizes internally - i.e. this isn't testing a function
+  ## that just always returns the same thing regardless of its arguments.
+  set.seed(111); invisible(runif(1))
+  res_a <- mi_diablo_run(layers, y, ids, params = base_params)
+  set.seed(222); invisible(runif(50))
+  res_b <- mi_diablo_run(layers, y, ids, params = base_params)
+  expect_true(res_a$ok); expect_true(res_b$ok)
+  expect_null(res_a$params$seed)
+})
+
 test_that("mi_diablo_run() reports a clear error (never a crash) when fewer than two outcome classes remain in the matched samples", {
   ids <- paste0("S", 1:10)
   y <- factor(rep("A", 10)); names(y) <- ids

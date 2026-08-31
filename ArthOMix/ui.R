@@ -1024,16 +1024,14 @@ homeUI <- function() {
         h1(class = "home-hero-title", home_hero_title_words("From raw omics data to potential biomarkers.")),
         p(
           class = "home-hero-subtitle",
-          "ArthOMix Explorer is an integrated platform for reproducible biomarker discovery across ",
-          "transcriptomics, methylomics and multi-omics data - combining statistical analysis, network ",
-          "biology, causal inference, modeling and validation in one workflow."
+          "ArthOMix is an Shiny based web application used for transcriptomics, methylomics and integrated platform for identifying potential biomarkers across different omics layers."
         ),
         div(
           class = "home-hero-actions",
           actionButton("home_browse_modules", tagList(icon("table-cells-large"), "Explore Modules"), class = "btn btn-default"),
           tags$a(icon("comments"), " Ask ArthOChat", href = "#", class = "btn btn-default", onclick = ARTHOCHAT_DRAWER_OPEN_JS)
         ),
-        div(class = "home-hero-search-label", "Or jump straight to a module"),
+        div(class = "home-hero-search-label", "OR GO STRAIGHT TO A MODULE"),
         div(
           class = "home-hero-search",
           tags$span(class = "home-hero-search-icon", icon("magnifying-glass")),
@@ -1044,29 +1042,20 @@ homeUI <- function() {
           tags$span(class = "home-hero-search-kbd", "Enter")
         ),
         div(
-          class = "home-hero-pills",
-          home_hero_pill("Preprocessing"),
-          home_hero_pill("Differential expression"),
-          home_hero_pill("WGCNA"),
-          home_hero_pill("Mendelian randomization"),
-          home_hero_pill("Diagnostic model"),
-          home_hero_pill("ArthOChat")
-        ),
-        div(
           class = "home-hero-meta-row",
           home_meta_chip("layer-group", "Omics coverage", "Transcriptomics • Methylomics • Cross-Omics • Multi-omics"),
           home_meta_chip("sliders", "Analysis design", "Sex-stratified • Sex-specific • Sex-pooled"),
-          home_meta_chip("file-csv", "Accepted data", "Expression/methylation matrix (CSV, RDS), sample metadata (CSV)")
+          home_meta_chip("file-csv", "Accepted data", "CSV, RDS file formats.")
         )
       ),
       div(
         class = "home-hero-flow",
-        home_hero_flow_step("1", "layer-group", "Pick an omics layer",
-          "Transcriptomics is live now; methylomics and multi-omics are next."),
-        home_hero_flow_step("2", "route", "Run the full analysis",
-          "Preprocessing, network analysis, causal analysis and modeling - one connected pipeline."),
-        home_hero_flow_step("3", "flask-vial", "Get potential biomarkers",
-          "Ranked, validated candidates - ready for wet-lab follow-up.")
+        home_hero_flow_step("1", "layer-group", "Pick a module layer",
+          "Transcriptomics, methylomics and integrated."),
+        home_hero_flow_step("2", "route", "Run the analysis",
+          "Analysis based on modules."),
+        home_hero_flow_step("3", "flask-vial", "Identify potential biomarkers",
+          "To validated potential biomarker for wet-lab follow-up.")
       )
       ),
       tags$script(HTML(
@@ -1086,13 +1075,10 @@ homeUI <- function() {
       div(
         class = "home-goal-body",
         div(class = "home-goal-eyebrow", "The goal"),
-        h3(class = "home-goal-title", "Choose the analysis you need."),
+        h3(class = "home-goal-title", "Choose the analysis."),
         p(
           class = "home-goal-text",
-          "ArthOMix is modular - use the full pipeline, or jump straight into a module. Start with raw data, ",
-          "or upload existing results like DEG or WGCNA outputs. Modules cover feature selection, biomarkers, ",
-          "diagnostic modelling, network analysis, enrichment and interpretation. See the upload guide for ",
-          "file format details before you upload."
+          "ArthOMix is designed as a modular application. The user can either uplaod raw data or normalised data for each of the omcis layers. For each modules (Transcriptomics, methylomics, Integrated) it has multiple sub-modules. See the upload guide for file format details before you upload the data"
         ),
         tags$a(
           class = "home-goal-chat-link", href = "#", onclick = ARTHOCHAT_DRAWER_OPEN_JS,
@@ -1109,7 +1095,7 @@ homeUI <- function() {
       tags$canvas(id = "home_features_canvas", class = "home-features-canvas", `aria-hidden` = "true"),
       div(
         class = "page-header",
-        h2("Why ArthOMix Explorer"),
+        h2("Why ArthOMix"),
         p("One environment for reproducible biomarker discovery.")
       ),
       div(
@@ -1122,48 +1108,40 @@ homeUI <- function() {
           "Struggling with a basic concept? Learn while analysing and interpret biological findings with responses grounded in your analysis.",
           kicker = "ArthOChat, grounded in your data"),
         home_feature_card("flask", "Supports single and multiomics",
-          "From loading data to preprocessing, statistical analysis, validation, and interpreting results—all in a single app.")
+          "All in one app, from loading data to preprocessing, statistical analysis, validation, and interpreting results.")
       ),
       tags$script(HTML(HOME_FEATURES_CANVAS_JS))
     ),
     div(
       class = "page-header",
       h2("Frequently asked"),
-      p("What people ask before loading their own cohort.")
+      p("What people ask before analysis.")
     ),
     div(
       class = "home-faq-list",
       home_faq_item(
-        "Do I need to write code to run an analysis?",
-        paste(
-          "No. Every step - preprocessing, differential expression, network analysis, feature selection,",
-          "model training and evaluation - is point-and-click inside the platform's sub-modules. No R or",
-          "Python required."
-        )
+        "Do I need to write code to run any analysis?",
+        "No. Every step - preprocessing, differential expression or differential methylation analysis, feature selection, model training and evaluation is click and anlyse inside the platform's sub-modules. No R or Python is required."
       ),
       home_faq_item(
         "What types of omics data can ArthOMix analyze?",
-        "Transcriptomics is live today, spanning preprocessing, network analysis, causal analysis, biomarker modeling, validation and interpretation. Methylomics is live for upload and quality control, with more sub-modules to come. Cross-Omics now has a live Dataset tab browsing its biomarker-convergence tables, with its two analysis stages still to come; Multi-Omics extends the same workflow to the remaining layer."
+        "It can analyse Transcriptomics,methylomics, intergated study like cross-omics or multiomics."
       ),
       home_faq_item(
-        "Can I load my own cohort?",
-        "Yes - swap in your own expression matrix from the Dataset tab inside Transcriptomics; every downstream sub-module runs against whatever is currently loaded."
+        "Can I load my own data?",
+        "Yes - Use the uplaod data to upload your own data."
       ),
       home_faq_item(
         "Can I perform pooled and sex-specific analyses?",
-        "Yes. Differential expression, feature selection and the diagnostic model all support independent pooled, female-only and male-only runs, plus a dedicated group-by-sex interaction test for genuinely comparative analysis. Network analysis can use sex as a correlate; causal analysis (Mendelian randomisation) doesn't yet have a live sex-specific mode."
+        "Yes. It can perform sex specific analysis and all the results are downloadable in CSV or PNG file format."
       ),
       home_faq_item(
-        "What data does ArthOMix currently provide?",
-        paste(
-          "A merged rheumatoid arthritis blood cohort, harmonised against the Okada et al. 2014 RA GWAS",
-          "with a 1,701-gene Mendelian randomisation instrument set. It loads automatically as an example,",
-          "so you can explore the full pipeline before bringing your own data."
-        )
+        "What data does ArthOMix provide?",
+        "A platform to analyse omics data. It loads preloaded data as an example, so you can explore the full pipeline before bringing your own data."
       ),
       home_faq_item(
-        "When will methylomics and multi-omics modules be available?",
-        "Transcriptomics is live end to end today. Methylomics is live for upload and quality control (more sub-modules coming). Cross-Omics's Dataset tab is live now, with its two analysis stages coming next, followed by full Multi-Omics integration - see the Modules tab for status."
+        "Why it is named as ArthOMix?",
+        "This shiny based application allows the user to analyse any omics data but since the preloaded data (example) data is confined to Rheumatoid arthritis so the name \"Arth\", \"O\" stands for omics and \"Mix\" because it can perform both single and multiomics analysis based on the data provided."
       )
     ),
     div(
@@ -1242,7 +1220,7 @@ modulesLandingUI <- function() {
     div(
       class = "page-header",
       h2("Modules"),
-      p("Each card is one omics layer. Transcriptomics, Methylomics, and Cross-Omics are running so far. Open one to load a dataset and add sub-modules; the rest are reserved for later.")
+      p("Each module is one omics layer. Transcriptomics, Methylomics, and Integrated omics. Open one to load a dataset, or run preloadeed data or fetch data from NCBI GEO datasets, add sub-modules and perform analysis")
     ),
     h4(class = "module-group-title", "Single-omics modules"),
     div(class = "module-grid", lapply(single, moduleCardUI)),
@@ -1479,7 +1457,8 @@ crossomicsUI <- function() {
       ## can change with input$cx_menu - see server.R's output$cx_arthochat_hint -
       ## specifically so Cross-Omics MR gets its own hint about selecting MR
       ## data, instead of every Cross-Omics tab sharing one static blurb.
-      extra_sidebar_content = uiOutput("cx_arthochat_hint")
+      extra_sidebar_content = uiOutput("cx_arthochat_hint"),
+      dynamic_nav_output_id = "cx_sidebar_dynamic_nav"
     ))),
     column(
       9,
@@ -1525,9 +1504,9 @@ crossomicsUI <- function() {
 ## intersect().
 MULTI_SUBMODULE_GROUP_ORDER <- c("Data", "Biomarker modeling", "Interpretation")
 MULTI_SUBMODULE_GROUP_BLURB <- c(
-  "Data" = "Cohort harmonization, DIABLO/SNF integration performance, and patient stratification.",
-  "Biomarker modeling" = "Rank candidate multi-omics biomarkers and characterize their gene<->CpG concordance.",
-  "Interpretation" = "Pathway-level meaning."
+  "Data" = "Data preparation.",
+  "Biomarker modeling" = "Rank candidate multi-omics biomarkers.",
+  "Interpretation" = "Biomarker interpretation."
 )
 
 MULTIOMICS_SIDEBAR_NAV <- list(
@@ -1539,7 +1518,8 @@ multiomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
       "multiomics", "Multi-Omics", MULTIOMICS_SIDEBAR_NAV,
-      extra_sidebar_content = arthochat_shortcut_ui("Questions about DIABLO, SNF, or how these panels were built? Ask ArthOChat.", compact = TRUE)
+      extra_sidebar_content = arthochat_shortcut_ui("Questions about DIABLO, SNF, or how these panels were built? Ask ArthOChat.", compact = TRUE),
+      dynamic_nav_output_id = "mo_sidebar_dynamic_nav"
     ))),
     column(
       9,
@@ -1613,51 +1593,103 @@ addCssDepsOnly <- function(tag) {
   htmltools::attachDependencies(tag, js_free, append = TRUE)
 }
 
-addCssDepsOnly(
-  fluidPage(
-    theme = shinythemes::shinytheme("cerulean"),
-    useShinyjs(),
-    tags$head(
-      tags$title("ArthOMix Explorer"),
-      ## ?v=<mtime> cache-busts these on every app restart - www/ assets have
-      ## no Cache-Control header, so browsers are free to serve a stale copy
-      ## from disk cache on a plain reload; a changing query string forces a
-      ## real refetch without requiring a hard reload from whoever's testing.
-      tags$link(rel = "stylesheet", type = "text/css",
-                href = paste0("custom.css?v=", as.integer(file.mtime("www/custom.css")))),
-      tags$link(rel = "stylesheet", type = "text/css",
-                href = paste0("menuhex.css?v=", as.integer(file.mtime("www/menuhex.css"))))
-    ),
-    app_header(),
-    navbarPage(
-      title = "", id = "sidebar_tabs", selected = "home",
-      tabPanel(tagList(icon("house"), "Home"), value = "home", homeUI()),
-      tabPanel(tagList(icon("table-cells-large"), "Modules"), value = "modules", modulesLandingUI()),
-      tabPanel(tagList(icon("dna"), "Transcriptomics"), value = "transcriptomics", transcriptomicsUI()),
-      tabPanel(tagList(icon("circle-nodes"), "Methylomics"), value = "methylomics", methylomicsUI()),
-      tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
-      tabPanel(tagList(icon("layer-group"), "Multi-Omics"), value = "multiomics", multiomicsUI())
-      ## No "ArthOChat" tabPanel here - see the drawer below. Opening chat
-      ## used to replace whatever module you were looking at with a
-      ## separate full-page tab; it's now a slide-out panel mounted once,
-      ## outside the navbarPage, so it overlays on top of the current page
-      ## instead of navigating away from it.
-    ),
-    div(
-      id = "arthochat_drawer", class = "chat-drawer",
-      div(
-        class = "chat-drawer-header",
-        div(icon("comments"), strong(" ArthOChat")),
-        tags$button(
-          icon("xmark"), class = "chat-drawer-close", title = "Close",
-          onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
-        )
+## Everything the app actually shows once logged in - unchanged from before
+## the auth gate, just relocated into a function so server.R's
+## output$app_shell can render it only after auth$session_info() is
+## non-NULL, instead of it being the page's static content unconditionally.
+## `user_email` is passed straight to app_header() for the account menu.
+## `<<-`, not `<-`: shiny sources ui.R and server.R into two separate
+## environments that only share a common parent (the R/*.R auto-load
+## environment) - every other ui.R-local helper (homeUI(), transcriptomicsUI(),
+## ...) is only ever called from within ui.R itself, so that boundary never
+## mattered before. server.R's output$app_shell needs to call this one, so
+## it has to bind into the global environment instead of ui.R's own - the
+## function's closure (and so its access to homeUI() etc.) is unaffected;
+## only which environment the *name* resolves in changes.
+existing_app_ui <<- function(user_email) {
+  addCssDepsOnly(
+    fluidPage(
+      theme = shinythemes::shinytheme("cerulean"),
+      app_header(user_email),
+      navbarPage(
+        title = "", id = "sidebar_tabs", selected = "home",
+        tabPanel(tagList(icon("house"), "Home"), value = "home", homeUI()),
+        tabPanel(tagList(icon("table-cells-large"), "Modules"), value = "modules", modulesLandingUI()),
+        tabPanel(tagList(icon("dna"), "Transcriptomics"), value = "transcriptomics", transcriptomicsUI()),
+        tabPanel(tagList(icon("circle-nodes"), "Methylomics"), value = "methylomics", methylomicsUI()),
+        tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
+        tabPanel(tagList(icon("layer-group"), "Multi-Omics"), value = "multiomics", multiomicsUI())
+        ## No "ArthOChat" tabPanel here - see the drawer below. Opening chat
+        ## used to replace whatever module you were looking at with a
+        ## separate full-page tab; it's now a slide-out panel mounted once,
+        ## outside the navbarPage, so it overlays on top of the current page
+        ## instead of navigating away from it.
       ),
-      div(class = "chat-drawer-body", mod_arthochat_ui("arthochat"))
-    ),
-    tags$div(
-      id = "arthochat_drawer_backdrop", class = "chat-drawer-backdrop",
-      onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+      div(
+        id = "arthochat_drawer", class = "chat-drawer",
+        div(
+          class = "chat-drawer-header",
+          div(icon("comments"), strong(" ArthOChat")),
+          tags$button(
+            icon("xmark"), class = "chat-drawer-close", title = "Close",
+            onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+          )
+        ),
+        div(class = "chat-drawer-body", mod_arthochat_ui("arthochat"))
+      ),
+      tags$div(
+        id = "arthochat_drawer_backdrop", class = "chat-drawer-backdrop",
+        onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+      )
     )
   )
-)
+}
+
+## ---------------------------------------------------------------------------
+## Auth gate
+## The actual top-level `ui`. A function(request), not a static object, so
+## it can look the same for every visitor while what's inside uiOutput
+## ("app_shell") depends on that session's own auth state, decided
+## server-side (server.R's output$app_shell) - an unauthenticated browser
+## never receives existing_app_ui()'s markup at all. useShinyjs()/the CSS
+## links/the theme pre-paint script load once here, before login, so the
+## auth screen (R/auth/mod_auth_ui.R) is styled and themed identically to
+## the rest of the app.
+## ---------------------------------------------------------------------------
+
+ui <- function(request) {
+  addCssDepsOnly(
+    fluidPage(
+      theme = shinythemes::shinytheme("cerulean"),
+      useShinyjs(),
+      tags$head(
+        tags$title("ArthOMix"),
+        ## Applies any previously-chosen theme before first paint, so
+        ## switching to dark mode and reloading never flashes light mode
+        ## first. Only the theme preference is ever read from localStorage -
+        ## no auth/session data is stored there (see mod_auth_server.R).
+        tags$script(HTML(
+          "(function(){
+             try {
+               var t = localStorage.getItem('arthomix-theme') || 'light';
+               document.documentElement.setAttribute('data-theme', t);
+             } catch (e) {}
+           })();"
+        )),
+        ## ?v=<mtime> cache-busts these on every app restart - www/ assets have
+        ## no Cache-Control header, so browsers are free to serve a stale copy
+        ## from disk cache on a plain reload; a changing query string forces a
+        ## real refetch without requiring a hard reload from whoever's testing.
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("custom.css?v=", as.integer(file.mtime("www/custom.css")))),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("menuhex.css?v=", as.integer(file.mtime("www/menuhex.css")))),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("auth.css?v=", as.integer(file.mtime("www/auth.css")))),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("dark-theme.css?v=", as.integer(file.mtime("www/dark-theme.css"))))
+      ),
+      uiOutput("app_shell")
+    )
+  )
+}

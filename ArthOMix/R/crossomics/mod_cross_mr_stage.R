@@ -18,7 +18,7 @@
 
 mod_cross_mr_stage_config <- list(
   id = "mrstage", title = "Cross-Omics MR", icon = "arrow-right-arrow-left", group = "Genetics",
-  description = "Integrates the pipeline's own precomputed single-instrument mQTL-MR results with Biomarker Convergence's DEG/DMP/DMR/eQTL-MR evidence, showing genes matching each of 5 named evidence combinations (DEG-DMP-QTL, DEG-DMR-QTL, DEG-eQTL, DMP-mQTL, DMR-mQTL)."
+  description = "Classifies already-computed DEG/DMP/DMR/QTL evidence into 5 named convergence categories (DEG-DMP-QTL, DEG-DMR-QTL, DEG-eQTL, DMP-mQTL, DMR-mQTL)."
 )
 
 mod_cross_mr_stage_ui <- function(id) {
@@ -184,6 +184,39 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       cx_mr_classify_categories(join_df())
     })
 
+    ## mrs$df (the raw per-CpG-instrument MR table) has no MHC-region flag of its own -
+    ## that flag lives on the gene-level evidence table (join_df(), a pipeline-computed
+    ## column, not derived here). Merged in by gene so the Results table and its downloads
+    ## can show it too, not just the category tabs below (which already receive it via
+    ## CX_MR_CATEGORIES$cols). NA (not "FALSE") for any gene the evidence table doesn't
+    ## cover, so "not flagged" and "unknown" stay visually distinct.
+    mrs_with_mhc <- reactive({
+      df <- mrs$df; req(df)
+      jd <- tryCatch(join_df(), error = function(e) NULL)
+      if (!is.null(jd) && all(c("gene", "eQTL_MHC_region") %in% colnames(jd))) {
+        lut <- stats::setNames(jd$eQTL_MHC_region, jd$gene)
+        df$MHC_region <- unname(lut[df$gene])
+      } else {
+        df$MHC_region <- NA
+      }
+      df
+    })
+
+    ## A single reusable warning line: "N of M genes here sit in the MHC region" -
+    ## used by the Results tab and every eQTL-carrying category tab below. NULL when
+    ## there's nothing to warn about (0 MHC-flagged rows, or the flag isn't available).
+    mhc_warning <- function(d, mhc_col = "eQTL_MHC_region", gene_col = "gene") {
+      if (is.null(d) || !mhc_col %in% colnames(d)) return(NULL)
+      n_mhc <- sum(d[[mhc_col]] %in% TRUE)
+      if (n_mhc == 0) return(NULL)
+      n_genes <- length(unique(d[[gene_col]][d[[mhc_col]] %in% TRUE]))
+      p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
+        sprintf(
+          "%d of %d row(s) here (%d gene(s), including HLA/MHC-region genes) fall in the MHC region (chr6, ~25-34Mb) - the single most notorious horizontal-pleiotropy hotspot in autoimmune-disease genetics. Extreme regional LD means an MR estimate here is more likely to reflect the region than the gene itself; treat these rows as considerably less reliable than non-MHC hits, regardless of how significant they look.",
+          n_mhc, nrow(d), n_genes
+        ))
+    }
+
     ## Shared by the standalone Volcano tab and every category tab below -
     ## same b-vs--log10(FDR) plot either way, just over whatever rows the
     ## caller already filtered down to (every loaded instrument for the
@@ -240,6 +273,7 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
           tagList(
             p(class = "submodule-desc", this_cat$rule_text),
             p(class = "submodule-desc", sprintf("%s gene(s) match.", format(nrow(d), big.mark = ","))),
+            mhc_warning(d),
             div(class = "table-toolbar", downloadButton(ns(paste0("dl_cat_", this_cat$id, "_csv")), "CSV", class = "btn-sm")),
             DT::dataTableOutput(ns(paste0("cat_", this_cat$id, "_table")))
           )
@@ -262,15 +296,23 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
     output$results_table_ui <- renderUI({
       if (is.null(mrs$df)) return(cx_empty_state("Load MR results on the \"1. MR Data\" panel to see results here."))
       tagList(
-        p(class = "submodule-desc", "Mendelian randomization estimates - valid under the standard instrumental-variable assumptions. A single instrument per exposure cannot be tested for validity via heterogeneity; treat individual estimates as an association consistent with a causal effect, not as proof of one."),
+        p(class = "submodule-desc", "Mendelian randomization estimates - valid under the standard instrumental-variable assumptions. A single-instrument gene cannot be tested for validity via heterogeneity; a gene with several independent CpG-instruments (shown as separate rows here) could be, but this module does not currently aggregate per gene or run that test - treat every row as an association consistent with a causal effect, not as proof of one. No instrument-strength (F-statistic) figure is available from the precomputed file."),
+        mhc_warning(mrs_with_mhc(), mhc_col = "MHC_region"),
+        if (any(mrs$df$steiger_dir %in% FALSE)) p(class = "empty-note", icon("triangle-exclamation"),
+          sprintf("%d row(s) fail the Steiger directionality test (steiger_dir = FALSE) - possible reverse causation. Filter the \"steiger_dir\" column below to inspect them.", sum(mrs$df$steiger_dir %in% FALSE))),
         div(class = "table-toolbar", downloadButton(ns("dl_table_csv"), "CSV", class = "btn-sm"), downloadButton(ns("dl_table_xlsx"), "XLSX", class = "btn-sm")),
         DT::dataTableOutput(ns("results_table"))
       )
     })
     output$results_table <- DT::renderDataTable({
-      req(mrs$df)
-      cols <- intersect(c("gene", "cpg", "SNP", "nsnp", "b", "se", "pval", "OR", "OR_lo", "OR_hi", "FDR", "mr_significant", "steiger_dir", "steiger_pval"), colnames(mrs$df))
-      DT::datatable(mrs$df[, cols, drop = FALSE], rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+      d <- mrs_with_mhc()
+      cols <- intersect(c("gene", "cpg", "SNP", "nsnp", "b", "se", "pval", "OR", "OR_lo", "OR_hi", "FDR", "mr_significant", "steiger_dir", "steiger_pval", "MHC_region"), colnames(d))
+      dt <- DT::datatable(d[, cols, drop = FALSE], rownames = FALSE, filter = "top", options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
+      if ("steiger_dir" %in% cols) {
+        dt <- DT::formatStyle(dt, "steiger_dir", target = "row",
+                               backgroundColor = DT::styleEqual(c(FALSE), c("#fbe4e0")))
+      }
+      dt
     })
 
     ## NULL = every loaded instrument (the tab's default view); a category

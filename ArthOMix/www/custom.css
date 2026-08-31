@@ -484,16 +484,6 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   color: var(--color-ink);
   letter-spacing: -0.01em;
 }
-.app-header-brand-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px; height: 30px;
-  border-radius: 8px;
-  background: var(--color-surface-blue);
-  color: var(--color-primary);
-  font-size: 15px;
-}
 .app-header-search {
   flex: 1 1 auto;
   max-width: 520px;
@@ -537,6 +527,7 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 .app-header-actions .btn-primary {
   padding: 6px 14px;

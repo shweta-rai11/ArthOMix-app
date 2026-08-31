@@ -1,18 +1,5 @@
-# nested repo, pushed separately to its own GitHub repository
-Research_Q2_TRANSCRIPTOMICS_sexstratified_COPY/
-
-# copied in from /Users/swetarai/ArthOMix/methylomics/ (raw/processed data
-# excluded - 24G, too large to duplicate; left at its original location)
-Research_Q3_METHYLOMICS_sexstratified_COPY/
-
-# 24GB scratch copy containing nested project checkouts (including the
-# Q2 and Q3 copies above, and one whose own .git remote points back at
-# this repo); the real cross-omics pipeline inside it is referenced by
-# path only, not tracked here
-Research_Q4_cross_Omics_sexstratified_COPY/
-
-# nested repo (11GB, own .git), pushed separately to its own GitHub repository
-ArthOMix/Research_05_multiomics_sexstratified/
+# local Supabase credentials - never commit
+ArthOMix/.Renviron
 
 # OS / editor
 .DS_Store

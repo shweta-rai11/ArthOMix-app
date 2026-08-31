@@ -870,14 +870,6 @@ tbc_section_differential_expression <- function(d) {
   )
 }
 
-## One status pill (done/pending/neutral), using the shared .pipeline-status-chip CSS.
-tbc_status_chip <- function(label, state, value = NULL) {
-  cls <- switch(state, done = "status-done", pending = "status-pending", "status-neutral")
-  ic <- switch(state, done = "circle-check", pending = "circle-xmark", "circle-minus")
-  span(class = paste("pipeline-status-chip", cls), icon(ic),
-       if (!is.null(value)) sprintf("%s: %s", label, value) else label)
-}
-
 tbc_section_signature <- function(d) {
   sig <- d$signature_membership
   if (length(sig) == 0) {
@@ -1166,7 +1158,10 @@ tbc_section_go <- function(ext) {
   go_body <- if (!is.null(ext$go) && nrow(ext$go) > 0) {
     go_df <- ext$go
     go_df$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', go_df$GOID, go_df$GOID)
-    DT::datatable(go_df[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = FALSE,
+    ## escape = -1: leave only column 1 (the hand-built <a> link) unescaped;
+    ## column 2 (TERM, raw external GO.db text) stays HTML-escaped instead of
+    ## being rendered as-is, unlike the previous whole-table escape = FALSE.
+    DT::datatable(go_df[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), "No Gene Ontology (biological process) terms found, or GO.db is not installed in this deployment.")
   div(class = "card", div(class = "card-title", icon("circle-nodes"), "Gene Ontology (Biological Process)"),
@@ -1181,7 +1176,9 @@ tbc_section_kegg <- function(ext, kegg_map = NULL) {
   kegg_body <- if (isTRUE(ext$kegg$ok) && nrow(ext$kegg$pathways) > 0) {
     kdf <- ext$kegg$pathways
     kdf$Link <- sprintf('<a href="https://www.kegg.jp/pathway/%s" target="_blank" rel="noopener">%s</a>', kdf$id, kdf$id)
-    DT::datatable(kdf[, c("Link", "name")], colnames = c("KEGG ID", "Pathway"), rownames = FALSE, escape = FALSE,
+    ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
+    ## KEGG pathway name text) stays HTML-escaped.
+    DT::datatable(kdf[, c("Link", "name")], colnames = c("KEGG ID", "Pathway"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), if (isTRUE(ext$kegg$ok)) "No KEGG pathways found for this gene." else (ext$kegg$reason %||% "KEGG lookup unavailable."))
   kegg_map_body <- if (is.null(kegg_map)) NULL else if (isTRUE(kegg_map$ok) && !is.null(kegg_map$path) && file.exists(kegg_map$path) && requireNamespace("base64enc", quietly = TRUE)) {
@@ -1200,7 +1197,9 @@ tbc_section_reactome <- function(ext, reactome_map = NULL) {
   reactome_body <- if (isTRUE(ext$reactome$ok) && nrow(ext$reactome$pathways) > 0) {
     rdf <- ext$reactome$pathways
     rdf$Link <- sprintf('<a href="https://reactome.org/PathwayBrowser/#/%s" target="_blank" rel="noopener">%s</a>', rdf$stId, rdf$stId)
-    DT::datatable(rdf[, c("Link", "displayName")], colnames = c("Reactome ID", "Pathway"), rownames = FALSE, escape = FALSE,
+    ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
+    ## Reactome pathway name text) stays HTML-escaped.
+    DT::datatable(rdf[, c("Link", "displayName")], colnames = c("Reactome ID", "Pathway"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), if (isTRUE(ext$reactome$ok)) "No Reactome pathways found for this gene." else (ext$reactome$reason %||% "Reactome lookup unavailable."))
   reactome_map_body <- if (is.null(reactome_map)) NULL else if (isTRUE(reactome_map$ok) && !is.null(reactome_map$path) && file.exists(reactome_map$path) && requireNamespace("base64enc", quietly = TRUE)) {
@@ -1222,7 +1221,9 @@ tbc_section_wikipathways <- function(ext) {
           else {
             wdf <- wp$pathways
             wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', wdf$id, wdf$id)
-            DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = FALSE,
+            ## escape = -1: leave only column 1 (the link) unescaped; column 2
+            ## (raw WikiPathways pathway name text) stays HTML-escaped.
+            DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = -1,
                           options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
           }
   div(class = "card", div(class = "card-title", icon("map"), "WikiPathways"),
@@ -1240,8 +1241,11 @@ tbc_section_literature <- function(lit, gene = NULL, query_used = NULL) {
           else {
             df <- lit$papers
             df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', df$PMID, df$PMID)
+            ## escape = -5: leave only column 5 (the PMID link) unescaped;
+            ## columns 1-4 (raw PubMed title/authors/journal/year text) stay
+            ## HTML-escaped instead of being rendered as-is.
             DT::datatable(df[, c("Title", "Authors", "Journal", "Year", "Link")], colnames = c("Title", "Authors", "Journal", "Year", "PMID"),
-                          rownames = FALSE, escape = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+                          rownames = FALSE, escape = -5, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
           }
   div(class = "card", div(class = "card-title", icon("book-open"), "Literature (PubMed)"),
       prov,
@@ -1835,6 +1839,17 @@ mod_biomarkercard_server <- function(id, dataset, results) {
     observeEvent(input$bmc_search_mode, { bmc_picked_gene(NULL); bmc_panel_genes(character(0)) }, ignoreInit = TRUE)
     observeEvent(input$bmc_mode, { bmc_picked_gene(NULL); bmc_panel_genes(character(0)) }, ignoreInit = TRUE)
 
+    ## card_data()/panel_card_data() are eventReactives, so they keep the
+    ## previous dataset's evidence cached until Generate is clicked again;
+    ## clear both "has run" gates on a dataset switch so the card/panel
+    ## report falls back to its empty/prompt state instead of silently
+    ## continuing to show the prior cohort's evidence - same reset pattern
+    ## as mod_interaction.R's int_has_run / mod_wgcna.R's cache invalidation.
+    observeEvent(dataset$source, {
+      has_card(FALSE)
+      has_panel_card(FALSE)
+    }, ignoreInit = TRUE)
+
     output$bmc_selection_status_ui <- renderUI({
       pmode <- input$bmc_mode %||% "single"
       smode <- input$bmc_search_mode %||% "gene"
@@ -1929,7 +1944,8 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       validate(need(!is.null(input$bmc_upload_file), "Upload a .csv, .txt, or .rds file first."))
       path <- input$bmc_upload_file$datapath; name <- input$bmc_upload_file$name
       if (grepl("\\.rds$", name, ignore.case = TRUE)) {
-        obj <- tryCatch(readRDS(path), error = function(e) NULL)
+        loaded <- safe_read_rds(path)
+        obj <- if (isTRUE(loaded$ok)) loaded$value else NULL
         validate(need(!is.null(obj) && !is.null(obj$genes) && !is.null(obj$model_type),
                       "Upload a Diagnostic Classifier RDS export (from that tab's own \"Save trained model\" download), or a plain .csv/.txt gene-symbol list."))
         df <- data.frame(gene = as.character(obj$genes), stringsAsFactors = FALSE)

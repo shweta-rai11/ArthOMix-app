@@ -62,7 +62,7 @@ mod_multi_pathway_ui <- function(id) {
           "Preloaded cohort candidate-gene list (small - not genome-wide)" = "preloaded_universe",
           "Uploaded file's own identifier list" = "uploaded_background",
           "Entire selected database (no experimental universe)" = "entire_database"
-        ), selected = "entire_database"),
+        ), selected = "auto_experimental"),
         conditionalPanel(condition = sprintf("input['%s'] == 'entire_database'", ns("background")),
                           div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
                               "No experimental universe supplied - results will be labeled accordingly."))

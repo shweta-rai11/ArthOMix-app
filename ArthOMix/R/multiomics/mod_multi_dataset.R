@@ -229,7 +229,6 @@ mod_multi_dataset_ui <- function(id) {
     conditionalPanel(
       condition = sprintf("input['%s'] == 'preloaded'", ns("dataset_source")),
       box(width = NULL, title = "Reference / Example Dataset", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "A real, bundled cohort provided so you can see how this workflow operates. It runs through the exact same pipeline as an uploaded dataset - nothing here uses a special analysis path."),
           selectInput(ns("preloaded_pick"), "Select a reference dataset",
                       choices = c("RA anti-TNF Multi-Omics Dataset" = "ra_antitnf"), width = "100%"),
           selectInput(ns("preloaded_cell"), "Analysis cell (matched sex x drug/outcome subset)", choices = MULTI_CELL_CHOICES, width = "100%"),
@@ -341,15 +340,33 @@ mo_label_omics_type <- function(label, input, n_upload, n_geo, mode) {
 ## metadata. "mapping" translates via a user-supplied mapping file with one
 ## column per dataset label. Samples with no mapping entry are dropped from
 ## THAT dataset only, and the count is returned rather than silently lost.
+## Matching against `meta`/`mapping_df` uses the SAME normalization
+## ch_id_harmonization_table() (cohort_harmonization_helpers.R) reports by -
+## ch_normalize_id() - so a QC report claiming "Normalized match" can never
+## disagree with what this real join actually did. A byte-exact match is
+## always preferred; the normalized form is used only as a fallback, and
+## only when it is unambiguous (not shared by two different raw IDs on the
+## lookup side) - a duplicate normalized ID is left unmatched rather than
+## silently resolved to one of them (spec: require exact match as tiebreak).
 mo_apply_matching <- function(mats, method, meta = NULL, patient_col = NULL, mapping_df = NULL) {
   if (identical(method, "patient_id") && !is.null(meta) && !is.null(patient_col) && patient_col %in% colnames(meta)) {
+    meta_ids <- rownames(meta)
+    meta_norm <- ch_normalize_id(meta_ids)
+    meta_norm_dup <- duplicated(meta_norm) | duplicated(meta_norm, fromLast = TRUE)
     dropped <- list()
-    mats <- lapply(mats, function(m) {
-      common <- intersect(rownames(m), rownames(meta))
-      out <- m[common, , drop = FALSE]
-      rownames(out) <- as.character(meta[common, patient_col])
+    mats <- Map(function(m, label) {
+      rn <- rownames(m)
+      exact_idx <- match(rn, meta_ids)
+      rn_norm <- ch_normalize_id(rn)
+      norm_idx <- match(rn_norm, meta_norm)
+      use_norm <- is.na(exact_idx) & !is.na(norm_idx) & !meta_norm_dup[ifelse(is.na(norm_idx), 1L, norm_idx)]
+      final_idx <- ifelse(!is.na(exact_idx), exact_idx, ifelse(use_norm, norm_idx, NA_integer_))
+      keep <- !is.na(final_idx)
+      dropped[[label]] <<- sum(!keep)
+      out <- m[keep, , drop = FALSE]
+      rownames(out) <- as.character(meta[[patient_col]][final_idx[keep]])
       out
-    })
+    }, mats, names(mats))
     return(list(mats = mats, dropped = dropped))
   }
   if (identical(method, "mapping") && !is.null(mapping_df) && ncol(mapping_df) >= 2) {
@@ -358,12 +375,19 @@ mo_apply_matching <- function(mats, method, meta = NULL, patient_col = NULL, map
     mats <- Map(function(m, label) {
       col <- colnames(mapping_df)[tolower(colnames(mapping_df)) %in% tolower(c(label, gsub("[^A-Za-z0-9]", "_", label)))]
       if (length(col) == 0) { dropped[[label]] <<- nrow(m); return(m) }
-      lut <- setNames(canonical, as.character(mapping_df[[col[1]]]))
-      new_rn <- unname(lut[rownames(m)])
-      keep <- !is.na(new_rn)
+      map_ids <- as.character(mapping_df[[col[1]]])
+      map_norm <- ch_normalize_id(map_ids)
+      map_norm_dup <- duplicated(map_norm) | duplicated(map_norm, fromLast = TRUE)
+      rn <- rownames(m)
+      exact_idx <- match(rn, map_ids)
+      rn_norm <- ch_normalize_id(rn)
+      norm_idx <- match(rn_norm, map_norm)
+      use_norm <- is.na(exact_idx) & !is.na(norm_idx) & !map_norm_dup[ifelse(is.na(norm_idx), 1L, norm_idx)]
+      final_idx <- ifelse(!is.na(exact_idx), exact_idx, ifelse(use_norm, norm_idx, NA_integer_))
+      keep <- !is.na(final_idx)
       dropped[[label]] <<- sum(!keep)
       out <- m[keep, , drop = FALSE]
-      rownames(out) <- new_rn[keep]
+      rownames(out) <- canonical[final_idx[keep]]
       out
     }, mats, names(mats))
     return(list(mats = mats, dropped = dropped))
@@ -953,9 +977,14 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         res <- mo_apply_matching(mats, "mapping", mapping_df = mapping_df)
         mats <- res$mats
       }
-      ov <- multi_live_sample_overlap(mats)
-      if (isTRUE(ov$ok)) ov$mats <- mats
-      ov
+      ## multi_live_sample_overlap() returns its OWN `mats` (rownames
+      ## canonicalized for any samples it normalized-matched) - previously
+      ## this line clobbered that back to the pre-normalization `mats`,
+      ## which would have silently thrown away the fix below (samples that
+      ## only matched after trimming whitespace/case would revert to their
+      ## original, non-corresponding rownames and drop out of every
+      ## downstream `[shared_ids, ]` subset).
+      multi_live_sample_overlap(mats)
     })
 
     output$matching_ui <- renderUI({

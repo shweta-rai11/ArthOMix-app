@@ -21,7 +21,7 @@
 ARTHOCHAT_MAX_TURNS <- 40L
 
 ARTHOCHAT_SYSTEM_PROMPT <- paste(
-  "You are ArthOChat, the assistant embedded in the ArthOMix Explorer Shiny app",
+  "You are ArthOChat, the assistant embedded in the ArthOMix Shiny app",
   "for rheumatoid arthritis multi-omics analysis. Answer anything the user",
   "asks about this project: the currently loaded dataset (the bundled example",
   "cohort, or their own uploaded/merged data - always whatever is actually",
@@ -176,7 +176,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     ## Falls back to a fixed "whole app" view when no navigation-aware caller
     ## passed current_context (keeps this module usable standalone/in tests).
     view_r <- if (is.null(current_context)) {
-      reactive(list(module = "app", view_label = "ArthOMix Explorer", submodule_id = NULL))
+      reactive(list(module = "app", view_label = "ArthOMix", submodule_id = NULL))
     } else {
       current_context
     }

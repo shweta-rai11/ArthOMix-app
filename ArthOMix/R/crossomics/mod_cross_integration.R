@@ -27,7 +27,7 @@
 
 mod_cross_integration_config <- list(
   id = "integration", title = "Expression and Methylation", icon = "dna", group = "Data",
-  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation - expression data, methylation data, integration setup, quadrant plot, heatmap, network analysis, and exportable results."
+  description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation."
 )
 
 ## Sex stratum for Export's per-group downloads, detected from the loaded

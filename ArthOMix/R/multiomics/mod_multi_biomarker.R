@@ -510,7 +510,7 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       dist <- as.data.frame(table(stability = sig$stability_category))
       tagList(
         p(class = "submodule-desc", sprintf(
-          "Stable: >=%.0f%% of CV repetitions. Moderately stable: %.0f-%.0f%%. Low stability: <%.0f%%.",
+          "Stable: >=%.0f%% of CV repetitions. Moderately stable: %.0f-%.0f%%. Low stability: <%.0f%%. (This is a per-feature selection-frequency stability, distinct from SNF Clustering's mean-ARI cluster-stability metric, which uses its own >=75%% “Stable” cutoff on a different, chance-corrected scale.)",
           MB_STABILITY_THRESHOLDS$stable * 100, MB_STABILITY_THRESHOLDS$moderate * 100, MB_STABILITY_THRESHOLDS$stable * 100, MB_STABILITY_THRESHOLDS$moderate * 100
         )),
         div(style = "display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;",

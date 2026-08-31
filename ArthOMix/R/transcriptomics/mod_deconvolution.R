@@ -189,6 +189,11 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       perm <- suppressWarnings(as.integer(input$cib_perm %||% 100))
       if (is.na(perm) || perm < 0) perm <- 100
 
+      ## CIBERSORT's own permutation test (perm > 0) draws random gene subsets each
+      ## run; seeded for reproducibility, matching this app's ARTHOMIX_TX_ML_SEED
+      ## convention already threaded through Diagnostic Model/Feature Selection/
+      ## Cross-Tissue Validation (see global.R).
+      set.seed(ARTHOMIX_TX_ML_SEED)
       cib_raw <- tryCatch(
         suppressMessages(suppressWarnings(
           IOBR::deconvo_tme(eset = lin_expr, method = "cibersort", arrays = !is_counts, perm = perm)

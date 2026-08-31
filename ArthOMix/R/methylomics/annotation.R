@@ -10,6 +10,18 @@ METHYL_ARRAY_TYPES <- c("450K", "EPIC", "EPICv2", "WGBS", "RRBS", "Custom array"
 ## probe "IDs" are genomic coordinates, so prefix/manifest filters are hidden for them.
 METHYL_ARRAY_TYPES_ILLUMINA <- c("450K", "EPIC", "EPICv2", "Custom array")
 
+## EPICv2 deliberately NOT mapped here even though
+## IlluminaHumanMethylationEPICv2anno.20a1.hg38 is genuinely installed in
+## some deployments (verified: it does expose the same Locations/Manifest/
+## Other/SNPs.147CommonSingle objects methyl_get_annotation() below reads).
+## Two things make it unsafe to wire in as a drop-in: (1) it's hg38, while
+## every other annotation package here (and DMRcate's downstream calls) is
+## hg19 - genomic coordinates would silently mix builds; (2) its probe IDs
+## carry a replicate suffix (e.g. "cgXXXXXXXX_BC11"), not the plain
+## "cgXXXXXXXX" IDs 450K/EPIC(v1) and most uploaded EPICv2 beta matrices use -
+## an ID-based join against this manifest would silently return all-NA
+## annotation instead of erroring. mod_methyl_dataset.R's array_type_note
+## instead shows an explicit inline warning that EPICv2 has no manifest here.
 METHYL_ANNOTATION_PACKAGES <- list(
   "450K" = "IlluminaHumanMethylation450kanno.ilmn12.hg19",
   "EPIC" = "IlluminaHumanMethylationEPICanno.ilm10b4.hg19"

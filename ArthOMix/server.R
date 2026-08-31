@@ -1,7 +1,15 @@
 ## server.R
 ## ArthOMix Explorer
 
-function(input, output, session) {
+## Everything below (through the matching closing brace at the end of this
+## file) is the entire app's existing server logic, unchanged - relocated
+## into a plain function so the auth gate at the bottom of this file can
+## invoke it exactly once, only after a successful login, instead of at
+## session start unconditionally. `auth` is the list returned by
+## R/auth/mod_auth_server.R (session_info reactiveVal + logout()) - only
+## the theme-toggle and logout observers below (both new) read it; nothing
+## else in this function was touched.
+existing_app_server <- function(input, output, session, auth) {
 
   ## ---- Shared dataset, read by every Transcriptomics submodule -----------
   ## source_type ("uploaded"/"geo"/"preloaded") and is_bundled_reference (TRUE
@@ -27,25 +35,6 @@ function(input, output, session) {
   observeEvent(dataset$source, {
     for (nm in names(results)) results[[nm]] <- NULL
   }, ignoreInit = TRUE)
-
-  ## Always-visible header badge (R/ui_shell.R::app_header()) - which
-  ## dataset every Transcriptomics submodule is currently reading from.
-  ## Neutral grey for this app's own preloaded example; blue, plus sample
-  ## count, for anyone's own uploaded/merged/corrected data - so switching
-  ## between the two is never ambiguous no matter which page you're on.
-  output$active_dataset_badge <- renderUI({
-    is_default <- isTRUE(dataset$is_bundled_reference)
-    n <- tryCatch(ncol(dataset$expr), error = function(e) NA)
-    tags$span(
-      class = paste("header-dataset-badge", if (is_default) "is-default" else "is-custom"),
-      icon(if (is_default) "flask" else "table"),
-      if (is_default) {
-        sprintf("ArthOMix default%s", if (!is.na(n)) sprintf(" (%s samples)", n) else "")
-      } else {
-        sprintf("Your own data%s", if (!is.na(n)) sprintf(" (%s samples)", n) else "")
-      }
-    )
-  })
 
   ## ---- Home page -> jump into the app -------------------------------------
   observeEvent(input$home_browse_modules, {
@@ -216,7 +205,7 @@ function(input, output, session) {
         submodule_id = title_to_module_id(MULTI_MODULES, input$mo_menu),
         view_label = if (is.null(input$mo_menu)) "Multi-Omics" else sprintf("Multi-Omics / %s", input$mo_menu)
       ),
-      list(module = "app", submodule_id = NULL, view_label = "ArthOMix Explorer (no specific module open)")
+      list(module = "app", submodule_id = NULL, view_label = "ArthOMix (no specific module open)")
     )
   })
 
@@ -697,6 +686,34 @@ function(input, output, session) {
     updateTabsetPanel(session, "cx_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
 
+  ## Dynamic per-added-sub-module sidebar shortcuts - same mechanism as
+  ## Transcriptomics's tx_sidebar_dynamic_nav above, against CX_MODULES/
+  ## "cx_menu"/cx_added$ids.
+  lapply(CX_MODULES, function(m) {
+    hid <- m$config$id
+    observeEvent(input[[paste0("sidebar_nav_crossomics_dyn_", hid)]], {
+      updateTabsetPanel(session, "cx_menu", selected = m$config$title)
+    }, ignoreInit = TRUE)
+  })
+
+  output$cx_sidebar_dynamic_nav <- renderUI({
+    tagList(lapply(CX_MODULES, function(m) {
+      hid <- m$config$id
+      if (!hid %in% cx_added$ids) return(NULL)
+      tags$li(
+        tags$a(
+          id = paste0("sidebar_nav_crossomics_dyn_", hid), href = "#",
+          class = "sidebar-nav-item action-button",
+          `data-match` = m$config$title,
+          icon(m$config$icon), m$config$title
+        )
+      )
+    }))
+  })
+  ## Same pre-existing suspendWhenHidden bug tx_sidebar_dynamic_nav already
+  ## works around above (see its own comment).
+  outputOptions(output, "cx_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
+
   ## Multi-Omics sidebar nav - same jump-or-fall-back-to-picker pattern as
   ## jump_to_cx_submodule() above, against MULTI_MODULES/"mo_menu"/mo_added$ids.
   jump_to_mo_submodule <- function(mod_id, sm_filter = NULL) {
@@ -715,6 +732,34 @@ function(input, output, session) {
   observeEvent(input$sidebar_nav_multiomics_submodules, {
     updateTabsetPanel(session, "mo_menu", selected = "Sub-modules")
   }, ignoreInit = TRUE)
+
+  ## Dynamic per-added-sub-module sidebar shortcuts - same mechanism as
+  ## Transcriptomics's tx_sidebar_dynamic_nav above, against MULTI_MODULES/
+  ## "mo_menu"/mo_added$ids.
+  lapply(MULTI_MODULES, function(m) {
+    hid <- m$config$id
+    observeEvent(input[[paste0("sidebar_nav_multiomics_dyn_", hid)]], {
+      updateTabsetPanel(session, "mo_menu", selected = m$config$title)
+    }, ignoreInit = TRUE)
+  })
+
+  output$mo_sidebar_dynamic_nav <- renderUI({
+    tagList(lapply(MULTI_MODULES, function(m) {
+      hid <- m$config$id
+      if (!hid %in% mo_added$ids) return(NULL)
+      tags$li(
+        tags$a(
+          id = paste0("sidebar_nav_multiomics_dyn_", hid), href = "#",
+          class = "sidebar-nav-item action-button",
+          `data-match` = m$config$title,
+          icon(m$config$icon), m$config$title
+        )
+      )
+    }))
+  })
+  ## Same pre-existing suspendWhenHidden bug tx_sidebar_dynamic_nav already
+  ## works around above (see its own comment).
+  outputOptions(output, "mo_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
 
   ## Header search: "Enter" in the search box (see R/ui_shell.R::app_header())
   ## sets this input; matched first against top-level modules, then against
@@ -764,9 +809,28 @@ function(input, output, session) {
     showNotification(sprintf('No module or sub-module matched "%s".', input$header_search_submit), type = "warning")
   }, ignoreInit = TRUE)
 
-  ## Theme toggle: light-mode-only for now (see R/ui_shell.R::app_header()).
+  ## Theme toggle (see R/ui_shell.R::app_header()) - flips a data-theme
+  ## attribute on <html>, which www/dark-theme.css keys its overrides off
+  ## of, and persists the choice to localStorage so ui.R's pre-paint script
+  ## can apply it before first render on the next load (no server round
+  ## trip needed to read it back - only this app's own theme preference is
+  ## ever stored client-side, never anything auth-related).
   observeEvent(input$theme_toggle_btn, {
-    showNotification("Dark mode is coming soon.", type = "message", duration = 3)
+    shinyjs::runjs("
+      var html = document.documentElement;
+      var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      try { localStorage.setItem('arthomix-theme', next); } catch (e) {}
+    ")
+  }, ignoreInit = TRUE)
+
+  ## Log Out (R/ui_shell.R::app_header()'s account menu) - auth$logout()
+  ## revokes the Supabase session (best-effort) and calls session$reload(),
+  ## a full client-side page reload that re-runs ui(request)/server.R from
+  ## scratch as a brand-new R session, so no reactiveValues/module state
+  ## from this session survives it.
+  observeEvent(input$logout_btn, {
+    auth$logout()
   }, ignoreInit = TRUE)
 
   ## Transcriptomics page subtitle, directly under the "Transcriptomics"
@@ -776,8 +840,8 @@ function(input, output, session) {
   output$tx_page_subtitle <- renderUI({
     sel <- input$tx_menu %||% "Dataset"
     txt <- switch(sel,
-      "Dataset" = "Load and manage the working dataset",
-      "Sub-modules" = "Add or remove pipeline analyses",
+      "Dataset" = "Load a transcriptomics dataset",
+      "Sub-modules" = "Add or remove sub-modules.",
       sel
     )
     p(txt)
@@ -788,7 +852,7 @@ function(input, output, session) {
     sel <- input$mx_menu %||% "Dataset"
     txt <- switch(sel,
       "Dataset" = "Load a methylation dataset",
-      "Sub-modules" = "Add or remove pipeline analyses",
+      "Sub-modules" = "Add or remove sub-modules.",
       sel
     )
     p(txt)
@@ -798,8 +862,8 @@ function(input, output, session) {
   output$cx_page_subtitle <- renderUI({
     sel <- input$cx_menu %||% "Dataset"
     txt <- switch(sel,
-      "Dataset" = "Load example or your own DEG/DMP data",
-      "Sub-modules" = "Add or remove pipeline analyses",
+      "Dataset" = "Load a DEG/DMP data",
+      "Sub-modules" = "Add or remove sub-modules.",
       sel
     )
     p(txt)
@@ -811,10 +875,33 @@ function(input, output, session) {
     sel <- input$mo_menu %||% "Dataset"
     txt <- switch(sel,
       "Dataset" = NULL,
-      "Sub-modules" = "Add or remove pipeline analyses",
+      "Sub-modules" = "Add or remove sub-modules.",
       sel
     )
     if (is.null(txt)) return(NULL)
     p(txt)
   })
+}
+
+## ---- Auth gate --------------------------------------------------------------
+## The actual top-level server function Shiny runs per session. Renders
+## either the login/signup screen (R/auth/mod_auth_ui.R) or the existing
+## app (ui.R's existing_app_ui(), unchanged) into the one uiOutput ui.R's
+## top-level ui(request) provides - so unauthenticated users' browsers never
+## receive the app's markup at all, not just a hidden copy of it.
+## existing_app_server() above - which does all of the app's actual reactive
+## work - is instantiated exactly once, guarded by once = TRUE, the moment
+## auth$session_info() first becomes non-NULL.
+function(input, output, session) {
+
+  auth <- mod_auth_server("auth")
+
+  output$app_shell <- renderUI({
+    if (is.null(auth$session_info())) mod_auth_ui("auth") else existing_app_ui(auth$session_info()$user$email)
+  })
+
+  observeEvent(auth$session_info(), {
+    req(auth$session_info())
+    existing_app_server(input, output, session, auth)
+  }, once = TRUE)
 }

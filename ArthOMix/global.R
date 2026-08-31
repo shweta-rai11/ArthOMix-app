@@ -9,6 +9,13 @@
 ## anything below uses them.
 source("data_paths.R")
 
+## Local Supabase credentials (SUPABASE_URL/SUPABASE_ANON_KEY - see
+## R/auth/auth_api.R and .Renviron.example), git-ignored. R already reads
+## .Renviron automatically at startup when launched via RStudio "Run App"/
+## shiny::runApp() from this directory; this line is only a defensive
+## fallback for launching via Rscript from elsewhere.
+if (file.exists(".Renviron")) readRenviron(".Renviron")
+
 ## Shiny's own default (5MB) is too small for a real expression matrix
 ## upload (e.g. a genome-wide RNA-seq counts CSV) - raise it for every
 ## fileInput in the app (Dataset tab, Preprocessing, Feature Selection's
@@ -18,6 +25,69 @@ source("data_paths.R")
 ## reference matrix is ~2.1GB, see the ExtendedTask comment below), so this
 ## is raised to comfortably clear that scale for every vertical's upload.
 options(shiny.maxRequestSize = 3072 * 1024^2)
+
+## Shared reproducibility seed for transcriptomics ML fitting (Diagnostic
+## Model, Feature Selection, Cross-Tissue Validation). Each of those three
+## submodules previously defined its own local `GLOBAL_SEED <- 1234`
+## independently; unified into a single constant here so a future edit to
+## one can no longer silently diverge from the others with no signal. Value
+## intentionally unchanged (still 1234). Distinct from - and deliberately
+## not unified with - the seed = 2024 used by MRPRESSO::mr_presso() inside
+## estimate_mr_set() below, which is its own separate reproducibility domain
+## (MR sensitivity analysis, not ML model fitting).
+ARTHOMIX_TX_ML_SEED <- 1234
+
+## Safer replacement for readRDS() wherever the file being read may have been supplied by
+## a user (any fileInput upload path), rather than shipped with the app. R's serialization
+## format is a general encoding of arbitrary R objects, and a crafted .rds payload can run
+## code during unserialize() itself (closures/active bindings/S4 methods reified while the
+## object graph is being reconstructed) - this is a real, documented deserialization-attack
+## surface, not a theoretical one. This helper does not claim to make loading an untrusted
+## .rds file fully safe (no readRDS()-based control can promise that), but it substantially
+## reduces the blast radius with two independent layers:
+##   1. The actual readRDS() call runs inside a disposable callr::r() subprocess with a
+##      timeout, so code that runs *during* deserialization executes in a short-lived child
+##      process rather than the persistent Shiny server session that every other user's
+##      session also runs in.
+##   2. The deserialized object's class is checked against an allowlist before it is
+##      returned, so even a payload that survives step 1 without triggering anything can't
+##      be handed to the caller as (e.g.) a closure, environment, or R6/S4 object that might
+##      execute attacker logic later simply by being printed, coerced, or called.
+## Callers still need their own shape/content validation on top of this (a technically
+## well-formed data.frame or matrix can still contain nonsense) - this only guards the
+## deserialization step itself.
+safe_read_rds <- function(path, max_size_mb = 1024,
+                           allowed_classes = c("matrix", "array", "data.frame", "numeric",
+                                                "integer", "character", "list", "factor")) {
+  if (is.null(path) || !nzchar(path) || !file.exists(path)) {
+    return(list(ok = FALSE, value = NULL, error = "File not found."))
+  }
+  sz_mb <- as.numeric(file.info(path)$size) / (1024^2)
+  if (!is.finite(sz_mb) || sz_mb > max_size_mb) {
+    return(list(ok = FALSE, value = NULL,
+                error = sprintf("This .rds file is larger than the %sMB limit for uploads.", max_size_mb)))
+  }
+  if (!requireNamespace("callr", quietly = TRUE)) {
+    ## callr is an existing transitive dependency of this app (already used directly by
+    ## mod_methyl_normalization.R); if it's ever unavailable, fail closed rather than
+    ## silently falling back to an unsandboxed readRDS().
+    return(list(ok = FALSE, value = NULL, error = "The .rds upload path requires the 'callr' package, which is not installed."))
+  }
+  obj <- tryCatch(
+    callr::r(function(p) readRDS(p), args = list(path), timeout = 60),
+    error = function(e) e
+  )
+  if (inherits(obj, "condition")) {
+    return(list(ok = FALSE, value = NULL, error = "Could not read this .rds file (it may be corrupt, oversized, or in an unsupported format)."))
+  }
+  cls <- class(obj)
+  if (!any(cls %in% allowed_classes)) {
+    return(list(ok = FALSE, value = NULL, error = sprintf(
+      "This .rds file contains a %s object; only plain matrices, data frames, or vectors are accepted here.",
+      paste(cls, collapse = "/"))))
+  }
+  list(ok = TRUE, value = obj, error = NULL)
+}
 
 ## Background execution for genuinely slow, blocking operations - currently
 ## only the Methylomics Dataset tab's preloaded ~2.1GB live beta matrix read
@@ -747,13 +817,17 @@ eset_harmonize_meta <- function(eset, name) {
 }
 
 ## Falls back to the merged/batch-corrected training cohort's own per-sample
-## `dataset` column when a source's raw ExpressionSet isn't on disk (see
-## SELF_CONTAINED_DATA_MIGRATION.md: the raw GEO ExpressionSets were never
-## part of this app's self-contained data bundle and aren't recoverable on
-## this machine). Only ever returns something for the two GSEs actually
-## merged into the default cohort (GSE93272, GSE110169) - GSE15573/GSE89408
-## are validation-only and were never part of any merge, so this correctly
-## returns NULL for them and they stay genuinely unavailable.
+## `dataset` column when a source's raw ExpressionSet isn't on disk: this
+## app's bundled data/ is deliberately self-contained (see data_paths.R's
+## own header comment) and ships only the already-merged/batch-corrected
+## working dataset plus each script's already-computed result tables - the
+## original per-GSE raw ExpressionSets those were built from were a
+## source-machine-only intermediate, never copied into the bundle, and
+## aren't recoverable on this machine. Only ever returns something for the
+## two GSEs actually merged into the default cohort (GSE93272, GSE110169) -
+## GSE15573/GSE89408 are validation-only and were never part of any merge,
+## so this correctly returns NULL for them and they stay genuinely
+## unavailable.
 merged_training_subset <- function(gse_id) {
   d <- load_default_dataset()
   keep <- d$meta$dataset == gse_id
@@ -1208,10 +1282,11 @@ read_uploaded_table <- function(path) tryCatch(as.data.frame(data.table::fread(p
 ## same list(ok, mat, error) contract, same accepted shapes (numeric
 ## matrix, or a data.frame with feature IDs in the first column).
 tx_parse_expr_matrix_rds <- function(datapath) {
-  x <- tryCatch(readRDS(datapath), error = function(e) e)
-  if (inherits(x, "error")) {
-    return(list(ok = FALSE, mat = NULL, error = paste("Could not read this .rds file:", conditionMessage(x))))
+  loaded <- safe_read_rds(datapath)
+  if (!isTRUE(loaded$ok)) {
+    return(list(ok = FALSE, mat = NULL, error = loaded$error))
   }
+  x <- loaded$value
   if (is.matrix(x) && is.numeric(x)) return(list(ok = TRUE, mat = x, error = NULL))
   if (is.data.frame(x) && ncol(x) >= 2) {
     ids <- as.character(x[[1]])
@@ -1733,59 +1808,6 @@ apply_chosen_norm <- function(expr, method = c("none", "quantile", "tmm")) {
   list(expr = mtx, label = "Quantile normalisation (limma::normalizeBetweenArrays)")
 }
 
-## Plain-language read of a before/after normalisation comparison - QC
-## evidence, not proof (a histogram looking better is not the same as
-## "correct"). Five fixed messages, matching what's actually measurable
-## from summarize_norm_diagnostics()/needs_quantile_norm() rather than
-## claiming more than the data shows.
-normalisation_assessment <- function(diag_before, diag_after, method) {
-  if (identical(method, "none")) return("No substantial transformation was applied.")
-  if (is.null(diag_after) || inherits(diag_after, "error")) {
-    return("Normalisation could not be performed because of invalid input values.")
-  }
-  before_ok <- !needs_quantile_norm(diag_before)
-  after_ok  <- !needs_quantile_norm(diag_after)
-  if (before_ok) {
-    "Data appear already normalised - this step had little additional effect."
-  } else if (after_ok) {
-    "Distributions are more comparable across samples."
-  } else {
-    "Large differences between sample distributions remain."
-  }
-}
-
-## Headline data-processing status for the Data Exploration & Normalisation
-## tab's status panel - a coarser, user-facing classification built ONLY on
-## top of detect_expr_data_type()/needs_quantile_norm() (never re-derives
-## its own detection rule, so this can't disagree with the value shown
-## elsewhere in that tab). Exactly three states, matched to what's actually
-## knowable from the matrix alone: "normalized" (already normalised-
-## looking - detect_expr_data_type()'s "already_normalised" bucket),
-## "not_normalized" (raw counts or expression that hasn't been shown to
-## already agree across samples), or "unknown" (fewer than 2 samples, or no
-## finite values at all - nothing to compare distributions across, so the
-## question doesn't apply and guessing would be dishonest).
-explore_data_status <- function(expr, dt) {
-  m <- as.matrix(expr)
-  finite_n <- sum(is.finite(m))
-  if (ncol(m) < 2 || finite_n == 0) {
-    return(list(
-      state = "unknown", label = "Unknown",
-      detail = "Fewer than two samples (or no finite expression values) are available, so between-sample normalization cannot be assessed."
-    ))
-  }
-  if (identical(dt, "already_normalised")) {
-    return(list(
-      state = "normalized", label = "Already normalized",
-      detail = "The active expression matrix has already undergone transformation/normalization. Additional normalization is not required unless explicitly selected below."
-    ))
-  }
-  list(
-    state = "not_normalized", label = "Not normalized",
-    detail = "The active expression matrix has not been normalized. A normalization method can be selected below before downstream analysis."
-  )
-}
-
 ## PCA on a genes-in-rows expression matrix, dropping zero-variance genes
 ## first (prcomp's scale.=TRUE would otherwise error on them). Shared by
 ## Preprocessing (before/after ComBat) and Overview's QC (a single
@@ -2051,25 +2073,25 @@ MODULE_REGISTRY <- list(
   list(
     id = "transcriptomics", tab = "transcriptomics",
     title = "Transcriptomics",
-    tagline = "The core pipeline: sex-stratified differential expression, WGCNA, Mendelian randomisation and colocalisation, biomarker panel selection, and cross-tissue / cross-ancestry validation.",
+    tagline = "Differential expression, WGCNA, Mendelian randomisation and colocalisation, feature selection,machine learning modelling and cross-tissue validation, cross-ancestry validation and biomarker card",
     icon = "dna", status = "available", kind = "Single-omics"
   ),
   list(
     id = "methylomics", tab = "methylomics",
     title = "Methylomics",
-    tagline = "Analyze methylation data to identify potential methylomics biomarker.",
+    tagline = "Differential methylation, WGCNA, Mendelian randomisation and colocalisation, feature selection,machine learning modelling and external validation and biomarker card",
     icon = "circle-nodes", status = "available", kind = "Single-omics"
   ),
   list(
     id = "crossomics", tab = "crossomics",
     title = "Cross-Omics",
-    tagline = "Browse the biomarker-convergence tables joining Transcriptomics' eQTL-MR genes and Methylomics' mQTL-MR CpGs; live convergence and cross-omics MR sub-modules are coming next.",
+    tagline = "Perform the cross-omics integration.",
     icon = "arrows-left-right", status = "available", kind = "Multi-omics"
   ),
   list(
     id = "multiomics", tab = "multiomics",
     title = "Multi-Omics",
-    tagline = "Browse the pipeline's own DIABLO and SNF integration, joint biomarker discovery, gene<->CpG concordance, and pathway enrichment across transcriptomics + methylomics.",
+    tagline = "Integrate the two omics data.",
     icon = "layer-group", status = "available", kind = "Multi-omics"
   ),
   list(

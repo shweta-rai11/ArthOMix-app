@@ -571,18 +571,6 @@ eda_scree_plot <- function(pca, max_pcs = 10) {
 
 ## Small UI-composition helpers.
 
-## Standard result/visualization/interpretation card used by every EDA section.
-eda_section_card <- function(title, icon_name, body, interpretation = NULL, desc = NULL) {
-  div(class = "card explore-dist-card",
-      div(class = "card-title", icon(icon_name), title),
-      if (!is.null(desc)) p(class = "submodule-desc", desc),
-      body,
-      if (!is.null(interpretation)) div(class = "card explore-diag-card", style = "margin-top:10px;",
-                                          div(class = "card-title", icon("clipboard-check"), "Interpretation"),
-                                          interpretation)
-  )
-}
-
 ## Headline normalization-assessment card (uses the .explore-status-* styles from custom.css).
 eda_status_panel_ui <- function(norm_assess, overview) {
   state_class <- switch(norm_assess$verdict, normalized = "explore-status-good",

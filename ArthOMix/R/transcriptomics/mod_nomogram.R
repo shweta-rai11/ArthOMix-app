@@ -421,6 +421,22 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       )
     })
 
+    ## Circularity disclosure: for "same_tissue" and "cross_ancestry", the
+    ## gene panel above comes from a live Feature-Selection (or Cross-Ancestry
+    ## MR) fit on THIS SAME loaded cohort, and the nomogram below is then
+    ## fit AND calibrated on that identical cohort - the panel-selection step
+    ## and the evaluation step never see independent data. "cross_tissue" is
+    ## the one source that's genuinely circularity-free (panel selected in
+    ## blood, evaluated fresh in the independent GSE89408 synovium cohort).
+    ## Same house style as mod_diagnostic.R's/mod_methyl_diagnostic.R's/
+    ## mod_methyl_featureselection.R's own "optimistic"/circularity callouts.
+    nom_circularity_note <- function(src) {
+      if (!src %in% c("same_tissue", "cross_ancestry")) return(NULL)
+      div(class = "empty-note", style = "margin-top: 8px; border-left: 3px solid #d97706;",
+          icon("triangle-exclamation"),
+          "Circularity warning: this panel was selected from the SAME cohort currently loaded, and the nomogram below is fit and calibrated on that identical cohort - the AUC/discrimination and calibration numbers below are therefore likely optimistically biased, not an independent evaluation. Only \"Cross-tissue\" (panel selected in blood, evaluated fresh in the independent GSE89408 synovium cohort) is circularity-free.")
+    }
+
     output$preset_panel_ui <- renderUI({
       src <- input$gene_source %||% "own"
       if (identical(src, "own")) return(NULL)
@@ -437,7 +453,8 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
             div(class = "empty-note", style = "margin-top: 0;",
                 icon(if (isTRUE(panel$is_live)) "check" else "circle-info"), panel$note)
           )
-        }
+        },
+        nom_circularity_note(src)
       )
     })
 
@@ -566,7 +583,21 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       res
     }, ignoreInit = TRUE)
 
+    ## Gates every output below on "has this been (re-)built for the
+    ## CURRENTLY loaded dataset" - nom_result() is an eventReactive keyed
+    ## only on run_btn, so switching datasets on the Dataset tab without
+    ## re-clicking "Build nomogram" would otherwise leave every plot/table
+    ## silently showing the previous cohort's fit. Mirrors mod_dge.R's
+    ## dge_has_run / mod_interaction.R's int_has_run reset pattern.
+    nom_has_run <- reactiveVal(FALSE)
+    observeEvent(input$run_btn, nom_has_run(TRUE), ignoreInit = TRUE)
+    observeEvent(dataset$source, {
+      nom_has_run(FALSE)
+    }, ignoreInit = TRUE)
+    nom_stale_msg <- "Not run for the currently loaded dataset yet. Click \"Build nomogram\" on the left."
+
     output$summary_ui <- renderUI({
+      validate(need(nom_has_run(), nom_stale_msg))
       res <- nom_result()
       tagList(
         p(strong(res$n_present), " of ", res$n_input, " requested genes",
@@ -576,6 +607,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
           " / ", strong(res$n_neg), " reference)."),
         p("Model C-statistic (discrimination): ", strong(sprintf("%.3f", res$c_stat)),
           " · Ridge penalty used: ", strong(res$penalty)),
+        nom_circularity_note(res$src),
         if (identical(res$src, "cross_ancestry")) {
           div(class = "empty-note", icon("circle-info"),
               "Ancestry replication here is genetic (Mendelian randomisation across European + East-Asian GWAS); the model above is still fit on this project's blood cohort - see Cross-Ancestry Validation.")
@@ -584,10 +616,12 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
     })
 
     output$nomogram_plot <- renderPlot({
+      validate(need(nom_has_run(), nom_stale_msg))
       plot(nom_result()$nom)
     })
 
     output$calibration_plot <- renderPlot({
+      validate(need(nom_has_run(), nom_stale_msg))
       res <- nom_result()
       if (is.null(res$cal)) {
         plot.new()
@@ -598,45 +632,62 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
     })
 
     output$dca_plot <- renderPlot({
+      validate(need(nom_has_run(), nom_stale_msg))
       res <- nom_result()
       nom_render_dca_plot(res$dca_df, res$event_label)
     })
 
     output$impact_plot <- renderPlot({
+      validate(need(nom_has_run(), nom_stale_msg))
       res <- nom_result()
       nom_render_impact_plot(res$impact, res$event_label)
     })
 
     output$dca_table <- DT::renderDataTable({
+      validate(need(nom_has_run(), nom_stale_msg))
       d <- nom_result()$dca_df
       d[c("NB_panel", "NB_all", "NB_none")] <- lapply(d[c("NB_panel", "NB_all", "NB_none")], round, 4)
       DT::datatable(d, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$impact_table <- DT::renderDataTable({
+      validate(need(nom_has_run(), nom_stale_msg))
       DT::datatable(nom_impact_df(nom_result()$impact), rownames = FALSE,
                     options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$coef_table <- DT::renderDataTable({
+      validate(need(nom_has_run(), nom_stale_msg))
       DT::datatable(nom_result()$coef_df, rownames = FALSE, options = list(pageLength = 10, dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
 
     output$download_nom <- downloadHandler(
       filename = function() sprintf("nomogram_%s_coefficients.csv", nom_result()$sex_label),
-      content = function(file) write.csv(nom_result()$coef_df, file, row.names = FALSE)
+      content = function(file) {
+        validate(need(nom_has_run(), nom_stale_msg))
+        write.csv(nom_result()$coef_df, file, row.names = FALSE)
+      }
     )
     output$download_dca <- downloadHandler(
       filename = function() sprintf("nomogram_%s_decision_curve.csv", nom_result()$sex_label),
-      content = function(file) write.csv(nom_result()$dca_df, file, row.names = FALSE)
+      content = function(file) {
+        validate(need(nom_has_run(), nom_stale_msg))
+        write.csv(nom_result()$dca_df, file, row.names = FALSE)
+      }
     )
     output$download_impact <- downloadHandler(
       filename = function() sprintf("nomogram_%s_clinical_impact.csv", nom_result()$sex_label),
-      content = function(file) write.csv(nom_impact_df(nom_result()$impact), file, row.names = FALSE)
+      content = function(file) {
+        validate(need(nom_has_run(), nom_stale_msg))
+        write.csv(nom_impact_df(nom_result()$impact), file, row.names = FALSE)
+      }
     )
     output$download_model <- downloadHandler(
       filename = function() sprintf("nomogram_%s_model.rds", nom_result()$sex_label),
-      content = function(file) saveRDS(nom_result()$fit, file)
+      content = function(file) {
+        validate(need(nom_has_run(), nom_stale_msg))
+        saveRDS(nom_result()$fit, file)
+      }
     )
 
     ## Publishes summary stats for ArthOChat / build_assistant_context().

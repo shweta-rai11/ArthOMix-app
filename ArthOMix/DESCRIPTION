@@ -17,6 +17,7 @@ Imports:
     Biobase (>= 2.66.0),
     BiocGenerics (>= 0.52.0),
     BiocManager (>= 1.30.27),
+    callr (>= 3.7.6),
     caret (>= 7.0.1),
     ChAMP (>= 2.36.0),
     ChAMPdata (>= 2.38.0),
@@ -33,6 +34,7 @@ Imports:
     edgeR (>= 4.4.2),
     ellmer (>= 0.4.0),
     enrichplot (>= 1.26.6),
+    EpiDISH (>= 2.22.0),
     fgsea (>= 1.32.4),
     future (>= 1.70.0),
     GenomicFeatures (>= 1.58.0),
@@ -105,6 +107,7 @@ Imports:
     xgboost (>= 3.2.0.1)
 Suggests:
     testthat (>= 3.0.0),
-    shinytest2,
-    chromote
+    shinytest2 (>= 0.5.1),
+    chromote (>= 0.5.1)
+Config/testthat/edition: 3
 

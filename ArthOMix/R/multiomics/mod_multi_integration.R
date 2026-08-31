@@ -301,7 +301,13 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         ncomp_mode = "manual", ncomp = input$d_ncomp,
         keepx_mode = if (isTRUE(input$d_keepx_auto)) "automatic" else "manual", keepx_manual = keepx_manual,
         validation_mode = "manual", validation_method = input$d_validation_method %||% "mfold",
-        folds = input$d_folds, nrepeat = input$d_nrepeat, distance = input$d_distance %||% "automatic"
+        folds = input$d_folds, nrepeat = input$d_nrepeat, distance = input$d_distance %||% "automatic",
+        ## Threaded straight into mixOmics::tune.block.splsda()/perf()'s own
+        ## `seed=` argument inside mi_diablo_run() - an external set.seed()
+        ## call around this reactive would NOT work, since both of those
+        ## mixOmics calls unconditionally reseed internally from their own
+        ## `seed` argument (default NULL, which re-randomizes every call).
+        seed = input$d_seed %||% 1
       )
     })
 
@@ -326,6 +332,12 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     }
 
     if (isTRUE(ARTHOMIX_ASYNC_AVAILABLE)) {
+      ## The "Random seed" field (d_seed) rides along inside `params` itself
+      ## (d_params() above) straight into mi_diablo_run()'s own
+      ## mixOmics::tune.block.splsda()/perf() `seed=` arguments - note
+      ## future_promise()'s own `seed = TRUE` here is unrelated: it only
+      ## asks `future` for a parallel-safe RNG stream for whatever runs
+      ## inside the worker process, not the user-chosen integer in the UI.
       diablo_task <- ExtendedTask$new(function(layers, outcome, ids, params) {
         promises::future_promise(mi_diablo_run(layers, outcome, ids, params), seed = TRUE)
       })
@@ -341,6 +353,11 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         ## input$outcome_col live, so changing the outcome dropdown after a
         ## run never relabels the sample-score plot against the wrong column.
         diablo_state$outcome_used <- outcome
+        ## Pinned alongside outcome_used so the Compare tab can tell whether
+        ## input$outcome_col has since been changed by the user - without
+        ## this, c_supervised() below would silently compare DIABLO's fit
+        ## against a different outcome than it was actually trained on.
+        diablo_state$outcome_col_used <- input$outcome_col
         p <- d_params()
         ids <- v$shared_ids
         ## diablo_task$invoke() calls its ExtendedTask function body
@@ -370,6 +387,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         validate(need(isTRUE(diablo_elig()$ok), diablo_elig()$reason))
         showNotification("Running DIABLO synchronously - the app will be briefly unresponsive.", type = "message", duration = 5)
         diablo_state$outcome_used <- stats::setNames(mi_dataset()$sample_meta[[input$outcome_col]], rownames(mi_dataset()$sample_meta))
+        diablo_state$outcome_col_used <- input$outcome_col
         res <- run_diablo()
         diablo_state$error <- if (!isTRUE(res$ok)) res$error else NULL
         if (isTRUE(res$ok)) diablo_state$result <- res
@@ -569,6 +587,15 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         h5("Clustering technique"),
         selectInput(ns("s_cluster_method"), NULL, choices = MI_SNF_CLUSTER_METHODS, selected = "spectral"),
         p(class = "submodule-desc", "Partitions the same fused network; does not affect SNF fusion itself."),
+        hr(),
+        h5("Reproducibility"),
+        ## SNFtool::spectralClustering() (and cluster::pam for the "PAM"
+        ## technique) are k-means-based internally, so identical K/Alpha/T
+        ## settings can still yield different cluster labels run to run
+        ## without a fixed seed - the same reproducibility gap DIABLO's own
+        ## "Random seed" field (d_seed above) already closes for
+        ## mixOmics::tune.block.splsda()/perf().
+        numericInput(ns("s_seed"), "Random seed", value = 1, min = 1),
         tags$details(tags$summary("Advanced: network diagnostics"),
                       checkboxInput(ns("s_show_diagnostics"), "Show individual/fused network diagnostics after running", value = TRUE)),
         hr(),
@@ -597,13 +624,14 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     output$s_summary_pre <- renderUI({
       v <- req(mi_val())
       tags$div(class = "submodule-desc", tags$strong("Planned run: "), sprintf(
-        "Blocks: %s | Samples: %d | K: %s | Alpha: %s | T: %s | Clusters: %s | Technique: %s",
+        "Blocks: %s | Samples: %d | K: %s | Alpha: %s | T: %s | Clusters: %s | Technique: %s | Seed: %s",
         paste(input$s_blocks, collapse = " + "), v$n_shared,
         if (isTRUE(input$s_k_auto)) sprintf("Auto-tuned (starting near %s)", input$s_k) else input$s_k,
         if (isTRUE(input$s_alpha_auto)) sprintf("Auto-tuned (starting near %.2f)", input$s_alpha %||% MI_SNF_ALPHA_RANGE$default) else input$s_alpha,
         if (isTRUE(input$s_t_auto)) sprintf("Auto-converged (up to %d)", max(MI_SNF_T_CANDIDATES)) else input$s_t,
         if (isTRUE(input$s_cluster_auto)) "Auto-estimated (eigengap)" else input$s_n_clusters,
-        names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == (input$s_cluster_method %||% "spectral")]
+        names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == (input$s_cluster_method %||% "spectral")],
+        input$s_seed %||% 1
       ))
     })
 
@@ -614,7 +642,12 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       t_mode = if (isTRUE(input$s_t_auto)) "automatic" else "manual",
       k = input$s_k, alpha = input$s_alpha, t = input$s_t,
       cluster_mode = if (isTRUE(input$s_cluster_auto)) "automatic" else "manual", n_clusters = input$s_n_clusters,
-      cluster_method = input$s_cluster_method %||% "spectral"
+      cluster_method = input$s_cluster_method %||% "spectral",
+      ## Threaded straight into a set.seed() call inside mi_snf_run() itself
+      ## (multiomics_integration_live_helpers.R), right before the
+      ## kmeans-based SNFtool::spectralClustering()/cluster::pam() calls -
+      ## same rationale as DIABLO's own d_seed above.
+      seed = input$s_seed %||% 1
     ))
 
     run_snf <- function() {
@@ -694,7 +727,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
               tags$li(sprintf("K: %d (%s)", p$k, p$k_mode)), tags$li(sprintf("Alpha: %.2f (%s)", p$alpha, p$alpha_mode)), tags$li(sprintf("T: %d (%s)", p$t, p$t_mode)),
               tags$li(sprintf("Clusters: %d (%s)", p$n_clusters, p$cluster_mode)),
               tags$li(sprintf("Clustering technique: %s", names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == (p$cluster_method %||% "spectral")])),
-              tags$li(sprintf("Standardized: %s", p$standardize))
+              tags$li(sprintf("Standardized: %s", p$standardize)),
+              tags$li(sprintf("Random seed: %s", p$seed %||% "-"))
             )),
         box(width = NULL, title = "Fused network", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() mi_snf_fused_heatmap(res$W, res$clusters), ns("s_heatmap"), height = "420px")),
@@ -792,6 +826,23 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     c_supervised <- eventReactive(input$c_run_supervised, {
+      ## The outcome selector is read live at click time, but the fitted
+      ## DIABLO result was trained on whatever outcome was selected back
+      ## when "Run DIABLO" was clicked (diablo_state$outcome_col_used) - if
+      ## the user has since switched the outcome dropdown, comparing against
+      ## the CURRENT selection would silently pit DIABLO's real performance
+      ## against a single-omics baseline fit on a different label, and
+      ## present the mismatch as a head-to-head result. Returned as the same
+      ## fail-soft list(ok, error) shape mi_compare_supervised() itself uses
+      ## (not validate()) - output$c_supervised_ui below wraps this call in
+      ## tryCatch(..., error = function(e) NULL), which would silently
+      ## swallow a validate() condition into a blank panel instead of
+      ## showing the warning.
+      if (!identical(input$outcome_col, diablo_state$outcome_col_used)) {
+        return(list(ok = FALSE, error = sprintf(
+          "The outcome variable has changed since DIABLO was run (fit on \"%s\", now \"%s\" is selected). Re-run DIABLO on the current outcome before comparing.",
+          diablo_state$outcome_col_used %||% "-", input$outcome_col %||% "-")))
+      }
       d <- mi_dataset(); v <- mi_val()
       outcome <- stats::setNames(d$sample_meta[[input$outcome_col]], rownames(d$sample_meta))
       mi_compare_supervised(d$layers[diablo_state$result$params$blocks], outcome, v$shared_ids, diablo_state$result)

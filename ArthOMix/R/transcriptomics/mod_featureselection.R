@@ -9,9 +9,37 @@
 ## one feature per round, then a CV error curve over the ranking to pick
 ## panel size objectively.
 
+## CSV formula-injection guard: gene/feature identifiers written into
+## downloadHandler CSVs can come from a user upload or GEO metadata, not
+## just this app's own curated panels. A symbol starting with =, +, -, or @
+## is interpreted as a formula by Excel/Sheets on open; prefixing a single
+## quote neutralizes the leading character while leaving the value's own
+## text intact everywhere else (including when re-read by read.csv()).
+tx_csv_safe <- function(x) {
+  x <- as.character(x)
+  ifelse(grepl("^[=+\\-@]", x), paste0("'", x), x)
+}
+
 ## Linear kernel only - the per-round elimination weight (squared SVM
 ## coefficient) is only meaningful for a linear decision boundary.
 fs_svm_rfe_rank <- function(X, y, cost = 1, tolerance = 0.001, class_weights = NULL) {
+  ## Zero-variance-column guard (mirrors mod_diagnostic.R's diag_zrows()
+  ## convention): e1071::svm(..., scale = TRUE) internally z-scores each
+  ## column via scale(), which divides by the column SD - a constant
+  ## candidate column (SD 0 or NA, e.g. a gene with identical expression
+  ## across every sample after upstream filtering) turns into NaN for every
+  ## row, silently corrupting the fit and the resulting elimination weights.
+  ## Such columns carry no discriminative signal for a linear SVM anyway, so
+  ## they're dropped before ranking starts, then appended back at the end of
+  ## the ranking (least-informative first) so every input feature is still
+  ## accounted for in the returned order.
+  zero_var <- vapply(as.data.frame(X), function(col) {
+    s <- stats::sd(col, na.rm = TRUE)
+    is.na(s) || s == 0
+  }, logical(1))
+  dropped <- colnames(X)[zero_var]
+  X <- X[, !zero_var, drop = FALSE]
+
   feats <- colnames(X)
   ranking <- character(0)
   while (length(feats) > 1) {
@@ -22,14 +50,24 @@ fs_svm_rfe_rank <- function(X, y, cost = 1, tolerance = 0.001, class_weights = N
     ranking <- c(drop, ranking)
     feats <- setdiff(feats, drop)
   }
-  c(feats, ranking)
+  c(feats, ranking, dropped)
 }
 
 fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tolerance = 0.001, class_weights = NULL) {
   ks <- seq_along(rank)
   err <- vapply(ks, function(k) {
     set.seed(seed)
-    acc <- e1071::svm(X[, rank[seq_len(k)], drop = FALSE], y, kernel = "linear",
+    Xk <- X[, rank[seq_len(k)], drop = FALSE]
+    ## Same zero-variance-column guard as fs_svm_rfe_rank() above: rank's
+    ## own zero-variance columns are appended at its tail, so a k large
+    ## enough to reach them would otherwise feed a constant column straight
+    ## into e1071::svm(..., scale = TRUE) here too, producing NaN.
+    keep <- vapply(as.data.frame(Xk), function(col) {
+      s <- stats::sd(col, na.rm = TRUE)
+      !(is.na(s) || s == 0)
+    }, logical(1))
+    if (!any(keep)) return(NA_real_)
+    acc <- e1071::svm(Xk[, keep, drop = FALSE], y, kernel = "linear",
                        scale = TRUE, cost = cost, cross = folds,
                        tolerance = tolerance, class.weights = class_weights)$tot.accuracy
     1 - acc / 100
@@ -109,7 +147,7 @@ fs_fit_sex <- function(X, y, params = list()) {
   ## group names for their own display text, so nothing user-visible changes.
   levels(y) <- make.names(levels(y), unique = TRUE)
   params <- utils::modifyList(FS_DEFAULT_PARAMS, params)
-  GLOBAL_SEED <- 1234
+  GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
   p <- ncol(X)
   min_class <- min(table(y))
   nf_lasso <- max(2, min(params$lasso_cv_folds, min_class))
@@ -413,7 +451,9 @@ mod_featureselection_server <- function(id, dataset, results) {
       req(input$meta_file)
       path <- input$meta_file$datapath
       if (grepl("\\.rds$", input$meta_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded metadata RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -1210,7 +1250,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_lasso_download")]] <- downloadHandler(
         filename = function() sprintf("%s_lasso_genes.csv", sex_label),
-        content = function(file) write.csv(data.frame(gene = res()$lasso_genes), file, row.names = FALSE)
+        content = function(file) write.csv(data.frame(gene = tx_csv_safe(res()$lasso_genes)), file, row.names = FALSE)
       )
 
       # Random Forest
@@ -1249,6 +1289,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         content = function(file) {
           r <- res()
           df <- data.frame(gene = names(r$gini), gini_importance = as.numeric(r$gini), selected = names(r$gini) %in% r$rf_genes)
+          df$gene <- tx_csv_safe(df$gene)
           write.csv(df, file, row.names = FALSE)
         }
       )
@@ -1287,6 +1328,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         content = function(file) {
           r <- res()
           df <- data.frame(gene = r$svm_rank, rank = seq_along(r$svm_rank), selected = r$svm_rank %in% r$svm_genes)
+          df$gene <- tx_csv_safe(df$gene)
           write.csv(df, file, row.names = FALSE)
         }
       )
@@ -1364,6 +1406,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           df$random_forest <- df$gene %in% r$rf_genes
           df$svm_rfe <- df$gene %in% r$svm_genes
           df$consensus <- df$gene %in% genes
+          df$gene <- tx_csv_safe(df$gene)
           write.csv(df, file, row.names = FALSE)
         }
       )

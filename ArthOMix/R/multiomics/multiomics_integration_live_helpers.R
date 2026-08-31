@@ -235,6 +235,20 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   dist_choice <- params$distance %||% "automatic"
   keepx_mode <- params$keepx_mode %||% "automatic"
 
+  ## The "Random seed" UI control (mod_multi_integration.R's `d_seed`,
+  ## threaded in here as `params$seed`) only has any effect if it reaches
+  ## mixOmics's OWN `seed=` argument on tune.block.splsda()/perf() below -
+  ## an external set.seed() call before this function does NOT work, because
+  ## both of those functions unconditionally run `set.seed(seed)` themselves
+  ## internally (confirmed directly in the installed mixOmics source: e.g.
+  ## `tune.block.splsda`'s body starts with `BPPARAM$RNGseed <- seed;
+  ## set.seed(seed)`), and their own default `seed = NULL` makes
+  ## `set.seed(NULL)` RE-RANDOMIZE from system entropy on every single call -
+  ## silently overriding any seed the caller set beforehand. `block.splsda()`
+  ## itself has no `seed` argument and no internal randomness (deterministic
+  ## SVD-based fit given ncomp/keepX/design), so it needs no seed at all.
+  seed <- if (!is.null(params$seed)) as.integer(params$seed) else NULL
+
   if (identical(keepx_mode, "manual") && !is.null(params$keepx_manual)) {
     keepX <- params$keepx_manual
   } else {
@@ -244,7 +258,7 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
         X = X, Y = Y, ncomp = ncomp, test.keepX = grid, design = design,
         validation = validation_method, folds = folds, nrepeat = nrepeat,
         dist = if (identical(dist_choice, "automatic")) "max.dist" else dist_choice,
-        measure = "BER", progressBar = FALSE, near.zero.var = TRUE
+        measure = "BER", progressBar = FALSE, near.zero.var = TRUE, seed = seed
       ),
       error = function(e) e
     )
@@ -266,7 +280,7 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   ## "Automatic" distance selection.
   perf_dist_arg <- if (identical(dist_choice, "automatic")) "all" else dist_choice
   perf_res <- tryCatch(
-    mixOmics::perf(fit, validation = validation_method, folds = folds, nrepeat = nrepeat, dist = perf_dist_arg, auc = TRUE, progressBar = FALSE),
+    mixOmics::perf(fit, validation = validation_method, folds = folds, nrepeat = nrepeat, dist = perf_dist_arg, auc = TRUE, progressBar = FALSE, seed = seed),
     error = function(e) e
   )
   if (inherits(perf_res, "error")) return(list(ok = FALSE, error = paste("DIABLO performance assessment failed:", conditionMessage(perf_res))))
@@ -285,7 +299,7 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
       validation_method = validation_method, folds = folds, nrepeat = nrepeat, distance = resolved_dist,
       distance_mode = dist_choice, n_samples = length(Y),
       classes = names(class_tab), class_counts = as.integer(class_tab),
-      loo_downgraded = loo_downgraded
+      loo_downgraded = loo_downgraded, seed = seed
     )
   )
 }
@@ -500,6 +514,16 @@ mi_snf_run <- function(layers, params = list()) {
   alpha_manual <- identical(params$alpha_mode %||% "automatic", "manual")
   t_manual <- identical(params$t_mode %||% "automatic", "manual")
   cluster_method <- params$cluster_method %||% "spectral"
+  ## SNFtool::spectralClustering() (used both here and inside the K/alpha
+  ## auto-tune grid search below) and cluster::pam() are k-means-based
+  ## internally, so identical K/Alpha/T parameters can still produce
+  ## different cluster assignments run to run without a fixed seed - unlike
+  ## DIABLO, whose reproducibility comes from its own `seed=` argument to
+  ## mixOmics::tune.block.splsda()/perf(). set.seed() here is the SNF
+  ## equivalent, applied once up front so every stochastic step in this one
+  ## run (grid search scoring included) is reproducible for a given seed.
+  seed <- as.integer(params$seed %||% 1)
+  set.seed(seed)
 
   auto <- mi_snf_auto_tune(
     layers, standardize = standardize,
@@ -534,7 +558,7 @@ mi_snf_run <- function(layers, params = list()) {
       blocks = names(layers), k = k, alpha = alpha, t = t_choice,
       k_mode = if (k_manual) "manual" else "automatic", alpha_mode = if (alpha_manual) "manual" else "automatic", t_mode = if (t_manual) "manual" else "automatic",
       n_clusters = n_clusters, cluster_mode = cluster_mode, n_samples = n, standardize = standardize,
-      cluster_method = cluster_method
+      cluster_method = cluster_method, seed = seed
     )
   )
 }

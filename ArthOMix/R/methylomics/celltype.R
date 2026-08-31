@@ -578,15 +578,6 @@ methyl_ct_plot_reconstruction <- function(obs, rec, max_points = 20000) {
     labs(x = "Observed beta", y = "Reconstructed beta") + theme_arthomix()
 }
 
-methyl_ct_plot_method_scatter <- function(frac_a, frac_b, cell_type, label_a, label_b) {
-  common <- intersect(rownames(frac_a), rownames(frac_b))
-  df <- data.frame(sample = common, a = frac_a[common, cell_type], b = frac_b[common, cell_type])
-  ggplot(df, aes(x = a, y = b)) +
-    geom_point(color = ARTHOMIX_COLORS$blue, size = 2) +
-    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = ARTHOMIX_COLORS$ink_muted) +
-    labs(x = label_a, y = label_b, title = cell_type) + theme_arthomix()
-}
-
 methyl_ct_plot_bland_altman <- function(frac_a, frac_b, label_a, label_b) {
   common <- intersect(rownames(frac_a), rownames(frac_b))
   cts <- intersect(colnames(frac_a), colnames(frac_b))

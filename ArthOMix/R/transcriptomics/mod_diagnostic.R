@@ -275,7 +275,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list()) {
   ## nothing user-visible changes.
   levels(y_full) <- make.names(levels(y_full), unique = TRUE)
   params <- utils::modifyList(DIAG_DEFAULT_PARAMS, params)
-  GLOBAL_SEED <- 1234
+  GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
   genes <- rownames(expr_full)
   safe <- make.names(genes, unique = TRUE)
 
@@ -485,6 +485,117 @@ DIAG_TECHNIQUES <- list(
 )
 
 ## ---------------------------------------------------------------------------
+## Leakage-safe validation (nested CV)
+## ---------------------------------------------------------------------------
+## The Test-split AUC above (diag_fit_sex()'s `test$auc`, shown in Model
+## Testing) scores a gene panel that was already chosen - via Candidate Gene
+## Identification + Feature Selection's LASSO/RF/SVM-RFE consensus - using
+## label information from every sample in the pool, including the ones that
+## later land in that panel's own Test split. That is the classic feature-
+## selection-before-split leakage error (Ambroise & McLachlan 2002, PNAS):
+## even though diag_fit_sex()'s own train/test split and fold-train-only CV
+## rescaling are genuinely leakage-free, the panel handed to it is not.
+##
+## This mirrors the fix already shipped for methylomics
+## (methyl_fs_validate_nested(), R/methylomics/mod_methyl_featureselection.R):
+## an outer stratified k-fold loop that RESELECTS the panel - a lightweight
+## univariate ranking (limma moderated t-test, without mod_dge.R's array-
+## weighting/contrast-string bookkeeping, which isn't needed for a ranking-
+## only, per-fold re-run) followed by LASSO, exactly fs_fit_sex()'s own LASSO
+## step - inside each training fold only, using only that fold's own labels,
+## then fits a plain logistic regression on the fold-specific panel (fold-
+## train-only z-scoring, the same leakage-free rescaling diag_cv_auc() already
+## uses) and scores the held-out fold. Deliberately scoped to Univariate +
+## LASSO only, exactly like the methylomics precedent: rerunning WGCNA's
+## module detection, Random Forest, or SVM-RFE inside every outer fold would
+## be prohibitively expensive/complex for a live Shiny session.
+##
+## `expr_candidates` should already be the WGCNA-candidate gene set (Candidate
+## Gene Identification's WGCNA-intersect-DEG output, `results$candidates`) -
+## the same, wider candidate pool Feature Selection's LASSO/RF/SVM-RFE started
+## from - not the narrow final consensus panel, over the FULL sample pool
+## Feature Selection used (genes x samples). Held-out predictions from every
+## outer fold are pooled into one ROC/AUC (with diag_auc_ci()'s CI), since
+## every sample gets scored exactly once, out-of-fold.
+diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n = 100,
+                                  lasso_alpha = 1, seed = ARTHOMIX_TX_ML_SEED) {
+  y_full <- droplevels(factor(as.character(y_full)))
+  validate(need(length(levels(y_full)) == 2, "Leakage-safe validation needs exactly two groups."))
+  genes <- rownames(expr_candidates)
+  safe <- make.names(genes, unique = TRUE)
+  rownames(expr_candidates) <- safe
+
+  nf <- max(2, min(outer_k, min(table(y_full))))
+  set.seed(seed)
+  folds <- caret::createFolds(y_full, k = nf, list = TRUE)
+
+  pred_oof <- rep(NA_real_, length(y_full))
+  per_fold <- list()
+
+  for (fi in seq_along(folds)) {
+    te <- folds[[fi]]; tr <- setdiff(seq_along(y_full), te)
+    y_tr <- droplevels(y_full[tr]); y_te <- droplevels(y_full[te])
+    if (length(unique(y_tr)) < 2 || length(unique(y_te)) < 2) next
+    expr_tr <- expr_candidates[, tr, drop = FALSE]
+    expr_te <- expr_candidates[, te, drop = FALSE]
+
+    ## (1) Lightweight univariate ranking, TRAIN FOLD ONLY.
+    design <- stats::model.matrix(~y_tr)
+    uni_fit <- tryCatch(limma::eBayes(limma::lmFit(expr_tr, design)), error = function(e) NULL)
+    if (is.null(uni_fit)) next
+    tt <- tryCatch(limma::topTable(uni_fit, coef = 2, number = Inf, sort.by = "P"), error = function(e) NULL)
+    if (is.null(tt) || nrow(tt) < 2) next
+    uni_genes <- rownames(tt)[seq_len(min(uni_top_n, nrow(tt)))]
+
+    ## (2) LASSO, TRAIN FOLD ONLY, restricted to the univariate-narrowed set.
+    Xtr_raw <- t(expr_tr[uni_genes, , drop = FALSE])
+    nf_lasso <- max(2, min(5, min(table(y_tr))))
+    cv <- tryCatch(glmnet::cv.glmnet(Xtr_raw, y_tr, family = "binomial", alpha = lasso_alpha, nfolds = nf_lasso),
+                   error = function(e) NULL)
+    panel <- character(0)
+    if (!is.null(cv)) {
+      co <- coef(cv, s = "lambda.min")[-1, 1, drop = TRUE]
+      panel <- names(co)[co != 0]
+    }
+    if (length(panel) < 1) panel <- utils::head(uni_genes, min(5, length(uni_genes)))
+
+    ## (3) Fit + evaluate: plain logistic regression (diag_fit_sex()'s own
+    ## unpenalized-glm classifier), fold-train-only z-scored, fit on the TRAIN
+    ## fold and scored once on the held-out TEST fold.
+    mu <- rowMeans(expr_tr[panel, , drop = FALSE], na.rm = TRUE)
+    sg <- apply(expr_tr[panel, , drop = FALSE], 1, stats::sd)
+    sg[is.na(sg) | sg == 0] <- 1
+    Ztr <- (expr_tr[panel, , drop = FALSE] - mu) / sg
+    Zte <- (expr_te[panel, , drop = FALSE] - mu) / sg
+    fit_df <- data.frame(y = y_tr, t(Ztr), check.names = FALSE)
+    model <- tryCatch(suppressWarnings(stats::glm(y ~ ., data = fit_df, family = stats::binomial)), error = function(e) NULL)
+    if (is.null(model)) next
+    pred <- tryCatch(as.numeric(predict(model, newdata = data.frame(t(Zte), check.names = FALSE), type = "response")),
+                      error = function(e) NULL)
+    if (is.null(pred)) next
+    pred_oof[te] <- pred
+
+    roc_i <- tryCatch(pROC::roc(y_te, pred, quiet = TRUE, levels = levels(y_full), direction = "<"), error = function(e) NULL)
+    auc_i <- if (!is.null(roc_i)) as.numeric(pROC::auc(roc_i)) else NA_real_
+    per_fold[[length(per_fold) + 1]] <- data.frame(fold = fi, n_panel = length(panel), auc = round(auc_i, 3))
+  }
+
+  per_fold_df <- if (length(per_fold) > 0) do.call(rbind, per_fold) else data.frame(fold = integer(0), n_panel = integer(0), auc = numeric(0))
+  have_oof <- !is.na(pred_oof)
+  pooled <- list(available = FALSE, reason = "Not enough folds completed to score a pooled AUC.")
+  if (sum(have_oof) >= 10 && length(unique(y_full[have_oof])) == 2) {
+    roc_pooled <- tryCatch(pROC::roc(y_full[have_oof], pred_oof[have_oof], quiet = TRUE, levels = levels(y_full), direction = "<"),
+                            error = function(e) NULL)
+    if (!is.null(roc_pooled)) {
+      ci <- diag_auc_ci(roc_pooled)
+      pooled <- list(available = TRUE, auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
+                      n = sum(have_oof), roc = roc_pooled)
+    }
+  }
+  list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
+}
+
+## ---------------------------------------------------------------------------
 ## UI
 ## ---------------------------------------------------------------------------
 
@@ -596,6 +707,25 @@ mod_diagnostic_testing_sex_panel <- function(ns, sex_label) {
   )
 }
 
+## One sex's "Leakage-safe Validation" drill-down: outer-fold count control,
+## Run button, disclosure text, and the pooled AUC + per-fold table once run.
+mod_diagnostic_leakagesafe_sex_panel <- function(ns, sex_label) {
+  run_id <- paste0("run_", sex_label, "_leakagesafe_btn")
+  sex_title <- tools::toTitleCase(sex_label)
+  tagList(
+    p(class = "empty-note", icon("triangle-exclamation"),
+      "The Test-split AUC in Model Testing (Internal) evaluates a gene panel that was already chosen using this same data - Candidate Gene Identification and Feature Selection's LASSO/RF/SVM-RFE consensus both run on the full sample pool, with no held-out split - so that AUC is optimistic. This mode reselects the panel with the Univariate + LASSO steps inside every outer fold instead, for a more honest estimate."),
+    p(class = "empty-note", icon("circle-info"),
+      "Leakage-safe mode reselects the panel from this sex's WGCNA-candidate gene set (Candidate Gene Identification's output) using Univariate ranking + LASSO inside every outer fold - not literally the same panel shown in Feature Selection - and it does not rerun WGCNA, Random Forest, or SVM-RFE per fold, since a full discovery-pipeline refit per fold is impractical in a live session. The candidate gene list itself, and its cap above 200 genes (kept by full-pool variance), are still computed once before this outer cross-validation runs - so \"leakage-safe\" here means the supervised feature-selection step is redone per fold, not that the estimate is completely free of leakage."),
+    fluidRow(
+      column(4, numericInput(ns(paste0(sex_label, "_leakagesafe_k")), "Outer folds (k)", value = 5, min = 3, max = 10, step = 1)),
+      column(4, div(style = "margin-top: 25px;",
+                    actionButton(ns(run_id), paste("Run", sex_title, "Leakage-safe Validation"), icon = icon("play"), class = "btn-primary btn-sm")))
+    ),
+    withSpinner(uiOutput(ns(paste0(sex_label, "_leakagesafe_result_ui"))), color = "#2563EB", type = 6)
+  )
+}
+
 mod_diagnostic_ui <- function(id) {
   ns <- NS(id)
   tagList(
@@ -659,12 +789,28 @@ mod_diagnostic_ui <- function(id) {
           ),
           tabPanel(
             "Model Testing (Internal)", br(),
-            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split."),
+            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split. This scores the panel as-is - see \"Leakage-safe Validation\" for an estimate that also accounts for how that panel was chosen."),
             tabsetPanel(
               id = ns("test_sex_tabs"), type = "tabs",
               tabPanel("Female", br(), mod_diagnostic_testing_sex_panel(ns, "female")),
               tabPanel("Male", br(), mod_diagnostic_testing_sex_panel(ns, "male")),
               tabPanel("Pooled (all)", br(), mod_diagnostic_testing_sex_panel(ns, "pooled"))
+            )
+          ),
+          ## Nested-CV counterpart to Model Testing (Internal): reselects the
+          ## panel per outer fold instead of scoring the already-chosen one -
+          ## see mod_diagnostic_leakagesafe_sex_panel()/diag_validate_nested().
+          ## Only meaningful for panel_source == "project" (a project_source_ui
+          ## live panel), since "own"/"wgcna" panels weren't chosen by this
+          ## session's own supervised feature selection.
+          tabPanel(
+            "Leakage-safe Validation", br(),
+            p(class = "submodule-desc", "Nested cross-validation that reselects the gene panel inside each outer fold instead of scoring the panel already chosen using this same data - see the disclosure under each sex's Run button. Needs a live Candidate Gene Identification run (\"Follow this project's pipeline\" panel source) on this dataset."),
+            tabsetPanel(
+              id = ns("leakagesafe_sex_tabs"), type = "tabs",
+              tabPanel("Female", br(), mod_diagnostic_leakagesafe_sex_panel(ns, "female")),
+              tabPanel("Male", br(), mod_diagnostic_leakagesafe_sex_panel(ns, "male")),
+              tabPanel("Pooled (all)", br(), mod_diagnostic_leakagesafe_sex_panel(ns, "pooled"))
             )
           ),
           ## A genuinely separate uploaded cohort (Chen et al. 2021/2022's
@@ -834,7 +980,9 @@ mod_diagnostic_server <- function(id, dataset, results) {
       req(input$ext_meta_file)
       path <- input$ext_meta_file$datapath
       if (grepl("\\.rds$", input$ext_meta_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded metadata RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -948,7 +1096,18 @@ mod_diagnostic_server <- function(id, dataset, results) {
       auc_thr <- input$ext_hub_auc_thr %||% 0.85
       p_thr <- input$ext_hub_p_thr %||% 0.05
       df$hub <- !is.na(df$auc) & !is.na(df$p) & df$auc >= auc_thr & df$p < p_thr
-      df[order(-df$auc), ]
+      df <- df[order(-df$auc), ]
+      df
+    })
+
+    ## Same shape as ext_gene_df(), with the gene column CSV-formula-injection
+    ## safe (tx_csv_safe(), defined in mod_featureselection.R) - used only for
+    ## the download handler below, never for the on-screen DT table, so the
+    ## rendered UI keeps showing the real, unprefixed gene symbol.
+    ext_gene_df_csv_safe <- reactive({
+      df <- ext_gene_df()
+      df$gene <- tx_csv_safe(df$gene)
+      df
     })
 
     output$ext_gene_table <- DT::renderDataTable({
@@ -960,7 +1119,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
 
     output$ext_gene_download <- downloadHandler(
       filename = function() "external_validation_gene_auc.csv",
-      content = function(file) write.csv(ext_gene_df(), file, row.names = FALSE)
+      content = function(file) write.csv(ext_gene_df_csv_safe(), file, row.names = FALSE)
     )
 
     ## Per-gene expression boxplot (Fig. 3d style), capped to top 24 genes by AUC.
@@ -1085,6 +1244,68 @@ mod_diagnostic_server <- function(id, dataset, results) {
       fit
     }
 
+    ## The wider WGCNA-candidate pool Feature Selection's LASSO/RF/SVM-RFE
+    ## started from - Candidate Gene Identification's own output - not the
+    ## narrow final consensus panel diag_build_sex() above uses. This is what
+    ## diag_validate_nested() reselects from inside each outer fold. Mirrors
+    ## mod_featureselection.R's project_candidate_genes("pooled") union/final
+    ## logic exactly, since that's the same pooled candidate set Feature
+    ## Selection itself would have used.
+    diag_leakagesafe_candidate_genes <- function(sex_label) {
+      if (identical(sex_label, "pooled")) {
+        cand_final <- results$candidates$final
+        if (!is.null(cand_final) && identical(cand_final$selection, "pooled") && length(cand_final$genes) >= 3) {
+          return(unique(as.character(cand_final$genes)))
+        }
+        return(unique(c(results$candidates$female$genes, results$candidates$male$genes)))
+      }
+      unique(as.character(results$candidates[[sex_label]]$genes))
+    }
+
+    ## Builds the full (pre-split) sample pool + WGCNA-candidate expression
+    ## matrix for one sex, then runs diag_validate_nested() on it. Uses the
+    ## same meta/contrast filtering as diag_build_sex() above, but over the
+    ## wider candidate pool instead of the already-chosen final panel.
+    diag_build_leakagesafe_sex <- function(sex_label, sex_value, outer_k) {
+      req(input$ref_group, input$comp_group)
+      validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
+
+      cand_genes <- diag_leakagesafe_candidate_genes(sex_label)
+      validate(need(length(cand_genes) >= 5, sprintf(
+        "Leakage-safe validation needs this session's live Candidate Gene Identification output for %s (the WGCNA-candidate list Feature Selection started from) - run Candidate Gene Identification (and Feature Selection) on this dataset first.",
+        sex_label
+      )))
+
+      meta <- dataset$meta
+      sex_ok <- if (is.null(sex_value)) rep(TRUE, nrow(meta)) else (!is.na(meta$sex) & as.character(meta$sex) == sex_value)
+      meta <- meta[sex_ok &
+                     !is.na(meta$group) & as.character(meta$group) %in% c(input$ref_group, input$comp_group), , drop = FALSE]
+      common <- intersect(colnames(dataset$expr), meta$sample)
+      validate(need(length(common) >= 10, sprintf("Fewer than 10 %s samples match this contrast.", sex_label)))
+      meta <- meta[match(common, meta$sample), , drop = FALSE]
+      y_full <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
+      validate(need(all(table(y_full) >= 6), sprintf("Each group needs at least 6 %s samples.", sex_label)))
+
+      genes <- intersect(cand_genes, rownames(dataset$expr))
+      validate(need(length(genes) >= 5, sprintf(
+        "Fewer than 5 %s WGCNA-candidate genes are present in the currently loaded expression matrix.", sex_label
+      )))
+      ## Same top-variance cap Feature Selection itself applies before fitting
+      ## (FS_MAX_CANDIDATE_GENES, mod_featureselection.R) - computed once on
+      ## the full pool, not redone per fold (see the UI disclosure above).
+      if (length(genes) > FS_MAX_CANDIDATE_GENES) {
+        v <- apply(dataset$expr[genes, common, drop = FALSE], 1, stats::var)
+        genes <- names(sort(v, decreasing = TRUE))[seq_len(FS_MAX_CANDIDATE_GENES)]
+      }
+      expr_candidates <- dataset$expr[genes, common, drop = FALSE]
+
+      withProgress(
+        message = sprintf("Running %s leakage-safe validation (Univariate + LASSO reselected per outer fold)...", sex_label),
+        value = 0.3,
+        diag_validate_nested(expr_candidates, y_full, outer_k = outer_k)
+      )
+    }
+
     ## Training and Testing tabs each have their own Run button per sex; both feed
     ## the same shared trigger below.
     ## An eventReactive can't be reset to its unfired state, so this tracks whether
@@ -1114,6 +1335,64 @@ mod_diagnostic_server <- function(id, dataset, results) {
     diag_result_pooled <- eventReactive(pooled_run_trigger(), {
       diag_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
+
+    ## Leakage-safe Validation tab: its own Run button per sex, independent of
+    ## Model Training/Testing's triggers above (no fitted model to keep in
+    ## sync with - this reselects its own panel from the candidate pool).
+    diag_leakagesafe_female <- eventReactive(input$run_female_leakagesafe_btn, {
+      diag_build_leakagesafe_sex("female", sex_levels()$female, input$female_leakagesafe_k %||% 5)
+    }, ignoreInit = TRUE)
+    diag_leakagesafe_male <- eventReactive(input$run_male_leakagesafe_btn, {
+      diag_build_leakagesafe_sex("male", sex_levels()$male, input$male_leakagesafe_k %||% 5)
+    }, ignoreInit = TRUE)
+    diag_leakagesafe_pooled <- eventReactive(input$run_pooled_leakagesafe_btn, {
+      diag_build_leakagesafe_sex("pooled", NULL, input$pooled_leakagesafe_k %||% 5)
+    }, ignoreInit = TRUE)
+
+    diag_leakagesafe_has_run <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
+    observeEvent(input$run_female_leakagesafe_btn, diag_leakagesafe_has_run$female <- TRUE, ignoreInit = TRUE)
+    observeEvent(input$run_male_leakagesafe_btn, diag_leakagesafe_has_run$male <- TRUE, ignoreInit = TRUE)
+    observeEvent(input$run_pooled_leakagesafe_btn, diag_leakagesafe_has_run$pooled <- TRUE, ignoreInit = TRUE)
+    observeEvent(dataset$source, {
+      diag_leakagesafe_has_run$female <- FALSE; diag_leakagesafe_has_run$male <- FALSE; diag_leakagesafe_has_run$pooled <- FALSE
+    }, ignoreInit = TRUE)
+
+    lapply(c("female", "male", "pooled"), function(sex_label) {
+      res_fn <- switch(sex_label, female = diag_leakagesafe_female, male = diag_leakagesafe_male, pooled = diag_leakagesafe_pooled)
+      output[[paste0(sex_label, "_leakagesafe_result_ui")]] <- renderUI({
+        if (!isTRUE(diag_leakagesafe_has_run[[sex_label]])) {
+          return(div(class = "empty-note", icon("circle-info"), "Not run yet. Click Run above."))
+        }
+        r <- tryCatch(res_fn(), error = function(e) {
+          msg <- conditionMessage(e)
+          if (nzchar(msg)) msg else NULL
+        })
+        if (is.null(r)) return(NULL)
+        if (is.character(r)) return(div(class = "empty-note", icon("triangle-exclamation"), r))
+        pooled <- r$pooled
+        if (!isTRUE(pooled$available)) {
+          return(div(class = "empty-note", icon("triangle-exclamation"), pooled$reason %||% "Leakage-safe AUC unavailable."))
+        }
+        tagList(
+          fluidRow(
+            valueBox(sprintf("%.3f", pooled$auc),
+                     sprintf("Leakage-safe pooled AUC (95%% CI %.3f-%.3f, n=%d)", pooled$ci_lo, pooled$ci_hi, pooled$n),
+                     icon = icon("shield-halved"), color = "light-blue", width = 6),
+            valueBox(sprintf("%d / %d", r$n_folds_completed, r$outer_k), "Outer folds completed",
+                     icon = icon("layer-group"), color = "purple", width = 6)
+          ),
+          DT::dataTableOutput(ns(paste0(sex_label, "_leakagesafe_table")))
+        )
+      })
+      output[[paste0(sex_label, "_leakagesafe_table")]] <- DT::renderDataTable({
+        req(isTRUE(diag_leakagesafe_has_run[[sex_label]]))
+        r <- tryCatch(res_fn(), error = function(e) NULL)
+        req(r, is.list(r), !is.null(r$per_fold))
+        DT::datatable(r$per_fold, rownames = FALSE, width = "100%",
+                      options = list(pageLength = 10, dom = "t", scrollX = TRUE), class = "stripe hover compact")
+      })
+      outputOptions(output, paste0(sex_label, "_leakagesafe_table"), suspendWhenHidden = FALSE)
+    })
 
     ## Reads one sex's diag_result_*() and returns its real validate()/need() failure
     ## message, or NULL if it hasn't failed. Distinguishes a genuine failure (e.g. no
@@ -1679,14 +1958,20 @@ mod_diagnostic_server <- function(id, dataset, results) {
         })
         output[[download_id]] <- downloadHandler(
           filename = function() sprintf("%s_gene_auc.csv", sex_label),
-          content = function(file) write.csv(gene_auc_df(res()$gene_roc_train, res()$gene_roc_test), file, row.names = FALSE)
+          content = function(file) {
+            df <- gene_auc_df(res()$gene_roc_train, res()$gene_roc_test)
+            df$gene <- tx_csv_safe(df$gene)
+            write.csv(df, file, row.names = FALSE)
+          }
         )
         ## Just the rows currently passing the AUC/P thresholds set above.
         output[[hub_download_id]] <- downloadHandler(
           filename = function() sprintf("%s_hub_genes.csv", sex_label),
           content = function(file) {
             df <- gene_auc_df(res()$gene_roc_train, res()$gene_roc_test)
-            write.csv(df[df$hub, c("gene", "train_auc", "train_p", "test_auc", "test_p")], file, row.names = FALSE)
+            df <- df[df$hub, c("gene", "train_auc", "train_p", "test_auc", "test_p")]
+            df$gene <- tx_csv_safe(df$gene)
+            write.csv(df, file, row.names = FALSE)
           }
         )
       }

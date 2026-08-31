@@ -208,7 +208,21 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
         div(class = "empty-note", icon("circle-info"), MCC_CANONICAL_RULE_TEXT),
         if (is.null(state$result)) multi_empty_state("Set filters, then click \"Run Gene–CpG Analysis\".")
         else if (!isTRUE(state$result$ok)) div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), state$result$error)
-        else div(class = "empty-note", icon("circle-check"), state$result$overview_note)
+        else tagList(
+          div(class = "empty-note", icon("circle-check"), state$result$overview_note),
+          ## Circularity disclosure (Active Multi-Omics Dataset path only) -
+          ## mcc_build_live_one() -> mcc_candidate_pool() draws candidate
+          ## genes/CpGs from mcc_diablo_candidates(multi_results), i.e. this
+          ## SAME dataset's own DIABLO feature selection - so the
+          ## correlation/significance re-test below is not an independent
+          ## check, unlike the Preloaded cohort path (a separately-run
+          ## pipeline's own Table42/45). Phrasing follows this app's existing
+          ## circularity callouts (e.g. mod_nomogram.R's
+          ## nom_circularity_note(), mod_diagnostic.R's Test-split AUC note).
+          if (identical(input$data_source, "active")) div(
+            class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
+            "Circularity warning: for the Active Multi-Omics Dataset, the candidate genes/CpGs analyzed above were already selected using this SAME data (DIABLO's own feature selection, run on this dataset) - the correlation/significance results below therefore re-test features on the data that picked them, and are not independent corroborating evidence. Only the Preloaded cohort path cross-references a separately-run pipeline.")
+        )
       )
     })
 

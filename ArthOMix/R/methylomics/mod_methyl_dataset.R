@@ -47,7 +47,7 @@ mod_methyl_dataset_ui <- function(id) {
       column(
         6,
         box(
-          width = NULL, title = "Switch to preloaded data", status = "primary", solidHeader = FALSE,
+          width = NULL, title = "Reference / Example Dataset", status = "primary", solidHeader = FALSE,
           selectInput(ns("preloaded_choice"), "Individual dataset",
                       choices = mx_preloaded_choices(), selected = character(0), width = "100%"),
           uiOutput(ns("preloaded_note")),
@@ -156,6 +156,15 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       req(input$array_type)
       if (input$array_type %in% c("450K", "EPIC")) {
         p(class = "empty-note", icon("circle-check"), "Manifest annotation available for this array type.")
+      } else if (identical(input$array_type, "EPICv2")) {
+        ## EPICv2 is offered as a choice, but this deployment has no
+        ## EPICv2 entry in METHYL_ANNOTATION_PACKAGES (annotation.R) - its
+        ## real Bioconductor manifest package uses hg38 coordinates and
+        ## suffixed probe IDs (e.g. "cgXXXXXXXX_BC11"), while every other
+        ## array type here is hg19 with plain "cgXXXXXXXX" IDs, so wiring it
+        ## in isn't a safe drop-in without a build-aware branch through
+        ## DMRcate/downstream logic - see this file's own code comment.
+        p(class = "empty-note", icon("triangle-exclamation"), "No manifest annotation is wired up for EPICv2 in this deployment - SNP filtering, sex-chromosome filtering, the raw-intensity sex check, and manifest-dependent normalization methods are unavailable for this array type. Sample-level QC that doesn't need a manifest still works.")
       } else {
         p(class = "empty-note", icon("circle-info"), "No manifest annotation for this array type - sample-level QC still works.")
       }
@@ -303,7 +312,9 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       req(input$sheet_file)
       path <- input$sheet_file$datapath
       if (grepl("\\.rds$", input$sheet_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded sample sheet RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -322,8 +333,11 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       req(input$upload_format == "matrix", input$matrix_file)
       path <- input$matrix_file$datapath
       if (grepl("\\.rds$", input$matrix_file$name, ignore.case = TRUE)) {
-        m <- tryCatch(readRDS(path), error = function(e) NULL)
-        if (is.null(m) || !is.matrix(m)) return(list(ok = FALSE, error = "The uploaded matrix RDS file must contain a numeric matrix."))
+        loaded <- safe_read_rds(path)
+        if (!isTRUE(loaded$ok)) return(list(ok = FALSE, error = loaded$error))
+        m <- loaded$value
+        if (!is.matrix(m) || !is.numeric(m)) return(list(ok = FALSE, error = "The uploaded matrix RDS file must contain a numeric matrix."))
+        storage.mode(m) <- "double"
         list(ok = TRUE, mat = m)
       } else {
         methyl_parse_matrix(path, input$matrix_file$name)
@@ -487,7 +501,18 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         return()
       }
 
-      methyl_dataset$beta <- result$mat
+      ## Actually dedup duplicated probe IDs (keep first occurrence) rather
+      ## than just claiming to in the message below - the CSV/TSV path
+      ## already dedups upstream in methyl_parse_matrix(), but the RDS-matrix
+      ## path (matrix_preview() above) and the raw-IDAT path do not, so this
+      ## is the one place both funnel through before being stored.
+      mat_final <- result$mat
+      n_dup <- if (!is.null(rownames(mat_final))) sum(duplicated(rownames(mat_final))) else 0
+      if (n_dup > 0) {
+        mat_final <- mat_final[!duplicated(rownames(mat_final)), , drop = FALSE]
+      }
+
+      methyl_dataset$beta <- mat_final
       methyl_dataset$input_scale <- result$input_scale
       methyl_dataset$array_type <- result$array_type
       methyl_dataset$sample_sheet <- result$sheet
@@ -499,7 +524,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       methyl_dataset$source_type <- "upload"
       methyl_dataset$source <- result$source
 
-      n_dup <- sum(duplicated(rownames(result$mat)))
       output$load_message <- renderUI(
         tagList(
           div(class = "empty-note", icon("check"), paste(result$n_probes_msg, result$note)),
@@ -575,15 +599,32 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         }
         gpl <- Biobase::annotation(eset)
         array_type <- unname(MX_METHYLATION_GPL[gpl])
+        recognized <- !(is.na(array_type) || is.null(array_type))
+
+        ## Value-range sanity check now runs unconditionally (not just for an
+        ## unrecognized platform) - a recognized-platform series can still be
+        ## on the M-value (or another non-beta) scale, and this app assumes
+        ## beta values for every GEO-fetched series regardless of platform.
+        vals <- ex[is.finite(ex)]
+        frac_in_unit <- if (length(vals) > 0) mean(vals >= -0.05 & vals <= 1.05) else 0
+
         platform_note <- NULL
-        if (is.na(array_type) || is.null(array_type)) {
-          vals <- ex[is.finite(ex)]
-          frac_in_unit <- if (length(vals) > 0) mean(vals >= -0.05 & vals <= 1.05) else 0
+        if (!recognized) {
           if (frac_in_unit < 0.95) {
             stop(sprintf("Platform %s is not a recognized Illumina methylation array (450K/EPIC/EPICv2/27K), and its values don't look like methylation beta values (0-1 range) either - this looks like a gene-expression or other non-methylation dataset. Use the Transcriptomics module's GEO fetch instead.", gpl))
           }
           array_type <- "Custom array"
           platform_note <- sprintf("Platform %s was not recognized as a standard Illumina methylation array, but its values fall within the expected 0-1 beta-value range, so this was accepted as methylation data - verify the platform manually before relying on downstream results.", gpl)
+        } else if (frac_in_unit < 0.95) {
+          ## Recognized platform, but the values themselves don't look like
+          ## beta values - most likely an M-value-scale series. Surface this
+          ## clearly rather than silently labeling it "beta values" below;
+          ## input_scale is deliberately NOT overridden here, since forcing
+          ## it either way could be wrong (verified against the user's own
+          ## judgment instead, via "Upload your own data" if needed).
+          platform_note <- sprintf(
+            "Platform %s is a recognized methylation array (%s), but only %d%% of its values fall within the expected 0-1 beta-value range - this looks like it may be M-values (or another non-beta scale), not beta values. This app assumes GEO methylation series matrices are beta values; verify before relying on downstream results, or re-upload via \"Upload your own data\" with the correct input scale selected.",
+            gpl, array_type, round(100 * frac_in_unit))
         }
         list(expr = ex, meta = as.data.frame(Biobase::pData(eset)), array_type = array_type,
              platform = gpl, platform_note = platform_note)
@@ -658,8 +699,16 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         ))
         expr <- expr[, common, drop = FALSE]
         meta <- meta[match(common, meta$sample), , drop = FALSE]
+
+        ## Same actual dedup (keep first occurrence) as the upload path above -
+        ## a fetched GEO series matrix can itself carry duplicated probe IDs.
+        n_dup <- if (!is.null(rownames(expr))) sum(duplicated(rownames(expr))) else 0
+        if (n_dup > 0) {
+          expr <- expr[!duplicated(rownames(expr)), , drop = FALSE]
+        }
+
         acc <- geo_fetch_result()$acc
-        list(expr = expr, meta = meta, acc = acc, array_type = em$array_type, platform = em$platform)
+        list(expr = expr, meta = meta, acc = acc, array_type = em$array_type, platform = em$platform, n_dup = n_dup)
       }, error = function(e) e)
 
       if (inherits(result, "error")) {
@@ -681,9 +730,13 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         methyl_dataset$source <- sprintf("NCBI GEO: %s (%s, %s)", result$acc, result$platform, result$array_type)
         n_samples <- ncol(result$expr)
         output$load_message <- renderUI(
-          div(class = "empty-note", icon("check"),
-              sprintf("Loaded %s probes across %s samples. Every sub-module now runs on this GEO dataset.",
-                      format(nrow(result$expr), big.mark = ","), n_samples))
+          tagList(
+            div(class = "empty-note", icon("check"),
+                sprintf("Loaded %s probes across %s samples. Every sub-module now runs on this GEO dataset.",
+                        format(nrow(result$expr), big.mark = ","), n_samples)),
+            if (isTRUE(result$n_dup > 0)) div(class = "empty-note", icon("triangle-exclamation"),
+                sprintf("%d duplicated probe ID(s) were detected in the fetched matrix - only the first occurrence of each is kept.", result$n_dup))
+          )
         )
         showNotification("GEO dataset loaded - Quality Control, Normalization, Differential Methylation and every other sub-module now run against it.", type = "message", duration = 5)
       }

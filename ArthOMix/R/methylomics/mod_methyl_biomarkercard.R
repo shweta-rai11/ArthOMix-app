@@ -466,7 +466,6 @@ bc_ewasatlas_query <- function(endpoint, param, value) {
   list(ok = TRUE, data = res$data, reason = NULL, meta = meta_base)
 }
 bc_ewasatlas_probe <- function(probe_id) bc_ewasatlas_query("probe", "probeId", probe_id)
-bc_ewasatlas_gene <- function(gene_symbol) bc_ewasatlas_query("gene", "geneSymbol", gene_symbol)
 
 ## Cached process-wide so pathway names resolve without a keggGet() round
 ## trip per pathway.
@@ -608,56 +607,6 @@ BC_DISEASE_CATEGORIES <- list(
   "Cancer" = "cancer|carcinoma|tumou?r|neoplasm|leukemia|lymphoma",
   "Cardiovascular Disease" = "cardiovascular|coronary|myocardial|atherosclero|heart failure"
 )
-
-## One call per source per CpG/gene; every sub-lookup is independently
-## fail-soft so one down/slow service degrades only its own section.
-bc_external_evidence <- function(cpg, gene_symbol, entrez) {
-  ewc_cpg <- bc_ewascatalog_query("cpg", cpg)
-  ewc_gene <- if (!is.na(gene_symbol)) bc_ewascatalog_query("gene", gene_symbol) else list(ok = FALSE, df = NULL, reason = "No associated gene.")
-  ewa <- bc_ewasatlas_probe(cpg)
-  kegg <- bc_kegg_pathways_for_gene(entrez)
-  kegg_ra <- bc_kegg_ra_pathway_check(entrez, gene_symbol)
-  reactome <- if (!is.na(gene_symbol)) bc_reactome_pathways_for_gene(gene_symbol) else list(ok = FALSE, pathways = NULL, reason = "No associated gene.")
-
-  ewa_assoc <- NULL
-  if (isTRUE(ewa$ok) && !is.null(ewa$data$associationList) && is.data.frame(ewa$data$associationList) && nrow(ewa$data$associationList) > 0) {
-    a <- ewa$data$associationList
-    ewa_assoc <- data.frame(source = "EWAS Atlas", trait = a$trait, tissue = NA_character_,
-                             effect = a$correlation, p = NA_character_, pmid = as.character(a$pmid), stringsAsFactors = FALSE)
-  }
-  ewc_assoc <- NULL
-  if (isTRUE(ewc_cpg$ok) && nrow(ewc_cpg$df) > 0) {
-    d <- ewc_cpg$df
-    ewc_assoc <- data.frame(source = "EWAS Catalog", trait = d$trait, tissue = d$tissue,
-                             effect = d$beta, p = d$p, pmid = as.character(d$pmid), stringsAsFactors = FALSE)
-  }
-  combined <- do.call(rbind, list(ewc_assoc, ewa_assoc))
-  if (!is.null(combined)) combined <- combined[!is.na(combined$trait) & nzchar(combined$trait), , drop = FALSE]
-
-  pmids <- if (!is.null(combined)) unique(combined$pmid[!is.na(combined$pmid) & grepl("^[0-9]+$", combined$pmid)]) else character(0)
-  pubs <- bc_pubmed_summaries(pmids)
-
-  ra_rows <- if (!is.null(combined)) combined[grepl("rheumatoid|arthritis", combined$trait, ignore.case = TRUE), , drop = FALSE] else NULL
-
-  disease_counts <- NULL
-  if (!is.null(combined) && nrow(combined) > 0) {
-    cat_counts <- vapply(BC_DISEASE_CATEGORIES, function(pat) sum(grepl(pat, combined$trait, ignore.case = TRUE)), integer(1))
-    other_n <- nrow(combined) - sum(cat_counts)
-    disease_counts <- data.frame(category = c(names(BC_DISEASE_CATEGORIES), "Other"), n = c(unname(cat_counts), max(other_n, 0)), stringsAsFactors = FALSE)
-    disease_counts <- disease_counts[disease_counts$n > 0, , drop = FALSE]
-  }
-
-  tissue_counts <- NULL
-  if (isTRUE(ewc_cpg$ok) && nrow(ewc_cpg$df) > 0) {
-    tt <- ewc_cpg$df$tissue[!is.na(ewc_cpg$df$tissue) & nzchar(ewc_cpg$df$tissue)]
-    if (length(tt) > 0) tissue_counts <- as.data.frame(table(tissue = tt), stringsAsFactors = FALSE)
-  }
-
-  list(cpg = cpg, gene_symbol = gene_symbol, ewascatalog_cpg = ewc_cpg, ewascatalog_gene = ewc_gene, ewasatlas = ewa,
-       kegg = kegg, kegg_ra = kegg_ra, reactome = reactome, combined_disease = combined, ra_rows = ra_rows,
-       disease_counts = disease_counts, tissue_counts = tissue_counts, publications = pubs,
-       methbank_link = bc_methbank_link())
-}
 
 ## ---- Extended live API clients (Gene/Genome, Disease/Genetics, Pathways,
 ## Expression, Regulatory/Epigenomics, External Datasets, Literature) - each
@@ -1515,7 +1464,7 @@ bc_section_wikipathways <- function(ext) {
           else {
             wdf <- wp$pathways
             wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', wdf$id, wdf$id)
-            DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = FALSE,
+            DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = 1,
                           options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
           }
   div(class = "card", div(class = "card-title", icon("map"), "WikiPathways"),
@@ -1576,76 +1525,6 @@ renderPlot_static <- function(p) {
   uri <- base64enc::dataURI(file = tf, mime = "image/png")
   unlink(tf)
   tags$img(src = uri, style = "max-width:100%; height:auto;")
-}
-
-bc_section_your_dataset <- function(d, plot_tag) {
-  pipeline_rows <- list()
-  if (!is.null(d$dmp_female)) pipeline_rows[["Female (pipeline)"]] <- d$dmp_female
-  if (!is.null(d$dmp_male)) pipeline_rows[["Male (pipeline)"]] <- d$dmp_male
-  pipeline_table <- NULL
-  if (length(pipeline_rows) > 0) {
-    pipeline_table <- do.call(rbind, lapply(names(pipeline_rows), function(nm) {
-      r <- pipeline_rows[[nm]]
-      data.frame(Stratum = nm, `Delta Beta` = round(r$dbeta, 4), `P-value` = signif(r$p_bacon, 4), FDR = signif(r$fdr_bacon, 4),
-                 Direction = if (is.na(r$dbeta)) NA_character_ else if (r$dbeta > 0) "Hyper" else if (r$dbeta < 0) "Hypo" else "None",
-                 check.names = FALSE, stringsAsFactors = FALSE)
-    }))
-  }
-
-  ## Region-level (DMRcate) pipeline evidence for whichever region(s) this
-  ## CpG falls inside - same sex-stratified pipeline as pipeline_table above,
-  ## just region- instead of probe-level (script04_dmr_sexstratified).
-  dmr_rows <- list()
-  if (!is.null(d$dmr_female)) dmr_rows[["Female (pipeline)"]] <- d$dmr_female[1, ]
-  if (!is.null(d$dmr_male)) dmr_rows[["Male (pipeline)"]] <- d$dmr_male[1, ]
-  dmr_table <- NULL
-  if (length(dmr_rows) > 0) {
-    dmr_table <- do.call(rbind, lapply(names(dmr_rows), function(nm) {
-      r <- dmr_rows[[nm]]
-      data.frame(Stratum = nm, Region = sprintf("%s:%s-%s", r$seqnames, format(r$start, big.mark = ","), format(r$end, big.mark = ",")),
-                 `Mean Delta Beta` = round(r$meandiff, 4), `Region FDR` = signif(r$dmr_fdr, 4),
-                 `Gene(s)` = if (!is.na(r$overlapping.genes) && nzchar(r$overlapping.genes)) r$overlapping.genes else "(none annotated)",
-                 check.names = FALSE, stringsAsFactors = FALSE)
-    }))
-  }
-
-  live_block <- NULL
-  if (isTRUE(d$live$ok)) {
-    ov <- d$live$overall
-    if (isTRUE(ov$ok)) {
-      live_pairs <- list(
-        "Case group" = sprintf("%s (n=%d)", ov$case_label, ov$n_case), "Control group" = sprintf("%s (n=%d)", ov$control_label, ov$n_control),
-        "Case mean beta" = round(ov$mean_case, 4), "Control mean beta" = round(ov$mean_control, 4),
-        "Delta Beta" = round(ov$dbeta, 4), "P-value (Welch t-test)" = signif(ov$p_value, 4),
-        "95% CI (case - control)" = if (!anyNA(ov$ci)) sprintf("[%.4f, %.4f]", ov$ci[1], ov$ci[2]) else NA_character_,
-        "Direction" = ov$direction, "Missing values excluded" = sum(is.na(d$live$beta_row))
-      )
-      live_block <- tagList(
-        p(style = "font-size:12px; color:var(--color-ink-secondary); margin-top:10px;",
-          "Computed directly from the loaded beta matrix (Welch t-test, case vs control) - not SVA/bacon-adjusted."),
-        bc_kv_table(live_pairs)
-      )
-    } else {
-      live_block <- div(class = "empty-note", icon("triangle-exclamation"), ov$reason %||% "Could not compute dataset statistics for this CpG.")
-    }
-  } else {
-    live_block <- div(class = "empty-note", icon("circle-info"), d$live$reason %||% "No uploaded beta matrix and sample sheet are currently loaded.")
-  }
-
-  div(class = "card",
-      div(class = "card-title", icon("flask"), "Your Dataset"),
-      p(class = "submodule-desc", "Source: this app's own preloaded/uploaded methylation dataset - never an external database."),
-      if (!is.null(pipeline_table)) tagList(
-        p(style = "font-size:12px; color:var(--color-ink-secondary);", "Pipeline-reported statistics (SVA/bacon-corrected sex-stratified DMP pipeline):"),
-        DT::datatable(pipeline_table, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
-      ) else div(class = "empty-note", icon("circle-info"), "This CpG was not found in the preloaded sex-stratified DMP tables (not tested on the array, or preloaded pipeline data is unavailable)."),
-      if (!is.null(dmr_table)) tagList(
-        p(style = "font-size:12px; color:var(--color-ink-secondary); margin-top:10px;", "Region-level statistics for the DMR this CpG falls inside (sex-stratified DMRcate pipeline):"),
-        DT::datatable(dmr_table, rownames = FALSE, options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
-      ),
-      live_block,
-      tags$div(style = "margin-top:10px;", plot_tag)
-  )
 }
 
 bc_section_sex_specific <- function(d, plot_tag) {
@@ -1833,6 +1712,11 @@ bc_single_cpg_roc <- function(beta_row, group_vec, case_label, control_label) {
        roc_obj = roc_obj, case_label = case_label, control_label = control_label)
 }
 
+## seed is intentionally fixed (not user-configurable): this feeds only the
+## exploratory single-CpG CV display on the Biomarker Card, not a panel/model
+## result used downstream, and the Generate Card form has no parameters
+## section to place a seed control in without adding UI real estate
+## disproportionate to how minor this is.
 bc_single_cpg_cv <- function(beta_row, group_vec, case_label, control_label, k = 5, seed = 1234) {
   if (!requireNamespace("pROC", quietly = TRUE)) return(list(ok = FALSE, reason = "pROC is not installed in this deployment."))
   keep <- !is.na(beta_row) & !is.na(group_vec) & group_vec %in% c(case_label, control_label)
@@ -2032,14 +1916,25 @@ bc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
   } else DT::datatable(multi_table, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
 
   comparison <- NULL
-  if (isTRUE(sgd$ok) && !is.null(multi_table)) {
+  ## Compare like with like: the multi-CpG panel's "Internal validation AUC"
+  ## is itself a cross-validated number, so this CpG's side of the
+  ## comparison should be too (d$single_cpg_cv$auc), not sgd$auc (the
+  ## in-sample training-fit AUC from bc_single_cpg_roc(), which is
+  ## optimistically biased and not comparable to a CV number). Falls back to
+  ## the training AUC, clearly labeled as such, only if CV genuinely isn't
+  ## available (e.g. too few samples per group for k-fold CV).
+  scv <- d$single_cpg_cv
+  cv_available <- !is.null(scv) && isTRUE(scv$ok) && is.finite(scv$auc %||% NA_real_)
+  single_auc <- if (cv_available) scv$auc else if (isTRUE(sgd$ok)) sgd$auc else NA_real_
+  single_auc_label <- if (cv_available) "this CpG alone, cross-validated" else "this CpG alone, training AUC (CV unavailable)"
+  if (!is.null(multi_table) && is.finite(single_auc)) {
     best_multi_internal <- suppressWarnings(max(as.numeric(gsub("[^0-9.]", "", multi_table$`Internal validation AUC`)), na.rm = TRUE))
     if (is.finite(best_multi_internal)) {
-      diff <- best_multi_internal - sgd$auc
+      diff <- best_multi_internal - single_auc
       comparison <- div(class = "empty-note", icon("scale-balanced"),
-        if (abs(diff) < 0.01) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is essentially the same as this CpG alone (%.3f) - no meaningful signature benefit is shown by the numbers here.", best_multi_internal, sgd$auc)
-        else if (diff > 0) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is %.3f points higher than this CpG alone (%.3f) - the multi-CpG signature adds real, measured value here.", best_multi_internal, diff, sgd$auc)
-        else sprintf("This CpG alone (AUC %.3f) actually scores %.3f points higher than the multi-CpG panel's internal-validation AUC (%.3f).", sgd$auc, -diff, best_multi_internal))
+        if (abs(diff) < 0.01) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is essentially the same as %s (%.3f) - no meaningful signature benefit is shown by the numbers here.", best_multi_internal, single_auc_label, single_auc)
+        else if (diff > 0) sprintf("The multi-CpG panel's internal-validation AUC (%.3f) is %.3f points higher than %s (%.3f) - the multi-CpG signature adds real, measured value here.", best_multi_internal, diff, single_auc_label, single_auc)
+        else sprintf("This CpG alone (%s, AUC %.3f) actually scores %.3f points higher than the multi-CpG panel's internal-validation AUC (%.3f).", if (cv_available) "cross-validated" else "training AUC, CV unavailable", single_auc, -diff, best_multi_internal))
     }
   }
 
@@ -2261,7 +2156,7 @@ bc_section_go <- function(d) {
           else {
             go2 <- go
             go2$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', go2$GOID, go2$GOID)
-            DT::datatable(go2[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = FALSE,
+            DT::datatable(go2[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = 1,
                           options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
           }
   div(class = "card", div(class = "card-title", icon("circle-nodes"), "Gene Ontology (Biological Process)"),
@@ -2323,7 +2218,7 @@ bc_section_regulatory <- function(ext_all, d) {
                 df$Link <- sprintf('<a href="https://www.encodeproject.org%s" target="_blank" rel="noopener">Open</a>', df[["Link path"]])
                 tagList(
                   p(class = "submodule-desc", sprintf("%d matching ENCODE experiment(s) total (showing top %d).", enc$n_total %||% nrow(df), nrow(df))),
-                  DT::datatable(df[, c("Accession", "Assay", "Biosample", "Status", "Link")], rownames = FALSE, escape = FALSE,
+                  DT::datatable(df[, c("Accession", "Assay", "Biosample", "Status", "Link")], rownames = FALSE, escape = 5,
                                 options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
                 )
               }
@@ -2368,7 +2263,7 @@ bc_section_external_datasets <- function(ext_all, query_label) {
               else {
                 df <- geo$series
                 df$Link <- sprintf('<a href="%s" target="_blank" rel="noopener">Open</a>', vapply(df$Accession, geo_link, character(1)))
-                DT::datatable(df[, c("Accession", "Title", "Data type", "Organism", "Samples", "Date", "Link")], rownames = FALSE, escape = FALSE,
+                DT::datatable(df[, c("Accession", "Title", "Data type", "Organism", "Samples", "Date", "Link")], rownames = FALSE, escape = 7,
                               options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
               }
   bio_prov <- bc_db_provenance("www.ebi.ac.uk/biostudies", sprintf("https://www.ebi.ac.uk/biostudies/studies?search=%s", utils::URLencode(query_label %||% "", reserved = TRUE)), "on BioStudies")
@@ -2380,7 +2275,7 @@ bc_section_external_datasets <- function(ext_all, query_label) {
                 df$Link <- sprintf('<a href="https://www.ebi.ac.uk/biostudies/studies/%s" target="_blank" rel="noopener">Open</a>', df$Accession)
                 tagList(
                   p(class = "submodule-desc", sprintf("%d total matching record(s) (showing top %d).", bio$n_total %||% nrow(df), nrow(df))),
-                  DT::datatable(df[, c("Accession", "Title", "Type", "Release date", "Link")], rownames = FALSE, escape = FALSE,
+                  DT::datatable(df[, c("Accession", "Title", "Type", "Release date", "Link")], rownames = FALSE, escape = 5,
                                 options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
                 )
               }
@@ -2412,7 +2307,7 @@ bc_section_pubmed_literature <- function(ext_all, identifier) {
             df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', df$PMID, df$PMID)
             DT::datatable(df[, c("Title", "Authors", "Journal", "Year", "Classification", "Link")],
                           colnames = c("Title", "Authors", "Journal", "Year", "Classification (automated)", "PMID"),
-                          rownames = FALSE, escape = FALSE, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+                          rownames = FALSE, escape = 6, filter = "top", options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
           }
   div(class = "card", div(class = "card-title", icon("book-open"), "PubMed & Literature"), prov,
       if (!is.null(q)) p(class = "submodule-desc", sprintf('Query: "%s"', q)) else NULL,
@@ -2483,19 +2378,6 @@ bc_status_chip <- function(label, state) {
   cls <- switch(state, "Results found" = "status-done", "Failed" = "status-pending", "status-neutral")
   ic <- switch(state, "Results found" = "circle-check", "No results" = "circle-minus", "Failed" = "triangle-exclamation", "circle-info")
   span(class = paste("pipeline-status-chip", cls), icon(ic), sprintf("%s: %s", label, state))
-}
-
-bc_section_db_evidence_summary <- function(ext_all) {
-  go_status <- "Not applicable (local annotation, always shown once the gene resolves)"
-  chips <- c(
-    list(bc_status_chip("Gene Ontology", if (is.null(ext_all)) "Not yet run" else "Results found")),
-    lapply(BC_EVIDENCE_DBS, function(dbx) bc_status_chip(dbx$label, bc_evidence_status(ext_all[[dbx$key]], dbx$field)))
-  )
-  div(class = "card",
-      div(class = "card-title", icon("clipboard-check"), "Evidence Summary (Database Coverage)"),
-      p(class = "submodule-desc", "Actual retrieval status per database - a checkmark only appears once real results were returned, never just because the database exists."),
-      div(class = "pipeline-status-strip", chips)
-  )
 }
 
 bc_section_db_comparison <- function(ext_all) {
@@ -2844,9 +2726,10 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(input$bc_upload_file), "Upload a .csv, .txt, or .rds file first."))
       path <- input$bc_upload_file$datapath; name <- input$bc_upload_file$name
       if (grepl("\\.rds$", name, ignore.case = TRUE)) {
-        obj <- tryCatch(readRDS(path), error = function(e) NULL)
+        loaded <- safe_read_rds(path)
+        obj <- if (isTRUE(loaded$ok)) loaded$value else NULL
         validate(need(!is.null(obj) && identical(obj$module, "mod_methyl_featureselection"),
-                      "Upload a Feature Selection RDS export (from that module's own \"Save Model as RDS\" download), or a plain .csv/.txt CpG ID list."))
+                      loaded$error %||% "Upload a Feature Selection RDS export (from that module's own \"Save Model as RDS\" download), or a plain .csv/.txt CpG ID list."))
         ids <- as.character(obj$final_panel$cpg_ids %||% character(0))
         validate(need(length(ids) > 0, "This RDS export's final_panel$cpg_ids is empty."))
         df <- data.frame(cpg = ids, stringsAsFactors = FALSE)
@@ -3008,11 +2891,22 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       panel_membership <- bc_panel_membership_lookup(cpg)
       panel_perprobe <- bc_panel_perprobe_lookup(cpg)
 
+      ## Frozen snapshot of the dataset-level fields the "Dataset" tab
+      ## displays (bc_section_dataset_cohort()), taken at this same
+      ## Generate-click instant as everything else in this list - so if the
+      ## user switches datasets after generating the card, the Dataset tab
+      ## still describes the same dataset the rest of the card's evidence
+      ## (single-CpG AUC, DMP/DMR lookups, etc.) was actually computed from,
+      ## instead of silently drifting to whatever is live in `dataset` now.
+      dataset_snapshot <- list(beta = dataset$beta, source = dataset$source,
+                                array_type = array_type, input_scale = dataset$input_scale)
+
       list(cpg = cpg, source_mode = source_mode, array_type = array_type, resolved = resolved,
            primary_gene = primary_gene, island = island, gene_struct = gene_struct, go_terms = go_terms,
            dmp_female = dmp_female, dmp_male = dmp_male, dmr_female = dmr_female, dmr_male = dmr_male, live = live,
            single_cpg_diag = single_cpg_diag, single_cpg_cv = single_cpg_cv,
-           panel_membership = panel_membership, panel_perprobe = panel_perprobe)
+           panel_membership = panel_membership, panel_perprobe = panel_perprobe,
+           dataset_snapshot = dataset_snapshot)
     }, ignoreInit = TRUE)
 
     observeEvent(card_data(), {
@@ -3338,7 +3232,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
           tabPanel("Biomarker Status", br(),
             withSpinner(uiOutput(ns("bc_tab_biomarker_status")), color = "#2563EB", type = 6)
           ),
-          tabPanel("Dataset", br(), bc_section_dataset_cohort(dataset, d$live)),
+          tabPanel("Dataset", br(), bc_section_dataset_cohort(d$dataset_snapshot, d$live)),
           tabPanel("Differential Methylation (DMP/DMR)", br(),
             bc_section_sex_specific(d, withSpinner(plotly::plotlyOutput(ns("bc_sex_dist_plot"), height = "320px"), color = "#2563EB", type = 6))
           ),

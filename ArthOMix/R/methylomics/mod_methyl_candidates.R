@@ -862,8 +862,8 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       df <- overlap_run()$table
       parts <- character(0)
       if (mode %in% c("significance", "combined")) {
-        if ("dmr_fdr" %in% names(df)) parts <- c(parts, "-log10(DMR FDR)")
-        if ("fdr" %in% names(df)) parts <- c(parts, "-log10(CpG FDR)")
+        if ("dmr_fdr" %in% names(df)) parts <- c(parts, "min(-log10(DMR FDR), 10)")
+        if ("fdr" %in% names(df)) parts <- c(parts, "min(-log10(CpG FDR), 10)")
       }
       if (mode %in% c("effect", "combined")) {
         if ("delta_beta" %in% names(df)) parts <- c(parts, "10x|Delta-Beta CpG|")
@@ -893,9 +893,19 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
       mode <- input$cand_rank_mode %||% "significance"
       score <- rep(0, nrow(df)); factors_used <- character(0)
+      ## Every term in "Combined score" is deliberately kept on a comparable
+      ## ~0-10ish scale before summing: 10*|Delta-Beta| and |kME| are already
+      ## bounded that way (delta-beta in [0,1], kME in [0,1]), but a raw
+      ## -log10(FDR) term is unbounded and can reach ~300 for a
+      ## genome-wide-significant CpG - left uncapped, that single term would
+      ## dominate "Combined" ranking regardless of effect size or module
+      ## membership. Capping at 10 (== FDR 1e-10, already far past any
+      ## realistic significance threshold used elsewhere in this app) keeps
+      ## every factor contributing meaningfully. The underlying fdr/delta_beta/
+      ## kme columns themselves are untouched - only this derived score changes.
       if (mode %in% c("significance", "combined")) {
-        if ("dmr_fdr" %in% names(df)) { score <- score + -log10(pmax(df$dmr_fdr, 1e-300)); factors_used <- c(factors_used, "-log10(DMR FDR)") }
-        if ("fdr" %in% names(df)) { score <- score + -log10(pmax(df$fdr, 1e-300)); factors_used <- c(factors_used, "-log10(CpG FDR)") }
+        if ("dmr_fdr" %in% names(df)) { score <- score + pmin(-log10(pmax(df$dmr_fdr, 1e-300)), 10); factors_used <- c(factors_used, "min(-log10(DMR FDR), 10)") }
+        if ("fdr" %in% names(df)) { score <- score + pmin(-log10(pmax(df$fdr, 1e-300)), 10); factors_used <- c(factors_used, "min(-log10(CpG FDR), 10)") }
       }
       if (mode %in% c("effect", "combined")) {
         if ("delta_beta" %in% names(df)) { score <- score + 10 * abs(df$delta_beta); factors_used <- c(factors_used, "10x|Delta-Beta CpG|") }

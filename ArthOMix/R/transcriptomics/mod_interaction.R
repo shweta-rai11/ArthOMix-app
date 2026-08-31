@@ -96,6 +96,25 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
       res$table %>% mutate(significant = adj.P.Val < input$padj_cut)
     })
 
+    ## Publishes the fitted interaction model into shared results$interaction so
+    ## ArthOChat and the biomarker card can see it, mirroring mod_dge.R's
+    ## results$dge contract (contrast label, n tested/significant, top hits) -
+    ## silently skipped if the fit failed validation, same as mod_dge.R.
+    observeEvent(input$run_btn, {
+      df <- tryCatch(sig_table(), error = function(e) NULL)
+      req(df)
+      res <- fit_result()
+      results$interaction <- list(
+        contrast = sprintf("%s vs %s interaction with sex (%s vs %s)",
+                            input$comp_group, input$ref_group, input$comp_sex, input$ref_sex),
+        coef_name = res$coef_name,
+        n_tested = nrow(df),
+        n_significant = sum(df$significant),
+        top_hits = head(df$gene[order(df$adj.P.Val)], 10),
+        timestamp = Sys.time()
+      )
+    }, ignoreInit = TRUE)
+
     output$summary_ui <- renderUI({
       if (!int_has_run()) {
         return(div(class = "empty-note", icon("circle-info"),

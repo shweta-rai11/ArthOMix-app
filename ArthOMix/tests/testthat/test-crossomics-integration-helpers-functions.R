@@ -329,27 +329,6 @@ test_that("cx_apply_harmonization() rewrites only unambiguous matches, leaving a
   expect_equal(out, c("TP53", "weird_id", "unrelated"))
 })
 
-## ---- cx_compare_sexes() ------------------------------------------------------
-
-test_that("cx_compare_sexes() requires at least 2 strata, and correctly classifies shared/sex-specific/concordant/discordant patterns", {
-  single <- cx_compare_sexes(list(female = data.frame(gene = "A"), male = NULL))
-  expect_false(single$ok)
-
-  fem <- data.frame(gene = c("A", "B", "C"), category = c("Hyper + Down", "Hypo + Up", "Not significant"),
-                      evidence_level = c("Strong candidate", "Moderate candidate", "Insufficient evidence"),
-                      sig_expression = c(TRUE, TRUE, FALSE), sig_methylation = c(TRUE, TRUE, FALSE), stringsAsFactors = FALSE)
-  mal <- data.frame(gene = c("A", "B", "C"), category = c("Hyper + Down", "Hyper + Up", "Not significant"),
-                      evidence_level = c("Strong candidate", "Discordant", "Insufficient evidence"),
-                      sig_expression = c(TRUE, TRUE, FALSE), sig_methylation = c(TRUE, TRUE, FALSE), stringsAsFactors = FALSE)
-  out <- cx_compare_sexes(list(female = fem, male = mal))
-  expect_true(out$ok)
-  expect_equal(out$summary$n_shared_significant, 2L)  ## A and B both significant in both sexes
-  a_row <- out$table[out$table$gene == "A", ]
-  expect_equal(a_row$direction_concordance, "Directionally concordant")
-  b_row <- out$table[out$table$gene == "B", ]
-  expect_equal(b_row$direction_concordance, "Directionally discordant")  ## Hypo+Up vs Hyper+Up
-})
-
 ## ---- cx_validate_dataset() -----------------------------------------------------
 
 test_that("cx_validate_dataset() reports real per-check pass/fail and readiness from whatever's actually loaded", {

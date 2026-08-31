@@ -17,10 +17,11 @@ mod_methyl_featureselection_config <- list(
 
 ## .rds companion to qc.R's methyl_parse_matrix() (CSV/TSV only); same list(ok, mat, error) shape.
 methyl_fs_parse_matrix_rds <- function(datapath) {
-  x <- tryCatch(readRDS(datapath), error = function(e) e)
-  if (inherits(x, "error")) {
-    return(list(ok = FALSE, error = paste("Could not read this .rds file:", conditionMessage(x))))
+  loaded <- safe_read_rds(datapath)
+  if (!isTRUE(loaded$ok)) {
+    return(list(ok = FALSE, error = loaded$error))
   }
+  x <- loaded$value
   if (is.matrix(x) && is.numeric(x)) return(list(ok = TRUE, mat = x))
   if (is.data.frame(x) && ncol(x) >= 2) {
     ids <- as.character(x[[1]])
@@ -1849,7 +1850,8 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
             column(4, radioButtons(ns("validate_mode"), "Validation mode",
                                     choices = c("Frozen panel (fast, optimistic)" = "frozen", "Leakage-safe (reselect per fold)" = "nested"), selected = "frozen")),
             column(4, radioButtons(ns("validate_classifier"), "Classifier", choices = c("Logistic Regression" = "glm", "Random Forest" = "rf", "SVM" = "svm"), selected = "glm")),
-            column(4, numericInput(ns("validate_k"), "Folds (k)", value = 5, min = 3, max = 10, step = 1), numericInput(ns("validate_repeats"), "Repeats", value = 1, min = 1, max = 10, step = 1))
+            column(4, numericInput(ns("validate_k"), "Folds (k)", value = 5, min = 3, max = 10, step = 1), numericInput(ns("validate_repeats"), "Repeats", value = 1, min = 1, max = 10, step = 1),
+                   numericInput(ns("validate_seed"), "Random seed", value = 1234, min = 1, step = 1))
           ),
           conditionalPanel(condition = sprintf("input['%s'] == 'frozen'", ns("validate_mode")),
             p(class = "empty-note", icon("triangle-exclamation"), "This mode evaluates the panel that was already chosen using this same data, so the reported AUC is optimistic - use \"Leakage-safe\" for an honest estimate.")),
@@ -1886,11 +1888,11 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       if (identical(input$validate_mode, "nested")) {
         res <- methyl_fs_validate_nested(r$beta, r$m, r$grp, uni_params = list(rule = "top_n", top_n = 100),
                                           lasso_params = list(alpha = 1), classifier = input$validate_classifier,
-                                          outer_k = input$validate_k, repeats = input$validate_repeats)
+                                          outer_k = input$validate_k, repeats = input$validate_repeats, seed = input$validate_seed)
         list(mode = "nested", mean_auc = res$mean_auc, sd_auc = res$sd_auc, per_fold = res$per_fold, run_at = Sys.time())
       } else {
         X <- t(r$m[panel$ids, , drop = FALSE])
-        res <- methyl_fs_validate_frozen(X, r$grp, classifier = input$validate_classifier, k = input$validate_k, repeats = input$validate_repeats)
+        res <- methyl_fs_validate_frozen(X, r$grp, classifier = input$validate_classifier, k = input$validate_k, repeats = input$validate_repeats, seed = input$validate_seed)
         list(mode = "frozen", mean_auc = res$mean_auc, per_fold = res$resample_results, run_at = Sys.time())
       }
     })
@@ -1969,9 +1971,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     )
 
     fs_loaded_model <- eventReactive(input$load_model_file, {
-      x <- tryCatch(readRDS(input$load_model_file$datapath), error = function(e) NULL)
+      loaded <- safe_read_rds(input$load_model_file$datapath)
+      x <- if (isTRUE(loaded$ok)) loaded$value else NULL
       validate(need(!is.null(x) && identical(x$module, "mod_methyl_featureselection"),
-                    "This doesn't look like a saved ML Feature Selection model from this app."))
+                    loaded$error %||% "This doesn't look like a saved ML Feature Selection model from this app."))
       x
     }, ignoreInit = TRUE)
 

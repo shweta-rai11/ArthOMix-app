@@ -258,7 +258,9 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
       req(use_upload(), input$meta_file)
       path <- input$meta_file$datapath
       if (grepl("\\.rds$", input$meta_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded metadata RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -352,7 +354,9 @@ mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NU
         req(input$expr_file, input$meta_file, input$map_id, input$map_group)
         path <- input$expr_file$datapath
         expr <- if (grepl("\\.rds$", input$expr_file$name, ignore.case = TRUE)) {
-          readRDS(path)
+          loaded <- safe_read_rds(path)
+          validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+          loaded$value
         } else {
           m <- as.data.frame(data.table::fread(path, showProgress = FALSE))
           rn <- as.character(m[[1]])
@@ -1103,7 +1107,9 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                     "Probe-to-gene collapsing is turned on, but no annotation file has been uploaded yet - add one above, or turn the checkbox off if your data is already at gene level."))
       path <- input$collapse_annot_file$datapath
       if (grepl("\\.rds$", input$collapse_annot_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The annotation RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -1597,10 +1603,17 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             vfilt <- if (n_genes > 2000) 2000L else NULL
             n_sv <- as.integer(input$sva_n_sv %||% 0)
             if (n_sv <= 0) {
+              ## num.sv(method = "be") permutes the data to estimate the number of
+              ## significant surrogate variables; seeded for reproducibility, same
+              ## ARTHOMIX_TX_ML_SEED convention as the rest of this app (global.R).
+              set.seed(ARTHOMIX_TX_ML_SEED)
               n_sv <- tryCatch(sva::num.sv(as.matrix(expr_qnorm), mod_full, method = "be", vfilter = vfilt),
                                 error = function(e) NA_integer_)
             }
             n_sv <- if (is.na(n_sv)) 1L else max(1L, min(n_sv, ncol(expr_qnorm) - ncol(mod_full) - 1L, 20L))
+            ## sva()'s iterative surrogate-variable estimation is itself stochastic
+            ## (random initialization); seeded for the same reason as num.sv() above.
+            set.seed(ARTHOMIX_TX_ML_SEED)
             sv_obj <- sva::sva(as.matrix(expr_qnorm), mod_full, mod0, n.sv = n_sv, vfilter = vfilt)
             validate(need(sv_obj$n.sv >= 1, "SVA did not find any significant hidden sources of variation to correct for - try ComBat or limma instead, or set the number of surrogate variables manually."))
             limma::removeBatchEffect(expr_qnorm, covariates = sv_obj$sv, design = mod_full)

@@ -20,11 +20,6 @@
 
 .mmr_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
-.mmr_badge <- function(label, color) sprintf(
-  '<span style="background:%s;color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;">%s</span>',
-  color, label
-)
-
 .mmr_stage_order <- c("data", "instruments", "clump", "harmonise", "mr", "sensitivity")
 
 ## GoDMC/script08's cis-mQTL definition (METHODS_mendelian_randomization.md
@@ -219,6 +214,30 @@ mmr_robust_method_choices <- function() {
   if (exists("mr_raps", where = asNamespace("TwoSampleMR"), inherits = FALSE)) extra[["MR-RAPS (robust)"]] <- "mr_raps"
   if (exists("mr_penalised_weighted_median", where = asNamespace("TwoSampleMR"), inherits = FALSE)) extra[["Penalised weighted median (robust)"]] <- "mr_penalised_weighted_median"
   extra
+}
+
+## Picks exactly one, pre-specified row per CpG from a multi-method mr() results data
+## frame - IVW for CpGs with >=2 instruments, Wald ratio for single-instrument CpGs -
+## matching the tiering rule already documented in the UI ("1 instrument -> Wald ratio
+## only, 2 -> IVW only, >=3 -> your selection above"). This selection never looks at
+## p-values: choosing the row with the smallest p-value across several methods run for
+## the same CpG, then correcting only across CpGs, understates the true number of tests
+## performed (a method is silently "selected" by its own p-value) and inflates the
+## apparent number of significant CpGs. Every other method run for a CpG stays visible
+## in the full Results table as a disclosed sensitivity check; it just isn't the one
+## used for headline significance or for the Manhattan plot.
+mmr_primary_row_per_cpg <- function(results_df) {
+  ivw_name <- {
+    ml <- tryCatch(TwoSampleMR::mr_method_list(), error = function(e) NULL)
+    nm <- if (!is.null(ml)) ml$name[ml$obj == "mr_ivw"] else character(0)
+    if (length(nm)) nm[1] else "Inverse variance weighted"
+  }
+  do.call(rbind, lapply(split(results_df, results_df$exposure), function(x) {
+    primary <- x[x$method == ivw_name, , drop = FALSE]
+    if (nrow(primary) == 0) primary <- x[x$method == "Wald ratio", , drop = FALSE]
+    if (nrow(primary) == 0) primary <- x[1, , drop = FALSE]
+    primary[1, , drop = FALSE]
+  }))
 }
 
 mmr_analysis_controls <- function(ns) {
@@ -1004,7 +1023,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
 
     adjusted_results_df <- reactive({
       r <- build_primary_results_df()
-      primary_per_cpg <- do.call(rbind, lapply(split(r, r$exposure), function(x) x[which.min(x$pval), , drop = FALSE]))
+      primary_per_cpg <- mmr_primary_row_per_cpg(r)
       method_r <- switch(input$padj_method %||% "BH", BH = "BH", bonferroni = "bonferroni")
       primary_per_cpg$p_adj <- stats::p.adjust(primary_per_cpg$pval, method = method_r)
       primary_per_cpg$significant <- primary_per_cpg$p_adj < 0.05
@@ -1120,7 +1139,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     build_loo <- function() { validate(need(nrow(cpg_sub()) >= 3, "Needs >=3 instruments.")); lo <- tryCatch(TwoSampleMR::mr_leaveoneout(cpg_sub()), error = function(e) NULL); validate(need(!is.null(lo), "Not available.")); TwoSampleMR::mr_leaveoneout_plot(lo)[[1]] + theme_arthomix(11) }
     build_manhattan <- function() {
       ms <- mr_state(); anno <- cpg_annotation(ms$cpgs)
-      d <- do.call(rbind, lapply(split(ms$results, ms$results$exposure), function(x) x[which.min(x$pval), , drop = FALSE]))
+      d <- mmr_primary_row_per_cpg(ms$results)
       d$pos <- suppressWarnings(as.numeric(anno[d$exposure, "pos"]))
       validate(need(length(unique(d$exposure)) > 1, "Needs more than one CpG."))
       validate(need(any(!is.na(d$pos)), "No genomic positions available for these CpGs."))

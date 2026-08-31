@@ -18,9 +18,23 @@
 ##
 ## MR estimates are genuine causal estimates under the standard IV
 ## assumptions (relevance, independence, exclusion restriction) - worded as
-## such throughout, never claimed as proven causation, and explicitly
-## flagged as impossible to validate via heterogeneity with only one
-## instrument per exposure.
+## such throughout, never claimed as proven causation.
+##
+## CAVEAT (not previously documented here): this file is one row per
+## CpG-instrument, so an individual gene with only one CpG-instrument indeed
+## cannot be heterogeneity-tested. But several genes in the precomputed file
+## have many independent CpG-instruments each (the MHC genes especially -
+## HLA-DRB1 alone has dozens) - for those genes, standard per-gene
+## heterogeneity/pleiotropy testing (Cochran's Q, MR-Egger intercept across
+## that gene's own instruments) is statistically possible and is exactly
+## what the field-standard STROBE-MR checklist expects before treating a
+## multi-instrument gene's estimate as robust. This module does not
+## currently aggregate per gene or run that test - each CpG-instrument is
+## still shown/filtered as an independent row - so "impossible to test" was
+## an overstatement for the genes where it matters most. No instrument-
+## strength (F-statistic) figure is available in the precomputed file
+## either. Both are real, currently-unaddressed gaps; the MHC-region
+## caveat above is the substitute safeguard this module ships with instead.
 
 CX_MR_PRECOMPUTED_FILE <- file.path(CX_RESULTS_DIR, "mr_stage_eqtl_significant_genes_mqtl_mr.csv")
 CX_MR_DATA_AVAILABLE <- CX_DATA_AVAILABLE && file.exists(CX_MR_PRECOMPUTED_FILE)
@@ -122,18 +136,28 @@ cx_mr_load_upload <- function(datapath, filename) {
 ## Biomarker Convergence tab's thresholds, not from filters on this page.
 ## ---------------------------------------------------------------------------
 
+## eQTL_MHC_region is added to every category below that includes eQTL-MR evidence.
+## The MHC region (chr6, ~25-34Mb) is the single most notorious horizontal-pleiotropy
+## hotspot in autoimmune-disease genetics - extreme LD across dozens of genes makes any
+## one gene's instrument a poor proxy for that gene specifically, so an MR estimate
+## landing here is far more likely to reflect regional confounding than the gene's own
+## causal effect. The flag was already computed upstream (Biomarker Convergence's own
+## precomputed pipeline column) but, before this fix, was carried through to the UI as a
+## silent display column with no warning and no way to see at a glance how much of a
+## category's "convergent evidence" sits in this one hotspot - see the MHC callout in
+## mod_cross_mr_stage.R's per-category UI.
 CX_MR_CATEGORIES <- list(
   list(id = "deg_dmp_qtl", tab = "DEG-DMP-QTL",
        rule_text = "DEG significant AND DMP genome-wide-significant AND mQTL-MR significant AND eQTL-MR significant.",
        cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "DMP_top_cpg", "DMP_dbeta", "DMP_direction", "DMP_fdr_bacon",
-                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR", "eQTL_MHC_region")),
   list(id = "deg_dmr_qtl", tab = "DEG-DMR-QTL",
        rule_text = "DEG significant AND DMR significant AND mQTL-MR significant AND eQTL-MR significant.",
        cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "DMR_id", "DMR_meandiff", "DMR_direction", "DMR_fdr",
-                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+                "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR", "eQTL_MHC_region")),
   list(id = "deg_eqtl", tab = "DEG-eQTL",
        rule_text = "DEG significant AND eQTL-MR significant.",
-       cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR")),
+       cols = c("gene", "DEG_logFC", "DEG_direction", "DEG_adjP", "eQTL_MR_OR", "eQTL_MR_direction", "eQTL_MR_FDR", "eQTL_MHC_region")),
   list(id = "dmp_mqtl", tab = "DMP-mQTL",
        rule_text = "DMP genome-wide-significant AND mQTL-MR significant.",
        cols = c("gene", "DMP_top_cpg", "DMP_dbeta", "DMP_direction", "DMP_fdr_bacon", "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval")),

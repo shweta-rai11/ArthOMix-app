@@ -338,7 +338,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
               column(6,
                 if (!is.null(sheet)) {
                   sheet_cols <- colnames(sheet)
-                  default_col <- intersect(c("sex", "Sex", "SEX", "gender", "Gender"), sheet_cols)
+                  default_col <- intersect(METHYL_SEX_COL_CANDIDATES, sheet_cols)
                   selectInput(ns("live_group_col"), "Subgroup column", choices = c("All samples (no subgroup)" = "", sheet_cols),
                               selected = if (length(default_col) > 0) default_col[1] else "", width = "100%")
                 } else p(class = "empty-note", style = "margin:6px 0;", icon("circle-info"), "No sample sheet - every QC method below runs on all samples.")
@@ -353,7 +353,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       req(methyl_dataset$beta)
       sheet <- methyl_dataset$sample_sheet
       batch_cols <- methyl_batch_columns(sheet)
-      sex_cols <- if (!is.null(sheet)) intersect(c("sex", "Sex", "SEX", "gender", "Gender"), colnames(sheet)) else character(0)
+      sex_cols <- if (!is.null(sheet)) intersect(METHYL_SEX_COL_CANDIDATES, colnames(sheet)) else character(0)
       sg <- current_subgroup()
       tagList(
         div(class = "card",
@@ -746,7 +746,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         sheet <- methyl_dataset$sample_sheet
         if (is.null(sheet)) NULL else {
           sample_ids <- methyl_sheet_sample_ids(sheet, colnames(methyl_dataset$beta))
-          sex_col <- intersect(c("sex", "Sex", "SEX", "gender", "Gender"), colnames(sheet))
+          sex_col <- intersect(METHYL_SEX_COL_CANDIDATES, colnames(sheet))
           if (length(sex_col) == 0) NULL else stats::setNames(as.character(sheet[[sex_col[1]]]), sample_ids)
         }
       }
@@ -1371,11 +1371,18 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
+    ## Both downloads below must branch on methyl_dataset$input_scale ("beta" or "m"):
+    ## probe_qc_result()$filtered is a row-filtered view of whatever scale is currently
+    ## loaded, not necessarily beta. Exporting it unchanged under the "beta" filename, or
+    ## blindly re-applying the beta->M logit transform to an already-M-valued matrix,
+    ## silently produces mislabeled/corrupted numbers (the matrix is clipped into (0,1)
+    ## and re-transformed as if it were beta). Convert explicitly instead.
     output$dl_filtered_beta <- downloadHandler(
       filename = function() "methylomics_qc_filtered_beta.csv",
       content = function(file) {
         req(probe_qc_result())
         m <- probe_qc_result()$filtered
+        if (!identical(methyl_dataset$input_scale, "beta")) m <- methyl_mvalue_to_beta(m)
         utils::write.csv(data.frame(probe_id = rownames(m), m, check.names = FALSE), file, row.names = FALSE)
       }
     )
@@ -1383,7 +1390,8 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       filename = function() "methylomics_qc_filtered_mvalue.csv",
       content = function(file) {
         req(probe_qc_result())
-        m <- methyl_beta_to_mvalue(probe_qc_result()$filtered)
+        m <- probe_qc_result()$filtered
+        if (identical(methyl_dataset$input_scale, "beta")) m <- methyl_beta_to_mvalue(m)
         utils::write.csv(data.frame(probe_id = rownames(m), m, check.names = FALSE), file, row.names = FALSE)
       }
     )
@@ -1461,12 +1469,12 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         }, character(1))
         lines <- c(
           "---", "title: \"Methylomics QC report\"", "output: pdf_document", "---",
-          sprintf("Source: %s.", methyl_dataset$source %||% "n/a"),
+          sprintf("Source: %s.", methyl_rmd_safe_text(methyl_dataset$source %||% "n/a")),
           "", "## Summary", "",
           "| Metric | Value |", "|---|---|",
-          sprintf("| %s | %s |", summary_df$metric, summary_df$value),
+          sprintf("| %s | %s |", methyl_rmd_safe_text(summary_df$metric), methyl_rmd_safe_text(summary_df$value)),
           "", "## Figures", "",
-          unlist(lapply(seq_along(fig_paths), function(i) c(sprintf("### %s", names(fig_paths)[i]), sprintf("![](%s)", fig_paths[i]), "")))
+          unlist(lapply(seq_along(fig_paths), function(i) c(sprintf("### %s", methyl_rmd_safe_text(names(fig_paths)[i])), sprintf("![](%s)", fig_paths[i]), "")))
         )
         writeLines(lines, rmd)
         out <- tryCatch(rmarkdown::render(rmd, output_file = file, output_format = "pdf_document", quiet = TRUE, envir = new.env()), error = function(e) e)

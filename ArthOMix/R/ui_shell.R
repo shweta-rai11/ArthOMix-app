@@ -12,55 +12,38 @@
 ## Header: brand, search (jumps to a module/sub-module on Enter via the
 ## "header_search_submit" input, handled in server.R), Ask ArthOChat
 ## (same client-side tab-show trick arthochat_shortcut_ui() already uses),
-## a light-mode-only theme toggle (server.R just shows a notification), and
-## a decorative avatar (no auth system exists in this app).
+## a light/dark theme toggle (server.R's theme_toggle_btn observer), and the
+## signed-in user's account menu (email + Log Out - see R/auth/mod_auth_*.R
+## for the auth gate that renders this whole app only once logged in).
 ## ---------------------------------------------------------------------------
 
-app_header <- function() {
+app_header <- function(user_email = NULL) {
   tagList(
     tags$div(
       class = "app-header",
       tags$div(
         class = "app-header-brand",
-        tags$span(class = "app-header-brand-icon", icon("share-nodes")),
-        "ArthOMix Explorer"
-      ),
-      tags$div(
-        class = "app-header-search",
-        tags$span(class = "app-header-search-icon", icon("magnifying-glass")),
-        tags$input(
-          type = "text", id = "header_search", class = "form-control",
-          placeholder = "Search modules, datasets, genes, etc...", autocomplete = "off"
-        ),
-        tags$span(class = "app-header-search-kbd", "Enter")
+        "ArthOMix"
       ),
       tags$div(
         class = "app-header-actions",
-        ## Always visible, on every page - which dataset every module is
-        ## currently reading from (dataset$source, set once at app start by
-        ## global.R::load_default_dataset(), changed only by mod_dataset.R's
-        ## upload or mod_preprocessing.R's "Use this as the active dataset").
-        ## Exists specifically so switching between the app's own preloaded
-        ## example and your own uploaded/merged/corrected data is never
-        ## ambiguous - no need to go check the Dataset tab to know which one
-        ## every other module is about to use.
-        uiOutput("active_dataset_badge", inline = TRUE),
         tags$a(
           "Ask ArthOChat", href = "#", class = "btn btn-primary btn-sm",
           onclick = ARTHOCHAT_DRAWER_OPEN_JS
         ),
         actionButton("theme_toggle_btn", label = "", icon = icon("moon"),
-                     class = "app-header-icon-btn", title = "Light mode only, for now"),
-        tags$span(class = "app-header-avatar", title = "Account", icon("user"))
+                     class = "app-header-icon-btn", title = "Toggle light / dark mode"),
+        tags$div(
+          class = "app-header-account",
+          tags$span(class = "app-header-avatar", title = "Account", icon("user")),
+          tags$span(class = "app-header-account-email", user_email),
+          actionButton("logout_btn", "Log Out", icon = icon("right-from-bracket"),
+                       class = "btn btn-default btn-sm", title = "Log out")
+        )
       )
     ),
     tags$script(HTML(
       "$(function(){
-         $('#header_search').on('keydown', function(e){
-           if (e.which === 13) {
-             Shiny.setInputValue('header_search_submit', $(this).val(), {priority: 'event'});
-           }
-         });
          $(document).on('shown.bs.tab', 'a[data-toggle=\"tab\"]', function(e){
            var shownText = $(e.target).text().trim();
            // Every module's sidebar stays in the DOM at once (Shiny keeps

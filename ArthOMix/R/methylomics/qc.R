@@ -444,6 +444,12 @@ methyl_beta_to_mvalue <- function(beta, eps = 1e-4) {
   log2(b / (1 - b))
 }
 
+## M-value -> beta (inverse logit) transform, matching minfi::ilogit2()/lumi::m2beta().
+## M-values are unbounded, so no clipping is applied going this direction.
+methyl_mvalue_to_beta <- function(mvalue) {
+  2^mvalue / (1 + 2^mvalue)
+}
+
 ## Top-variance-probe PCA scores, factored out of the outlier-detection functions for
 ## callers that need scores alone (Visualizations tab PCA, Batch Correction before/after).
 methyl_pca_scores <- function(mat, n_features = 5000, n_pcs = 10) {
@@ -554,6 +560,14 @@ methyl_outlier_diagnostic_table <- function(sample_qc, pca_detail, mahal_detail 
 ## Single source of truth for the batch/chip/plate/slide column-name pattern, used by
 ## Overview, Batch QC, and methyl_guess_batch_column() below.
 METHYL_BATCH_COL_PATTERN <- "batch|chip|plate|slide|sentrix|array_id|scan_date|^run$"
+
+## Single source of truth for the sex/gender column-name candidates, used at every
+## sex-column-detection call site in mod_methyl_qc.R (Overview default, Overview
+## summary, Sex-check QC). A literal candidate-name vector (not a regex like the
+## batch pattern above) since these are matched exactly (case-insensitively via
+## intersect()), not as a substring - "sex" alone would false-positive-match too
+## many unrelated column names (e.g. "sextile") if used as a regex.
+METHYL_SEX_COL_CANDIDATES <- c("sex", "Sex", "SEX", "gender", "Gender")
 
 ## Every sample-sheet column matching the batch pattern above - used to detect/populate
 ## the batch-column selector.
@@ -864,6 +878,24 @@ methyl_qc_summary_table <- function(overview = NULL, sample_qc = NULL, probe_qc 
   } else add("batch_qc", "not run")
 
   do.call(rbind, rows)
+}
+
+## Neutralizes R Markdown/knitr inline-code and chunk-fence syntax before any value that
+## may ultimately trace back to user-controlled input (e.g. an uploaded file's name via
+## methyl_dataset$source, or sample-sheet-derived summary text) is written into a .Rmd
+## document that will later be passed to rmarkdown::render(). Backticks are the sole
+## delimiter for knitr inline `r ...` evaluation and for ``` chunk fences, so stripping
+## them (and collapsing embedded newlines, which could otherwise start a new line that
+## opens a fence) prevents injected text from being interpreted as executable R code.
+## Used by the PDF QC report builder in mod_methyl_qc.R; the parallel HTML report path
+## does not need this because methyl_qc_report_html() renders via htmltools, which
+## auto-escapes text content.
+methyl_rmd_safe_text <- function(x) {
+  x <- as.character(x %||% "")
+  x[is.na(x)] <- ""
+  x <- gsub("`", "'", x, fixed = TRUE)
+  x <- gsub("[\r\n]+", " ", x)
+  x
 }
 
 ## Assembles every report figure as a plain ggplot object (static image, needed by

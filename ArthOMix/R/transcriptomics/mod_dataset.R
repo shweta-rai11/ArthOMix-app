@@ -73,7 +73,7 @@ mod_dataset_ui <- function(id) {
       column(
         6,
         box(
-          width = NULL, title = "Switch to preloaded data", status = "primary", solidHeader = FALSE,
+          width = NULL, title = "Reference / Example Dataset", status = "primary", solidHeader = FALSE,
           selectInput(ns("preloaded_choice"), "Individual dataset",
                       choices = preloaded_choices(), selected = character(0), width = "100%"),
           uiOutput(ns("preloaded_note")),
@@ -215,7 +215,9 @@ mod_dataset_server <- function(id, dataset) {
       req(input$meta_file)
       path <- input$meta_file$datapath
       if (grepl("\\.rds$", input$meta_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded metadata RDS file must contain a data frame."))
         as.data.frame(d)
       } else {
@@ -229,7 +231,9 @@ mod_dataset_server <- function(id, dataset) {
       req(input$expr_file)
       path <- input$expr_file$datapath
       if (grepl("\\.rds$", input$expr_file$name, ignore.case = TRUE)) {
-        readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        loaded$value
       } else {
         m <- as.data.frame(data.table::fread(path, showProgress = FALSE))
         rn <- as.character(m[[1]])

@@ -1,7 +1,0 @@
-book_filename: "ArthOMix_User_Guide"
-delete_merged_file: true
-new_session: yes
-language:
-  ui:
-    chapter_name: "Chapter "
-output_dir: "_book"

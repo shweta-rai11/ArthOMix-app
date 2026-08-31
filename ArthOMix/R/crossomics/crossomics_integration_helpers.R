@@ -937,60 +937,6 @@ cx_apply_harmonization <- function(genes, harm_df) {
 }
 
 ## ---------------------------------------------------------------------------
-## Sex comparison (spec section 14) - compares independently-run ALL/FEMALE/
-## MALE integrations gene by gene. Deliberately never computes or implies a
-## formal sex x molecular-effect interaction test, since this app has no
-## matched sample-level dataset with a sex covariate ready for that -
-## differences are always reported as a "sex-stratified difference in
-## significance", never as a "sex-specific biological effect" (spec's own
-## required distinction).
-## ---------------------------------------------------------------------------
-
-## `runs` is a named list, names a subset of c("all","female","male"), each
-## element either NULL (that stratum hasn't been run) or the classified
-## integration data.frame (cx_classify() + evidence_level column) for that
-## stratum. Returns list(ok, table, summary, error).
-cx_compare_sexes <- function(runs) {
-  strata <- names(runs)[!vapply(runs, is.null, logical(1))]
-  if (length(strata) < 2) {
-    return(list(ok = FALSE, error = "Run Female and Male separately above (each already works), then come back here for a combined view across both sexes - this is the recommended way to see \"all samples,\" since no pooled/ALL methylation dataset exists (see Methodology & References).", table = NULL, summary = NULL))
-  }
-  all_genes <- Reduce(union, lapply(runs[strata], function(d) d$gene))
-  out <- data.frame(gene = all_genes, stringsAsFactors = FALSE)
-  for (s in strata) {
-    d <- runs[[s]]
-    m <- match(out$gene, d$gene)
-    out[[paste0(s, "_category")]] <- as.character(d$category[m])
-    out[[paste0(s, "_evidence")]] <- as.character(d$evidence_level[m])
-    out[[paste0(s, "_significant")]] <- (d$sig_expression[m] %in% TRUE) & (d$sig_methylation[m] %in% TRUE)
-  }
-  sig_cols <- paste0(strata, "_significant")
-  out$n_strata_significant <- apply(out[, sig_cols, drop = FALSE], 1, function(r) sum(r %in% TRUE))
-
-  summary <- list(strata = strata, n_genes_compared = nrow(out),
-                   n_shared_significant = NA_integer_, n_female_specific = NA_integer_,
-                   n_male_specific = NA_integer_, n_concordant = NA_integer_, n_discordant = NA_integer_)
-
-  if (all(c("female", "male") %in% strata)) {
-    fem_sig <- out$female_significant %in% TRUE
-    mal_sig <- out$male_significant %in% TRUE
-    out$sex_pattern <- ifelse(fem_sig & mal_sig, "Shared (significant in both)",
-                        ifelse(fem_sig & !mal_sig, "Sex-stratified difference: significant in Female only",
-                        ifelse(!fem_sig & mal_sig, "Sex-stratified difference: significant in Male only",
-                               "Not significant in either")))
-    conc <- fem_sig & mal_sig & (out$female_category == out$male_category)
-    out$direction_concordance <- NA_character_
-    out$direction_concordance[fem_sig & mal_sig] <- ifelse(conc[fem_sig & mal_sig], "Directionally concordant", "Directionally discordant")
-
-    summary$n_shared_significant <- sum(out$sex_pattern == "Shared (significant in both)")
-    summary$n_female_specific <- sum(out$sex_pattern == "Sex-stratified difference: significant in Female only")
-    summary$n_male_specific <- sum(out$sex_pattern == "Sex-stratified difference: significant in Male only")
-    summary$n_concordant <- sum(out$direction_concordance == "Directionally concordant", na.rm = TRUE)
-    summary$n_discordant <- sum(out$direction_concordance == "Directionally discordant", na.rm = TRUE)
-  }
-  list(ok = TRUE, table = out, summary = summary, error = NULL)
-}
-
 ## ---------------------------------------------------------------------------
 ## Dataset validation panel (spec section 6) - a plain-language checklist
 ## computed directly from what's actually loaded; never inferred or invented.

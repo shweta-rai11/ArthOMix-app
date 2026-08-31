@@ -1,15 +1,27 @@
 ## R/multiomics/multiomics_helpers.R
-## Pure data-processing logic for the Multi-Omics module. Every multi-omics
-## statistic here (DIABLO fits, SNF fusion/clustering, gene<->CpG concordance,
-## pathway enrichment, the leakage-safe nested-CV benchmark) was already
-## computed once by Research_05_multiomics_sexstratified's own numbered
-## script pipeline (data_preparation/01-06, analyses 01-07's scripts 07-18),
-## including two data-leakage bugs the pipeline's own AUDIT.md documents
-## finding and fixing. This module's job is to load those already-computed
-## tables (instant - flat CSV reads) and, where the underlying raw values
-## support it, relabel confidence against live-adjustable thresholds - never
-## to re-run DIABLO/SNF/CV or invent a new combined statistic. Mirrors
-## crossomics_biomarkerconv_helpers.R's cx_bc_relabel() idiom exactly.
+## Shared low-level utilities for the Multi-Omics module: cell/cohort
+## metadata (MULTI_CELLS), generic CSV table loaders, sample-harmonization
+## and sex-normalization helpers, and small stat/UI helpers (BH-FDR
+## relabeling, the QC scorecard, the Analysis Summary table, package-version
+## lookup, session-report building).
+##
+## Most multi-omics statistics themselves - DIABLO fits, SNF fusion/
+## clustering, gene<->CpG concordance, pathway enrichment - are NOT just
+## read off disk any more: they are genuinely re-computed live, on demand,
+## by multiomics_integration_live_helpers.R / mod_multi_integration.R /
+## mod_multi_stratification.R / mod_multi_pathway.R /
+## multiomics_concordance_live_helpers.R, on whichever data the user picks
+## (the Active Multi-Omics Dataset, or a preloaded RA anti-TNF cell
+## rehydrated from its saved fit). What's still genuinely precomputed and
+## read straight off disk (via multi_read_table()/multi_read_registry_table())
+## is the pipeline's own leakage-safe nested-CV benchmark table and similar
+## reference CSVs from Research_05_multiomics_sexstratified's numbered
+## script pipeline - including two data-leakage bugs the pipeline's own
+## AUDIT.md documents finding and fixing. multi_diablo_fit() also reads a
+## saved block.splsda fit from disk, but only as an upstream data source
+## that mi_preloaded_cell_dataset() rehydrates into per-sample matrices for
+## a live re-run elsewhere - not to display that saved fit's own stored
+## performance as this module's result.
 ##
 ## Every loader is fail-soft (list(ok, df, error)) - never errors, never
 ## fabricates a result when a file is missing.
@@ -86,40 +98,6 @@ multi_filter_cell <- function(df, sex = NULL, drug = NULL) {
 }
 
 ## ---------------------------------------------------------------------------
-## Sample harmonization summary (spec: "Transcriptomics: 80 samples /
-## Methylomics: 65 samples / Shared samples: 58" worked example) - computed
-## directly from the pipeline's own patient/sample matching table
-## (metadata/patient_sample_matching_table.csv), never silently merged.
-## ---------------------------------------------------------------------------
-
-multi_sample_harmonization <- function(matching_df) {
-  need_cols <- c("RNA_available_PBMC", "methylation_available")
-  if (is.null(matching_df) || !all(need_cols %in% colnames(matching_df))) {
-    return(list(ok = FALSE, error = "Patient/sample matching table is missing the expected availability columns."))
-  }
-  rna_ok  <- matching_df$RNA_available_PBMC %in% c(TRUE, "TRUE", "Yes", "yes", 1)
-  meth_ok <- matching_df$methylation_available %in% c(TRUE, "TRUE", "Yes", "yes", 1)
-  list(
-    ok = TRUE,
-    n_total = nrow(matching_df),
-    n_rna = sum(rna_ok),
-    n_meth = sum(meth_ok),
-    n_matched = sum(rna_ok & meth_ok),
-    n_rna_only = sum(rna_ok & !meth_ok),
-    n_meth_only = sum(!rna_ok & meth_ok),
-    n_neither = sum(!rna_ok & !meth_ok),
-    by_sex = tryCatch(as.data.frame(table(sex = multi_norm_sex(matching_df$sex[rna_ok & meth_ok]))), error = function(e) NULL),
-    by_cell = do.call(rbind, lapply(MULTI_CELLS, function(cl) {
-      sub <- matching_df[multi_norm_sex(matching_df$sex) %in% multi_norm_sex(cl$sex), , drop = FALSE]
-      if (!is.na(cl$drug) && "treatment" %in% colnames(sub)) sub <- sub[sub$treatment %in% cl$drug, , drop = FALSE]
-      r_ok <- sub$RNA_available_PBMC %in% c(TRUE, "TRUE", "Yes", "yes", 1)
-      m_ok <- sub$methylation_available %in% c(TRUE, "TRUE", "Yes", "yes", 1)
-      data.frame(cell = cl$label, n_total = nrow(sub), n_rna = sum(r_ok), n_methylation = sum(m_ok), n_matched = sum(r_ok & m_ok))
-    }))
-  )
-}
-
-## ---------------------------------------------------------------------------
 ## Live sex/gender-column detection - shared by every sub-module that offers
 ## a "stratify by sex" run on the Active/uploaded dataset (sample-level
 ## metadata, not the precomputed MULTI_CELLS tables above). Concordance's
@@ -139,18 +117,6 @@ multi_sex_groups <- function(sample_meta, sex_col, sample_ids) {
   vals <- vals[intersect(sample_ids, names(vals))]
   vals <- vals[!is.na(vals) & nzchar(vals)]
   split(names(vals), vals)
-}
-
-## ---------------------------------------------------------------------------
-## Gene<->CpG concordance - small tally of the pipeline's own
-## `biological_pattern`/`region` classification (Table42/Table45), for a
-## quick bar chart. No new classification logic - purely a count of an
-## already-computed categorical column.
-## ---------------------------------------------------------------------------
-
-multi_concordance_pattern_tally <- function(df) {
-  if (is.null(df) || !"biological_pattern" %in% colnames(df)) return(NULL)
-  as.data.frame(table(pattern = df$biological_pattern), responseName = "n")
 }
 
 ## ---------------------------------------------------------------------------
@@ -216,6 +182,8 @@ multi_qc_scorecard <- function(multi_results) {
          if (!is.null(overview$summary36)) sprintf("%d of %d method x cell results exclude chance performance.", sum(overview$summary36$excludes_chance %in% TRUE), nrow(overview$summary36)) else "Load cohort tables on the Overview tab to compute this."),
     item("Integration cell loaded", if (!is.null(r$integration)) "pass" else "warn",
          if (!is.null(r$integration)) sprintf("Loaded: %s", r$integration$cell$label) else "No cell loaded yet on the Integration tab."),
+    item("Sex-stratified DIABLO loaded", if (!is.null(r$integration_stratified)) "pass" else "warn",
+         if (!is.null(r$integration_stratified)) sprintf("Loaded: %s", r$integration_stratified$cell$label) else "No sex-stratified comparison loaded yet on the Integration tab."),
     item("Patient stratification loaded", if (!is.null(r$stratification)) "pass" else "warn",
          if (!is.null(r$stratification)) sprintf("Loaded: %s SNF clusters", r$stratification$drug) else "No SNF clusters loaded yet on the Stratification tab."),
     item("Biomarker Discovery signature loaded", if (!is.null(r$biomarker)) "pass" else "warn",
@@ -243,6 +211,7 @@ multi_analysis_summary_table <- function(multi_dataset, multi_results) {
     row("Active Multi-Omics Dataset source", if (isTRUE(multi_dataset$active)) switch(multi_dataset$source %||% "", preloaded = "Preloaded Dataset", upload = "User Upload", geo = "NCBI GEO", "Unknown") else "None selected yet"),
     row("Integration cell", if (!is.null(r$integration)) r$integration$cell$label else "Not loaded"),
     row("Integration method(s)", if (!is.null(r$integration)) paste(c("DIABLO", if (!is.null(r$integration$snf_perf)) "SNF"), collapse = " + ") else "Not loaded"),
+    row("Sex-stratified DIABLO comparison", if (!is.null(r$integration_stratified)) sprintf("Loaded: %s", r$integration_stratified$cell$label) else "Not loaded"),
     row("Biomarker Discovery signature", if (!is.null(r$biomarker)) sprintf("%d selected features (DIABLO) - see Biomarker Discovery tab", length(unique(r$biomarker$df$feature))) else "Not loaded"),
     row("Pathway terms shown", if (!is.null(r$pathway)) format(nrow(r$pathway$df), big.mark = ",") else "Not loaded"),
     row("SNF cohort loaded", if (!is.null(r$stratification)) r$stratification$drug else "Not loaded")
@@ -343,7 +312,7 @@ MULTI_REPRODUCIBILITY_SCRIPTS <- c(
 ## lists which sub-modules had results loaded this session and where their
 ## numbers actually came from, not a regenerated analysis.
 multi_build_report <- function(multi_results) {
-  ids <- c("overview", "integration", "stratification", "biomarker", "concordance", "pathway", "live_qc", "live_mofa")
+  ids <- c("overview", "integration", "integration_stratified", "stratification", "biomarker", "concordance", "pathway", "live_qc", "live_mofa")
   lines <- c(
     "# ArthOMix Multi-Omics module - session report",
     sprintf("Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),

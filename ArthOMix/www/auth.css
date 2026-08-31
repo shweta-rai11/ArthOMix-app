@@ -1,0 +1,184 @@
+/* ArthOMix - authentication screens.
+   Built entirely from custom.css's existing --color-* / --radius-* tokens
+   (no edits to custom.css itself), so this automatically matches the app's
+   look, and dark mode (see dark-theme.css) for free. Also covers the
+   header account-menu classes added to R/ui_shell.R::app_header(). */
+
+.auth-shell {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  /* Flat light blue - intentionally does not use --color-page-bg, so the
+     sign-in/sign-up screen stays light even when the app is in dark mode
+     (see dark-theme.css, which is otherwise untouched here). */
+  background-color: #DCEAFB;
+}
+
+.auth-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 32px 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.auth-brand {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-ink);
+  margin-bottom: 14px;
+}
+
+.auth-avatar {
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Gradient-filled outline icon (font-awesome regular glyph, rendered via
+   ::before) - the gradient has to target ::before since that's where the
+   glyph's text content actually lives. */
+.auth-avatar-icon {
+  font-size: 84px;
+  line-height: 1;
+}
+.auth-avatar-icon::before {
+  background: linear-gradient(45deg, #7C3AED 0%, #38BDF8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.auth-card h3 {
+  font-size: 19px;
+  margin: 0 0 16px 0;
+}
+
+.auth-card .control-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-ink);
+  margin: 14px 0 5px 0;
+  display: block;
+}
+.auth-card .control-label:first-of-type { margin-top: 0; }
+
+.auth-card .form-group,
+.auth-card .shiny-input-container {
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.auth-password-wrap {
+  position: relative;
+}
+.auth-password-wrap input {
+  padding-right: 40px;
+}
+.auth-password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--color-ink-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.auth-password-toggle:hover { color: var(--color-ink); }
+
+.auth-strength-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+  margin-top: 8px;
+  overflow: hidden;
+}
+.auth-strength-fill {
+  height: 100%;
+  width: 0;
+  transition: width 0.15s ease, background 0.15s ease;
+}
+.auth-strength-0 { background: #DC2626; }
+.auth-strength-1 { background: #F59E0B; }
+.auth-strength-2 { background: #F59E0B; }
+.auth-strength-3 { background: var(--color-success); }
+.auth-strength-4 { background: var(--color-success); }
+.auth-strength-label {
+  font-size: 11.5px;
+  color: var(--color-ink-secondary);
+  margin-top: 4px;
+  min-height: 15px;
+}
+
+.auth-primary-btn {
+  width: 100%;
+  margin-top: 20px;
+  padding: 9px 0;
+  font-weight: 600;
+}
+
+.auth-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+  font-size: 13px;
+}
+
+.auth-subtext {
+  color: var(--color-ink-secondary);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.auth-alert {
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.auth-alert-error {
+  background: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid #FECACA;
+}
+.auth-alert-success {
+  background: var(--color-success-surface);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+.auth-alert-info {
+  background: var(--color-surface-blue);
+  color: var(--color-primary-dark);
+  border: 1px solid var(--color-border);
+}
+
+/* ---- Header account menu (R/ui_shell.R::app_header()) ---- */
+
+.app-header-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.app-header-account-email {
+  font-size: 12.5px;
+  color: var(--color-ink-secondary);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

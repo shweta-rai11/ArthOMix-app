@@ -236,7 +236,7 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
   ## group names for their own display text, so nothing user-visible changes.
   levels(y_full) <- make.names(levels(y_full), unique = TRUE)
   params <- utils::modifyList(CT_DEFAULT_PARAMS, params)
-  GLOBAL_SEED <- 1234
+  GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
   genes <- rownames(expr_full)
   safe <- make.names(genes, unique = TRUE)
   y <- y_full
@@ -492,6 +492,21 @@ mod_crosstissue_discovery_sex_panel <- function(ns, sex_label) {
         column(6, withSpinner(plotOutput(ns(paste0(sex_label, "_concordance_plot")), height = 380), color = "#2c6fbb", type = 6)),
         column(6, withSpinner(plotOutput(ns(paste0(sex_label, "_geneauc_plot")), height = 380), color = "#2c6fbb", type = 6))
       ),
+      ## Two disclosed limitations of this screening step, neither of which
+      ## changes any threshold or number shown - just makes them visible
+      ## where the table/plots that depend on them are read:
+      ##  1. The synovium AUC>=0.70 "biomarker" bar (CT_BIOMARKER_AUC_MIN) is
+      ##     applied gene-by-gene with no multiple-testing correction, unlike
+      ##     the synovium differential-expression gate above it (syn_adjP),
+      ##     which IS Benjamini-Hochberg adjusted - screening many genes at an
+      ##     uncorrected AUC cutoff can accumulate false positives.
+      ##  2. Blood and synovium were profiled on different platforms/cohorts
+      ##     with no formal batch correction (e.g. ComBat) applied across that
+      ##     boundary, so a direct blood-vs-synovium effect-size/AUC
+      ##     comparison should be read cautiously.
+      div(class = "empty-note", style = "font-size: 12.5px; border-left: 3px solid #d97706;",
+          icon("triangle-exclamation"),
+          "Two screening limitations to keep in mind: the synovium AUC ≥ 0.70 \"biomarker\" cutoff below is applied gene-by-gene with no multiple-testing correction (unlike the synovium adj. P-value gate, which is BH-adjusted), so it can accumulate false positives across many genes screened; and no formal batch/platform correction (e.g. ComBat) is applied between the blood and synovium cohorts, so direct cross-tissue effect-size/AUC comparisons should be interpreted cautiously."),
       div(class = "table-toolbar", downloadButton(ns(paste0(sex_label, "_disc_download")), "Per-gene table (CSV)", class = "btn-sm")),
       DT::dataTableOutput(ns(paste0(sex_label, "_disc_table")))
     )
@@ -726,7 +741,9 @@ mod_crosstissue_server <- function(id, dataset, results) {
       req(input$val_meta_file)
       path <- input$val_meta_file$datapath
       if (grepl("\\.rds$", input$val_meta_file$name, ignore.case = TRUE)) {
-        d <- readRDS(path)
+        loaded <- safe_read_rds(path)
+        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+        d <- loaded$value
         validate(need(is.data.frame(d), "The uploaded validation metadata RDS file must contain a data frame."))
         as.data.frame(d)
       } else {

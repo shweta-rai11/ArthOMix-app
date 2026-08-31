@@ -133,6 +133,25 @@ mb_data_check_table <- function(validation, outcome_summary, eligibility) {
 ## a statistical result.
 ## ---------------------------------------------------------------------------
 
+## NOTE on the 0.8 cutoff vs. SNF Clustering's own stability metric: SNF
+## Clustering's SFC_STABILITY_THRESHOLDS (snf_clustering_helpers.R) uses a
+## different "stable" cutoff (0.75). This is deliberate, not an oversight -
+## the two are not the same statistic and are not meant to share one bar.
+## MB_STABILITY_THRESHOLDS classifies a per-feature *selection frequency*:
+## the raw fraction of CV repeats in which mixOmics::block.splsda's own
+## keepX selection kept that feature (mi_diablo_stability_df()), i.e. a
+## plain (uncorrected-for-chance) proportion, consistent with the stability-
+## selection literature's typical "reliable" cutoffs in the 0.6-0.9 range
+## (Meinshausen & Buhlmann 2010). SFC_STABILITY_THRESHOLDS instead classifies
+## a mean Adjusted Rand Index between two full sample-partitions (subsampled
+## SNF clustering vs. the full-cohort reference clustering) - ARI is
+## chance-corrected (0 expected under random labelings, 1 at perfect
+## agreement), so a given numeric value reflects a different amount of
+## "real" agreement than an uncorrected selection-frequency proportion at
+## the same number; conventional ARI cutoffs for "excellent"/"high"
+## clustering agreement (e.g. Hubert & Arabie 1985; Ben-Hur et al. 2002) sit
+## around 0.75, not 0.8. Forcing these two constants to match would paper
+## over that the underlying statistics live on different effective scales.
 MB_STABILITY_THRESHOLDS <- list(stable = 0.8, moderate = 0.5)
 
 mb_stability_category <- function(freq) {

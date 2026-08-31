@@ -17,7 +17,9 @@ mod_dge_config <- list(
 dge_read_expr_upload <- function(datapath, filename) {
   ext <- tolower(tools::file_ext(filename))
   if (ext %in% c("rds")) {
-    obj <- readRDS(datapath)
+    loaded <- safe_read_rds(datapath)
+    validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+    obj <- loaded$value
     m <- if (is.matrix(obj)) obj else as.matrix(obj)
     storage.mode(m) <- "double"
     return(m)
@@ -38,7 +40,9 @@ dge_read_expr_upload <- function(datapath, filename) {
 dge_read_table_upload <- function(datapath, filename) {
   ext <- tolower(tools::file_ext(filename))
   if (ext %in% c("rds")) {
-    obj <- readRDS(datapath)
+    loaded <- safe_read_rds(datapath)
+    validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
+    obj <- loaded$value
     validate(need(is.data.frame(obj), "The uploaded RDS file must contain a data frame."))
     return(as.data.frame(obj))
   }

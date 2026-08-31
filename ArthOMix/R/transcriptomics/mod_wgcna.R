@@ -774,7 +774,13 @@ mod_wgcna_server <- function(id, dataset, results) {
             conditionalPanel(
               condition = sprintf("input['%s'] == 'manual'", ns("power_mode")),
               numericInput(ns("manual_power"), "Power value", value = if (uploaded) 7 else 12, min = 1, max = 30, step = 1)
-            )
+            ),
+            ## Only shown for uploaded/GEO-fetched/individual-preloaded-GSE data. The exact
+            ## default bundled cohort never reaches blockwiseModules() live (its result is
+            ## loaded from the precomputed RDS below), so there's no "match the published
+            ## pipeline's module colors" reason to fix this seed there - and none exists for
+            ## these other datasets either, unlike every other stochastic step in this file.
+            if (uploaded) numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1)
           )
         ),
         actionButton(ns("compute_power_btn"), "Compute power", icon = icon("play"), class = "btn-primary btn-sm"),
@@ -847,13 +853,19 @@ mod_wgcna_server <- function(id, dataset, results) {
         reassign_threshold <- if (dataset_is_uploaded()) 1e-06 else 0
 
         incProgress(0.15, detail = "Constructing the network and detecting modules")
+        ## Fixed at 1234 for the default bundled cohort - moot in practice since that
+        ## path returns above via load_precomputed_wgcna_result() and never reaches
+        ## blockwiseModules() live. For every other dataset (uploaded/GEO-fetched/an
+        ## individual preloaded GSE) there's no published pipeline to match, so the
+        ## seed is user-adjustable there, same as every other stochastic step in this file.
+        net_seed <- if (dataset_is_uploaded()) (input$net_seed %||% 1234) else 1234
         net <- get_or_compute_wgcna_blocks(
           list(texpr = texpr, power = power, network_type = input$network_type,
                tom_type = input$tom_type, cor_method = input$cor_method,
                deep_split = input$deep_split, min_module_size = input$min_module_size,
                merge_cut_height = input$merge_cut_height,
                pam_respects_dendro = isTRUE(input$pam_respects_dendro),
-               reassign_threshold = reassign_threshold),
+               reassign_threshold = reassign_threshold, seed = net_seed),
           function() WGCNA::blockwiseModules(
             texpr,
             power = power, networkType = input$network_type, TOMType = input$tom_type,
@@ -861,8 +873,9 @@ mod_wgcna_server <- function(id, dataset, results) {
             deepSplit = input$deep_split, minModuleSize = input$min_module_size,
             reassignThreshold = reassign_threshold, mergeCutHeight = input$merge_cut_height,
             pamRespectsDendro = isTRUE(input$pam_respects_dendro),
-            ## Fixed seed (matches 06_WGCNA.R's CFG$seed = 1234) - PAM-stage reassignment is stochastic, and module colors are size-rank based, so an unpinned seed could relabel modules between runs.
-            randomSeed = 1234,
+            ## PAM-stage reassignment is stochastic, and module colors are size-rank
+            ## based, so an unpinned seed could relabel modules between runs.
+            randomSeed = net_seed,
             numericLabels = FALSE, maxBlockSize = ncol(texpr) + 1, verbose = 0
           )
         )

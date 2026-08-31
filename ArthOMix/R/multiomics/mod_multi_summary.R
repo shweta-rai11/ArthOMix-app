@@ -24,15 +24,15 @@ mod_multi_summary_ui <- function(id) {
       6,
       box(
         width = NULL, title = "Supported vs. not implemented", status = "primary", solidHeader = FALSE,
-        tags$h5("Implemented (precomputed cohort tabs - browse, don't recompute)"),
+        tags$h5("Implemented (live analysis, computed on click, on the data source you pick within each tab)"),
         tags$ul(
-          tags$li("DIABLO integration (supervised, mixOmics::block.splsda) - performance, per-patient scores, panel loadings"),
-          tags$li("DIABLO variance explained per component, per omics block"),
-          tags$li("SNF integration and patient clustering (unsupervised, SNFtool::SNF)"),
-          tags$li("SNF per-omics NMI contribution to the fused network"),
-          tags$li("Gene <-> CpG concordance with genomic-region awareness, optional BH-FDR recompute over retained raw p-values"),
-          tags$li("Pathway enrichment (GO/KEGG/Reactome)"),
-          tags$li("Joint biomarker candidate ranking with live confidence relabeling")
+          tags$li("DIABLO integration (supervised, mixOmics::block.splsda) - performance, per-patient scores, panel loadings; run live on either the Active Multi-Omics Dataset or a preloaded RA anti-TNF cell (rehydrated from its saved fit)"),
+          tags$li("DIABLO variance explained per component, per omics block - from that same live run"),
+          tags$li("SNF integration and patient clustering (unsupervised, SNFtool::SNF) - likewise run live on either data source"),
+          tags$li("SNF per-omics NMI contribution to the fused network - from that same live run"),
+          tags$li("Gene <-> CpG concordance with genomic-region awareness - a precomputed browse of the pipeline's own Table42/45 tables when \"Preloaded\" is selected, or a live data-adaptive analysis over the Active Multi-Omics Dataset when \"Active\" is selected; optional BH-FDR recompute over retained raw p-values either way"),
+          tags$li("Pathway enrichment (GO/KEGG/Reactome) - run live on click, over the preloaded candidate panel or your own upload"),
+          tags$li("Joint biomarker candidate ranking (live DIABLO feature selection) - feature-selection stability is a fixed-threshold evidence label from real cross-validation, never a user-adjustable confidence score")
         ),
         tags$h5("Implemented (Live Analysis tab - your own uploaded data)"),
         tags$ul(
@@ -105,7 +105,14 @@ mod_multi_summary_server <- function(id, multi_dataset = NULL, multi_results = N
         tmp <- tempfile(); dir.create(tmp)
         res <- if (!is.null(multi_results)) reactiveValuesToList(multi_results) else list()
         write_if_df <- function(x, name) {
-          df <- if (is.list(x) && !is.data.frame(x)) x$df %||% x$assignments %||% NULL else x
+          ## `integration_stratified` (mod_multi_integration.R's Sex-Stratified
+          ## DIABLO panel) is shaped list(cell=, result=list(performance=,
+          ## panels=, panels_wide=)) rather than the flatter $df/$assignments
+          ## shape its sibling `integration` uses - panels_wide (the same
+          ## table its own "Download comparison (CSV)" button exports) is the
+          ## most complete single table, so it is bundled here too instead of
+          ## silently falling through to no CSV at all.
+          df <- if (is.list(x) && !is.data.frame(x)) x$df %||% x$assignments %||% x$result$panels_wide %||% NULL else x
           if (is.data.frame(df)) utils::write.csv(df, file.path(tmp, paste0(name, ".csv")), row.names = FALSE)
         }
         for (nm in names(res)) write_if_df(res[[nm]], nm)

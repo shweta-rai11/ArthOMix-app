@@ -1068,8 +1068,9 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         src_tbl <- sub[as.character(sub$cpg) %in% cpgs, , drop = FALSE]
       } else {
         req(input$fs_upload)
-        obj <- tryCatch(readRDS(input$fs_upload$datapath), error = function(e) NULL)
-        validate(need(!is.null(obj) && identical(obj$module, "mod_methyl_featureselection"), "Upload a Feature Selection RDS export (from that module's own \"Save Model as RDS\" download)."))
+        loaded <- safe_read_rds(input$fs_upload$datapath)
+        obj <- if (isTRUE(loaded$ok)) loaded$value else NULL
+        validate(need(!is.null(obj) && identical(obj$module, "mod_methyl_featureselection"), loaded$error %||% "Upload a Feature Selection RDS export (from that module's own \"Save Model as RDS\" download)."))
         panel_ids <- as.character(obj$final_panel$cpg_ids %||% character(0))
         cpgs <- intersect(panel_ids, dxm$all_cpgs)
         src_tbl <- data.frame(cpg = cpgs)

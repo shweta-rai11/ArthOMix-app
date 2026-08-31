@@ -72,11 +72,47 @@ MR35_CROSSANCESTRY_MALE_CSV   <- "MR35_crossancestry_male.csv"
 
 PROJECT_CHAPTER_MD <- file.path(DATA_ROOT, "Chapter_2_subchapter2_sexstratified.md")
 
-## Regenerable caches - deliberately outside data/preloaded/.
+## Regenerable caches - deliberately outside data/preloaded/. These folders
+## hold derivatives of USER-UPLOADED data (get_collapsed_genes(),
+## get_or_compute_wgcna_blocks()/get_or_compute_meth_wgcna_blocks() in
+## global.R all saveRDS() their result here, keyed by a content digest, with
+## no expiry), so two things matter for a shared/multi-user deployment:
+##   1. Created with owner-only permissions (mode 0700 - ignored on Windows,
+##      a no-op there rather than an error) rather than the process umask
+##      default, so other local accounts on a shared machine can't read
+##      cached derivatives of another user's uploaded expression/methylation
+##      data.
+##   2. Swept for stale files at every app startup (arthomix_cleanup_stale_
+##      cache() below) so this doesn't grow unbounded forever - there is no
+##      other cleanup path anywhere in the app.
+## This is deliberately just a TTL sweep, not a change to the cache
+## key/lookup logic in global.R.
+
+## Best-effort removal of cache files older than `max_age_days`. A single
+## unreadable/unremovable file (permissions, concurrent access from another
+## session) is skipped rather than aborting the whole sweep - this is
+## opportunistic housekeeping, not a correctness-critical path.
+arthomix_cleanup_stale_cache <- function(dir, max_age_days = 14) {
+  if (!dir.exists(dir)) return(invisible(NULL))
+  files <- list.files(dir, full.names = TRUE, recursive = TRUE, no.. = TRUE)
+  if (length(files) == 0) return(invisible(NULL))
+  cutoff <- Sys.time() - as.numeric(max_age_days) * 86400
+  for (f in files) {
+    info <- tryCatch(file.info(f), error = function(e) NULL)
+    if (is.null(info) || is.na(info$mtime) || isTRUE(info$isdir)) next
+    if (info$mtime < cutoff) {
+      tryCatch(unlink(f), error = function(e) NULL)
+    }
+  }
+  invisible(NULL)
+}
+
 COLLAPSED_CACHE_DIR <- get_data_path(".cache", "transcriptomics")
-dir.create(COLLAPSED_CACHE_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(COLLAPSED_CACHE_DIR, showWarnings = FALSE, recursive = TRUE, mode = "0700")
+arthomix_cleanup_stale_cache(COLLAPSED_CACHE_DIR)
 WGCNA_CACHE_DIR <- get_data_path(".cache", "transcriptomics", "wgcna")
-dir.create(WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE, mode = "0700")
+arthomix_cleanup_stale_cache(WGCNA_CACHE_DIR)
 
 ## ---------------------------------------------------------------------------
 ## Methylomics: preloaded pipeline result tables
@@ -111,7 +147,8 @@ METH_DIAG_EXTERNAL_RDS <- file.path(METH_RAW_DATA_ROOT, "gse111942_external_pane
 METH_DIAG_DATA_AVAILABLE <- file.exists(METH_DIAG_INTERNAL_RDS) && file.exists(METH_DIAG_EXTERNAL_RDS)
 
 METH_WGCNA_CACHE_DIR <- get_data_path(".cache", "methylomics", "wgcna")
-dir.create(METH_WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(METH_WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE, mode = "0700")
+arthomix_cleanup_stale_cache(METH_WGCNA_CACHE_DIR)
 
 ## ---------------------------------------------------------------------------
 ## Cross-Omics: precomputed biomarker-convergence / cross-omics-MR tables

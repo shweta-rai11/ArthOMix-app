@@ -1,0 +1,83 @@
+/* ArthOMix Explorer - dark theme.
+   Additive only; zero edits to custom.css. Toggled by setting
+   data-theme="dark" on <html> (see ui.R's pre-paint script and
+   server.R's theme_toggle_btn observer).
+
+   Strategy: custom.css's shared tokens (--color-*) drive almost every
+   component, so re-defining them here re-themes the whole app shell (page
+   background, header, sidebar, nav, buttons, badges) for free. BUT a
+   couple dozen "card" surfaces across custom.css (.box, .card, the Home
+   page's hero/stat/FAQ cards, the ArthOChat drawer, ...) hardcode
+   `background: #ffffff` as a literal rather than a token - flipping
+   --color-ink globally would put light text on those still-white
+   backgrounds. Rather than track down and re-theme every one of those
+   (risking exactly the "must not break plot/table/input readability"
+   the spec warns about), those containers opt out of the flip entirely -
+   the second rule below re-pins every token back to its light-mode value
+   *inside* them, so every plot, table, form and analysis card renders
+   pixel-identical to light mode. Only the page canvas, header bar,
+   navbar and sidebar actually go dark. */
+
+[data-theme="dark"] {
+  --color-primary: #3B82F6;
+  --color-primary-dark: #60A5FA;
+  --color-ink: #E2E8F0;
+  --color-ink-secondary: #94A3B8;
+  --color-border: #334155;
+  --color-surface-blue: #1E293B;
+  --color-success: #4ADE80;
+  --color-success-surface: #14532D;
+  --color-warning: #FBBF24;
+  --color-warning-surface: #78350F;
+  --color-page-bg: #0F172A;
+}
+
+/* The header bar and the navbarPage tab strip hardcode a literal white
+   background in custom.css (not a token) - overridden directly here so
+   their (now correctly light-colored, via the flip above) text has a dark
+   surface to sit on. */
+[data-theme="dark"] .app-header,
+[data-theme="dark"] .navbar {
+  background: #0F172A !important;
+  border-bottom-color: #334155;
+}
+[data-theme="dark"] .app-header-icon-btn,
+[data-theme="dark"] .app-header-search-kbd {
+  background: #1E293B;
+  border-color: #334155;
+}
+
+/* Content surfaces that hardcode a white background in custom.css - opt
+   out of the dark flip so everything inside (plots, tables, forms, badge
+   text) stays exactly as legible as it is in light mode. */
+[data-theme="dark"] .box,
+[data-theme="dark"] .box.box-primary,
+[data-theme="dark"] .info-card,
+[data-theme="dark"] .card,
+[data-theme="dark"] .module-card,
+[data-theme="dark"] .figure-card,
+[data-theme="dark"] .arthochat-shortcut-compact,
+[data-theme="dark"] .fs-run-bar,
+[data-theme="dark"] .home-hero-meta-chip,
+[data-theme="dark"] .home-hero-search input,
+[data-theme="dark"] .home-goal-band,
+[data-theme="dark"] .home-stat-card,
+[data-theme="dark"] .home-stat-detail,
+[data-theme="dark"] .home-faq-item,
+[data-theme="dark"] .chat-drawer {
+  --color-primary: #2563EB;
+  --color-primary-dark: #1D4ED8;
+  --color-ink: #172033;
+  --color-ink-secondary: #64748B;
+  --color-border: #E2E8F0;
+  --color-surface-blue: #EFF6FF;
+  --color-success: #16A34A;
+  --color-success-surface: #F0FDF4;
+  --color-warning: #F59E0B;
+  --color-warning-surface: #FFFBEB;
+  --color-page-bg: #F8FAFC;
+}
+
+/* Server-rendered ggplot PNGs (renderPlot) can't be re-themed live - they
+   keep rendering on their normal white background, inside a now-opted-out
+   card above, exactly as in light mode. No server-side change needed. */
