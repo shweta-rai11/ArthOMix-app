@@ -16,7 +16,7 @@ source_from_app_root(file.path("R", "transcriptomics", "mod_preprocessing.R"))
 
 test_that("activating a preprocessing run built entirely from bundled cohorts is not labelled 'Uploaded dataset'", {
   d0 <- load_default_dataset()
-  dataset <- shiny::reactiveValues(expr = d0$expr, meta = d0$meta, source = d0$source)
+  dataset <- shiny::reactiveValues(expr = d0$expr, meta = d0$meta, source = d0$source, source_type = "preloaded")
 
   shiny::testServer(mod_preprocessing_server, args = list(id = "pp", dataset = dataset, results = shiny::reactiveValues()), {
     session$setInputs(preloaded_selected = "__default_merged__", preloaded_log2 = "auto")
@@ -38,7 +38,7 @@ test_that("activating a preprocessing run built entirely from bundled cohorts is
 test_that("activating a run that includes a genuinely uploaded 'currently loaded dataset' IS labelled uploaded", {
   d0 <- load_default_dataset()
   dataset <- shiny::reactiveValues(
-    expr = d0$expr, meta = d0$meta, source = d0$source,
+    expr = d0$expr, meta = d0$meta, source = d0$source, source_type = "preloaded",
     staged_expr = d0$expr, staged_meta = d0$meta,
     staged_source = "Uploaded dataset: my_expr.csv + my_meta.csv"
   )

@@ -26,6 +26,14 @@ test_that("Ensembl-ID-shaped identifiers score a near-zero overlap percentage", 
   expect_lt(pct, 5)
 })
 
+test_that("deconv_gene_id_overlap_pct() sits right at the 10% block threshold for a mixed real/fake gene ID matrix", {
+  set.seed(6)
+  real_genes <- rownames(load_default_dataset()$expr)[1:10]
+  fake_genes <- sprintf("ENSG%011d", sample.int(9e8, 90))
+  pct <- deconv_gene_id_overlap_pct(c(real_genes, fake_genes))
+  expect_equal(pct, 10)  ## exactly 10/100 = 10% real symbols
+})
+
 test_that("result() blocks a mismatched-gene-ID matrix before running CIBERSORT/MCP-counter", {
   set.seed(5)
   n_genes <- 300; n_samples <- 20

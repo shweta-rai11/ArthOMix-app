@@ -38,7 +38,7 @@ test_that("two independently uploaded datasets combine through the Preprocessing
   fx2 <- pp_write_fixture(dir, seed = 12, offset = 0.2, sample_prefix = "B")
 
   d0 <- load_default_dataset()
-  dataset <- shiny::reactiveValues(expr = d0$expr, meta = d0$meta, source = d0$source)
+  dataset <- shiny::reactiveValues(expr = d0$expr, meta = d0$meta, source = d0$source, source_type = "preloaded")
 
   shiny::testServer(mod_preprocessing_server, args = list(id = "pp", dataset = dataset, results = shiny::reactiveValues()), {
     session$setInputs(n_sources = 2)

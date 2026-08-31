@@ -50,9 +50,42 @@ source_from_app_root("data_paths.R")
 ## outside this whole project tree) stops pkg_path() from finding one,
 ## which skips that branch entirely - app_dir itself is still passed as an
 ## absolute path, so the app launches from the right place regardless.
-new_app_driver <- function(...) {
+## .Rprofile pins the app to a fixed host:port (127.0.0.1:7788) so a human
+## developer always finds it at the same URL - convenient for manual dev
+## work, but that same fixed port is a real collision hazard for E2E tests:
+## this project's dev server on 7788 is routinely already running (shared
+## across peer Claude sessions - see feedback_arthomix_shared_dev_server
+## memory), and a launched-for-test app process still sources that same
+## .Rprofile. Confirmed live that without an explicit port override,
+## app$get_values() (which needs the app to be running with
+## shiny.testmode = TRUE) can 404 against Shiny's test-mode introspection
+## endpoint - not because the freshly-launched test app itself lacks test
+## mode, but because something in that startup path ends up serving through
+## the pre-existing shared instance on 7788 instead, which was never
+## started with test.mode = TRUE. Passing an explicit free port here
+## isolates every E2E test from that shared instance entirely. Callers may
+## still override shiny_args themselves (e.g. to add other runApp args) -
+## in that case respect whatever port they asked for instead of inserting
+## our own.
+new_app_driver <- function(..., shiny_args = list()) {
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
   setwd(tempdir())
-  shinytest2::AppDriver$new(app_dir = app_dir, ...)
+  if (is.null(shiny_args$port)) shiny_args$port <- httpuv::randomPort()
+  shinytest2::AppDriver$new(app_dir = app_dir, ..., shiny_args = shiny_args)
+}
+
+## The auth gate (R/auth/mod_auth_*.R) means every AppDriver-based E2E test
+## now lands on the login screen first, not the app itself - call this
+## right after new_app_driver(), before any set_inputs(sidebar_tabs = ...),
+## to get past it with one real Supabase account. Requires
+## ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD to already be a confirmed
+## account in whichever Supabase project SUPABASE_URL/SUPABASE_ANON_KEY (see
+## .Renviron) point at - callers should skip_if() when those aren't set
+## (see test-app-smoke.R/test-upload-transcriptomics.R) rather than fail.
+login_test_user <- function(app) {
+  app$set_inputs(`auth-login_email` = Sys.getenv("ARTHOMIX_TEST_EMAIL"))
+  app$set_inputs(`auth-login_password` = Sys.getenv("ARTHOMIX_TEST_PASSWORD"))
+  app$click("auth-login_btn")
+  app$wait_for_idle(timeout = 20 * 1000)
 }

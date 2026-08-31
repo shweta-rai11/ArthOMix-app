@@ -21,7 +21,7 @@ test_that("a single loaded dataset with a duplicate feature ID is deduplicated, 
   rownames(expr)[10] <- rownames(expr)[3]
   expr[10, ] <- expr[3, ] + 0.5
   meta <- d0$meta[1:20, c("sample", "group")]
-  dataset <- shiny::reactiveValues(expr = expr, meta = meta, source = "Uploaded dataset: dup_test.csv")
+  dataset <- shiny::reactiveValues(expr = expr, meta = meta, source = "Uploaded dataset: dup_test.csv", source_type = "uploaded")
 
   shiny::testServer(mod_preprocessing_server, args = list(id = "pp", dataset = dataset, results = shiny::reactiveValues()), {
     session$setInputs(preloaded_selected = "__current__", preloaded_log2 = "auto")

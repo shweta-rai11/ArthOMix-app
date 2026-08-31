@@ -46,3 +46,54 @@ test_that("two sequential nom_fit_core() calls don't leak datadist state into ea
   ## Neither call should leave a stray datadist object behind in .GlobalEnv.
   expect_length(grep("^\\.arthomix_nomogram_dd", ls(envir = .GlobalEnv)), 0)
 })
+
+## Module 1 additions (2026-08-30): structural/scientific-contract checks on
+## nom_dca()'s net-benefit formula (Vickers & Elkin 2006) and
+## nom_clinical_impact()'s bootstrap bands, extending this file's existing
+## nom_fit_core() regression coverage rather than duplicating a new file.
+
+test_that("nom_dca() computes net benefit matching the Vickers & Elkin formula on a hand-worked example", {
+  y <- c(1, 0, 1, 0)
+  p <- c(0.9, 0.2, 0.8, 0.1)
+  out <- nom_dca(y, p, th = 0.5)
+  ## At threshold 0.5: positives flagged are indices 1,3 (both true cases) ->
+  ## model NB = 2/4 - 0*(0.5/0.5) = 0.5; "treat all" NB = ev - (1-ev)*1 = 0.
+  expect_equal(out$model, 0.5)
+  expect_equal(out$all, 0)
+})
+
+test_that("nom_dca() 'treat none' is implicitly zero and 'treat all' degrades as the threshold rises", {
+  set.seed(130)
+  y <- rbinom(200, 1, 0.3)
+  p <- runif(200)
+  th <- c(0.1, 0.5, 0.9)
+  out <- nom_dca(y, p, th)
+  expect_length(out$model, 3)
+  expect_length(out$all, 3)
+  ## "Treat all"'s net benefit is monotonically decreasing in threshold (the
+  ## false-positive penalty term pt/(1-pt) grows while the true-positive
+  ## term - prevalence - is fixed).
+  expect_true(all(diff(out$all) < 0))
+})
+
+test_that("nom_clinical_impact() computes deterministic nhigh/nevent counts exactly, with valid (lo<=hi) bootstrap bands", {
+  set.seed(131)
+  n <- 60
+  X <- rnorm(n)
+  y <- rbinom(n, 1, plogis(X))
+  df <- data.frame(x = X, y = y)
+  p <- as.numeric(plogis(X))
+  th <- c(0.3, 0.5, 0.7)
+  N <- 1000
+
+  impact <- nom_clinical_impact(df, y ~ x, penalty = 0, p = p, y = y, th = th, N = N, B = 30, seed = 1234)
+
+  ## nhigh/nevent are computed directly from p/y (not bootstrapped) - exactly reproducible.
+  expect_equal(impact$nhigh, vapply(th, function(pt) mean(p >= pt) * N, numeric(1)))
+  expect_equal(impact$nevent, vapply(th, function(pt) mean(p >= pt & y == 1) * N, numeric(1)))
+  ## Bootstrap CI bands must bracket sensibly (2.5th <= 97.5th percentile).
+  expect_true(all(impact$nhigh_lo <= impact$nhigh_hi))
+  expect_true(all(impact$nevent_lo <= impact$nevent_hi))
+  expect_equal(impact$N, N)
+  expect_equal(impact$B, 30)
+})

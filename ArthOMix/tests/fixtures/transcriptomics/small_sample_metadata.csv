@@ -1,0 +1,17 @@
+sample,group,sex,batch
+S01,HC,F,batch1
+S02,RA,M,batch1
+S03,HC,F,batch1
+S04,RA,M,batch1
+S05,HC,F,batch1
+S06,RA,M,batch1
+S07,HC,F,batch1
+S08,RA,M,batch1
+S09,HC,F,batch2
+S10,RA,M,batch2
+S11,HC,F,batch2
+S12,RA,M,batch2
+S13,HC,F,batch2
+S14,RA,M,batch2
+S15,HC,F,batch2
+S16,RA,M,batch2
