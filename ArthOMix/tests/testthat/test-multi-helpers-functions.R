@@ -34,8 +34,7 @@ test_that("multi_read_table() fails soft (never errors) for a missing or NULL pa
 })
 
 test_that("multi_read_table() fails soft on an empty (header-only) CSV", {
-  path <- tempfile(fileext = ".csv")
-  writeLines("a,b,c", path)
+  path <- normalizePath(file.path(app_dir, "tests", "fixtures", "edge_cases", "empty_expr.csv"), mustWork = TRUE)
   ## multi_read_table() only checks MULTI_DATA_AVAILABLE, not whether path is
   ## under MULTI_DATA_ROOT, so an arbitrary existing empty file exercises the
   ## nrow==0 branch directly regardless of deployment data availability.
