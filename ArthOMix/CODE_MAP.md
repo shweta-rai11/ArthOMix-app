@@ -7,7 +7,7 @@ ArthOMix
 ├── Transcriptomics   (R/transcriptomics/)      — not yet reorganized, see below
 ├── Methylomics       (R/methylomics/)          — reorganized
 ├── Cross-Omics       (R/crossomics/)           — reorganized
-└── Multiomics        (R/multiomics/)           — not yet reorganized, see below
+└── Multiomics        (R/multiomics/)           — reorganized
 ```
 
 ## Shared app infrastructure (not part of any one vertical)
@@ -62,6 +62,23 @@ See `R/methylomics/README.md` for the full narrative and dependency table. Summa
 | `R/methylomics/15_Biomarker_Analysis/` | `biomarkercard` | `mod_methyl_biomarkercard.R` |
 | `R/methylomics/functions/` | shared (`qc.R`, `annotation.R`, `parse_upload.R`, `normalization.R`, `idat_metrics.R`) | — |
 
-## Multiomics, Transcriptomics
+## Multiomics
 
-Not yet reorganized into numbered stage folders — still flat directories (`R/multiomics/`, `R/transcriptomics/`), each with a `MULTI_MODULES`/`TX_MODULES` registry in `R/submodules_registry.R` giving the authoritative stage list, titles, and order. Each stage's file(s) can be found by grepping `R/submodules_registry.R` for the stage's `config` object name (e.g. `mod_multi_biomarker_config`) and locating the matching `mod_multi_*.R`/`mod_*.R` file in the vertical's directory.
+See `R/multiomics/README.md` for the full narrative and dependency table. Summary:
+
+| Folder | Stage (`MULTI_MODULES` id) | Main file(s) |
+|---|---|---|
+| `R/multiomics/01_Data_Workspace/` | Dataset Workspace tab (not a `MULTI_MODULES` entry; hosts live MOFA2) | `mod_multi_dataset.R`, `mod_multi_mofa.R`, `mod_multi_mofa_engine.R` |
+| `R/multiomics/02_Cohort_Harmonization/` | `overview` | `mod_multi_overview.R` |
+| `R/multiomics/03_DIABLO_SNF_Integration/` | `integration` | `mod_multi_integration.R` |
+| `R/multiomics/04_SNF_Clustering/` | `stratification` | `mod_multi_stratification.R` |
+| `R/multiomics/05_Biomarker_Discovery/` | `biomarker` | `mod_multi_biomarker.R` |
+| `R/multiomics/06_Gene_CpG_Concordance/` | `concordance` | `mod_multi_concordance.R` |
+| `R/multiomics/07_Pathways/` | `pathway` | `mod_multi_pathway.R` |
+| `R/multiomics/08_Biomarker_Card/` | `biomarkercard` | `mod_multi_biomarkercard.R` |
+| `R/multiomics/09_Results_Summary/` | `summary` | `mod_multi_summary.R` |
+| `R/multiomics/functions/` | shared (`multiomics_helpers.R`, `multiomics_plots.R`, `multiomics_sexstratified_engine.R`, `multiomics_integration_helpers.R`, `multiomics_integration_plots.R`) | — |
+
+## Transcriptomics
+
+Not yet reorganized into numbered stage folders — still a flat directory (`R/transcriptomics/`), with a `TX_MODULES` registry in `R/submodules_registry.R` giving the authoritative stage list, titles, and order. Each stage's file can be found by grepping `R/submodules_registry.R` for the stage's `config` object name (e.g. `mod_dge_config`) and locating the matching `mod_*.R` file in `R/transcriptomics/`.

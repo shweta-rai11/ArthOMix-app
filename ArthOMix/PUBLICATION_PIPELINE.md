@@ -41,6 +41,30 @@ Biomarker Analysis (15)
 
 Every stage's output (`results$<stage>`) is summarized for ArthOChat by `build_mx_context()` in `R/submodules_registry.R`. See `R/methylomics/README.md` for the per-stage dependency table, including the DMP-module-owned helpers several downstream stages call directly.
 
-## Multiomics, Transcriptomics
+## Multiomics
 
-Not yet mapped in this document — pending reorganization of those verticals (see `CODE_MAP.md`). The stage order for each is already authoritative in `R/submodules_registry.R`'s `MULTI_MODULES`/`TX_MODULES` lists.
+```
+Upload / GEO / preloaded fit → Active Multi-Omics Dataset (01_Data_Workspace, incl. optional live MOFA2)
+ ↓
+Cohort Harmonization (02)
+ ↓
+DIABLO & SNF Integration (03)
+ ↓
+SNF Clustering → patient subgroups (04)
+ ↓
+Biomarker Discovery, sex-stratified (05)
+ ↓
+Gene-CpG Concordance (06)
+ ↓
+Pathways (07)
+ ↓
+Biomarker Card — read-only interpretation (08)
+ ↓
+Results Summary & Reproducibility (09)
+```
+
+Every stage's output (`multi_results$<stage>`) is summarized for ArthOChat by `build_mo_context()` in `R/submodules_registry.R`. See `R/multiomics/README.md` for the per-stage dependency table, including the documented (not consolidated) duplicate SNF code path between Integration and SNF Clustering.
+
+## Transcriptomics
+
+Not yet mapped in this document — pending reorganization (see `CODE_MAP.md`). The stage order is already authoritative in `R/submodules_registry.R`'s `TX_MODULES` list.

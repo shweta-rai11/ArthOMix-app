@@ -15,15 +15,15 @@ suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "methylomics", "04_Cell_Type_Deconvolution", "mod_methyl_celltype.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
-source_from_app_root(file.path("R", "multiomics", "snf_clustering_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "snf_clustering_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
 
 ## ---- mcc_layer_candidates() / mcc_default_layer() --------------------------
 

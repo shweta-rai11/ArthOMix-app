@@ -7,13 +7,13 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_mofa_engine.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_mofa.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_dataset.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "mod_multi_mofa_engine.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "mod_multi_mofa.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "mod_multi_dataset.R"))
 
 test_that("loading the preloaded reference dataset populates raw$mats with a real 2-layer (Transcriptomics + Methylomics) dataset and publishes multi_dataset$source/active", {
   skip_if_not(MULTI_DATA_AVAILABLE, "multi-omics preloaded data not available in this deployment")

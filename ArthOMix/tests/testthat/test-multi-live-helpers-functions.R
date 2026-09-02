@@ -12,8 +12,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
 
 ## ---- multi_live_read_matrix() ---------------------------------------------
 

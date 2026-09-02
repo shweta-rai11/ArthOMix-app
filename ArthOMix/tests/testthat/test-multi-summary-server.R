@@ -16,8 +16,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_summary.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "09_Results_Summary", "mod_multi_summary.R"))
 
 test_that("mod_multi_summary is now referenced in MULTI_MODULES (R/submodules_registry.R) - the Results Summary tab is reachable (fixed - was unreachable)", {
   ## Textual check only (not sourcing the registry file) - MULTI_MODULES'

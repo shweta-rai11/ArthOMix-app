@@ -153,7 +153,7 @@ tbc_reactome_pathways_for_gene <- function(symbol) {
 
 ## ---- WikiPathways: pathway membership via the same msigdbr-cached ------
 ## term<->gene table the Multi-Omics Pathways module already loads
-## (mp_get_wikipathways_termgene(), R/multiomics/multiomics_pathway_helpers.R) -
+## (mp_get_wikipathways_termgene(), R/multiomics/07_Pathways/multiomics_pathway_helpers.R) -
 ## no separate client, no separate license. Same "which pathways contain this
 ## gene" contract as tbc_kegg_pathways_for_gene / tbc_reactome_pathways_for_gene above.
 tbc_wikipathways_pathways_for_gene <- function(entrez) {

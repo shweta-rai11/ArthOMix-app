@@ -7,10 +7,10 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_dataset.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots.R"))
+source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "mod_multi_dataset.R"))
 
 ## ---- mo_status_badge() / mo_load_first_msg() --------------------------------
 

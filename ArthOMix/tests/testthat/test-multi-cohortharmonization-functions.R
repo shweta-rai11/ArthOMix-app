@@ -9,8 +9,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
 
 ## ---- ch_sample_master_table() ---------------------------------------------
 

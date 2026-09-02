@@ -688,7 +688,7 @@ bc_ensembl_regulatory_overlap <- function(chr, start, end = NULL) {
 
 ## ---- WikiPathways: pathway membership via the same msigdbr-cached term<->
 ## gene table the Multi-Omics Pathways module loads
-## (mp_get_wikipathways_termgene(), R/multiomics/multiomics_pathway_helpers.R).
+## (mp_get_wikipathways_termgene(), R/multiomics/07_Pathways/multiomics_pathway_helpers.R).
 ## Ported from the transcriptomics Biomarker Card.
 bc_wikipathways_pathways_for_gene <- function(entrez) {
   meta_base <- bc_meta("WikiPathways (msigdbr)", entrez %||% NA, "local msigdbr C2:CP:WIKIPATHWAYS cache (mp_get_wikipathways_termgene)", NA_character_)

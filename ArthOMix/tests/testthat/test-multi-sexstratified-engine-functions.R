@@ -14,8 +14,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_sexstratified_engine.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_sexstratified_engine.R"))
 
 ## ---- mss_cohort_for_stratum() ------------------------------------------------
 
