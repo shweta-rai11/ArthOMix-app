@@ -676,7 +676,9 @@ cx_load_default_deg <- function(sex = c("female", "male", "all")) {
   sex <- match.arg(sex)
   path <- file.path(CX_DEG_TABLE_DIR, sprintf("DEG_%s_full.csv", sex))
   if (!file.exists(path)) return(NULL)
-  as.data.frame(data.table::fread(path, showProgress = FALSE))
+  deg <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) e)
+  if (inherits(deg, "error")) return(NULL)
+  deg
 }
 
 ## Preloaded-methylation counterpart: reads global.R's own

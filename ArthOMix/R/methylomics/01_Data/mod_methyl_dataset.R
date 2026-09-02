@@ -180,7 +180,18 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
 
     finish_preloaded_load <- function(live) {
       pheno <- load_default_meth_pheno()
-      validate(need(!is.null(pheno), "Could not read the preloaded dataset's sample metadata."))
+      if (is.null(pheno)) {
+        ## finish_preloaded_load() is only ever called from observeEvent/observe
+        ## contexts (never from a render/output binding), where shiny::validate()
+        ## is silently swallowed instead of shown - so report this failure the
+        ## same way the Upload/GEO load handlers below do: showNotification().
+        output$preloaded_load_message <- renderUI(
+          span(style = "color: var(--color-danger); font-size: 13px;", icon("triangle-exclamation"),
+               " Could not load the preloaded dataset: its sample metadata is missing or unavailable in this deployment.")
+        )
+        showNotification("Could not load the preloaded dataset: its sample metadata is missing or unavailable in this deployment.", type = "error", duration = NULL)
+        return(invisible(NULL))
+      }
 
       methyl_dataset$beta <- if (!is.null(live)) live$beta else NULL
       methyl_dataset$input_scale <- "beta"
@@ -337,6 +348,22 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         if (!isTRUE(loaded$ok)) return(list(ok = FALSE, error = loaded$error))
         m <- loaded$value
         if (!is.matrix(m) || !is.numeric(m)) return(list(ok = FALSE, error = "The uploaded matrix RDS file must contain a numeric matrix."))
+        ## Unlike the CSV/TSV path (methyl_parse_matrix() always sets rownames from
+        ## the file's own first column), an RDS matrix can carry NULL or numeric
+        ## dimnames straight through - which would otherwise sail past
+        ## methyl_validate_matrix_upload()'s orientation heuristic (NaN/NA hit
+        ## rates fire neither its transpose nor its rejection branch) and get
+        ## stored with unidentifiable probe IDs. Reuses the same probe-ID pattern
+        ## and 0.5 hit-rate threshold methyl_detect_orientation() (parse_upload.R)
+        ## already uses, checking colnames too so a legitimately transposed
+        ## (samples x probes) RDS upload still passes through to that same
+        ## auto-transpose logic rather than being rejected here.
+        probe_pattern <- "^(cg|ch\\.|rs)[0-9]"
+        has_probe_rownames <- !is.null(rownames(m)) && mean(grepl(probe_pattern, rownames(m), ignore.case = TRUE)) > 0.5
+        has_probe_colnames <- !is.null(colnames(m)) && mean(grepl(probe_pattern, colnames(m), ignore.case = TRUE)) > 0.5
+        if (!has_probe_rownames && !has_probe_colnames) {
+          return(list(ok = FALSE, error = "The uploaded matrix RDS file has no row or column names that look like methylation probe IDs (e.g. \"cg00000029\") - an RDS matrix must have probe IDs as rownames (probes x samples) or colnames (samples x probes, auto-transposed on upload)."))
+        }
         storage.mode(m) <- "double"
         list(ok = TRUE, mat = m)
       } else {

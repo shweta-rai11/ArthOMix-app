@@ -458,6 +458,11 @@ mod_dataset_server <- function(id, dataset) {
           length(common) >= 4,
           "Fewer than 4 sample IDs in the expression matrix match the metadata sample-ID column. Check the column mapping."
         ))
+        dup_ids <- unique(meta$sample[duplicated(meta$sample) & meta$sample %in% common])
+        validate(need(
+          length(dup_ids) == 0,
+          sprintf("The metadata sample-ID column has duplicate value(s) matching expression-matrix columns: %s. Make sample IDs unique before loading.", paste(dup_ids, collapse = ", "))
+        ))
 
         expr <- expr[, common, drop = FALSE]
         meta <- meta[match(common, meta$sample), , drop = FALSE]
@@ -670,6 +675,11 @@ mod_dataset_server <- function(id, dataset) {
         validate(need(
           length(common) >= 4,
           "Fewer than 4 sample IDs matched between the fetched expression matrix and metadata."
+        ))
+        dup_ids <- unique(meta$sample[duplicated(meta$sample) & meta$sample %in% common])
+        validate(need(
+          length(dup_ids) == 0,
+          sprintf("The metadata sample-ID column has duplicate value(s) matching expression-matrix columns: %s. Make sample IDs unique before loading.", paste(dup_ids, collapse = ", "))
         ))
         expr <- expr[, common, drop = FALSE]
         meta <- meta[match(common, meta$sample), , drop = FALSE]

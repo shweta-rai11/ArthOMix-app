@@ -191,7 +191,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
         cross_dataset$user_meth_sample_cols <- if (!is.null(meth_data()$raw)) cx_detect_sample_columns(meth_data()$raw, meth_data()$mapping) else character(0)
       }
       showNotification("Ready for Expression and Methylation.", type = "message")
-    })
+    }, ignoreInit = TRUE)
 
     observeEvent(input$clear_btn, {
       expr_data(NULL); meth_data(NULL)
