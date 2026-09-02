@@ -115,5 +115,6 @@ Remotes:
     MRCIEU/ieugwasr,
     MRCIEU/TwoSampleMR,
     rondolab/MR-PRESSO,
-    ebecht/MCPcounter/Source
+    ebecht/MCPcounter/Source,
+    YuLab-SMU/ggtree@devel
 
