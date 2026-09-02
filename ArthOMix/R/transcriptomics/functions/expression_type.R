@@ -1,4 +1,4 @@
-## R/transcriptomics/expression_type.R
+## R/transcriptomics/functions/expression_type.R
 ## Shared expression-matrix scale/type heuristics and the declare-then-verify
 ## upload validator for the Transcriptomics module. Promoted out of
 ## mod_dge.R (which used to keep looks_like_raw_counts()/

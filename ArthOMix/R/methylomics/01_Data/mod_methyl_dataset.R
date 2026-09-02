@@ -1,7 +1,7 @@
 ## R/methylomics/01_Data/mod_methyl_dataset.R
 ## Methylomics Dataset tab: loads the shared `methyl_dataset` reactiveValues every
 ## Methylomics sub-module reads from. Mirrors the Transcriptomics Dataset tab's
-## layout/interaction pattern (R/transcriptomics/mod_dataset.R) exactly - preloaded
+## layout/interaction pattern (R/transcriptomics/01_Data/mod_dataset.R) exactly - preloaded
 ## card + GEO-fetch card on the left, upload card (Step 1/2/3) on the right - but
 ## every source and validation is methylation-specific: beta/M-value matrices,
 ## probe (CpG) IDs, Illumina array platforms, IDAT raw files.

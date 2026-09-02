@@ -1,4 +1,4 @@
-## R/mod_candidates.R
+## R/transcriptomics/06_Candidate_Gene_Identification/mod_candidates.R
 ## Candidate Gene Identification (Section 2.5): intersects a shared disease-associated
 ## WGCNA module background with a DEG list, and visualises/exports the Venn diagram and
 ## candidate table. Sex-stratified (separate female/male panels) when the loaded

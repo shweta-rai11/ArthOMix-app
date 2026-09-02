@@ -6,7 +6,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_wgcna.R"))
+source_from_app_root(file.path("R", "transcriptomics", "05_WGCNA", "mod_wgcna.R"))
 
 wgcna_fixture <- function(n_genes = 60, n_samples = 20, seed = 90) {
   set.seed(seed)

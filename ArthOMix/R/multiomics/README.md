@@ -45,9 +45,9 @@ Code backing the app's **Multiomics** tab. Distinct from **Cross-Omics** (`R/cro
 - **`multiomics_sexstratified_engine.R`** — shared sex-stratified nested-CV engine (`mss_*`). Used by `03_DIABLO_SNF_Integration/` and `05_Biomarker_Discovery/`.
 - **`multiomics_integration_helpers.R`** / **`multiomics_integration_plots.R`** — DIABLO/SNF implementation (`mi_diablo_*`, `mi_snf_*`). Primarily `03_DIABLO_SNF_Integration/`'s, but also called from `04_SNF_Clustering/` (see below) — placed in `functions/` rather than folder-scoped to Integration alone.
 
-## Known duplicate logic (not consolidated — see `REFACTORING_NOTES.md`)
+## SNF Clustering vs. DIABLO & SNF Integration — not duplicate logic
 
-`04_SNF_Clustering/mod_multi_stratification.R` calls **both** its own `sfc_snf_*` helpers (`snf_clustering_helpers.R`, same folder) **and** `mi_snf_*`/`mi_ari` from `functions/multiomics_integration_helpers.R`/`_plots.R` — two parallel SNF code paths feeding one UI. Left as-is; consolidating scientific logic is out of scope for this reorganization.
+`04_SNF_Clustering/mod_multi_stratification.R` calls both its own `sfc_snf_*` helpers (`snf_clustering_helpers.R`, same folder) and `mi_snf_*`/`mi_ari` from `functions/multiomics_integration_helpers.R`/`_plots.R`. This looks like two parallel SNF code paths but isn't one: `sfc_snf_run()` delegates directly to `mi_snf_run()` for every ≥2-block case; the only logic unique to `snf_clustering_helpers.R` is a single-omics (1-block) fallback that `mi_snf_run()` structurally cannot serve. See `REFACTORING_NOTES.md`.
 
 ## Naming note
 

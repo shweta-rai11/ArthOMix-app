@@ -1,4 +1,4 @@
-## R/mod_dataset.R
+## R/transcriptomics/01_Data/mod_dataset.R
 ## Dataset tab: pick a preloaded dataset, upload your own, or fetch from NCBI
 ## GEO - each of the three is an independent pipeline, and whichever one you
 ## load becomes dataset$expr/meta/source/source_type immediately (every

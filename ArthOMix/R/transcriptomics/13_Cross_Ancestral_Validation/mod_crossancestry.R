@@ -1,4 +1,4 @@
-## R/mod_crossancestry.R
+## R/transcriptomics/13_Cross_Ancestral_Validation/mod_crossancestry.R
 ## Submodule: Cross-Ancestry Validation (Section 2.12)
 ## "Your analysis" recomputes, on a per-sex Run click, which prioritised
 ## genes replicate in an independent European RA GWAS (Stahl et al. 2010)

@@ -13,7 +13,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_nomogram.R"))
+source_from_app_root(file.path("R", "transcriptomics", "16_Nomogram", "mod_nomogram.R"))
 
 nomogram_test_df <- function(seed, n = 50) {
   set.seed(seed)

@@ -28,11 +28,11 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
 source_from_app_root(file.path("R", "provenance.R"))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_dge.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_wgcna.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_candidates.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_featureselection.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "04_Differential_Expression", "mod_dge.R"))
+source_from_app_root(file.path("R", "transcriptomics", "05_WGCNA", "mod_wgcna.R"))
+source_from_app_root(file.path("R", "transcriptomics", "06_Candidate_Gene_Identification", "mod_candidates.R"))
+source_from_app_root(file.path("R", "transcriptomics", "09_Feature_Selection", "mod_featureselection.R"))
 
 test_that("a real dataset flows through DGE -> WGCNA -> Candidates -> Feature Selection via the shared dataset/results reactiveValues, with real computation at every stage", {
   skip_if_not_installed("WGCNA")

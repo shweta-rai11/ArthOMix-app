@@ -1,4 +1,4 @@
-## R/mod_mr.R
+## R/transcriptomics/07_Mendelian_Randomization/mod_mr.R
 ## Submodule: Mendelian Randomization
 ## A general-purpose two-sample MR tool. "Your analysis" runs a live MR test
 ## for any gene against a bundled RA dataset, or against your own uploaded

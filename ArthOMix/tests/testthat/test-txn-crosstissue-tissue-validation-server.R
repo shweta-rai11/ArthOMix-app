@@ -10,8 +10,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_diagnostic.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_crosstissue.R"))
+source_from_app_root(file.path("R", "transcriptomics", "10_Diagnostic_Model", "mod_diagnostic.R"))
+source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
 
 ## A small synthetic validation cohort (raw counts + metadata), written to
 ## disk so it can be fed through the module's real fileInput path via

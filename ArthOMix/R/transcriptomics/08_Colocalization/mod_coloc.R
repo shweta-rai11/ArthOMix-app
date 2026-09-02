@@ -1,4 +1,4 @@
-## R/mod_coloc.R
+## R/transcriptomics/08_Colocalization/mod_coloc.R
 ## Submodule: Colocalization (Section 2.7)
 ## Runs coloc.abf between the bundled eQTL cis-window instrument (33 genes) and
 ## either the bundled RA GWAS or an uploaded GWAS for any trait. Uploaded GWAS

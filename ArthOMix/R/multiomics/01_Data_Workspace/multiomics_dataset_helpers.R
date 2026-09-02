@@ -767,7 +767,7 @@ multi_dataset_compatibility <- function(validations, overlap = NULL, has_metadat
 ## ---------------------------------------------------------------------------
 ## 8. NCBI GEO retrieval - a multiomics-shaped wrapper around the same
 ## GEOquery::getGEO() call the Transcriptomics Dataset tab already uses
-## (R/mod_dataset.R); not a rewrite of GEO-fetch logic. A GEO Series is
+## (R/transcriptomics/01_Data/mod_dataset.R); not a rewrite of GEO-fetch logic. A GEO Series is
 ## fetched and inspected one accession at a time - a multiomics dataset is
 ## assembled by adding one fetched accession per dataset block, never by
 ## assuming a single accession bundles multiple omics layers (spec section 22).

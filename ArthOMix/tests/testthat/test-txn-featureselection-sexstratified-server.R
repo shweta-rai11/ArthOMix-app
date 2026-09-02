@@ -19,7 +19,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_featureselection.R"))
+source_from_app_root(file.path("R", "transcriptomics", "09_Feature_Selection", "mod_featureselection.R"))
 
 ## sex_n: either a single count (applied to both sexes) or a named
 ## c(F = , M = ) vector for asymmetric per-sex sample counts. Each sex gets

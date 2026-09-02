@@ -2,7 +2,7 @@
 ## Bayesian colocalisation (coloc.abf, optionally coloc.susie) between an
 ## mQTL/CpG signal and a GWAS trait signal in one region: shared causal
 ## variant (PP.H4) vs distinct LD-linked variants (PP.H3). Methylomics
-## counterpart to R/transcriptomics/mod_coloc.R (eQTL colocalisation).
+## counterpart to R/transcriptomics/08_Colocalization/mod_coloc.R (eQTL colocalisation).
 ##
 ## Two data routes: Preloaded reproduces script08's completed coloc.abf()
 ## run (08d_mr_coloc.R: GoDMC cis-mQTL vs Ishigaki et al. 2022 RA GWAS,
@@ -17,7 +17,7 @@
 ## inputs invalidates everything downstream.
 
 ## ---------------------------------------------------------------------------
-## Small local helpers (not shared with R/transcriptomics/mod_coloc.R)
+## Small local helpers (not shared with R/transcriptomics/08_Colocalization/mod_coloc.R)
 ## ---------------------------------------------------------------------------
 
 .mcol_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
@@ -843,7 +843,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
 
     ## ------------------------------------------------------------------
     ## Visualisation tab (client-side gated via conditionalPanel, same
-    ## idiom as R/transcriptomics/mod_coloc.R)
+    ## idiom as R/transcriptomics/08_Colocalization/mod_coloc.R)
     ## ------------------------------------------------------------------
     build_pp_bar_plot <- function(h0, h1, h2, h3, h4, title = NULL) {
       df <- data.frame(hypothesis = factor(c("H0", "H1", "H2", "H3", "H4"), levels = c("H0", "H1", "H2", "H3", "H4")),

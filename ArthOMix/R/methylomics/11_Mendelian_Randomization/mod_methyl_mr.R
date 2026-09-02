@@ -1,6 +1,6 @@
 ## R/methylomics/11_Mendelian_Randomization/mod_methyl_mr.R
 ## Two-sample MR for methylation exposures: cis/trans mQTL instruments for
-## a CpG -> GWAS outcome. Separate from R/transcriptomics/mod_mr.R (eQTL MR).
+## a CpG -> GWAS outcome. Separate from R/transcriptomics/07_Mendelian_Randomization/mod_mr.R (eQTL MR).
 ##
 ## Two data routes: Preloaded reproduces script08_mendelian_randomization's
 ## completed run (GoDMC cis-mQTL, already clumped/harmonised against the
@@ -15,7 +15,7 @@
 ## pattern, same as mod_methyl_dmp.R/mod_methyl_normalization.R).
 
 ## ---------------------------------------------------------------------------
-## Small local helpers (not shared with R/transcriptomics/mod_mr.R)
+## Small local helpers (not shared with R/transcriptomics/07_Mendelian_Randomization/mod_mr.R)
 ## ---------------------------------------------------------------------------
 
 .mmr_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)

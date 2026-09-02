@@ -2,7 +2,7 @@
 ## "Upload your own data"), using the chen2021 replication fixtures bundled
 ## at data/examples/transcriptomics_upload/merged/ (originally authored in
 ## replicate_chen2021/, which stays outside data/ as the fixtures' source -
-## see R/transcriptomics/mod_dataset.R for the actual upload/mapping/load
+## see R/transcriptomics/01_Data/mod_dataset.R for the actual upload/mapping/load
 ## logic under test here).
 
 skip_if_not_installed("shinytest2")

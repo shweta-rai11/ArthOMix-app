@@ -1,4 +1,4 @@
-## R/mod_dge.R - Differential Expression submodule.
+## R/transcriptomics/04_Differential_Expression/mod_dge.R - Differential Expression submodule.
 ## Fits a live limma or DESeq2 contrast between two levels of any metadata
 ## column, with an optional covariate/filter column; method must match the
 ## data's scale (raw counts vs normalised/log), enforced below.
@@ -385,7 +385,7 @@ mod_dge_server <- function(id, dataset, results) {
     })
 
     ## looks_like_raw_counts()/looks_like_normalized_totals() are now shared,
-    ## top-level functions in R/transcriptomics/expression_type.R (used by
+    ## top-level functions in R/transcriptomics/functions/expression_type.R (used by
     ## mod_dataset.R's/this module's own upload validators, and
     ## mod_deconvolution.R's run gate too) rather than local closures here.
 

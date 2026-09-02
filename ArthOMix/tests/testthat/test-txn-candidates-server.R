@@ -6,7 +6,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_candidates.R"))
+source_from_app_root(file.path("R", "transcriptomics", "06_Candidate_Gene_Identification", "mod_candidates.R"))
 
 ## Prime helper for the ignoreInit=TRUE bare-actionButton gotcha (see
 ## feedback_shiny_testserver_ignoreinit_actionbutton_priming memory) -

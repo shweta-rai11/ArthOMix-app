@@ -7,7 +7,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_coloc.R"))
+source_from_app_root(file.path("R", "transcriptomics", "08_Colocalization", "mod_coloc.R"))
 
 test_that("running colocalisation on a real bundled gene produces 5 posterior probabilities summing to ~1", {
   coloc_regions <- readRDS(COLOC_REGIONS_RDS)

@@ -125,7 +125,7 @@ test_that("methylomics live beta matrix loads with the expected shape", {
 })
 
 test_that("methylomics biomarker card's cytoband file loads", {
-  source(file.path(app_dir, "R", "methylomics", "mod_methyl_biomarkercard.R"), local = TRUE)
+  source(file.path(app_dir, "R", "methylomics", "15_Biomarker_Analysis", "mod_methyl_biomarkercard.R"), local = TRUE)
   cb <- bc_cytoband_hg19()
   expect_gt(nrow(cb), 0)
 })

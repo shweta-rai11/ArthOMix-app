@@ -1,4 +1,4 @@
-## R/mod_preprocessing_explore.R
+## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing_explore.R
 ## Data Exploration tab: standalone EDA/QC module (own raw-data upload, own
 ## namespace "eda") - independent of the shared `dataset` reactiveValues,
 ## never reads, writes, or transforms them.

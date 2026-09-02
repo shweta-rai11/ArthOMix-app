@@ -614,7 +614,7 @@ mod_methyl_fs_need_filters_note <- function() {
 
 ## Sex-stratification: female/male fit separately, pooled always available -
 ## mirrors transcriptomics' three-build parallel-panel pattern
-## (R/transcriptomics/mod_featureselection.R), adapted to this file's own
+## (R/transcriptomics/09_Feature_Selection/mod_featureselection.R), adapted to this file's own
 ## sex-detection helpers (mod_methyl_dmp_sex_col/_choices) and its existing
 ## one-Run-button-per-stage pipeline shape.
 FS_SEXES <- c("female", "male", "pooled")
@@ -864,7 +864,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
 
     ## Staleness: every sex's build goes stale when the source dataset changes,
     ## cleared the moment that sex's own button is clicked again - mirrors
-    ## transcriptomics' fs_stale (R/transcriptomics/mod_featureselection.R:868-871).
+    ## transcriptomics' fs_stale (R/transcriptomics/09_Feature_Selection/mod_featureselection.R:868-871).
     fs_stale <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
     observeEvent(dataset$beta, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE }, ignoreNULL = TRUE)
     observeEvent(input$fs_source, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE })
@@ -1000,7 +1000,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     ## The shared "does this sex currently have a live, non-stale Stage-1
     ## build?" accessor every downstream stage reads instead of a separate
     ## has_run flag - mirrors transcriptomics' fs_result_or_null()
-    ## (R/transcriptomics/mod_featureselection.R:884-899). Calling an
+    ## (R/transcriptomics/09_Feature_Selection/mod_featureselection.R:884-899). Calling an
     ## eventReactive before its button has ever fired just raises a cheap
     ## req()-style silent stop, caught here as a plain NULL.
     fs_filter_result_for <- function(sex_label) {
@@ -1045,7 +1045,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     ## ---------------------------------------------------------------------
     ## Shared technique-stage factory (Stages 2-6) - the technique-layer half
     ## of transcriptomics' build-layer/technique-layer split
-    ## (register_sex_technique_outputs(), R/transcriptomics/mod_featureselection.R:1170),
+    ## (register_sex_technique_outputs(), R/transcriptomics/09_Feature_Selection/mod_featureselection.R:1170),
     ## adapted to this file's existing one-Run-button-per-stage convention:
     ## clicking a stage's own Run button fits `fit_fn` against every sex Stage 1
     ## currently has a live build for, instead of tripling every stage's button.

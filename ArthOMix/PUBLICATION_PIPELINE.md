@@ -63,8 +63,34 @@ Biomarker Card — read-only interpretation (08)
 Results Summary & Reproducibility (09)
 ```
 
-Every stage's output (`multi_results$<stage>`) is summarized for ArthOChat by `build_mo_context()` in `R/submodules_registry.R`. See `R/multiomics/README.md` for the per-stage dependency table, including the documented (not consolidated) duplicate SNF code path between Integration and SNF Clustering.
+Every stage's output (`multi_results$<stage>`) is summarized for ArthOChat by `build_mo_context()` in `R/submodules_registry.R`. See `R/multiomics/README.md` for the per-stage dependency table, including how SNF Clustering delegates to Integration's own SNF fusion/clustering primitives.
 
 ## Transcriptomics
 
-Not yet mapped in this document — pending reorganization (see `CODE_MAP.md`). The stage order is already authoritative in `R/submodules_registry.R`'s `TX_MODULES` list.
+```
+Upload / GEO / preloaded (01_Data)
+ ↓
+Overview and Datasets (02)
+ ↓
+Preprocessing and Batch Correction (03)
+ ↓
+Differential Expression (04) → WGCNA (05) → Candidate Gene Identification (06)
+ ↓
+Mendelian Randomization (07) → Colocalization (08)
+ ↓
+Feature Selection (09) → Diagnostic Model (10) → Sex Interaction Analysis (11)
+ ↓
+Cross-Tissue Validation (12) → Cross-Ancestral Validation (13)
+ ↓
+Functional Enrichment (14) → Immune Deconvolution (15)
+ ↓
+Nomogram (16)
+ ↓
+Biomarker Card (17)
+```
+
+Every stage's output (`results$<stage>`) is summarized for ArthOChat by `build_tx_context()` in `R/submodules_registry.R`. See `R/transcriptomics/README.md` for the per-stage dependency table.
+
+---
+
+All four verticals (Transcriptomics, Methylomics, Cross-Omics, Multiomics) are now reorganized. See `CODE_MAP.md` for the complete file-level index and `REFACTORING_NOTES.md` for known issues intentionally left unfixed.

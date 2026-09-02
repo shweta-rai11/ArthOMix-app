@@ -1,4 +1,4 @@
-## R/mod_crosstissue.R
+## R/transcriptomics/12_Cross_Tissue_Validation/mod_crosstissue.R
 ## Submodule: Cross-Tissue Validation (Section 2.11)
 ## "Your analysis" evaluates a user-chosen gene panel in the independent RA
 ## synovium dataset (GSE89408, val_synovium.rds): sex-stratified discovery

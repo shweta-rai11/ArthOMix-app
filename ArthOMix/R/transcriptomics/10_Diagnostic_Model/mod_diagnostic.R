@@ -1,4 +1,4 @@
-## R/mod_diagnostic.R
+## R/transcriptomics/10_Diagnostic_Model/mod_diagnostic.R
 ## Diagnostic Model submodule: fits logistic regression, elastic net, random
 ## forest and SVM classifiers on a user-chosen gene panel, sex-stratified.
 ## Model Training splits each sex into Train/Test once and tunes on Train

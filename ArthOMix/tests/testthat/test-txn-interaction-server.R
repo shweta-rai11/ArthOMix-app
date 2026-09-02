@@ -8,7 +8,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_interaction.R"))
+source_from_app_root(file.path("R", "transcriptomics", "11_Sex_Interaction_Analysis", "mod_interaction.R"))
 
 interaction_fixture <- function(n_per_cell = 4, sex_col = TRUE, sexes = c("F", "M"), seed = 80) {
   set.seed(seed)

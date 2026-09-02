@@ -4,7 +4,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_overview.R"))
+source_from_app_root(file.path("R", "transcriptomics", "02_Overview", "mod_overview.R"))
 
 fixture_dataset <- function() {
   fm <- fx_expr_meta(n_genes = 200, n_samples = 20, seed = 50)

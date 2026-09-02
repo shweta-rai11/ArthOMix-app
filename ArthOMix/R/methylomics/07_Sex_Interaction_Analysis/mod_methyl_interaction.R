@@ -1,7 +1,7 @@
 ## R/methylomics/07_Sex_Interaction_Analysis/mod_methyl_interaction.R
 ## Methylomics sub-module: Sex Interaction Analysis - a genuine disease*sex
 ## interaction limma model, the methylomics port of
-## R/transcriptomics/mod_interaction.R (see that file's header comment for
+## R/transcriptomics/11_Sex_Interaction_Analysis/mod_interaction.R (see that file's header comment for
 ## why this is needed: a "sex-stratified" analysis that just re-runs a
 ## disease-only model separately per sex never actually tests whether the
 ## disease effect differs by sex - only a group*sex interaction term does).

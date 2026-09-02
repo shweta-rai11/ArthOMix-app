@@ -8,7 +8,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_diagnostic.R"))
+source_from_app_root(file.path("R", "transcriptomics", "10_Diagnostic_Model", "mod_diagnostic.R"))
 
 ## ---- diag_zrows() -----------------------------------------------------
 

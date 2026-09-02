@@ -8,7 +8,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_wgcna.R"))
+source_from_app_root(file.path("R", "transcriptomics", "05_WGCNA", "mod_wgcna.R"))
 
 test_that("a zero-variance gene is flagged and dropped before network construction", {
   set.seed(1)

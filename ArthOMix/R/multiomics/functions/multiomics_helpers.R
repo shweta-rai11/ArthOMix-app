@@ -305,7 +305,7 @@ MULTI_REPRODUCIBILITY_SCRIPTS <- c(
   "Pathway enrichment: analyses/07_cross_analysis_summary/scripts/16_*.R",
   "Cross-cell summary assembly: analyses/07_cross_analysis_summary/scripts/09_*.R, 12_*.R",
   "Independent audit (methodology, leakage findings/fixes, honest AUROC verdicts per cell): AUDIT.md",
-  "Live-computation code (this app, not the source pipeline): R/multiomics/multiomics_dataset_helpers.R, multiomics_integration_helpers.R, cohort_harmonization_helpers.R, multiomics_concordance_helpers.R, multiomics_sexstratified_engine.R"
+  "Live-computation code (this app, not the source pipeline): R/multiomics/01_Data_Workspace/multiomics_dataset_helpers.R, R/multiomics/functions/multiomics_integration_helpers.R, R/multiomics/02_Cohort_Harmonization/cohort_harmonization_helpers.R, R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_helpers.R, R/multiomics/functions/multiomics_sexstratified_engine.R"
 )
 
 ## Plain-text report for the "Download everything loaded so far" bundle -

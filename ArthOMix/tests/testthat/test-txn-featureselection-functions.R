@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_featureselection.R"))
+source_from_app_root(file.path("R", "transcriptomics", "09_Feature_Selection", "mod_featureselection.R"))
 
 ## ---- fs_class_weight_levels() / fs_obs_weights() --------------------------
 

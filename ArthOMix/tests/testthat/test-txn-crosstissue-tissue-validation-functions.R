@@ -5,7 +5,7 @@
 ## field/classify_tissue_from_metadata/classify_tissue_string, ct_classify_
 ## training_tissue, and validate_cross_tissue's accept/reject rules.
 
-source_from_app_root(file.path("R", "transcriptomics", "mod_crosstissue.R"))
+source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
 
 ## ---- tissue_normalize() -----------------------------------------------------
 

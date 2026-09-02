@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_crosstissue.R"))
+source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
 
 ## ---- ct_biomarker_flag() ---------------------------------------------------
 

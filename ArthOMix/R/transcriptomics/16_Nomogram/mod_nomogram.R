@@ -1,4 +1,4 @@
-## R/mod_nomogram.R
+## R/transcriptomics/16_Nomogram/mod_nomogram.R
 ## Clinical Utility Nomogram (Section 2.15): fits a per-sex rms::lrm logistic
 ## model on a chosen gene panel (unstandardised log2 expression, sex as
 ## partition not predictor) and evaluates it via nomogram, calibration

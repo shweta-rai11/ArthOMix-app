@@ -1,4 +1,4 @@
-## R/mod_deconvolution.R
+## R/transcriptomics/15_Immune_Deconvolution/mod_deconvolution.R
 ## Immune Deconvolution: CIBERSORT (LM22 via IOBR) as the primary fraction
 ## estimator, MCP-counter as an independent corroborating check, then a
 ## group-composition test (Wilcoxon/Kruskal-Wallis, BH FDR).
@@ -72,7 +72,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
 
     ## Linear-scale-expression detection (non-negative, 99th percentile > 100)
     ## now shared with mod_dge.R/mod_dataset.R via the top-level
-    ## looks_like_raw_counts() in R/transcriptomics/expression_type.R - this
+    ## looks_like_raw_counts() in R/transcriptomics/functions/expression_type.R - this
     ## module used to keep an independent near-copy of that exact logic under
     ## the name is_linear_counts().
 

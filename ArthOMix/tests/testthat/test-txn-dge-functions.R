@@ -4,8 +4,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_dge.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "04_Differential_Expression", "mod_dge.R"))
 
 test_that("dge_clean_expr_matrix() collapses duplicate feature IDs to their mean expression", {
   m <- matrix(c(1, 3, 5, 7), nrow = 2, byrow = TRUE, dimnames = list(c("G1", "G1"), c("S1", "S2")))

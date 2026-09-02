@@ -11,10 +11,10 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_preprocessing_explore.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_preprocessing.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R"))
+source_from_app_root(file.path("R", "transcriptomics", "03_Preprocessing_Batch_Correction", "mod_preprocessing_explore.R"))
+source_from_app_root(file.path("R", "transcriptomics", "03_Preprocessing_Batch_Correction", "mod_preprocessing.R"))
 
 pp_write_fixture <- function(dir, seed, offset, sample_prefix) {
   set.seed(seed)

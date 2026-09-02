@@ -1,4 +1,4 @@
-## R/mod_preprocessing.R - Preprocessing and Batch Correction (Section 2.2).
+## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing.R - Preprocessing and Batch Correction (Section 2.2).
 ## Runs live on whatever data is loaded: per-dataset cleanup -> merge on
 ## shared genes/probes -> normalise + batch-correct (ComBat,
 ## limma::removeBatchEffect, or ComBat-seq), across three tabs

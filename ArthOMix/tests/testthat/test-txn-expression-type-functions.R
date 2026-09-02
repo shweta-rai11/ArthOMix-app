@@ -1,5 +1,5 @@
 ## Module 1 (Transcriptomics) - shared expression-matrix scale/type helpers
-## (R/transcriptomics/expression_type.R): looks_like_raw_counts()/
+## (R/transcriptomics/functions/expression_type.R): looks_like_raw_counts()/
 ## looks_like_normalized_totals() (promoted out of mod_dge.R, and de-
 ## duplicated out of mod_deconvolution.R's own is_linear_counts()), and the
 ## declare-then-verify upload validator tx_validate_expr_upload(), mirroring
@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
 
 ## ---- looks_like_raw_counts() / looks_like_normalized_totals() -------------
 

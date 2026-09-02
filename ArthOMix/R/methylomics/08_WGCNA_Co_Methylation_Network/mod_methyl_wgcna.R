@@ -1,7 +1,7 @@
 ## R/methylomics/08_WGCNA_Co_Methylation_Network/mod_methyl_wgcna.R
 ## WGCNA (Co-Methylation Network) submodule. CpGs are network nodes, samples
 ## are observations. mx_wgcna_* helpers here are independent of
-## R/transcriptomics/mod_wgcna.R's wgcna_* helpers (gene-expression WGCNA).
+## R/transcriptomics/05_WGCNA/mod_wgcna.R's wgcna_* helpers (gene-expression WGCNA).
 ##
 ## Pipeline: Data & Filtering -> Sample QC -> Soft Threshold -> Network &
 ## Modules -> Module-Trait -> Hub CpGs -> Results & Export. Same live

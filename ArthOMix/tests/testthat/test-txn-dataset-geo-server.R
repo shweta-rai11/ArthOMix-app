@@ -12,7 +12,7 @@
 ## disallows. Per the brief's two-tier GEO testing requirement, the offline
 ## tier below instead mocks GEOquery::getGEO() itself at the package
 ## boundary (testthat::local_mocked_bindings(), restored automatically at
-## the end of each test - never touches R/transcriptomics/mod_dataset.R) so
+## the end of each test - never touches R/transcriptomics/01_Data/mod_dataset.R) so
 ## every line of ArthOMix's OWN post-fetch logic (platform-picker,
 ## probe-to-gene collapsing, guess_col()'s exact/contains/fallback tiers,
 ## sample-overlap validation, dataset activation) still runs for real
@@ -23,8 +23,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R"))
 
 geo_fixture_eset <- readRDS(normalizePath(
   file.path(app_dir, "tests", "fixtures", "transcriptomics", "geo_offline", "GSE_FIXTURE_eset.rds"),

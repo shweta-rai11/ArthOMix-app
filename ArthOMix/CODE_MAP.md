@@ -4,11 +4,13 @@ Maps every analysis in the app to its code location, UI entry point, and depende
 
 ```
 ArthOMix
-├── Transcriptomics   (R/transcriptomics/)      — not yet reorganized, see below
+├── Transcriptomics   (R/transcriptomics/)      — reorganized
 ├── Methylomics       (R/methylomics/)          — reorganized
 ├── Cross-Omics       (R/crossomics/)           — reorganized
 └── Multiomics        (R/multiomics/)           — reorganized
 ```
+
+All four verticals have been reorganized into numbered per-analysis-stage folders. `R/shared/` holds cross-vertical modules (currently ArthOChat). See each vertical's own `README.md` for its full narrative.
 
 ## Shared app infrastructure (not part of any one vertical)
 
@@ -81,4 +83,25 @@ See `R/multiomics/README.md` for the full narrative and dependency table. Summar
 
 ## Transcriptomics
 
-Not yet reorganized into numbered stage folders — still a flat directory (`R/transcriptomics/`), with a `TX_MODULES` registry in `R/submodules_registry.R` giving the authoritative stage list, titles, and order. Each stage's file can be found by grepping `R/submodules_registry.R` for the stage's `config` object name (e.g. `mod_dge_config`) and locating the matching `mod_*.R` file in `R/transcriptomics/`.
+See `R/transcriptomics/README.md` for the full narrative and dependency table. Summary:
+
+| Folder | Stage (`TX_MODULES` id) | Main file |
+|---|---|---|
+| `R/transcriptomics/01_Data/` | Dataset tab (not a `TX_MODULES` entry) | `mod_dataset.R` |
+| `R/transcriptomics/02_Overview/` | `overview` | `mod_overview.R` |
+| `R/transcriptomics/03_Preprocessing_Batch_Correction/` | `preprocessing` | `mod_preprocessing.R` |
+| `R/transcriptomics/04_Differential_Expression/` | `dge` | `mod_dge.R` |
+| `R/transcriptomics/05_WGCNA/` | `wgcna` | `mod_wgcna.R` |
+| `R/transcriptomics/06_Candidate_Gene_Identification/` | `candidates` | `mod_candidates.R` |
+| `R/transcriptomics/07_Mendelian_Randomization/` | `mr` | `mod_mr.R` |
+| `R/transcriptomics/08_Colocalization/` | `coloc` | `mod_coloc.R` |
+| `R/transcriptomics/09_Feature_Selection/` | `featureselection` | `mod_featureselection.R` |
+| `R/transcriptomics/10_Diagnostic_Model/` | `diagnostic` | `mod_diagnostic.R` |
+| `R/transcriptomics/11_Sex_Interaction_Analysis/` | `interaction` | `mod_interaction.R` |
+| `R/transcriptomics/12_Cross_Tissue_Validation/` | `crosstissue` | `mod_crosstissue.R` |
+| `R/transcriptomics/13_Cross_Ancestral_Validation/` | `crossancestry` | `mod_crossancestry.R` |
+| `R/transcriptomics/14_Functional_Enrichment/` | `enrichment` | `mod_enrichment.R` |
+| `R/transcriptomics/15_Immune_Deconvolution/` | `deconvolution` | `mod_deconvolution.R` |
+| `R/transcriptomics/16_Nomogram/` | `nomogram` | `mod_nomogram.R` |
+| `R/transcriptomics/17_Biomarker_Card/` | `biomarkercard` | `mod_biomarkercard.R` |
+| `R/transcriptomics/functions/` | shared (`expression_type.R`) | — |

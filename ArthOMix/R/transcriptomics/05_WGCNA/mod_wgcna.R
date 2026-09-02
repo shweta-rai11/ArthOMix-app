@@ -1,4 +1,4 @@
-## R/mod_wgcna.R
+## R/transcriptomics/05_WGCNA/mod_wgcna.R
 ## WGCNA co-expression network submodule (Section 2.4): a 6-step wizard
 ## (Filter & QC, Soft Power, Modules, Module-Trait, Hub Genes, Enrichment)
 ## following the standard WGCNA workflow (Langfelder & Horvath 2008;

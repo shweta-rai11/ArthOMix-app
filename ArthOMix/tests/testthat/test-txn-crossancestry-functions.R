@@ -6,7 +6,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_crossancestry.R"))
+source_from_app_root(file.path("R", "transcriptomics", "13_Cross_Ancestral_Validation", "mod_crossancestry.R"))
 
 ca_fixture <- function() {
   data.frame(

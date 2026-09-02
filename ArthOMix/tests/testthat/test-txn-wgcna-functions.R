@@ -3,7 +3,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "mod_wgcna.R"))
+source_from_app_root(file.path("R", "transcriptomics", "05_WGCNA", "mod_wgcna.R"))
 
 test_that("wgcna_encode_trait() passes numeric traits through unchanged", {
   meta <- data.frame(age = c(30, 45, 50, 22))
