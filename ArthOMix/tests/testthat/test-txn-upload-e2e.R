@@ -39,13 +39,16 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
   ## STEP 2: column mapping renders and auto-guesses "sample"/"group" from
   ## the fixture's own column names - just confirm the guess landed right
   ## rather than re-picking it, since that guessing logic isn't what this
-  ## test is exercising.
-  mapping <- app$get_values(input = c("tx_dataset-map_id", "tx_dataset-map_group"))$input
-  expect_equal(mapping[["tx_dataset-map_id"]], "sample")
-  expect_equal(mapping[["tx_dataset-map_group"]], "group")
+  ## test is exercising. wait_for_idle() alone can return before this
+  ## renderUI's selectInputs actually exist client-side (confirmed live -
+  ## see helper-setup.R's wait_for_input_value() comment), so poll instead.
+  map_id <- wait_for_input_value(app, "tx_dataset-map_id", timeout = 30)
+  map_group <- wait_for_input_value(app, "tx_dataset-map_group", timeout = 30)
+  expect_equal(map_id, "sample")
+  expect_equal(map_group, "group")
 
   ## STEP 3: confirm.
-  app$click("tx_dataset-load_btn")
+  retry_click(app, "tx_dataset-load_btn", timeout = 30)
   app$wait_for_idle(timeout = 30 * 1000)
 
   html <- app$get_html("body")
@@ -54,14 +57,26 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
   ## samples..." on success (this pipeline is now immediately the active
   ## dataset app-wide, not just a preview - see its own comment), or "Could
   ## not load this dataset: ..." on failure.
-  load_message <- app$get_html("#tx_dataset-load_message")
+  load_message <- wait_for_html_containing(app, "#tx_dataset-load_message", "Loaded", timeout = 30)
   expect_true(grepl("Loaded", load_message, fixed = TRUE))
   expect_false(grepl("Could not load", load_message, fixed = TRUE))
 
   ## Isolation: the active dataset (and its provenance) switched immediately -
   ## no detour through Preprocessing needed. Every downstream sub-module reads
-  ## this same shared reactiveValues object, so checking it here is equivalent
-  ## to checking any of them.
-  header_html <- app$get_html("body")
-  expect_true(grepl("Your own data", header_html, fixed = TRUE))
+  ## this same shared reactiveValues object - confirmed live via the Overview
+  ## submodule's "Metadata" tab, which renders dataset$source verbatim as
+  ## "Source: Uploaded dataset: <expr file> + <meta file>" (mod_overview.R's
+  ## understand_ui, fed by mod_dataset.R's own source_label - "Your own data"
+  ## checked here previously is never rendered anywhere in the app; only the
+  ## Dataset tab's static upload-panel *title* is "Upload your own data",
+  ## which is present regardless of whether a load ever succeeds, so it
+  ## can't actually prove the isolation this test is meant to check).
+  app$set_inputs(tx_menu = "Sub-modules")
+  app$wait_for_idle(timeout = 20 * 1000)
+  app$click("sm_toggle_overview")
+  app$wait_for_idle(timeout = 30 * 1000)
+  app$set_inputs(`tx_overview-tabs` = "Metadata")
+  app$wait_for_idle(timeout = 20 * 1000)
+  provenance_html <- wait_for_html_containing(app, "#tx_overview-understand_ui", "Uploaded dataset:", timeout = 30)
+  expect_true(grepl("Uploaded dataset:", provenance_html, fixed = TRUE))
 })

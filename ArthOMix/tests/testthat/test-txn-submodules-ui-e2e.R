@@ -63,7 +63,10 @@ test_that("Dataset -> DGE data flow: loading the default preloaded dataset popul
   app$set_inputs(`tx_dataset-preloaded_choice` = "__default_merged__")
   app$click("tx_dataset-load_preloaded_btn")
   app$wait_for_idle(timeout = 30 * 1000)
-  load_msg <- app$get_html("#tx_dataset-preloaded_load_message")
+  ## wait_for_idle() alone can return before this renderUI actually reaches
+  ## the DOM under load (confirmed live - see helper-setup.R's
+  ## wait_for_html_containing() comment) - poll for the real content.
+  load_msg <- wait_for_html_containing(app, "#tx_dataset-preloaded_load_message", "Loaded", timeout = 30)
   expect_true(grepl("Loaded", load_msg, fixed = TRUE))
 
   ## Open Differential Expression and confirm its contrast-column picker
@@ -75,6 +78,6 @@ test_that("Dataset -> DGE data flow: loading the default preloaded dataset popul
 
   html <- app$get_html("body")
   expect_false(grepl("shiny-output-error", html, fixed = TRUE))
-  contrast_col <- app$get_values(input = "tx_dge-contrast_col")$input[["tx_dge-contrast_col"]]
+  contrast_col <- wait_for_input_value(app, "tx_dge-contrast_col", timeout = 30)
   expect_true(!is.null(contrast_col) && nzchar(contrast_col))
 })

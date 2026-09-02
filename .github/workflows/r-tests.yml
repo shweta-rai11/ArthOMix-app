@@ -66,7 +66,8 @@ jobs:
             libjpeg-dev \
             libblas-dev \
             liblapack-dev \
-            gfortran
+            gfortran \
+            libmagick++-dev
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2

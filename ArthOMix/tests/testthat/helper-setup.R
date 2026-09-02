@@ -89,3 +89,41 @@ login_test_user <- function(app) {
   app$click("auth-login_btn")
   app$wait_for_idle(timeout = 20 * 1000)
 }
+
+## app$wait_for_idle() reports idle as soon as Shiny's own busy/idle websocket
+## signal clears - confirmed live (see project memory) to fire well before a
+## renderUI/output actually finishes computing and reaches the DOM under
+## real load (e.g. right after a resource-heavy prior test): observed up to
+## ~6s of gap between wait_for_idle() returning and the real HTML landing.
+## These three helpers poll the actual DOM/input state instead of trusting
+## wait_for_idle() alone, so E2E assertions check what's really there rather
+## than racing a render.
+wait_for_html_containing <- function(app, selector, pattern, timeout = 30, interval = 0.5) {
+  deadline <- Sys.time() + timeout
+  repeat {
+    html <- app$get_html(selector)
+    if (grepl(pattern, html, fixed = TRUE)) return(html)
+    if (Sys.time() >= deadline) return(html)
+    Sys.sleep(interval)
+  }
+}
+
+wait_for_input_value <- function(app, id, timeout = 30, interval = 0.5) {
+  deadline <- Sys.time() + timeout
+  repeat {
+    val <- app$get_values(input = id)$input[[id]]
+    if (!is.null(val) && nzchar(val)) return(val)
+    if (Sys.time() >= deadline) return(val)
+    Sys.sleep(interval)
+  }
+}
+
+retry_click <- function(app, id, timeout = 30, interval = 0.5) {
+  deadline <- Sys.time() + timeout
+  repeat {
+    result <- tryCatch({ app$click(id); TRUE }, error = function(e) e)
+    if (isTRUE(result)) return(invisible(TRUE))
+    if (Sys.time() >= deadline) stop(result)
+    Sys.sleep(interval)
+  }
+}

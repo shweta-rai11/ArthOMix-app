@@ -69,7 +69,13 @@ test_that("Dataset -> Expression and Methylation Integration data flow: loading 
   app$wait_for_idle(timeout = 20 * 1000)
   app$click("cx_sm_toggle_integration")
   app$wait_for_idle(timeout = 20 * 1000)
-  app$click("cx_integration-run_integration")
+  ## The Integration card's UI (including this button) is inserted via
+  ## insertTab() - wait_for_idle() alone can return before the client
+  ## actually finishes binding it (confirmed live for the equivalent DGE
+  ## contrast-column case - see helper-setup.R's retry_click() comment),
+  ## so app$click() can hit "Cannot find HTML element ... shiny-bound-input"
+  ## on the very next line. Retry instead of a single click attempt.
+  retry_click(app, "cx_integration-run_integration", timeout = 30)
   app$wait_for_idle(timeout = 60 * 1000)
 
   html <- app$get_html("body")

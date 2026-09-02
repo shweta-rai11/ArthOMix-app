@@ -164,7 +164,12 @@ test_that("multi_live_detect_omics_type() identifies methylation from Illumina C
 })
 
 test_that("multi_live_detect_omics_type() flags a mismatch (not corroborated) when methylation-looking IDs carry non-beta-scale values", {
-  mat <- matrix(rnorm(30, 5, 2), 5, 6, dimnames = list(paste0("S", 1:5), paste0("cg", 10000000 + 1:6)))
+  ## mean 50 / sd 3 keeps every value far above 0 (>1.001, so never "beta")
+  ## and never negative (so never "M-value" either) with no realistic
+  ## chance of flakiness - unlike rnorm(30, 5, 2), which is only ~2.5 SD
+  ## from 0 and occasionally dips negative, accidentally classifying as a
+  ## valid M-value and making this test pass for the wrong reason.
+  mat <- matrix(rnorm(30, 50, 3), 5, 6, dimnames = list(paste0("S", 1:5), paste0("cg", 10000000 + 1:6)))
   out <- multi_live_detect_omics_type(mat)
   expect_equal(out$detected, "methylation")
   expect_false(out$corroborated)
