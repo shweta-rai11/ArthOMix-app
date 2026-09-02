@@ -76,7 +76,7 @@ CX_MODULES_BY_ID <- setNames(CX_MODULES, vapply(CX_MODULES, function(m) m$config
 ## Research_05_multiomics_sexstratified's own pipeline stages: cohort/sample
 ## harmonization first, then DIABLO+SNF integration, patient stratification,
 ## biomarker discovery, gene<->CpG concordance, and pathway enrichment.
-## The MOFA2 module (mod_multi_live_ui/_server - internal names unchanged)
+## The MOFA2 module (mod_multi_mofa.R / mod_multi_mofa_engine.R)
 ## is no longer a standalone sub-module here; it's mounted directly inside
 ## the Dataset Workspace tab (mod_multi_dataset.R) as "Integrated Analysis
 ## (MOFA2)", since it operates on the same Active Multi-Omics Dataset that

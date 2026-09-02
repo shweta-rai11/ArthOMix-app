@@ -14,7 +14,7 @@
 ## own cohorts.
 ##
 ## Kept deliberately separate from mi_diablo_run()
-## (multiomics_integration_live_helpers.R) and mb_cv_roc()
+## (multiomics_integration_helpers.R) and mb_cv_roc()
 ## (multiomics_biomarker_helpers.R) - those are the app's existing freeform
 ## DIABLO engines (single outcome, no covariate adjustment, mixOmics's own
 ## tune.block.splsda()/perf() machinery) and are untouched by this file.

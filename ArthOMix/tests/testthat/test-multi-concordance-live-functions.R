@@ -1,5 +1,5 @@
 ## Module 3 (Multiomics) - Gene-CpG Concordance's own pure functions
-## (multiomics_concordance_live_helpers.R): layer-role guessing, the data
+## (multiomics_concordance_helpers.R): layer-role guessing, the data
 ## status panel, sample matching (thin wrapper), the candidate-biomarker
 ## pool (DIABLO/SNF/Joint/custom unification + source filter), real
 ## annotation-backed gene<->CpG mapping, direction classification (real
@@ -17,13 +17,13 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_integration_live_helpers.R"))
 source_from_app_root(file.path("R", "methylomics", "celltype.R"))
 source_from_app_root(file.path("R", "methylomics", "qc.R"))
 source_from_app_root(file.path("R", "multiomics", "snf_clustering_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
 
 ## ---- mcc_layer_candidates() / mcc_default_layer() --------------------------
 

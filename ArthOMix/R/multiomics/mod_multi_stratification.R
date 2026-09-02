@@ -316,7 +316,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       cluster_mode = if (isTRUE(input$cluster_auto)) "automatic" else "manual", n_clusters = input$n_clusters,
       cluster_method = input$cluster_method %||% "spectral",
       ## Threaded into set.seed() inside sfc_snf_run()/mi_snf_run()
-      ## (snf_clustering_helpers.R / multiomics_integration_live_helpers.R),
+      ## (snf_clustering_helpers.R / multiomics_integration_helpers.R),
       ## right before their kmeans-based SNFtool::spectralClustering()/
       ## cluster::pam() calls.
       seed = input$seed %||% 1

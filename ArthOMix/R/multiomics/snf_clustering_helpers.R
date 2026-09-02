@@ -6,7 +6,7 @@
 ## This file deliberately does NOT reimplement SNF itself: the affinity
 ## construction / fusion / spectral clustering / eigengap estimation /
 ## network concordance / post-hoc outcome evaluation / ARI primitives
-## already exist, tested, in multiomics_integration_live_helpers.R (the
+## already exist, tested, in multiomics_integration_helpers.R (the
 ## Multi-omics Integration submodule's own live DIABLO/SNF engine) as
 ## mi_snf_affinity()/mi_snf_run()/mi_snf_concordance()/mi_snf_posthoc_outcome()/
 ## mi_ari()/mi_snf_feasible_k_range()/MI_SNF_ALPHA_RANGE, and are called here
@@ -135,7 +135,7 @@ sfc_eligibility <- function(validation) {
 ## when a layer's own declared omics_type is known (Active Multi-Omics
 ## Dataset layers carry this in layer_meta from the Dataset Workspace's
 ## upload flow), the existing, richer MULTI_LIVE_NORM_CHOICES/
-## multi_live_normalize() (multiomics_live_helpers.R) is used as-is. Only
+## multi_live_normalize() (multiomics_dataset_helpers.R) is used as-is. Only
 ## when omics_type is unknown (e.g. a preloaded DIABLO-panel block) is a
 ## value-shape heuristic used instead, and only to offer transforms that
 ## cannot be invalid for the shape actually observed - never a fixed list
@@ -173,7 +173,7 @@ sfc_transform_choices <- function(mat, omics_type = NULL) {
 }
 
 ## Chains the existing missing-value / normalization / feature-filtering
-## primitives (multiomics_live_helpers.R) in a fixed, explicit order: resolve
+## primitives (multiomics_dataset_helpers.R) in a fixed, explicit order: resolve
 ## missingness first (SNF hard-requires complete data), then transform, then
 ## filter. Never silently replaces missing values - `missing_method = "none"`
 ## with any remaining NAs is a hard stop, reported plainly (spec section 26).

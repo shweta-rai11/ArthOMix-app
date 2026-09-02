@@ -1,5 +1,5 @@
 ## Module 3 (Multiomics) - the "Live Analysis (Upload & MOFA2)" engine's
-## core pure functions (multiomics_live_helpers.R): upload parsing (wide +
+## core pure functions (multiomics_dataset_helpers.R): upload parsing (wide +
 ## long/tidy pivot), orientation/omics-type detection, matrix validation,
 ## sample overlap/missingness, explicit (never-automatic) missing-data
 ## handling/normalization/filtering/scaling, PCA/confounding/batch-
@@ -12,8 +12,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_live_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
 
 ## ---- multi_live_read_matrix() ---------------------------------------------
 

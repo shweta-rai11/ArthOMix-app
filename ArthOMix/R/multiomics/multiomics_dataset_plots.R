@@ -1,9 +1,9 @@
-## R/multiomics/multiomics_live_plots.R
+## R/multiomics/multiomics_dataset_plots.R
 ## Plotting helpers for the "Live Analysis (Upload & MOFA2)" sub-module -
 ## same theme_arthomix()/ARTHOMIX_COLORS convention and multi_plot_or_empty()
 ## empty-state wrapper as the rest of the Multi-Omics module (see
 ## multiomics_plots.R). Every plot here is drawn from a real, live
-## calculation (multiomics_live_helpers.R) over data the user uploaded -
+## calculation (multiomics_dataset_helpers.R) over data the user uploaded -
 ## never a fake/placeholder value.
 
 ## ---------------------------------------------------------------------------

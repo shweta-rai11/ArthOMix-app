@@ -9,7 +9,7 @@
 ## available", never guessed.
 ##
 ## Reuses multi_live_validate_matrix()/multi_live_pca()/
-## multi_live_correlation_heatmap_data() etc. (multiomics_live_helpers.R)
+## multi_live_correlation_heatmap_data() etc. (multiomics_dataset_helpers.R)
 ## wherever they already answer the question - nothing here duplicates
 ## that logic.
 
@@ -156,7 +156,7 @@ ch_pairwise_overlap_matrix <- function(sample_id_lists) {
 ## whitespace, fold case. This is the ONLY place that definition lives; both
 ## the harmonization report below AND the real join that actually merges
 ## omics layers (mo_apply_matching()/multi_live_sample_overlap(), mod_multi_
-## dataset.R / multiomics_live_helpers.R) call this same function, so a
+## dataset.R / multiomics_dataset_helpers.R) call this same function, so a
 ## report of "matched" can never disagree with what the real join did.
 ch_normalize_id <- function(x) trimws(tolower(as.character(x)))
 

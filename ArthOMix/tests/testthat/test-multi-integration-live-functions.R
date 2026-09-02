@@ -1,5 +1,5 @@
 ## Module 3 (Multiomics) - the live DIABLO/SNF/Compare engine
-## (multiomics_integration_live_helpers.R, mounted in mod_multi_integration.R):
+## (multiomics_integration_helpers.R, mounted in mod_multi_integration.R):
 ## dataset validation/outcome summary, every DIABLO/SNF data-dependent
 ## feasibility guardrail (never a fixed grid/fold-count/K regardless of
 ## dataset size), plus REAL end-to-end mixOmics::block.splsda()/perf() and
@@ -12,10 +12,10 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_integration_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
 
 ## ---- mi_validate_dataset() / mi_outcome_summary() --------------------------
 

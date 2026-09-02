@@ -1,8 +1,8 @@
-## R/multiomics/multiomics_integration_live_helpers.R
+## R/multiomics/multiomics_integration_helpers.R
 ## Pure data-processing logic for the live DIABLO/SNF/Compare engine mounted
 ## in mod_multi_integration.R - the Multi-Omics module's own "run a real
 ## multiblock integration on whatever data is actually loaded" analysis,
-## parallel in spirit to multiomics_live_helpers.R's MOFA2 engine but for
+## parallel in spirit to multiomics_dataset_helpers.R's MOFA2 engine but for
 ## mixOmics::block.splsda (supervised) and SNFtool::SNF (unsupervised).
 ##
 ## Every loader/runner is fail-soft (list(ok, ..., error)), every parameter
@@ -60,7 +60,7 @@ mi_preloaded_cell_dataset <- function(cell_key) {
 ## reads from this one structure, whether `layers` came from the preloaded
 ## adapter above or from the Dataset Workspace's own multi_dataset$layers
 ## (already N-omics-generic). Sample matching is ALWAYS by rowname
-## intersection (multi_live_sample_overlap(), multiomics_live_helpers.R) -
+## intersection (multi_live_sample_overlap(), multiomics_dataset_helpers.R) -
 ## never by row position.
 ## ---------------------------------------------------------------------------
 
@@ -617,7 +617,7 @@ mi_ari <- function(a, b) {
 ## Correlation data between two blocks' own DIABLO-selected features (spec
 ## section 16's "Correlation/network plot: relationships between selected
 ## variables across blocks") - reuses multi_live_correlation_heatmap_data()/
-## _plot() (multiomics_live_helpers.R/_plots.R) restricted to just the
+## _plot() (multiomics_dataset_helpers.R/_plots.R) restricted to just the
 ## selected-feature columns, rather than a new correlation routine.
 mi_diablo_selected_correlation_data <- function(layers, sel_df, block_a, block_b, sample_ids, method = "pearson") {
   feats_a <- unique(sel_df$feature[sel_df$block == block_a])

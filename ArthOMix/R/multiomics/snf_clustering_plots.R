@@ -2,7 +2,7 @@
 ## Plot functions for the live "SNF Clustering" submodule
 ## (snf_clustering_helpers.R / mod_multi_stratification.R). Reuses
 ## mi_snf_fused_heatmap()/mi_snf_cluster_estimate_plot()
-## (multiomics_integration_live_plots.R) directly wherever the data shape
+## (multiomics_integration_plots.R) directly wherever the data shape
 ## already matches - the fused-affinity heatmap and the eigengap/candidate-k
 ## diagnostic are identical needs to the Integration module's own SNF tab.
 ## Only genuinely new chart types (a real feature-value heatmap, a spectral

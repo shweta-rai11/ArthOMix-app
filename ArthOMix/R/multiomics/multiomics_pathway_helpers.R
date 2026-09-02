@@ -3,10 +3,10 @@
 ## live GO/KEGG/Reactome/WikiPathways ORA + GSEA, on either the app's
 ## preloaded multi-omics candidate panel or an uploaded gene/CpG-level table
 ## of unknown structure. Pure functions only, no Shiny reactives here (same
-## split as multiomics_concordance_live_helpers.R).
+## split as multiomics_concordance_helpers.R).
 ##
 ## Reuses, never reinvents:
-##   - mcc_candidate_pool()/mcc_filter_source()/mcc_detect_id_type() (multiomics_concordance_live_helpers.R):
+##   - mcc_candidate_pool()/mcc_filter_source()/mcc_detect_id_type() (multiomics_concordance_helpers.R):
 ##     the app's own "what has already been discovered" candidate-gene/CpG pool.
 ##   - cx_harmonize_gene_ids()/cx_get_region_annotation() (crossomics_integration_helpers.R):
 ##     gene-ID harmonization and CpG->gene/region annotation.

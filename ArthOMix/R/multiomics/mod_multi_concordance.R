@@ -20,7 +20,7 @@
 ## Nothing below renders a result table, plot, or score until the blue
 ## "Run Gene<->CpG Analysis" button is clicked (spec section 3) - filters,
 ## thresholds, and the data status panel are the only things visible before
-## that. All heavy lifting is in multiomics_concordance_live_helpers.R /
+## that. All heavy lifting is in multiomics_concordance_helpers.R /
 ## multiomics_concordance_plots.R; this file is UI wiring only.
 
 mod_multi_concordance_config <- list(

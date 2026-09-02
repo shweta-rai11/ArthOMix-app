@@ -8,9 +8,9 @@
 ## Most multi-omics statistics themselves - DIABLO fits, SNF fusion/
 ## clustering, gene<->CpG concordance, pathway enrichment - are NOT just
 ## read off disk any more: they are genuinely re-computed live, on demand,
-## by multiomics_integration_live_helpers.R / mod_multi_integration.R /
+## by multiomics_integration_helpers.R / mod_multi_integration.R /
 ## mod_multi_stratification.R / mod_multi_pathway.R /
-## multiomics_concordance_live_helpers.R, on whichever data the user picks
+## multiomics_concordance_helpers.R, on whichever data the user picks
 ## (the Active Multi-Omics Dataset, or a preloaded RA anti-TNF cell
 ## rehydrated from its saved fit). What's still genuinely precomputed and
 ## read straight off disk (via multi_read_table()/multi_read_registry_table())
@@ -305,7 +305,7 @@ MULTI_REPRODUCIBILITY_SCRIPTS <- c(
   "Pathway enrichment: analyses/07_cross_analysis_summary/scripts/16_*.R",
   "Cross-cell summary assembly: analyses/07_cross_analysis_summary/scripts/09_*.R, 12_*.R",
   "Independent audit (methodology, leakage findings/fixes, honest AUROC verdicts per cell): AUDIT.md",
-  "Live-computation code (this app, not the source pipeline): R/multiomics/multiomics_live_helpers.R, multiomics_integration_live_helpers.R, cohort_harmonization_helpers.R, multiomics_concordance_live_helpers.R, multiomics_sexstratified_engine.R"
+  "Live-computation code (this app, not the source pipeline): R/multiomics/multiomics_dataset_helpers.R, multiomics_integration_helpers.R, cohort_harmonization_helpers.R, multiomics_concordance_helpers.R, multiomics_sexstratified_engine.R"
 )
 
 ## Plain-text report for the "Download everything loaded so far" bundle -

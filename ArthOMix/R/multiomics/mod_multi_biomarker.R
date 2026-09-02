@@ -7,10 +7,10 @@
 ## is actually selected below - the Active Multi-Omics Dataset built on the
 ## Dataset Workspace tab, or one preloaded RA anti-TNF analysis cell
 ## (recomputed live from that cell's own saved fit,
-## multiomics_integration_live_helpers.R::mi_preloaded_cell_dataset()) -
+## multiomics_integration_helpers.R::mi_preloaded_cell_dataset()) -
 ## never a fixed template, and never fabricating an outcome when none is
 ## available. Every parameter is derived from the data actually in front of
-## it (multiomics_biomarker_helpers.R / multiomics_integration_live_helpers.R);
+## it (multiomics_biomarker_helpers.R / multiomics_integration_helpers.R);
 ## nothing in the Signature/Performance/Stability/Integration/Plots tabs
 ## renders until "Run analysis" is clicked.
 ##

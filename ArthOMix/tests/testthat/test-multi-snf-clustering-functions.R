@@ -14,10 +14,10 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_integration_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "snf_clustering_helpers.R"))
 
 ## ---- sfc_validate_dataset() / sfc_eligibility() -----------------------------

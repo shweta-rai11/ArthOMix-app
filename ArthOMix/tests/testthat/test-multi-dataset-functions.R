@@ -8,7 +8,7 @@ suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "mod_multi_dataset.R"))
 

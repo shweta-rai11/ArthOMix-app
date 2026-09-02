@@ -1,6 +1,6 @@
-## R/multiomics/multiomics_live_helpers.R
+## R/multiomics/multiomics_dataset_helpers.R
 ## Pure data-processing logic for the "Live Analysis (Upload & MOFA2)"
-## sub-module (mod_multi_live.R / mod_multi_live_mofa.R) - the ONE part of
+## sub-module (mod_multi_mofa.R / mod_multi_mofa_engine.R) - the ONE part of
 ## the Multi-Omics module that runs real computation over data the user
 ## supplies, rather than browsing a precomputed pipeline. Every function is
 ## fail-soft (list(ok, ..., error) or similarly explicit), never silently
@@ -252,7 +252,7 @@ multi_live_validate_matrix <- function(mat, layer_label = "layer") {
 }
 
 ## Structural (not filename-based) omics-type detection: feature ID pattern
-## (mcc_detect_id_type(), multiomics_concordance_live_helpers.R - already
+## (mcc_detect_id_type(), multiomics_concordance_helpers.R - already
 ## distinguishes Illumina CpG probe IDs from gene/Ensembl/Entrez IDs) plus
 ## value-range shape (mcc_detect_methylation_value_type() - beta/M-value vs.
 ## other). Report-only: never transforms data, only says what the structure
@@ -584,7 +584,7 @@ multi_live_correlation_heatmap_data <- function(matA, matB, top_n = 30, method =
 ## samples per view, so the transpose happens once, here. Runs synchronously
 ## - the Shiny module calls this from inside a shiny::ExtendedTask +
 ## future::future_promise() so it doesn't block the app (see
-## mod_multi_live_mofa.R), matching mod_methyl_dataset.R's own async
+## mod_multi_mofa_engine.R), matching mod_methyl_dataset.R's own async
 ## convention for its one other genuinely slow operation.
 ## ---------------------------------------------------------------------------
 

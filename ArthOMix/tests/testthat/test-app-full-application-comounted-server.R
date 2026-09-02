@@ -30,10 +30,10 @@ source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helper
 source_from_app_root(file.path("R", "crossomics", "mod_cross_dataset.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_live_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "multiomics_integration_live_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_live_mofa.R"))
-source_from_app_root(file.path("R", "multiomics", "mod_multi_live.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "mod_multi_mofa_engine.R"))
+source_from_app_root(file.path("R", "multiomics", "mod_multi_mofa.R"))
 source_from_app_root(file.path("R", "multiomics", "mod_multi_dataset.R"))
 
 test_that("all four verticals' shared reactiveValues, mounted together exactly as server.R does, each load real data with zero cross-vertical contamination", {

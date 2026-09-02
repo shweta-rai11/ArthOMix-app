@@ -2,7 +2,7 @@
 ## Plotting helpers for the "Cohort Harmonization" sub-module
 ## (mod_multi_overview.R). PCA and cross-modality correlation reuse
 ## multi_live_pca()/multi_live_pca_plot()/multi_live_correlation_heatmap_*()
-## (multiomics_live_helpers.R / multiomics_live_plots.R) as-is - only
+## (multiomics_dataset_helpers.R / multiomics_dataset_plots.R) as-is - only
 ## genuinely new figure types are added here (overlap heatmap, set
 ## overlap plot, completeness heatmap, batch/phenotype bar charts).
 

@@ -1,6 +1,6 @@
-## R/multiomics/multiomics_integration_live_plots.R
+## R/multiomics/multiomics_integration_plots.R
 ## Plot functions for the live DIABLO/SNF/Compare engine
-## (multiomics_integration_live_helpers.R / mod_multi_integration.R). Reuses
+## (multiomics_integration_helpers.R / mod_multi_integration.R). Reuses
 ## the shared theme_arthomix()/ARTHOMIX_COLORS/arthomix_pair() (global.R),
 ## multi_empty_state()/multi_plot_or_empty()/multi_png_download()
 ## (multiomics_plots.R), and - where the data shape already matches -
@@ -76,8 +76,8 @@ mi_snf_cluster_estimate_plot <- function(est) {
 ## ---------------------------------------------------------------------------
 ## SNF cluster low-dimensional view - PCA over the column-concatenated,
 ## per-block standardized matrices (real PCA via the existing
-## multi_live_pca()/multi_live_pca_plot(), multiomics_live_helpers.R /
-## multiomics_live_plots.R), colored by fused cluster. Not a claim that
+## multi_live_pca()/multi_live_pca_plot(), multiomics_dataset_helpers.R /
+## multiomics_dataset_plots.R), colored by fused cluster. Not a claim that
 ## cluster separation in this 2D view equals cluster quality - the
 ## eigengap/rotation-cost/silhouette diagnostics are the actual evidence.
 ## ---------------------------------------------------------------------------

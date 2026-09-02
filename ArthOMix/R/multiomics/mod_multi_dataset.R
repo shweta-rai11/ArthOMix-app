@@ -7,9 +7,9 @@
 ## every Multi-Omics sub-module below reads from.
 ##
 ## Upload/GEO validation, sample matching, and preprocessing reuse the exact
-## functions already written in multiomics_live_helpers.R - nothing here
+## functions already written in multiomics_dataset_helpers.R - nothing here
 ## recomputes DIABLO/SNF/MOFA2, and no algorithm is redesigned. The
-## "Integrated Analysis (MOFA2)" step (mod_multi_live.R, mounted at the
+## "Integrated Analysis (MOFA2)" step (mod_multi_mofa.R, mounted at the
 ## bottom of this tab's UI/server) is embedded here too, not a separate
 ## sub-module, since it trains on the same Active Multi-Omics Dataset this
 ## tab builds. The precomputed-cohort sub-modules (Overview/Integration/
@@ -304,9 +304,9 @@ mod_multi_dataset_ui <- function(id) {
       conditionalPanel(
         condition = sprintf("input['%s'] > 0", ns("activate_btn")),
         hr(),
-        box(width = NULL, title = mod_multi_live_config$title, status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", mod_multi_live_config$description),
-            mod_multi_live_ui(ns("integrated")))
+        box(width = NULL, title = mod_multi_mofa_config$title, status = "primary", solidHeader = FALSE,
+            p(class = "submodule-desc", mod_multi_mofa_config$description),
+            mod_multi_mofa_ui(ns("integrated")))
       )
     )
   )
@@ -1373,6 +1373,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     output$provenance_ui <- renderUI(mo_provenance_ui(multi_dataset$layer_meta %||% list()))
 
-    mod_multi_live_server("integrated", multi_dataset, multi_results)
+    mod_multi_mofa_server("integrated", multi_dataset, multi_results)
   })
 }

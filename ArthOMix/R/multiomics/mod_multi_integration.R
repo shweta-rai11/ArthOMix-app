@@ -5,10 +5,10 @@
 ## Runs on whichever data is actually selected below - the Active
 ## Multi-Omics Dataset built on the Dataset Workspace tab, or one preloaded
 ## RA anti-TNF analysis cell (recomputed live from that cell's own saved
-## fit - multiomics_integration_live_helpers.R::mi_preloaded_cell_dataset())
+## fit - multiomics_integration_helpers.R::mi_preloaded_cell_dataset())
 ## - never a fixed template. Every parameter range, tuning grid, and CV
 ## fold/repeat count is derived from the data in front of it
-## (multiomics_integration_live_helpers.R); nothing below renders a result,
+## (multiomics_integration_helpers.R); nothing below renders a result,
 ## score, plot, or table until its own blue "Run" button is clicked.
 ##
 ## DIABLO and SNF keep entirely separate parameter panels and result
@@ -644,7 +644,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       cluster_mode = if (isTRUE(input$s_cluster_auto)) "automatic" else "manual", n_clusters = input$s_n_clusters,
       cluster_method = input$s_cluster_method %||% "spectral",
       ## Threaded straight into a set.seed() call inside mi_snf_run() itself
-      ## (multiomics_integration_live_helpers.R), right before the
+      ## (multiomics_integration_helpers.R), right before the
       ## kmeans-based SNFtool::spectralClustering()/cluster::pam() calls -
       ## same rationale as DIABLO's own d_seed above.
       seed = input$s_seed %||% 1

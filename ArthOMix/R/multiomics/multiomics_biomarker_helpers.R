@@ -7,7 +7,7 @@
 ## mi_validate_dataset()/mi_diablo_eligibility()/mi_diablo_run()/
 ## mi_diablo_performance_summary()/mi_diablo_selected_features_df()/
 ## mi_diablo_stability_df()/mi_outcome_summary()/mi_preloaded_cell_dataset()
-## (multiomics_integration_live_helpers.R) rather than reimplementing the
+## (multiomics_integration_helpers.R) rather than reimplementing the
 ## verified DIABLO call shapes documented there - Biomarker Discovery differs
 ## from Multi-omics Integration only in scope (exactly two blocks, always
 ## labeled Transcriptomics/Methylomics), UI organization, and the
@@ -128,7 +128,7 @@ mb_data_check_table <- function(validation, outcome_summary, eligibility) {
 ## 4. Evidence-based feature stability (spec section 11 - replaces "live-
 ## adjustable confidence relabeling" entirely). Categories are cut from
 ## perf()'s own real per-repeat selection-frequency table
-## (mi_diablo_stability_df(), multiomics_integration_live_helpers.R) against
+## (mi_diablo_stability_df(), multiomics_integration_helpers.R) against
 ## fixed, disclosed thresholds - never a user-adjustable slider presented as
 ## a statistical result.
 ## ---------------------------------------------------------------------------

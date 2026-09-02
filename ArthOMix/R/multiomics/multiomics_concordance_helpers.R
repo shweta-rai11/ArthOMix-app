@@ -1,4 +1,4 @@
-## R/multiomics/multiomics_concordance_live_helpers.R
+## R/multiomics/multiomics_concordance_helpers.R
 ## Data-adaptive engine for the "Gene-CpG Concordance" submodule
 ## (mod_multi_concordance.R). Pure functions only, no Shiny reactives here.
 ##
@@ -7,13 +7,13 @@
 ##   - crossomics_integration_helpers.R (cx_*): sample pairing, gene-ID
 ##     harmonization, CpG->gene/region/island annotation, Hyper/Hypo x Up/
 ##     Down classification, evidence tiering, FDR.
-##   - multiomics_integration_live_helpers.R / multiomics_biomarker_helpers.R
+##   - multiomics_integration_helpers.R / multiomics_biomarker_helpers.R
 ##     (mi_*/mb_*): DIABLO selection output, already published live by the
 ##     Biomarker Discovery submodule to multi_results$biomarker$df.
 ##   - snf_clustering_helpers.R (sfc_*): per-feature cluster association,
 ##     reused directly against the real SNF cluster vector published by the
 ##     Patient Stratification submodule to multi_results$stratification$clusters.
-##   - multiomics_live_helpers.R (multi_live_*): sample-overlap primitives.
+##   - multiomics_dataset_helpers.R (multi_live_*): sample-overlap primitives.
 ##   - R/methylomics/qc.R::methyl_beta_to_mvalue() for beta->M conversion.
 ## Every function below fails soft (returns NA/"Not available"/ok=FALSE with
 ## a reason) rather than fabricating a gene, CpG, coordinate, or statistic -
