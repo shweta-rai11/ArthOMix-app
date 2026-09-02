@@ -8,12 +8,12 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_biomarkerconv_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_mrstage_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_plots.R"))
-source_from_app_root(file.path("R", "crossomics", "mod_cross_mr_stage.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "biomarker_convergence", "crossomics_biomarkerconv_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "04_Cross_Omics_MR", "crossomics_mrstage_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_plots.R"))
+source_from_app_root(file.path("R", "crossomics", "04_Cross_Omics_MR", "mod_cross_mr_stage.R"))
 
 test_that("loading the real precomputed MR-stage results populates mrs$df with real instrument data", {
   skip_if_not(exists("CX_MR_DATA_AVAILABLE") && isTRUE(CX_MR_DATA_AVAILABLE), "MR-stage source data not available")

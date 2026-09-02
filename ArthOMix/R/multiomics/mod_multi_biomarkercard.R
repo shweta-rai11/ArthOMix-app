@@ -109,7 +109,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     })
 
     ## Adds `evidence_tier` via the app's own cx_classify_evidence()
-    ## (R/crossomics/crossomics_integration_helpers.R) - the same
+    ## (R/crossomics/functions/integration/crossomics_integration_helpers.R) - the same
     ## Transcriptomics-only / Methylomics-only / Moderate+Strong candidate /
     ## Discordant / Insufficient evidence classifier Cross-Omics Integration
     ## already uses. Read-only re-derivation for display; never stored back.

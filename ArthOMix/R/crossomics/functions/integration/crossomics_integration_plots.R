@@ -1,4 +1,4 @@
-## R/crossomics/crossomics_integration_plots.R
+## R/crossomics/functions/integration/crossomics_integration_plots.R
 ## Plotting/rendering helpers for mod_cross_integration.R - kept separate from
 ## the module file so the Shiny wiring (mod_cross_integration.R) and the
 ## visualization logic can be read/changed independently. Every plot reuses

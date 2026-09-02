@@ -7,11 +7,11 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_biomarkerconv_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_plots.R"))
-source_from_app_root(file.path("R", "crossomics", "mod_cross_biomarker_conv.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "biomarker_convergence", "crossomics_biomarkerconv_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_plots.R"))
+source_from_app_root(file.path("R", "crossomics", "03_Biomarker_Convergence", "mod_cross_biomarker_conv.R"))
 
 test_that("loading the real precomputed female eQTL x mQTL table populates bc_df() with real relabeled significance flags", {
   skip_if_not(CX_BC_DATA_AVAILABLE, "Biomarker Convergence source data not available")

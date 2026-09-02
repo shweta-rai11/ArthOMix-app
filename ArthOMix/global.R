@@ -1171,7 +1171,7 @@ project_methods <- function(module) {
 
 ## ---------------------------------------------------------------------------
 ## Methylomics methodology lookup tool (registered on the shared ArthOChat
-## drawer - see R/transcriptomics/mod_arthochat.R - so methylomics
+## drawer - see R/shared/mod_arthochat.R - so methylomics
 ## methodology questions stay grounded even though the Methylomics sidebar
 ## only links to that one shared drawer, rather than running its own
 ## separate scoped chat session)

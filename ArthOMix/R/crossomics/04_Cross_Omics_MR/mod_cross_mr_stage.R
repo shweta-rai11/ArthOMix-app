@@ -1,4 +1,4 @@
-## R/crossomics/mod_cross_mr_stage.R
+## R/crossomics/04_Cross_Omics_MR/mod_cross_mr_stage.R
 ## Submodule: Cross-Omics MR - loads the pipeline's own already-run
 ## single-instrument mQTL-MR results (Wald ratio, GoDMC exposure -> Ishigaki
 ## 2022 RA outcome; cross_Omics_Sexstratified_COPY/results/mr_stage_eqtl_

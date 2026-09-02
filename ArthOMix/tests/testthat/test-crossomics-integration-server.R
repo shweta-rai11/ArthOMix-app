@@ -11,9 +11,9 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "mod_cross_integration.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "02_Expression_Methylation_Integration", "mod_cross_integration.R"))
 
 cx_dataset_fixture <- function() {
   ## 4 genes: A (Hyper+Down candidate), B (Hypo+Up candidate), C (expression-

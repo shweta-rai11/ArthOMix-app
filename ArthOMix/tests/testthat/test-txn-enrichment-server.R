@@ -10,7 +10,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_enrichment.R"))
 
 test_that("same_tissue_panel prefers this session's live Feature Selection consensus panel over any bundled fallback", {

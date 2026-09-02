@@ -5,7 +5,7 @@
 ## the standard empty-state note instead. Styling matches the rest of the
 ## Multi-Omics module (theme_arthomix(), ARTHOMIX_COLORS, arthomix_pair()).
 ## The network plot deliberately reuses the exact technique already proven
-## in R/crossomics/crossomics_integration_plots.R::cx_gene_cpg_network_plot()
+## in R/crossomics/functions/integration/crossomics_integration_plots.R::cx_gene_cpg_network_plot()
 ## (igraph::layout_with_fr() + plain geom_segment()/geom_point(), not
 ## ggraph::geom_edge_link() - see that file's comment for the documented
 ## ggraph/grid version incompatibility on this deployment).

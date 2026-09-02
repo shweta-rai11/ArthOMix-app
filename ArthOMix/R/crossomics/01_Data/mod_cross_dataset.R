@@ -1,4 +1,4 @@
-## R/crossomics/mod_cross_dataset.R
+## R/crossomics/01_Data/mod_cross_dataset.R
 ## Cross-Omics "Dataset" tab: the module's single data-entry point for
 ## "Expression and Methylation". Two ways to arrive at the exact same shape -
 ## a standardized Transcriptomics table (gene, log2fc, pvalue, fdr) and/or

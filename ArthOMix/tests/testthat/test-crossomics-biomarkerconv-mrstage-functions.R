@@ -12,10 +12,10 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_biomarkerconv_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_mrstage_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "biomarker_convergence", "crossomics_biomarkerconv_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "04_Cross_Omics_MR", "crossomics_mrstage_helpers.R"))
 
 ## ---- cx_read_table() / cx_read_and_detect() -----------------------------------
 

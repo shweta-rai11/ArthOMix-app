@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_biomarkercard.R"))
 
 test_that("tbc_panel_identity resolves real gene symbols and reports counts", {

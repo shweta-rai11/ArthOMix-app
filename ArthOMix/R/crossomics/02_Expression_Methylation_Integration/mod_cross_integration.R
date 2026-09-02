@@ -1,4 +1,4 @@
-## R/crossomics/mod_cross_integration.R
+## R/crossomics/02_Expression_Methylation_Integration/mod_cross_integration.R
 ## Cross-Omics sub-module: "Expression and Methylation" - integrates the
 ## Transcriptomics DGE output (gene, log2FC, FDR) and the Methylomics DMP
 ## output (CpG, gene, Δβ, FDR) at gene level to answer "how does DNA

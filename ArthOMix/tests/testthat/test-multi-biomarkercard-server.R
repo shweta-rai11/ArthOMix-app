@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "mod_multi_biomarkercard.R"))

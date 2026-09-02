@@ -1,4 +1,4 @@
-## R/crossomics/crossomics_integration_helpers.R
+## R/crossomics/functions/integration/crossomics_integration_helpers.R
 ## Pure data-processing logic for the "Expression and Methylation" Cross-Omics
 ## sub-module (mod_cross_integration.R) - column auto-detection, gene-level
 ## methylation aggregation, quadrant classification, sample-pairing/

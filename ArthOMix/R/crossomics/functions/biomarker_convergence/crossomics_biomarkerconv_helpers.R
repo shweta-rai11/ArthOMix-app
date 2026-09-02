@@ -1,4 +1,4 @@
-## R/crossomics/crossomics_biomarkerconv_helpers.R
+## R/crossomics/functions/biomarker_convergence/crossomics_biomarkerconv_helpers.R
 ## Pure data-processing logic for the "Biomarker Convergence" Cross-Omics
 ## sub-module (mod_cross_biomarker_conv.R).
 ##

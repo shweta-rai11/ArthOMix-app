@@ -26,7 +26,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
 source_from_app_root(file.path("R", "provenance.R"))
 source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_dge.R"))

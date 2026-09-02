@@ -16,3 +16,9 @@ renv/staging/
 ArthOMix/data/.cache/
 ArthOMix/data/uploads/*
 !ArthOMix/data/uploads/.gitkeep
+
+# ArthOMix/results/: regenerable publication figures/tables produced by
+# re-running an analysis stage - only the folder skeleton is tracked.
+ArthOMix/results/**/*
+!ArthOMix/results/**/
+!ArthOMix/results/**/.gitkeep

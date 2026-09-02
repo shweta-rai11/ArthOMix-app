@@ -13,7 +13,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
 
 ## ---- cx_match_column() / cx_detect_columns() / cx_detect_sample_columns() ----
 

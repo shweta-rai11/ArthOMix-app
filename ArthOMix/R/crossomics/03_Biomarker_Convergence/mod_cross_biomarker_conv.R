@@ -1,4 +1,4 @@
-## R/crossomics/mod_cross_biomarker_conv.R
+## R/crossomics/03_Biomarker_Convergence/mod_cross_biomarker_conv.R
 ## Submodule: Biomarker Convergence - loads the pipeline's own already-joined
 ## eQTL-MR x mQTL-MR x DEG x DMP x DMR table (cross_Omics_Sexstratified_COPY/
 ## results/cross_omics_eQTL_mQTL_{sex}.csv - see crossomics_biomarkerconv_

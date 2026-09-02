@@ -1,4 +1,4 @@
-## R/crossomics/crossomics_mrstage_helpers.R
+## R/crossomics/04_Cross_Omics_MR/crossomics_mrstage_helpers.R
 ## Pure data-processing logic for the "Cross-Omics MR" Cross-Omics
 ## sub-module (mod_cross_mr_stage.R).
 ##

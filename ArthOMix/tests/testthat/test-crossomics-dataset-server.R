@@ -6,9 +6,9 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
-source_from_app_root(file.path("R", "crossomics", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "crossomics", "mod_cross_dataset.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
+source_from_app_root(file.path("R", "crossomics", "01_Data", "mod_cross_dataset.R"))
 
 test_that("loading real example data (female DEG + DMP) standardizes both tables and previews real counts", {
   skip_if_not(METH_DATA_AVAILABLE, "preloaded methylation data not available")

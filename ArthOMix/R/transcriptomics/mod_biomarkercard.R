@@ -1492,7 +1492,7 @@ tbc_build_report_tags <- function(d, dataset, ext = NULL) {
 
 ## ---- Identifier resolution (spec: never silently drop an unresolved gene) --
 ## Reuses the app's shared harmonizer (cx_harmonize_gene_ids(),
-## R/crossomics/crossomics_integration_helpers.R) - the same one
+## R/crossomics/functions/integration/crossomics_integration_helpers.R) - the same one
 ## mod_enrichment.R's own gene-list flow already uses.
 tbc_panel_identity <- function(genes_raw) {
   genes_raw <- unique(trimws(as.character(genes_raw)))
