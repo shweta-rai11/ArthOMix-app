@@ -68,7 +68,10 @@ jobs:
             liblapack-dev \
             gfortran \
             libmagick++-dev \
-            libglpk-dev
+            libglpk-dev \
+            libglu1-mesa-dev \
+            libgl1-mesa-dev \
+            freeglut3-dev
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
