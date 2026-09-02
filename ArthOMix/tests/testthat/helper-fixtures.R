@@ -1,12 +1,16 @@
 ## Deterministic, in-memory test fixtures shared across transcriptomics test
-## files. Kept as generator functions (not just static files) so every test
-## that needs a "clean" matrix, or one perturbed in one specific way (a
-## duplicate ID, an all-NA row, a zero-variance row, an Ensembl-ID rowname
-## set), gets it from one seeded source instead of hand-rolling slightly
-## different versions per file. tests/fixtures/transcriptomics/ holds the
-## on-disk CSV pair generated once from fx_expr_meta() at seed=1, committed
-## so a test that specifically wants "a file on disk" (upload/GEO-shaped
-## tests) doesn't need to re-materialize it itself.
+## files. Kept as generator functions (not static files) so every test that
+## needs a "clean" matrix, or one perturbed in one specific way (a duplicate
+## ID, an all-NA row, a zero-variance row, an Ensembl-ID rowname set), gets
+## it from one seeded source instead of hand-rolling slightly different
+## versions per file. A test that specifically wants "a file on disk"
+## (upload-shaped tests) writes fx_expr_meta()'s output to a tempdir with
+## fx_write_expr_csv()/fx_write_meta_csv() rather than reading a committed
+## copy - same convention methylomics/multiomics/crossomics tests use.
+## tests/fixtures/ itself is reserved for things that can't be regenerated
+## this way: tests/fixtures/edge_cases/ (deliberately malformed content) and
+## tests/fixtures/transcriptomics/geo_offline/ (a captured GEOquery response
+## shape, not a plain matrix).
 
 ## n_genes x n_samples numeric matrix + matching sample metadata data.frame
 ## (sample/group/sex/batch columns), balanced group and sex assignment,

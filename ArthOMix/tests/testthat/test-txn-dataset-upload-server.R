@@ -8,12 +8,16 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
-source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
+source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R"))
 
-fixture_dir <- normalizePath(file.path(app_dir, "tests", "fixtures", "transcriptomics"), mustWork = TRUE)
+fixture_dir <- tempfile("txn-upload-fixture-")
+dir.create(fixture_dir)
+fm <- fx_expr_meta(seed = 1)
 expr_fixture_path <- file.path(fixture_dir, "small_expr_matrix.csv")
 meta_fixture_path <- file.path(fixture_dir, "small_sample_metadata.csv")
+fx_write_expr_csv(fm$expr, expr_fixture_path)
+fx_write_meta_csv(fm$meta, meta_fixture_path)
 
 test_that("uploading a well-formed expr+meta pair loads successfully and activates the dataset immediately", {
   dataset <- shiny::reactiveValues()
