@@ -31,6 +31,15 @@ jobs:
     timeout-minutes: 60
     env:
       RENV_PATHS_ROOT: ~/.local/share/renv
+      # renv.lock pins several GitHub-only packages (ggtree/ieugwasr/
+      # MCPcounter/MRPRESSO/TwoSampleMR). Every dependent package's remote
+      # gets re-resolved against api.github.com, which quickly exceeds the
+      # unauthenticated 60 requests/hour limit (confirmed live) and fails
+      # the whole restore with "[error code 22]". GITHUB_TOKEN is provided
+      # automatically by Actions for every run - no secret to configure -
+      # and renv/remotes read GITHUB_PAT to authenticate those calls,
+      # raising the limit to 5000/hour.
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       # Non-secret placeholders so R/auth/auth_api.R's
       # SUPABASE_URL/SUPABASE_ANON_KEY module-level reads don't error out;
       # tests/testthat/test-auth-functions.R deliberately covers only pure

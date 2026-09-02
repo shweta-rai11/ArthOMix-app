@@ -116,5 +116,6 @@ Remotes:
     MRCIEU/TwoSampleMR,
     rondolab/MR-PRESSO,
     ebecht/MCPcounter/Source,
-    YuLab-SMU/ggtree@devel
+    YuLab-SMU/ggtree@devel,
+    WSpiller/RadialMR
 
