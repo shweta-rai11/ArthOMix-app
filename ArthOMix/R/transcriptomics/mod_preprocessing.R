@@ -744,6 +744,36 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       }))
     })
 
+    ## BUG FIX: for the uploaded/GEO pipelines, "Merge datasets" and "Batch
+    ## correction" (the only tab that used to hold an "activate" button) are
+    ## hidden by the observeEvent(dataset$source_type, ...) above, so a user
+    ## who clicked "Preprocess" here had no way to ever make that filtered/
+    ## log2-transformed result the app's active dataset - the button they'd
+    ## need lived on a tab whose nav link is deliberately hidden for exactly
+    ## this source_type. This gives the uploaded/GEO branch its own activate
+    ## step, mirroring output$activate_ui/input$activate_btn below.
+    output$activate_current_ui <- renderUI({
+      res <- preloaded_results()
+      req(length(res) >= 1, isTRUE(res[[1]]$ok))
+      tagList(
+        actionButton(ns("activate_current_btn"), "Use this preprocessed data as the active dataset",
+                     icon = icon("check"), class = "btn-primary btn-sm"),
+        uiOutput(ns("activate_current_status_ui"))
+      )
+    })
+
+    observeEvent(input$activate_current_btn, {
+      res <- preloaded_results()
+      req(length(res) >= 1, isTRUE(res[[1]]$ok))
+      v <- res[[1]]$value
+      dataset$expr <- v$expr
+      dataset$meta <- v$meta
+      dataset$source <- paste0(dataset$source %||% "Currently loaded dataset", " (preprocessed)")
+      output$activate_current_status_ui <- renderUI(
+        div(class = "empty-note", icon("check"), "This is now the active dataset. Every other sub-module will use it.")
+      )
+    }, ignoreInit = TRUE)
+
     ## GEO-fetch and upload pipelines: each is a single already-loaded dataset, so the
     ## bundled-cohort picker and the own-upload box (both aimed at building a multi-cohort
     ## merge) would only confuse - just preprocess the currently loaded dataset in place.
@@ -783,7 +813,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                        choiceNames = list("Auto-detect (recommended)", "Force log2", "Skip (raw RNA-seq counts)"),
                        choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
           actionButton(ns("preloaded_run"), "Preprocess", icon = icon("play"), class = "btn-primary btn-sm"),
-          div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui")))
+          div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui"))),
+          uiOutput(ns("activate_current_ui"))
         ))
       }
       tagList(
@@ -909,10 +940,18 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     })
 
+    ## Groups the app's precomputed default cohort was itself built from (HC+RA when
+    ## present) - example_merge_from_raw() below compares the checkbox selection
+    ## against this to decide whether the fast precomputed path is still valid.
+    example_default_groups <- reactive({
+      groups <- available_example_groups()
+      if (length(intersect(c("HC", "RA"), groups)) > 0) intersect(c("HC", "RA"), groups) else groups
+    })
+
     ## UI for merging the two raw training datasets, with the same Venn/region-breakdown the manual merge path shows.
     output$merge_example_ui <- renderUI({
       groups <- available_example_groups()
-      default_groups <- if (length(intersect(c("HC", "RA"), groups)) > 0) intersect(c("HC", "RA"), groups) else groups
+      default_groups <- example_default_groups()
       ## Excludes by group identity (not a hardcoded "SLE" label), so this stays accurate if sources change.
       excluded_groups <- setdiff(groups, default_groups)
       excluded_note <- if (length(excluded_groups) > 0) {
@@ -1001,9 +1040,15 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     })
 
     ## FALSE = reuse the already-merged, batch-corrected cohort directly (fast, and Batch
-    ## Correction finds little residual effect left); TRUE rebuilds from the two raw GEO
-    ## series instead (slow probe->gene collapse) to get a genuine uncorrected batch effect.
-    example_merge_from_raw <- reactive(FALSE)
+    ## Correction finds little residual effect left) - valid only while the checked groups
+    ## still match the precomputed cohort's own HC+RA definition. TRUE rebuilds from the two
+    ## raw GEO series instead (slow probe->gene collapse) whenever the user picks a different
+    ## group combination, so the "Diagnosis groups to include" checkbox above actually takes
+    ## effect instead of being silently ignored.
+    example_merge_from_raw <- reactive({
+      sel <- input$example_groups %||% example_default_groups()
+      !setequal(sel, example_default_groups())
+    })
 
     ## Live merge of the two raw training datasets when example_merge_from_raw() is TRUE;
     ## otherwise reuses the app's already-merged/batch-corrected default dataset.
@@ -1054,7 +1099,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       })
       merged_meta <- do.call(rbind, metas)
       if (!"batch" %in% colnames(merged_meta) || all(is.na(merged_meta$batch))) merged_meta$batch <- merged_meta$dataset
-      stopifnot(identical(colnames(merged_expr), merged_meta$sample))
+      validate(need(identical(colnames(merged_expr), merged_meta$sample),
+                    "Internal error: merged expression columns and metadata sample order do not match. Please report this as a bug."))
       list(expr = merged_expr, meta = merged_meta, sources = PP_TRAINING_COHORT_LABEL, n_dup_features = n_dup_features)
     })
 
@@ -1247,7 +1293,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         validate("Could not combine metadata across datasets. A column with the same name has a different type in different datasets, for example numeric in one and text in another. Rename or fix that column, then preprocess again.")
       })
       if (!"batch" %in% colnames(merged_meta) || all(is.na(merged_meta$batch))) merged_meta$batch <- merged_meta$dataset
-      stopifnot(identical(colnames(merged_expr), merged_meta$sample))
+      validate(need(identical(colnames(merged_expr), merged_meta$sample),
+                    "Internal error: merged expression columns and metadata sample order do not match. Please report this as a bug."))
       list(expr = merged_expr, meta = merged_meta, sources = paste(vapply(lst, `[[`, character(1), "label"), collapse = " + "), n_dup_features = n_dup_features)
     }, ignoreInit = TRUE)
 
@@ -1317,11 +1364,24 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       cols <- colnames(m$meta)
       batch_default <- intersect(c("batch", "batch_full", "dataset"), cols)
       protect_default <- intersect(c("group", "sex"), cols)
+      ## BUG FIX: pca_of() below caps the number of components at
+      ## min(5, ncol(prcomp(...)$x)), which for a small merged cohort (as
+      ## few as 3 samples, the minimum this module allows) can be less than
+      ## 5 - confirmed via prcomp() that ncol(p$x) == n_samples whenever
+      ## there are more genes than samples, the normal case here. Letting
+      ## the dropdown always offer PC1-PC5 meant picking PC4/PC5 on a 3- or
+      ## 4-sample cohort passed a column name to plot_pca_advanced()'s
+      ## .data[[xcol]]/.data[[ycol]] that doesn't exist in pca_obj$df,
+      ## crashing with a raw ggplot2/ggplot_build error instead of this
+      ## app's styled empty-note handling. Bound the choices to what will
+      ## actually exist once Run is clicked.
+      max_pc <- max(2, min(5, ncol(m$expr)))
+      pc_choices <- setNames(seq_len(max_pc), paste0("PC", seq_len(max_pc)))
       tagList(
         selectInput(ns("color_by"), "Color PCA by", choices = cols,
                     selected = if ("group" %in% cols) "group" else cols[1], selectize = FALSE),
-        selectInput(ns("pc_x"), "X axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 1, selectize = FALSE),
-        selectInput(ns("pc_y"), "Y axis", choices = setNames(1:5, paste0("PC", 1:5)), selected = 2, selectize = FALSE),
+        selectInput(ns("pc_x"), "X axis", choices = pc_choices, selected = 1, selectize = FALSE),
+        selectInput(ns("pc_y"), "Y axis", choices = pc_choices, selected = min(2, max_pc), selectize = FALSE),
         checkboxInput(ns("show_ellipse"), "Show group confidence ellipses", value = TRUE),
         checkboxInput(ns("show_labels"), "Label points with sample ID", value = FALSE),
         selectInput(ns("batch_col"), "Batch column to correct for",
@@ -1421,6 +1481,12 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     result <- eventReactive(input$run_btn, {
       req(input$batch_col, input$color_by)
 
+      ## Set by the correction fallback ladders below (ComBat, limma, ComBat-seq) whenever
+      ## the requested model (interaction batch column, protected covariates, reference
+      ## batch) fails and a simpler one is retried - surfaced in decisions_ui so "Pipeline
+      ## decisions" always describes what actually ran, not just what was requested.
+      combat_fallback_note <- NULL
+
       {
         m <- merged()
         expr <- m$expr
@@ -1435,6 +1501,13 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           ## TMM + log2-CPM for raw RNA-seq counts: edgeR::filterByExpr() by group, then calcNormFactors(method="TMM").
           validate(need(all(expr >= 0, na.rm = TRUE),
                         "TMM normalisation expects raw, non-negative counts, but this data has negative values, which suggests it is already log-transformed. Preprocess this dataset again with log2 set to \"Skip\"."))
+          ## Sign alone doesn't rule out already-normalised input (CPM/RPKM/TPM, or quantile-
+          ## normalised microarray intensities are also non-negative) - counts get silently
+          ## round()-ed just below, so a mostly-fractional matrix would otherwise pass through
+          ## edgeR::DGEList()/ComBat-seq as if it were valid RNA-seq counts.
+          non_integer_frac <- mean(abs(as.matrix(expr) - round(as.matrix(expr))) > 1e-6, na.rm = TRUE)
+          validate(need(non_integer_frac < 0.01,
+                        "TMM normalisation expects raw integer counts, but most values in this data are non-integer, which suggests it has already been normalised (e.g. CPM/RPKM/TPM, or quantile-normalised microarray intensities). Preprocess the original raw count matrix again with log2 set to \"Skip\"."))
           validate(need("group" %in% colnames(meta), "TMM normalisation needs a group column to filter low-count genes by."))
           grp <- factor(meta$group)
           validate(need(length(unique(na.omit(grp))) >= 2, "TMM normalisation needs at least two group levels."))
@@ -1454,6 +1527,16 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             cs_batch <- if (cs_use_batch2) paste(cs_batch_primary, as.character(meta[[input$batch_col2]]), sep = "_") else cs_batch_primary
             validate(need(length(unique(na.omit(cs_batch))) >= 2, "The chosen batch column (or combination) needs at least two levels for ComBat-seq."))
             validate(need(all(table(cs_batch) >= 2), "Every level of the chosen batch column (or combination) needs at least 2 samples for ComBat-seq."))
+            ## BUG FIX: table()/na.omit() above silently ignore NA batch
+            ## values (e.g. one merged-in dataset never had its own "batch"
+            ## column mapped, so its rows default to NA), so a batch vector
+            ## that is a mix of real levels and NA passed both checks above
+            ## while still containing NA. sva::ComBat_seq() has no NA
+            ## handling of its own; passing it through raised an opaque
+            ## internal error instead of a clear, actionable message.
+            validate(need(!anyNA(cs_batch), sprintf(
+              "%d sample(s) have no value in the chosen batch column (or combination) - every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset) or choose a different batch column.",
+              sum(is.na(cs_batch)))))
 
             cs_batch_cols_used <- c(input$batch_col, if (cs_use_batch2) input$batch_col2 else NULL)
             cs_protect <- intersect(input$protect_cols %||% character(0), colnames(meta))
@@ -1478,10 +1561,19 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
               NULL
             }
 
+            cs_fell_back <- FALSE
             counts_adj <- tryCatch(
               sva::ComBat_seq(counts = counts_f, batch = cs_batch, group = as.character(grp), covar_mod = cs_covar_mod),
-              error = function(e) sva::ComBat_seq(counts = counts_f, batch = cs_batch_primary, group = as.character(grp))
+              error = function(e) {
+                cs_fell_back <<- TRUE
+                sva::ComBat_seq(counts = counts_f, batch = cs_batch_primary, group = as.character(grp))
+              }
             )
+            if (cs_fell_back) {
+              cs_use_batch2 <- FALSE
+              cs_covar_cols <- character(0)
+              combat_fallback_note <- "ComBat-seq failed with the requested interaction batch column and/or protected covariates and was retried using only the primary batch column and the group label."
+            }
             dge_before <- edgeR::calcNormFactors(edgeR::DGEList(counts = counts_f), method = "TMM")
             dge_after  <- edgeR::calcNormFactors(edgeR::DGEList(counts = counts_adj), method = "TMM")
             expr_prenorm <- counts_f
@@ -1558,6 +1650,18 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           if (!skip_combat) {
             validate(need(length(unique(na.omit(batch))) >= 2, "The chosen batch column (or combination) needs at least two levels. If you don't need batch correction, tick \"Skip batch correction\" above."))
             validate(need(all(table(batch) >= 2), "Every level of the chosen batch column (or combination) needs at least 2 samples for correction."))
+            ## BUG FIX: same NA-in-batch gap as ComBat-seq above - table()/
+            ## na.omit() only look at the non-missing levels, so a batch
+            ## column that is a mix of real values and NA (e.g. a merged
+            ## dataset where only some source datasets had "batch" mapped)
+            ## passed both checks above while sva::ComBat()/
+            ## limma::removeBatchEffect() still received NA in `batch`,
+            ## which model.matrix() silently drops rows for - misaligning
+            ## the design matrix against expr_qnorm's columns and throwing
+            ## an opaque dimension-mismatch error instead of a clear one.
+            validate(need(!anyNA(batch), sprintf(
+              "%d sample(s) have no value in the chosen batch column (or combination) - every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset) or choose a different batch column.",
+              sum(is.na(batch)))))
           }
 
           protect <- intersect(input$protect_cols %||% character(0), colnames(meta))
@@ -1622,14 +1726,29 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           expr_combat <- if (skip_combat) {
             expr_qnorm
           } else if (identical(correction_method, "limma")) {
-            tryCatch(run_limma(batch), error = function(e) run_limma(batch_primary))
+            tryCatch(run_limma(batch), error = function(e) {
+              use_batch2 <<- FALSE
+              combat_fallback_note <<- "limma::removeBatchEffect failed with the interaction of the two chosen batch columns and was retried using only the primary batch column."
+              run_limma(batch_primary)
+            })
           } else if (identical(correction_method, "sva")) {
             run_sva()
           } else {
             ## Fallback ladder: try full batch/mod/ref.batch, then progressively drop ref.batch, interaction, mod.
+            ## Each rung that actually fires updates use_batch2/ref_batch/protect and
+            ## combat_fallback_note so decisions_ui reports what really ran, not just what
+            ## was requested.
             tryCatch(run_combat(batch, use_mod = TRUE, use_ref = TRUE),
-              error = function(e) tryCatch(run_combat(batch_primary, use_mod = TRUE, use_ref = FALSE),
-                error = function(e2) run_combat(batch_primary, use_mod = FALSE, use_ref = FALSE)))
+              error = function(e) tryCatch({
+                use_batch2 <<- FALSE
+                ref_batch <<- NULL
+                combat_fallback_note <<- "ComBat failed with the full model (interaction batch column plus reference batch) and was retried using only the primary batch column, without a reference batch."
+                run_combat(batch_primary, use_mod = TRUE, use_ref = FALSE)
+              }, error = function(e2) {
+                protect <<- character(0)
+                combat_fallback_note <<- "ComBat failed again without a reference batch and was retried using only the primary batch column, with no reference batch and no protected covariates."
+                run_combat(batch_primary, use_mod = FALSE, use_ref = FALSE)
+              }))
           }
         }
         n_after <- nrow(expr_prenorm)
@@ -1655,7 +1774,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         batch_col = input$batch_col, color_by = input$color_by,
         skip_combat = skip_combat, combat_prior = combat_prior,
         combat_mean_only = combat_mean_only, sources = sources, correction_method = correction_method,
-        n_excluded_outliers = n_excluded_outliers, use_batch2 = use_batch2, ref_batch = ref_batch
+        n_excluded_outliers = n_excluded_outliers, use_batch2 = use_batch2, ref_batch = ref_batch,
+        combat_fallback_note = combat_fallback_note
       )
     })
 
@@ -1705,7 +1825,9 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           " also selected as the batch column (or part of it), so ", if (length(res$protect_dropped_for_batch) > 1) "they were" else "it was",
           " dropped from the protected covariates instead - a column can't be both corrected for and protected from correction at the same time."),
         if (isTRUE(res$n_excluded_outliers > 0)) p(icon("circle-info"), " Excluded ", strong(res$n_excluded_outliers),
-          " sample(s) flagged as QC outliers before correcting.")
+          " sample(s) flagged as QC outliers before correcting."),
+        if (!is.null(res$combat_fallback_note)) p(icon("triangle-exclamation"), " ", res$combat_fallback_note,
+          " The settings above still show what was requested - this line reflects what actually ran.")
       )
     })
 

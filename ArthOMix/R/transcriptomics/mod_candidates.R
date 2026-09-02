@@ -305,6 +305,39 @@ mod_candidates_server <- function(id, dataset, results) {
     male_result <- sex_candidates("male_deg_run", "male_run_btn")
     pooled_result <- sex_candidates("pooled_deg_run", "pooled_run_btn")
 
+    ## Stale-cache guard. female_result/male_result/pooled_result are
+    ## eventReactives, so switching to a different dataset does NOT clear
+    ## them - only re-clicking their own "Compute ... candidates" button
+    ## does. results$wgcna/results$dge_runs DO get wiped on a dataset switch
+    ## (server.R's global `observeEvent(dataset$source, {results reset})`),
+    ## which correctly nulls results$candidates via the prereqs gate in the
+    ## observe() below - but only until the user re-runs WGCNA + DGE on the
+    ## new dataset. The moment prereqs() passes again, fr/mr/pr would resolve
+    ## to the *previous* dataset's cached candidate lists (never invalidated)
+    ## and get silently republished as if computed on the current one -
+    ## corrupting results$candidates$final, and everything downstream
+    ## (Feature Selection, Diagnostic Model) that reads it, with the wrong
+    ## dataset's genes. Same class of bug already found and fixed via
+    ## mod_dge.R's `dge_has_run` flag (reset on cur_source() change); this
+    ## module had no equivalent for its own three run buttons.
+    female_has_run <- reactiveVal(FALSE)
+    male_has_run <- reactiveVal(FALSE)
+    pooled_has_run <- reactiveVal(FALSE)
+    observeEvent(input$female_run_btn, female_has_run(TRUE), ignoreInit = TRUE)
+    observeEvent(input$male_run_btn, male_has_run(TRUE), ignoreInit = TRUE)
+    observeEvent(input$pooled_run_btn, pooled_has_run(TRUE), ignoreInit = TRUE)
+    observeEvent(dataset$source, {
+      female_has_run(FALSE); male_has_run(FALSE); pooled_has_run(FALSE)
+    }, ignoreInit = TRUE)
+
+    ## Every downstream reader below uses these, never the raw eventReactives
+    ## directly - req() failing here is caught the same way a not-yet-run
+    ## eventReactive already is everywhere it's consumed (tryCatch(..., error
+    ## = function(e) NULL) or a render* function's built-in silent handling).
+    female_safe <- function() { req(female_has_run()); female_result() }
+    male_safe <- function() { req(male_has_run()); male_result() }
+    pooled_safe <- function() { req(pooled_has_run()); pooled_result() }
+
     ## Registers the summary/Venn/table/download outputs for one panel (a sex panel,
     ## or the sex-less "pooled" fallback).
     register_panel <- function(prefix, res, btn_label = sprintf("Compute %s candidates", prefix)) {
@@ -353,9 +386,9 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     }
 
-    register_panel("female", female_result)
-    register_panel("male", male_result)
-    register_panel("pooled", pooled_result, btn_label = "Compute candidates")
+    register_panel("female", female_safe)
+    register_panel("male", male_safe)
+    register_panel("pooled", pooled_safe, btn_label = "Compute candidates")
 
     ## Final candidate gene set: lets the user pick female/male/union/intersection as
     ## "the" set for downstream tabs. Defaults to Union, matching this project's own
@@ -373,8 +406,8 @@ mod_candidates_server <- function(id, dataset, results) {
 
     final_candidates <- reactive({
       req(input$final_candidate_set)
-      fr <- tryCatch(female_result(), error = function(e) NULL)
-      mr <- tryCatch(male_result(), error = function(e) NULL)
+      fr <- tryCatch(female_safe(), error = function(e) NULL)
+      mr <- tryCatch(male_safe(), error = function(e) NULL)
       switch(input$final_candidate_set,
         female = {
           validate(need(!is.null(fr), "Female candidates are not available yet - see the Female panel above."))
@@ -432,7 +465,7 @@ mod_candidates_server <- function(id, dataset, results) {
         fc <- final_candidates()
         list(genes = fc$genes, stats = fc$stats)
       } else {
-        pr <- pooled_result()
+        pr <- pooled_safe()
         list(genes = pr$overlap, stats = pr$stats)
       }
     })
@@ -500,8 +533,8 @@ mod_candidates_server <- function(id, dataset, results) {
       }
       fc <- tryCatch(refined_final(), error = function(e) NULL)
       if (isTRUE(sex_available())) {
-        fr <- tryCatch(female_result(), error = function(e) NULL)
-        mr <- tryCatch(male_result(), error = function(e) NULL)
+        fr <- tryCatch(female_safe(), error = function(e) NULL)
+        mr <- tryCatch(male_safe(), error = function(e) NULL)
         if (is.null(fr) && is.null(mr)) return()
         results$candidates <- list(
           female = if (!is.null(fr)) list(n_candidates = length(fr$overlap), genes = fr$overlap, contrast = fr$contrast) else NULL,
@@ -509,12 +542,18 @@ mod_candidates_server <- function(id, dataset, results) {
           final = if (!is.null(fc)) list(selection = input$final_candidate_set, n_candidates = length(fc$genes), genes = fc$genes) else NULL
         )
       } else {
-        pr <- tryCatch(pooled_result(), error = function(e) NULL)
+        pr <- tryCatch(pooled_safe(), error = function(e) NULL)
         if (is.null(pr)) return()
+        ## fc NULL here only ever means refined_final()'s causal-evidence
+        ## filter(s) zeroed the set out (validate() throws "No candidate
+        ## genes pass ...") - matching the sex-stratified branch above,
+        ## publish NULL rather than silently falling back to the unfiltered
+        ## pooled overlap, which would contradict the on-screen error and
+        ## hand downstream tabs (Feature Selection, Diagnostic Model) a set
+        ## the user explicitly filtered out.
         results$candidates <- list(
           female = NULL, male = NULL,
-          final = if (!is.null(fc)) list(selection = "pooled", n_candidates = length(fc$genes), genes = fc$genes, contrast = pr$contrast)
-                  else list(selection = "pooled", n_candidates = length(pr$overlap), genes = pr$overlap, contrast = pr$contrast)
+          final = if (!is.null(fc)) list(selection = "pooled", n_candidates = length(fc$genes), genes = fc$genes, contrast = pr$contrast) else NULL
         )
       }
     })

@@ -34,10 +34,22 @@ mod_coloc_ui <- function(id) {
               p(class = "submodule-desc",
                 "A delimited file (CSV/TSV), one row per SNP: any trait's GWAS summary statistics, tested against the bundled eQTL region for the gene picked above. SNP IDs must be rsIDs (dbSNP rs#) to match the bundled eQTL instrument, and a sample-size column is required (coloc.abf needs N for both sides)."),
               textInput(ns("gwas_label"), "GWAS trait name (for labelling only)", value = "Uploaded GWAS", width = "100%"),
+              radioButtons(
+                ns("gwas_type"), "GWAS trait type", inline = TRUE,
+                choices = c("Binary (case/control)" = "cc", "Quantitative" = "quant"), selected = "cc"
+              ),
               fileInput(ns("gwas_file"), "GWAS file", accept = c(".csv", ".tsv", ".txt")),
               uiOutput(ns("gwas_map_ui"))
             ),
-            sliderInput(ns("case_frac"), "Assumed case fraction in the GWAS", value = 0.33, min = 0.05, max = 0.5, step = 0.01),
+            conditionalPanel(
+              condition = sprintf("input['%s'] == 'project' || input['%s'] == 'cc'", ns("data_source"), ns("gwas_type")),
+              sliderInput(ns("case_frac"), "Assumed case fraction in the GWAS", value = 0.33, min = 0.05, max = 0.5, step = 0.01)
+            ),
+            conditionalPanel(
+              condition = sprintf("input['%s'] == 'upload' && input['%s'] == 'quant'", ns("data_source"), ns("gwas_type")),
+              p(class = "submodule-desc",
+                "Quantitative trait selected: coloc.abf needs an effect-allele-frequency column for this GWAS to analyse it without a directly-known phenotype SD - map one below (the optional \"Effect allele frequency\" field).")
+            ),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
           ),
           ## Stays in the DOM (spinners work) but hidden until run_btn is clicked, as in mod_diagnostic.R.
@@ -110,14 +122,15 @@ mod_coloc_server <- function(id, dataset, results) {
 
       d1 <- list(beta = e$beta, varbeta = e$se^2, N = round(median(e$n)), MAF = pmin(e$eaf, 1 - e$eaf), type = "quant", snp = common)
       d2 <- list(beta = g$beta, varbeta = g$se^2, N = round(median(g$n)), type = "cc", s = input$case_frac, snp = common)
-      res <- suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2))
+      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2)), error = function(e) e)
+      validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
         snp = common, eqtl_beta = e$beta, eqtl_p = e$p, gwas_beta = g$beta, gwas_p = g$p, pos = e$position,
         snp_pp_h4 = res$results$SNP.PP.H4[match(common, res$results$snp)]
       )
 
-      list(gene = input$gene, gwas_label = "Bundled RA GWAS (Okada 2014)", summary = res$summary,
+      list(gene = input$gene, gwas_label = "Bundled RA GWAS (Okada 2014)", gwas_type = "cc", summary = res$summary,
            snp_df = snp_df, n_snp = length(common), uploaded = FALSE)
     }
 
@@ -126,6 +139,12 @@ mod_coloc_server <- function(id, dataset, results) {
     coloc_result_uploaded <- function() {
       req(input$gene, input$gwas_file)
       req(input$gwas_snp, input$gwas_beta, input$gwas_se, input$gwas_pval, input$gwas_ea, input$gwas_oa, input$gwas_n)
+
+      gwas_type <- input$gwas_type %||% "cc"
+      if (identical(gwas_type, "quant")) {
+        validate(need(nzchar(input$gwas_eaf %||% ""),
+          "Quantitative-trait colocalisation needs an effect-allele-frequency column for the GWAS (coloc.abf needs it to analyse a quantitative trait without a directly-known phenotype SD) - map one in \"Effect allele frequency\" below, or switch GWAS trait type to Binary if this GWAS has no allele-frequency column."))
+      }
 
       r <- coloc_regions[[input$gene]]
       eqtl <- as.data.frame(r$eqtl)
@@ -152,10 +171,14 @@ mod_coloc_server <- function(id, dataset, results) {
       validate(need(!is.null(dat_up) && nrow(dat_up) > 0,
         "Harmonisation found no overlapping SNPs between the bundled eQTL region and your uploaded GWAS - check that both use rsIDs and that allele columns are mapped correctly."))
       dat_up <- dat_up[dat_up$mr_keep, , drop = FALSE]
+      dat_up <- dat_up[!duplicated(dat_up$SNP), , drop = FALSE]
 
+      out_cols <- if (identical(gwas_type, "quant")) c("beta.outcome", "se.outcome", "samplesize.outcome", "eaf.outcome")
+                  else c("beta.outcome", "se.outcome", "samplesize.outcome")
       ok <- complete.cases(dat_up[, c("beta.exposure", "se.exposure", "eaf.exposure", "samplesize.exposure")]) &
-        complete.cases(dat_up[, c("beta.outcome", "se.outcome", "samplesize.outcome")]) &
+        complete.cases(dat_up[, out_cols]) &
         dat_up$se.exposure > 0 & dat_up$se.outcome > 0 & dat_up$eaf.exposure > 0 & dat_up$eaf.exposure < 1
+      if (identical(gwas_type, "quant")) ok <- ok & dat_up$eaf.outcome > 0 & dat_up$eaf.outcome < 1
       validate(need(sum(ok) >= 10,
         "Fewer than 10 SNPs have complete, harmonised summary statistics (with a valid sample size on both sides) for this region."))
       dat_up <- dat_up[ok, , drop = FALSE]
@@ -163,9 +186,15 @@ mod_coloc_server <- function(id, dataset, results) {
       d1 <- list(beta = dat_up$beta.exposure, varbeta = dat_up$se.exposure^2,
                  N = round(median(dat_up$samplesize.exposure)), MAF = pmin(dat_up$eaf.exposure, 1 - dat_up$eaf.exposure),
                  type = "quant", snp = dat_up$SNP)
-      d2 <- list(beta = dat_up$beta.outcome, varbeta = dat_up$se.outcome^2,
-                 N = round(median(dat_up$samplesize.outcome)), type = "cc", s = input$case_frac, snp = dat_up$SNP)
-      res <- suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2))
+      d2 <- if (identical(gwas_type, "quant")) {
+        list(beta = dat_up$beta.outcome, varbeta = dat_up$se.outcome^2, N = round(median(dat_up$samplesize.outcome)),
+             MAF = pmin(dat_up$eaf.outcome, 1 - dat_up$eaf.outcome), type = "quant", snp = dat_up$SNP)
+      } else {
+        list(beta = dat_up$beta.outcome, varbeta = dat_up$se.outcome^2,
+             N = round(median(dat_up$samplesize.outcome)), type = "cc", s = input$case_frac, snp = dat_up$SNP)
+      }
+      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2)), error = function(e) e)
+      validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
         snp = dat_up$SNP, eqtl_beta = dat_up$beta.exposure, eqtl_p = dat_up$pval.exposure,
@@ -173,7 +202,7 @@ mod_coloc_server <- function(id, dataset, results) {
         snp_pp_h4 = res$results$SNP.PP.H4[match(dat_up$SNP, res$results$snp)]
       )
 
-      list(gene = input$gene, gwas_label = label, summary = res$summary,
+      list(gene = input$gene, gwas_label = label, gwas_type = gwas_type, summary = res$summary,
            snp_df = snp_df, n_snp = nrow(dat_up), uploaded = TRUE)
     }
 
@@ -202,7 +231,8 @@ mod_coloc_server <- function(id, dataset, results) {
       pp4 <- res$summary["PP.H4.abf"]
       tagList(
         if (isTRUE(res$uploaded)) p(class = "empty-note", icon("upload"),
-          sprintf("Tested against your uploaded GWAS (%s), harmonised against the bundled eQTL region - no bundled reference estimate applies to custom data.", res$gwas_label)),
+          sprintf("Tested against your uploaded %s GWAS (%s), harmonised against the bundled eQTL region - no bundled reference estimate applies to custom data.",
+                  if (identical(res$gwas_type, "quant")) "quantitative-trait" else "case/control", res$gwas_label)),
         p(strong(res$gene), ": ", strong(res$n_snp), " shared SNPs tested against ", res$gwas_label, "."),
         p("Posterior probability of a shared causal variant (PP.H4): ", strong(sprintf("%.1f%%", 100 * pp4))),
         if (pp4 > 0.8) p(class = "empty-note", icon("circle-check"), "Strong support for colocalisation at this locus.")

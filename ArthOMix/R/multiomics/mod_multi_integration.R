@@ -139,6 +139,28 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       if (!isTRUE(d$ok)) return(NULL)
       mi_validate_dataset(d$layers, d$sample_meta, outcome_col = NULL)
     })
+    ## Block-scoped counterpart of mi_val() - eligibility/overlap/"planned
+    ## run" figures for DIABLO and SNF must be computed from only the blocks
+    ## the user actually checked (input$d_blocks/input$s_blocks), not every
+    ## block in the active dataset. Using the whole-dataset mi_val() for
+    ## these meant deselecting a poorly-matched third block never recovered
+    ## the larger sample overlap that the two remaining blocks alone would
+    ## allow, and an unselected block's own missing values could block SNF
+    ## even though the selected blocks were complete. mi_val() itself is
+    ## still used for the dataset-wide "2. Data validation" cards, which are
+    ## deliberately meant to describe the whole active dataset.
+    val_for_blocks <- function(blocks) {
+      d <- mi_dataset()
+      if (!isTRUE(d$ok)) return(NULL)
+      ## NULL covers both "checkboxGroupInput hasn't rendered yet" and "user
+      ## unchecked every block" (Shiny reports both as NULL) - defaulting to
+      ## every block in that case reproduces the old whole-dataset behavior
+      ## for the ambiguous case while still narrowing correctly the moment a
+      ## real (non-empty) selection exists.
+      blocks <- if (is.null(blocks)) names(d$layers) else intersect(blocks, names(d$layers))
+      if (length(blocks) < 1) return(NULL)
+      mi_validate_dataset(d$layers[blocks], d$sample_meta, outcome_col = NULL)
+    }
     mi_outcome <- reactive({
       d <- mi_dataset(); v <- mi_val()
       if (!isTRUE(d$ok) || is.null(v) || is.null(input$outcome_col)) return(NULL)
@@ -197,19 +219,22 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     diablo_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     diablo_elig <- reactive({
-      v <- mi_val()
-      if (is.null(v)) return(list(ok = FALSE, reason = "Select a dataset above first."))
-      mi_diablo_eligibility(v, mi_outcome())
+      v <- val_for_blocks(input$d_blocks)
+      if (is.null(v)) return(list(ok = FALSE, reason = "Select a dataset and at least one omics block above first."))
+      o <- if (is.null(input$outcome_col)) NULL else mi_outcome_summary(mi_dataset()$sample_meta, input$outcome_col, v$shared_ids)
+      mi_diablo_eligibility(v, o)
     })
 
     output$diablo_params_ui <- renderUI({
-      d <- mi_dataset(); v <- mi_val(); o <- mi_outcome()
+      d <- mi_dataset(); v <- mi_val()
       if (!isTRUE(d$ok) || is.null(v) || !isTRUE(v$ok)) return(box(width = NULL, title = "DIABLO parameters", status = "primary", solidHeader = FALSE, mi_warn("Select a valid dataset above first.")))
       elig <- diablo_elig()
       blocks <- v$block_labels
-      n <- v$n_shared
+      v_sel <- val_for_blocks(input$d_blocks) %||% v
+      n <- v_sel$n_shared
       loo_ok <- mi_diablo_loo_feasible(n)
-      min_class_n <- if (!is.null(o$class_counts)) min(o$class_counts) else max(2, floor(n / 2))
+      o_sel <- if (is.null(input$outcome_col)) NULL else mi_outcome_summary(mi_dataset()$sample_meta, input$outcome_col, v_sel$shared_ids)
+      min_class_n <- if (!is.null(o_sel$class_counts)) min(o_sel$class_counts) else max(2, floor(n / 2))
 
       tagList(
         box(
@@ -221,8 +246,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
             p(class = "submodule-desc", "Outcome variable is set once, above (Data selection) - it applies to both DIABLO and Compare."),
             hr(),
             h5("Components"),
-            numericInput(ns("d_ncomp"), "Number of components (ncomp)", value = max(mi_diablo_feasible_ncomp(o$n_classes %||% 2, min_class_n)), min = 1, max = max(mi_diablo_feasible_ncomp(o$n_classes %||% 2, min_class_n)), step = 1),
-            p(class = "submodule-desc", sprintf("Feasible range for this dataset: 1-%d.", max(mi_diablo_feasible_ncomp(o$n_classes %||% 2, min_class_n)))),
+            numericInput(ns("d_ncomp"), "Number of components (ncomp)", value = max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)), min = 1, max = max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)), step = 1),
+            p(class = "submodule-desc", sprintf("Feasible range for this dataset: 1-%d.", max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)))),
             hr(),
             h5("Feature selection"),
             uiOutput(ns("d_keepx_manual_ui")),
@@ -312,7 +337,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     output$d_summary_pre <- renderUI({
-      v <- req(mi_val()); p <- d_params()
+      v <- req(val_for_blocks(input$d_blocks)); p <- d_params()
       tags$div(class = "submodule-desc",
         tags$strong("Planned run: "), sprintf(
           "Blocks: %s | Samples: %d | Outcome: %s | Components: %s | keepX: %s | Validation: %s, %s-fold x %s repeats | Distance: %s",
@@ -342,7 +367,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         promises::future_promise(mi_diablo_run(layers, outcome, ids, params), seed = TRUE)
       })
       observeEvent(input$d_run_btn, {
-        v <- req(mi_val()); d <- req(mi_dataset())
+        v <- req(val_for_blocks(input$d_blocks)); d <- req(mi_dataset())
         validate(need(isTRUE(diablo_elig()$ok), diablo_elig()$reason))
         layers <- d$layers[input$d_blocks]
         outcome <- stats::setNames(d$sample_meta[[input$outcome_col]], rownames(d$sample_meta))
@@ -541,8 +566,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     snf_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     snf_elig <- reactive({
-      v <- mi_val()
-      if (is.null(v)) return(list(ok = FALSE, reason = "Select a dataset above first."))
+      v <- val_for_blocks(input$s_blocks)
+      if (is.null(v)) return(list(ok = FALSE, reason = "Select a dataset and at least one omics block above first."))
       mi_snf_eligibility(v)
     })
 
@@ -551,7 +576,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       if (!isTRUE(d$ok) || is.null(v) || !isTRUE(v$ok)) return(box(width = NULL, title = "SNF parameters", status = "primary", solidHeader = FALSE, mi_warn("Select a valid dataset above first.")))
       elig <- snf_elig()
       blocks <- v$block_labels
-      n <- v$n_shared
+      v_sel <- val_for_blocks(input$s_blocks) %||% v
+      n <- v_sel$n_shared
       k_range <- mi_snf_feasible_k_range(n)
 
       box(
@@ -608,7 +634,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     output$s_missing_ui <- renderUI({
-      v <- req(mi_val())
+      v <- req(val_for_blocks(input$s_blocks))
       rows <- lapply(names(v$per_block), function(nm) {
         b <- v$per_block[[nm]]
         sprintf("%s: %.1f%%", nm, if (isTRUE(b$ok)) b$pct_missing else NA)
@@ -622,7 +648,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     output$s_summary_pre <- renderUI({
-      v <- req(mi_val())
+      v <- req(val_for_blocks(input$s_blocks))
       tags$div(class = "submodule-desc", tags$strong("Planned run: "), sprintf(
         "Blocks: %s | Samples: %d | K: %s | Alpha: %s | T: %s | Clusters: %s | Technique: %s | Seed: %s",
         paste(input$s_blocks, collapse = " + "), v$n_shared,
@@ -652,7 +678,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
 
     run_snf <- function() {
       d <- mi_dataset()
-      layers <- lapply(d$layers[input$s_blocks], function(m) m[mi_val()$shared_ids, , drop = FALSE])
+      v <- val_for_blocks(input$s_blocks)
+      layers <- lapply(d$layers[input$s_blocks], function(m) m[v$shared_ids, , drop = FALSE])
       mi_snf_run(layers, params = s_params())
     }
 
@@ -660,7 +687,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       snf_task <- ExtendedTask$new(function(layers, params) promises::future_promise(mi_snf_run(layers, params), seed = TRUE))
       observeEvent(input$s_run_btn, {
         validate(need(isTRUE(snf_elig()$ok), snf_elig()$reason))
-        d <- req(mi_dataset()); v <- req(mi_val())
+        d <- req(mi_dataset()); v <- req(val_for_blocks(input$s_blocks))
         layers <- lapply(d$layers[input$s_blocks], function(m) m[v$shared_ids, , drop = FALSE])
         snf_state$error <- NULL
         snf_state$result <- NULL

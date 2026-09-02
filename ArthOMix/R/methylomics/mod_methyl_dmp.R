@@ -1,15 +1,30 @@
 ## R/methylomics/mod_methyl_dmp.R
 ## Methylomics sub-module: Differential Methylation (DMPs).
 ##
-## Two sections, gated on data availability (can both show at once):
-##   1. "Default analysis (GSE42861)" - reproduces the published
-##      sex-stratified limma + bacon-correction model (plain and
-##      SVA-adjusted) from precomputed tables; nothing recomputes here.
-##      Shown only when methyl_dataset$preloaded is TRUE.
-##   2. "DMP Analysis" - full configurable live EWAS engine (sex/group/
-##      covariate selection, filters, limma model, plots, export) that
-##      runs against whatever beta/M-value matrix is currently loaded,
-##      upload or preloaded. Shown whenever methyl_dataset$beta is set.
+## Two tabs, each gated on data availability:
+##   "SVA" tab -
+##     1a. "Default analysis (GSE42861)" - reproduces the published
+##         sex-stratified limma + bacon-correction model (plain and
+##         SVA-adjusted) from precomputed tables; nothing recomputes here.
+##         Shown only when methyl_dataset$preloaded is TRUE.
+##     1b. Live SVA-adjusted engine - same statistical method
+##         (sva::sva() surrogate-variable estimation, appended as model
+##         covariates, then bacon::bacon() bias/inflation correction ahead
+##         of Benjamini-Hochberg FDR; see
+##         data/preloaded/methylomics/tables/script03_dmp_sva_sexstratified/
+##         METHODS_dmp_sva_sexstratified.md for the method this reproduces)
+##         run live against whatever beta/M-value matrix is loaded via
+##         Upload or a live GEO fetch (i.e. methyl_dataset$beta is set and
+##         methyl_dataset$preloaded is not TRUE). Shares its sample/probe
+##         subsetting logic (mod_methyl_dmp_prepare_subset()) with the DMP
+##         tab below so selection can't silently diverge between the two.
+##   "DMP" tab -
+##     2. "DMP Analysis" - full configurable live EWAS engine (sex/group/
+##        covariate selection, filters, limma model, plots, export) that
+##        runs against whatever beta/M-value matrix is currently loaded,
+##        upload or preloaded. Shown whenever methyl_dataset$beta is set.
+##        Deliberately does not apply SVA/bacon correction - it's the
+##        fast, unadjusted counterpart to the SVA tab's live engine above.
 
 mod_methyl_dmp_config <- list(
   id = "dmp", title = "Differential Methylation (DMPs)", icon = "chart-scatter", group = "Data",
@@ -95,6 +110,170 @@ methyl_chunked_lmfit <- function(m, design, chunk_size = 20000) {
   for (nm in per_row_1d) if (!is.null(out[[nm]])) out[[nm]] <- do.call(c, lapply(fits, `[[`, nm))
   for (nm in per_row_2d) if (!is.null(out[[nm]])) out[[nm]] <- do.call(rbind, lapply(fits, `[[`, nm))
   out
+}
+
+## Sample + probe subsetting shared by the DMP tab's plain live engine and
+## the SVA tab's live SVA-adjusted engine, so the two can't silently diverge
+## in which samples/probes they analyze - only the model fit itself differs
+## downstream. Mirrors the validation/subsetting steps previously inlined
+## in the DMP tab's own live_result() one-for-one (sex subset -> group/ref/
+## comp subset -> covariate complete-cases -> missingness/variance/SNP probe
+## filters -> beta/M-value matrix construction).
+mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_name,
+                                            group_col, ref, comp, covariate_cols,
+                                            min_valid_pct, min_variance, snp_filter, anno) {
+  sheet <- methyl_dataset$sample_sheet
+  validate(need(!is.null(methyl_dataset$beta), "Load a dataset first."))
+  validate(need(!is.null(sheet), "No sample sheet loaded."))
+  validate(need(!is.null(group_col) && group_col %in% colnames(sheet), "Pick a group column."))
+  validate(need(!is.null(ref) && !is.null(comp), "Pick a reference and a comparison group."))
+  validate(need(ref != comp, "Reference and comparison groups must be different."))
+
+  sample_ids <- methyl_sheet_sample_ids(sheet, colnames(methyl_dataset$beta))
+  common <- intersect(colnames(methyl_dataset$beta), sample_ids)
+  validate(need(length(common) >= 6, "Fewer than 6 samples match between the matrix and the sample sheet."))
+  beta0 <- methyl_dataset$beta[, common, drop = FALSE]
+  ## Preloaded sample sheet is a data.table - coerce to data.frame so
+  ## single-bracket column selection by name behaves consistently below.
+  ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
+
+  ## ---- sex subset --------------------------------------------------
+  sex_label <- "All samples"
+  if (!identical(sex_choice, "__all__")) {
+    validate(need(!is.null(sex_col_name), "No sex column available to subset on."))
+    keep_sex <- !is.na(ph0[[sex_col_name]]) & as.character(ph0[[sex_col_name]]) == sex_choice
+    validate(need(sum(keep_sex) >= 6, sprintf("Fewer than 6 samples remain after restricting to sex = \"%s\".", sex_choice)))
+    beta0 <- beta0[, keep_sex, drop = FALSE]
+    ph0 <- ph0[keep_sex, , drop = FALSE]
+    sex_label <- sex_choice
+  }
+  n_after_sex <- ncol(beta0)
+
+  ## ---- group/reference/comparison subset ----------------------------
+  grp_raw <- as.character(ph0[[group_col]])
+  keep_grp <- !is.na(grp_raw) & grp_raw %in% c(ref, comp)
+  beta1 <- beta0[, keep_grp, drop = FALSE]
+  ph1 <- ph0[keep_grp, , drop = FALSE]
+  grp <- factor(grp_raw[keep_grp], levels = c(ref, comp))
+  rm(beta0)  ## free the full-size matrix now that beta1 exists (memory pressure on full arrays)
+
+  ## ---- optional covariates (complete cases only) --------------------
+  cov_df <- NULL
+  if (length(covariate_cols) > 0) {
+    cc <- ph1[, covariate_cols, drop = FALSE]
+    complete <- stats::complete.cases(cc)
+    validate(need(sum(complete) >= 6, "Fewer than 6 samples have no missing values in the selected covariates. Deselect a covariate, or pick different ones."))
+    beta1 <- beta1[, complete, drop = FALSE]
+    ph1 <- ph1[complete, , drop = FALSE]
+    grp <- grp[complete]
+    cov_df <- ph1[, covariate_cols, drop = FALSE]
+    for (cl in covariate_cols) if (!is.numeric(cov_df[[cl]])) cov_df[[cl]] <- factor(as.character(cov_df[[cl]]))
+  }
+
+  n_ref <- sum(grp == ref, na.rm = TRUE)
+  n_comp <- sum(grp == comp, na.rm = TRUE)
+  validate(need(n_ref >= 3 && n_comp >= 3,
+    sprintf("Each group needs at least 3 samples to fit a model (reference \"%s\": %d, comparison \"%s\": %d).",
+            ref, n_ref, comp, n_comp)))
+
+  ## ---- probe filters (missingness / variance / SNP), before the M-value transform ----
+  is_m_scale <- identical(methyl_dataset$input_scale, "m")
+  beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
+
+  max_na_frac <- 1 - (min_valid_pct %||% 80) / 100
+  f_miss <- methyl_filter_missing(beta_scale_full, max_na_frac)
+  keep_probe <- f_miss$keep
+  f_var <- methyl_filter_variance(beta_scale_full, min_variance %||% 0)
+  keep_probe <- keep_probe & f_var$keep
+  snp_note <- NULL
+  if (isTRUE(snp_filter)) {
+    if (isTRUE(anno$ok)) {
+      f_snp <- methyl_filter_snp(beta_scale_full, anno)
+      keep_probe <- keep_probe & f_snp$keep
+      snp_note <- f_snp$note
+    } else snp_note <- anno$reason
+  }
+  validate(need(sum(keep_probe) >= 10,
+    "Fewer than 10 CpGs remain after the missingness/variance/SNP filters. Relax the filters and try again."))
+
+  beta1 <- beta1[keep_probe, , drop = FALSE]
+  if (is_m_scale) rm(beta_scale_full)
+  gc(FALSE)
+
+  ## ---- beta/M-value matrices (filtered subset only) ---------------------
+  m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
+  beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
+
+  list(
+    m = m, beta_scale = beta_scale, grp = grp, cov_df = cov_df,
+    sex_label = sex_label, n_after_sex = n_after_sex, n_ref = n_ref, n_comp = n_comp,
+    n_probes_before_filter = nrow(beta1),
+    missing_note = f_miss$note, variance_note = f_var$note, snp_note = snp_note
+  )
+}
+
+## Live SVA + bacon-corrected model, mirroring the precomputed GSE42861
+## pipeline (script03_dmp_sva_sexstratified/METHODS_dmp_sva_sexstratified.md)
+## so the same statistical method is available live for Upload/GEO-fetched
+## data, not just the preloaded reference cohort.
+##
+## Surrogate variables are estimated with sva::sva(), contrasting a full
+## model (~ group [+ covariates]) against the same model with `group`
+## removed - exactly the full-vs-null contrast the precomputed pipeline
+## uses, so that variation attributable to the group comparison itself
+## isn't absorbed into the surrogate variables. Estimation is restricted to
+## the `sv_topn` most variable probes (same top-variable-probe convention
+## as the precomputed pipeline) since sva::sva() is expensive at
+## genome-wide scale; the final limma fit still uses the full filtered
+## probe set, with the estimated SVs appended as ordinary covariates.
+mod_methyl_sva_fit <- function(m, grp, cov_df, sv_topn = 20000) {
+  cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
+  safe_cov <- if (length(cov_names) > 0) sprintf("`%s`", cov_names) else character(0)
+
+  mod_df <- data.frame(grp = grp)
+  if (!is.null(cov_df)) mod_df <- cbind(mod_df, cov_df)
+  full_form <- stats::as.formula(paste("~ grp", if (length(safe_cov) > 0) paste("+", paste(safe_cov, collapse = " + ")) else ""))
+  null_form <- if (length(safe_cov) > 0) stats::as.formula(paste("~", paste(safe_cov, collapse = " + "))) else ~1
+  mod1 <- stats::model.matrix(full_form, data = mod_df)
+  mod0 <- stats::model.matrix(null_form, data = mod_df)
+
+  n <- nrow(m)
+  top_idx <- if (n > sv_topn) order(matrixStats::rowVars(m), decreasing = TRUE)[seq_len(sv_topn)] else seq_len(n)
+
+  sv_obj <- tryCatch(
+    sva::sva(dat = as.matrix(m[top_idx, , drop = FALSE]), mod = mod1, mod0 = mod0, method = "irw"),
+    error = function(e) NULL
+  )
+
+  sv_mat <- NULL
+  if (!is.null(sv_obj) && !is.null(sv_obj$n.sv) && sv_obj$n.sv > 0 && !is.null(sv_obj$sv) && NCOL(sv_obj$sv) > 0) {
+    sv_mat <- as.matrix(sv_obj$sv)[, seq_len(sv_obj$n.sv), drop = FALSE]
+    colnames(sv_mat) <- paste0("SV", seq_len(ncol(sv_mat)))
+  }
+
+  design_grp <- stats::model.matrix(~0 + grp)
+  colnames(design_grp) <- levels(grp)
+  design_cov <- NULL
+  if (length(cov_names) > 0) {
+    dc <- stats::model.matrix(stats::as.formula(paste("~", paste(safe_cov, collapse = " + "))), data = cov_df)
+    design_cov <- dc[, setdiff(colnames(dc), "(Intercept)"), drop = FALSE]
+  }
+
+  design <- design_grp
+  if (!is.null(design_cov)) design <- cbind(design, design_cov)
+  if (!is.null(sv_mat)) design <- cbind(design, sv_mat)
+
+  ## SVA's own component count is a heuristic (Buja-Eyuboglu "be" method) and
+  ## can occasionally overshoot on a small live cohort; drop trailing SVs
+  ## (the last-added columns) rather than failing the model outright if that
+  ## makes the design matrix rank-deficient.
+  n_sv <- if (!is.null(sv_mat)) ncol(sv_mat) else 0L
+  while (n_sv > 0 && qr(design)$rank < ncol(design)) {
+    n_sv <- n_sv - 1L
+    design <- design[, seq_len(ncol(design) - 1), drop = FALSE]
+  }
+
+  list(design = design, n_sv = n_sv)
 }
 
 ## Auto-detects a sex/gender column by name; same candidates as
@@ -195,6 +374,54 @@ mod_methyl_dmp_betadist <- function(beta_mat, cpgs, grp) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
+## UI for the SVA tab's live engine (Upload/GEO-fetched data). Deliberately
+## mirrors the DMP tab's own live_ui card/control layout (same fluidRow(4,8)
+## split, same control types) so the two tabs read as one consistent
+## module, differing only in which inputs/outputs it targets (svalive_*
+## instead of live_*) and that it also runs SVA + bacon correction.
+mod_methyl_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
+  sheet <- methyl_dataset$sample_sheet
+  cols <- colnames(sheet)
+  arr_ok <- isTRUE(anno$ok)
+  tagList(
+    div(class = "card",
+        div(class = "card-title", icon("flask"), "SVA-adjusted Analysis (live)"),
+        p(class = "empty-note", icon("circle-info"),
+          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva, full-vs-null contrast) and applies bacon bias/inflation correction on top of a limma model - the same method used for the preloaded cohort's reproduced analysis above, run live here against your own data.",
+                  methyl_dataset$source %||% "(unnamed)",
+                  format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta))),
+        fluidRow(
+          column(4,
+            tags$h5("Sex"),
+            radioButtons(ns("svalive_sex"), NULL, inline = TRUE, choices = mod_methyl_dmp_sex_choices(sheet, sc), selected = "__all__"),
+            if (length(mod_methyl_dmp_sex_choices(sheet, sc)) <= 1) p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only."),
+
+            tags$h5("Comparison"),
+            selectInput(ns("svalive_group_col"), "Group column", choices = cols,
+                        selected = intersect(c("group", "Group", "disease", "Disease"), cols)[1] %||% cols[1]),
+            uiOutput(ns("svalive_level_ui")),
+
+            tags$h5("Filters"),
+            numericInput(ns("svalive_fdr"), "Adjusted p-value (FDR) threshold", value = 0.05, min = 0, max = 1, step = 0.01),
+            numericInput(ns("svalive_dbeta"), "Absolute Δβ threshold", value = 0, min = 0, max = 1, step = 0.01),
+            radioButtons(ns("svalive_direction"), "Direction", inline = TRUE,
+                         choices = c("All DMPs" = "any", "Hypermethylated" = "hyper", "Hypomethylated" = "hypo"), selected = "any"),
+            numericInput(ns("svalive_min_valid_pct"), "Minimum valid (non-missing) sample %", value = 80, min = 0, max = 100, step = 5),
+            numericInput(ns("svalive_min_variance"), "Minimum methylation variance (optional)", value = 0, min = 0, step = 0.001),
+            if (arr_ok) checkboxInput(ns("svalive_snp_filter"), "Remove SNP-associated probes (manifest Probe_rs/CpG_rs/SBE_rs)", value = FALSE)
+            else p(class = "empty-note", icon("circle-info"), anno$reason),
+
+            tags$h5("Covariates (optional)"),
+            uiOutput(ns("svalive_covariate_ui")),
+
+            actionButton(ns("svalive_run_btn"), "Run SVA-adjusted Analysis", icon = icon("play"), class = "btn-primary")
+          ),
+          column(8, withSpinner(uiOutput(ns("svalive_results_ui")), color = "#2563EB", type = 6))
+        )
+    )
+  )
+}
+
 mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -211,8 +438,25 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$default_ui <- renderUI({
-      ## Preloaded dataset's reproduced analysis only; renders nothing on the upload path.
-      req(isTRUE(methyl_dataset$preloaded))
+      ## Three data sources this tab has to cover: preloaded (reproduced,
+      ## precomputed - below), Upload/GEO with no data yet, and Upload/GEO
+      ## with data loaded (live SVA engine, further down this file).
+      if (!isTRUE(methyl_dataset$preloaded)) {
+        if (is.null(methyl_dataset$beta)) {
+          return(div(class = "card",
+            div(class = "card-title", icon("upload"), "SVA-adjusted Analysis"),
+            p(class = "submodule-desc",
+              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Methylomics Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected differential methylation model - the same statistical method used for the preloaded reference cohort's reproduced analysis.")
+          ))
+        }
+        if (is.null(methyl_dataset$sample_sheet)) {
+          return(div(class = "card",
+            div(class = "card-title", icon("triangle-exclamation"), "No sample sheet"),
+            p(class = "submodule-desc", "An SVA-adjusted model needs a group variable - re-load on the Dataset tab with a sample sheet/phenotype file included.")
+          ))
+        }
+        return(mod_methyl_svalive_panel_ui(ns, methyl_dataset, sex_col(), anno_result()))
+      }
       d <- default_data()
       req(d)
       n_ra <- sum(d$pheno$group == "RA", na.rm = TRUE); n_ctrl <- sum(d$pheno$group == "Control", na.rm = TRUE)
@@ -316,6 +560,270 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     output$download_default <- downloadHandler(
       filename = function() { r <- sva_run(); sprintf("gse42861_dmp_sva_%s_fdr%s.csv", r$sex, r$fdr) },
       content = function(file) utils::write.csv(default_filtered(), file, row.names = FALSE)
+    )
+
+    ## ================= 1b. Live SVA-adjusted engine (Upload / GEO) ========
+    ## Same "SVA" tab, shown instead of the block above whenever the active
+    ## dataset isn't the preloaded reference cohort. Reuses
+    ## mod_methyl_dmp_prepare_subset() (shared with the DMP tab's plain live
+    ## engine, section 2 below) for sample/probe selection, then estimates
+    ## surrogate variables and applies bacon correction - see
+    ## mod_methyl_sva_fit() above for the method itself.
+
+    output$svalive_level_ui <- renderUI({
+      req(input$svalive_group_col)
+      sheet <- methyl_dataset$sample_sheet
+      req(input$svalive_group_col %in% colnames(sheet))
+      levels_available <- sort(unique(as.character(stats::na.omit(sheet[[input$svalive_group_col]]))))
+      validate(need(length(levels_available) >= 2, "This column has fewer than two distinct values - pick a different group column."))
+      tagList(
+        selectInput(ns("svalive_ref"), "Reference group", choices = levels_available, selected = levels_available[1]),
+        selectInput(ns("svalive_comp"), "Comparison group", choices = levels_available, selected = levels_available[min(2, length(levels_available))])
+      )
+    })
+
+    output$svalive_covariate_ui <- renderUI({
+      sheet <- methyl_dataset$sample_sheet
+      req(sheet, input$svalive_group_col)
+      exclude <- c(id_cols(), input$svalive_group_col)
+      if (!identical(input$svalive_sex %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
+      cand <- mod_methyl_dmp_covariate_cols(sheet, exclude)
+      if (length(cand) == 0) {
+        return(p(class = "empty-note", icon("circle-info"), "No additional phenotype columns are available to use as covariates."))
+      }
+      checkboxGroupInput(ns("svalive_covariates"), NULL, choices = cand, selected = character(0))
+    })
+
+    svalive_has_run <- reactiveVal(FALSE)
+    observeEvent(methyl_dataset$beta, svalive_has_run(FALSE), ignoreNULL = TRUE)
+
+    svalive_result <- eventReactive(input$svalive_run_btn, withProgress(
+      message = "Estimating surrogate variables and fitting the bacon-corrected model - slower than the plain DMP model, and can take several minutes on a full genome-wide array...",
+      value = 0.15, {
+        sub <- mod_methyl_dmp_prepare_subset(
+          methyl_dataset, input$svalive_sex %||% "__all__", sex_col(),
+          input$svalive_group_col, input$svalive_ref, input$svalive_comp,
+          input$svalive_covariates %||% character(0),
+          input$svalive_min_valid_pct, input$svalive_min_variance,
+          isTRUE(input$svalive_snp_filter), anno_result()
+        )
+        m <- sub$m; beta_scale <- sub$beta_scale; grp <- sub$grp; cov_df <- sub$cov_df
+
+        incProgress(0.3, detail = "Estimating surrogate variables (sva::sva)")
+        sv_fit <- mod_methyl_sva_fit(m, grp, cov_df)
+        design <- sv_fit$design
+        validate(need(qr(design)$rank == ncol(design),
+          "The selected group/covariate combination produces a rank-deficient design even after dropping surrogate variables. Remove a covariate or change the comparison."))
+
+        incProgress(0.3, detail = "Fitting limma model")
+        fit <- methyl_chunked_lmfit(m, design)
+        cm <- tryCatch(limma::makeContrasts(contrasts = paste0(input$svalive_comp, "-", input$svalive_ref), levels = design),
+                        error = function(e) validate(need(FALSE, "Could not build the reference/comparison contrast - group names may contain characters limma can't use directly (try renaming the group levels in your sample sheet).")))
+        fit2 <- tryCatch(limma::eBayes(limma::contrasts.fit(fit, cm)),
+                          error = function(e) validate(need(FALSE, paste("limma could not fit this model:", conditionMessage(e)))))
+        tt <- limma::topTable(fit2, number = Inf, sort.by = "P")
+
+        incProgress(0.2, detail = "bacon bias/inflation correction")
+        bc <- tryCatch(bacon::bacon(teststatistics = tt$t, verbose = FALSE),
+                        error = function(e) validate(need(FALSE, paste("bacon could not fit a bias/inflation model on these test statistics:", conditionMessage(e)))))
+        p_bacon <- as.numeric(bacon::pval(bc))
+        fdr <- stats::p.adjust(p_bacon, method = "BH")
+
+        beta_ref <- rowMeans(beta_scale[, grp == input$svalive_ref, drop = FALSE], na.rm = TRUE)
+        beta_comp <- rowMeans(beta_scale[, grp == input$svalive_comp, drop = FALSE], na.rm = TRUE)
+        dbeta <- (beta_comp - beta_ref)[rownames(tt)]
+
+        df <- data.frame(
+          cpg = rownames(tt), t = tt$t, p_raw = tt$P.Value,
+          p_bacon = p_bacon, fdr = fdr,
+          dbeta = dbeta, ref_mean_beta = beta_ref[rownames(tt)], comp_mean_beta = beta_comp[rownames(tt)],
+          row.names = NULL, stringsAsFactors = FALSE
+        )
+        ar <- anno_result()
+        df$chr <- NA_character_; df$pos <- NA_real_; df$gene <- NA_character_
+        if (isTRUE(ar$ok)) {
+          a <- ar$anno
+          hit <- df$cpg %in% rownames(a)
+          df$chr[hit] <- a[df$cpg[hit], "chr"]
+          df$pos[hit] <- a[df$cpg[hit], "pos"]
+          df$gene[hit] <- a[df$cpg[hit], "gene"]
+        }
+        df$direction <- ifelse(df$dbeta > 0, "hyper", "hypo")
+
+        cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
+        design_formula <- sprintf("Methylation ~ %s%s + %d surrogate variable(s)", input$svalive_group_col,
+                                   if (length(cov_names) > 0) paste0(" + ", paste(cov_names, collapse = " + ")) else "",
+                                   sv_fit$n_sv)
+
+        list(
+          df = df, ref = input$svalive_ref, comp = input$svalive_comp,
+          group_col = input$svalive_group_col, sex_label = sub$sex_label, sex_col = sex_col(),
+          covariates = cov_names, n_sv = sv_fit$n_sv, design_formula = design_formula,
+          n_after_sex = sub$n_after_sex, n_ref = sub$n_ref, n_comp = sub$n_comp,
+          n_probes_tested = nrow(df), n_probes_before_filter = sub$n_probes_before_filter,
+          min_valid_pct = input$svalive_min_valid_pct %||% 80, min_variance = input$svalive_min_variance %||% 0,
+          snp_filter = isTRUE(input$svalive_snp_filter), snp_note = sub$snp_note,
+          missing_note = sub$missing_note, variance_note = sub$variance_note,
+          anno_ok = isTRUE(ar$ok), norm_status = dataset_norm_status(),
+          dataset_source = methyl_dataset$source %||% "(unnamed)",
+          beta_scale = beta_scale, grp = grp,
+          lambda_gc = mod_methyl_lambda_gc(df$p_raw),
+          lambda_bacon = bacon::inflation(bc), bias_bacon = bacon::bias(bc),
+          run_at = Sys.time()
+        )
+      }
+    ), ignoreInit = TRUE)
+
+    observeEvent(svalive_result(), svalive_has_run(TRUE))
+
+    svalive_filtered <- reactive({
+      r <- svalive_result()
+      direction <- if (identical(input$svalive_direction, "any")) NULL else input$svalive_direction
+      mod_methyl_dmp_filter(r$df, "fdr", "dbeta", input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0, direction)
+    })
+
+    svalive_sig_count <- reactive({
+      r <- svalive_result()
+      sum(!is.na(r$df$fdr) & r$df$fdr <= (input$svalive_fdr %||% 0.05) & abs(r$df$dbeta) >= (input$svalive_dbeta %||% 0), na.rm = TRUE)
+    })
+
+    output$svalive_results_ui <- renderUI({
+      req(svalive_has_run(), svalive_result())
+      r <- svalive_result()
+      n_sig <- svalive_sig_count()
+      n_hyper <- sum(!is.na(r$df$fdr) & r$df$fdr <= (input$svalive_fdr %||% 0.05) & r$df$dbeta >= (input$svalive_dbeta %||% 0), na.rm = TRUE)
+      n_hypo  <- sum(!is.na(r$df$fdr) & r$df$fdr <= (input$svalive_fdr %||% 0.05) & -r$df$dbeta >= (input$svalive_dbeta %||% 0), na.rm = TRUE)
+
+      tagList(
+        div(class = "card",
+            div(class = "card-title", icon("circle-check"), "Configuration & sample sizes"),
+            p(strong("Model: "), tags$code(r$design_formula), " (limma moderated t-test, eBayes; bacon-corrected)."),
+            p(strong("Sex: "), r$sex_label, " | ", strong("Reference: "), r$ref, sprintf(" (n=%d)", r$n_ref),
+              " | ", strong("Comparison: "), r$comp, sprintf(" (n=%d)", r$n_comp),
+              " | ", strong("Total analyzed: "), r$n_ref + r$n_comp),
+            if (length(r$covariates) > 0) p(strong("Covariates: "), paste(r$covariates, collapse = ", ")) else p(class = "submodule-desc", "No covariates selected."),
+            p(strong("Surrogate variables: "), r$n_sv,
+              if (r$n_sv == 0) " - none were estimated for this cohort; results below are bacon-corrected but not SVA-adjusted." else ""),
+            if ((r$n_ref < 10 || r$n_comp < 10))
+              p(class = "empty-note", icon("triangle-exclamation"), "One or both groups have fewer than 10 samples - results may be underpowered, and surrogate-variable estimation is less reliable at this scale."),
+            p(class = "submodule-desc", sprintf("%s Probes tested after QC filters: %s of %s.",
+                                                  paste(c(r$missing_note, r$variance_note, r$snp_note), collapse = " "),
+                                                  format(r$n_probes_tested, big.mark = ","), format(r$n_probes_before_filter, big.mark = ",")))
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("gauge-high"), "Genomic inflation diagnostic"),
+            p(strong("Genomic inflation factor before bacon (λ): "), if (is.na(r$lambda_gc)) "not available" else sprintf("%.2f", r$lambda_gc)),
+            p(strong("bacon inflation: "), sprintf("%.2f", r$lambda_bacon), " | ", strong("bacon bias: "), sprintf("%.3f", r$bias_bacon),
+              " - bacon's own bias/inflation estimates on the corrected test statistics; 1.0 inflation and 0 bias indicate a well-calibrated model."),
+            withSpinner(plotOutput(ns("svalive_qq"), height = 320), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-simple"), "Summary"),
+            div(class = "methyl-stats-row",
+              fluidRow(
+                valueBox(format(r$n_probes_tested, big.mark = ","), "CpGs tested", icon = icon("dna"), color = "purple", width = 3),
+                valueBox(format(n_sig, big.mark = ","), "Significant (FDR + Δβ)", icon = icon("star"), color = if (n_sig > 0) "green" else "light-blue", width = 3),
+                valueBox(format(n_hyper, big.mark = ","), "Hypermethylated", icon = icon("arrow-up"), color = "red", width = 3),
+                valueBox(format(n_hypo, big.mark = ","), "Hypomethylated", icon = icon("arrow-down"), color = "blue", width = 3)
+              )
+            ),
+            if (n_sig == 0) p(class = "empty-note", icon("circle-info"),
+              "No DMPs passed the selected FDR and Δβ thresholds. Consider relaxing the filtering thresholds or reviewing the sample/group configuration.")
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-scatter"), "Volcano plot"),
+            withSpinner(plotOutput(ns("svalive_volcano"), height = 340), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-column"), "Manhattan plot"),
+            if (r$anno_ok) withSpinner(plotOutput(ns("svalive_manhattan"), height = 320), color = "#2563EB", type = 6)
+            else p(class = "empty-note", icon("circle-info"), "No chromosome/position annotation is available for this array type in this deployment.")
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("ranking-star"), "Top DMPs"),
+            fluidRow(
+              column(6, selectInput(ns("svalive_rank_by"), "Rank by", choices = c("FDR" = "fdr", "Absolute Δβ" = "dbeta", "Combined (FDR/|Δβ|)" = "combined"), selected = "fdr")),
+              column(6, selectInput(ns("svalive_top_n"), "Show top", choices = c(10, 20, 50, 100), selected = 20))
+            ),
+            withSpinner(plotOutput(ns("svalive_topplot"), height = 380), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-simple"), "β-value distribution (top-ranked CpGs)"),
+            withSpinner(plotOutput(ns("svalive_betadist"), height = 340), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("table"), "Results table"),
+            div(class = "table-toolbar",
+                downloadButton(ns("download_svalive"), "Download filtered CSV", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_config"), "Download analysis configuration", class = "btn-default btn-sm")),
+            DT::dataTableOutput(ns("svalive_table"))
+        )
+      )
+    })
+
+    output$svalive_qq <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_qq_plot(r$df$p_raw)
+    })
+
+    output$svalive_volcano <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmp_volcano(r$df, "dbeta", "fdr", "Δβ", input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0)
+    })
+
+    output$svalive_manhattan <- renderPlot({
+      r <- svalive_result()
+      req(r$anno_ok)
+      mod_methyl_dmp_manhattan(r$df, input$svalive_fdr %||% 0.05)
+    })
+
+    svalive_top <- reactive({
+      r <- svalive_result()
+      mod_methyl_dmp_topplot(r$df, rank_by = input$svalive_rank_by %||% "fdr", n = as.integer(input$svalive_top_n %||% 20))
+    })
+
+    output$svalive_topplot <- renderPlot({ svalive_top()$plot })
+
+    output$svalive_betadist <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmp_betadist(r$beta_scale, svalive_top()$cpgs, r$grp)
+    })
+
+    output$svalive_table <- DT::renderDataTable({
+      df <- svalive_filtered()
+      show_cols <- c("cpg", "gene", "chr", "pos", "ref_mean_beta", "comp_mean_beta", "dbeta", "p_raw", "p_bacon", "fdr", "direction")
+      df$significant <- ifelse(!is.na(df$fdr) & df$fdr <= (input$svalive_fdr %||% 0.05) & abs(df$dbeta) >= (input$svalive_dbeta %||% 0), "Yes", "No")
+      DT::datatable(df[, c(show_cols, "significant")], rownames = FALSE, filter = "top",
+                    options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+        DT::formatSignif(columns = c("ref_mean_beta", "comp_mean_beta", "dbeta", "p_raw", "p_bacon", "fdr"), digits = 4)
+    })
+    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)  ## see default_table's own comment above
+
+    output$download_svalive <- downloadHandler(
+      filename = function() { r <- svalive_result(); sprintf("sva_dmp_%s_vs_%s_%s.csv", r$comp, r$ref, r$sex_label) },
+      content = function(file) utils::write.csv(svalive_filtered(), file, row.names = FALSE)
+    )
+
+    output$download_svalive_config <- downloadHandler(
+      filename = function() "sva_dmp_analysis_configuration.csv",
+      content = function(file) {
+        r <- svalive_result()
+        cfg <- data.frame(
+          parameter = c("dataset", "sex", "reference_group", "comparison_group", "n_reference", "n_comparison",
+                        "n_total_analyzed", "covariates", "n_surrogate_variables", "statistical_method", "design_formula",
+                        "fdr_threshold", "dbeta_threshold", "direction_filter", "min_valid_sample_pct",
+                        "min_variance", "snp_filter_applied", "n_cpgs_tested", "n_significant",
+                        "bacon_inflation", "bacon_bias", "run_at"),
+          value = c(r$dataset_source, r$sex_label, r$ref, r$comp, r$n_ref, r$n_comp, r$n_ref + r$n_comp,
+                    if (length(r$covariates) > 0) paste(r$covariates, collapse = ";") else "(none)",
+                    r$n_sv, "sva::sva() + limma (eBayes) + bacon::bacon()", r$design_formula,
+                    input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0, input$svalive_direction %||% "any",
+                    r$min_valid_pct, r$min_variance, r$snp_filter, r$n_probes_tested, svalive_sig_count(),
+                    r$lambda_bacon, r$bias_bacon, format(r$run_at)),
+          stringsAsFactors = FALSE
+        )
+        utils::write.csv(cfg, file, row.names = FALSE)
+      }
     )
 
     ## ================= 2. DMP Analysis (configurable live engine) =========
@@ -434,94 +942,14 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     observeEvent(methyl_dataset$beta, live_has_run(FALSE), ignoreNULL = TRUE)
 
     live_result <- eventReactive(input$live_run_btn, withProgress(message = "Running DMP Analysis - a full genome-wide array (400k+ CpGs) can take a minute or more...", value = 0.2, {
-      validate(need(!is.null(methyl_dataset$beta), "Load a dataset first."))
-      sheet <- methyl_dataset$sample_sheet
-      validate(need(!is.null(sheet), "No sample sheet loaded."))
-      validate(need(!is.null(input$live_group_col) && input$live_group_col %in% colnames(sheet), "Pick a group column."))
-      validate(need(!is.null(input$live_ref) && !is.null(input$live_comp), "Pick a reference and a comparison group."))
-      validate(need(input$live_ref != input$live_comp, "Reference and comparison groups must be different."))
-
-      sample_ids <- methyl_sheet_sample_ids(sheet, colnames(methyl_dataset$beta))
-      common <- intersect(colnames(methyl_dataset$beta), sample_ids)
-      validate(need(length(common) >= 6, "Fewer than 6 samples match between the matrix and the sample sheet."))
-      beta0 <- methyl_dataset$beta[, common, drop = FALSE]
-      ## Preloaded sample sheet is a data.table - coerce to data.frame so
-      ## single-bracket column selection by name behaves consistently below.
-      ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
-
-      ## ---- sex subset --------------------------------------------------
-      sex_choice <- input$live_sex %||% "__all__"
-      sc <- sex_col()
-      sex_label <- "All samples"
-      if (!identical(sex_choice, "__all__")) {
-        validate(need(!is.null(sc), "No sex column available to subset on."))
-        keep_sex <- !is.na(ph0[[sc]]) & as.character(ph0[[sc]]) == sex_choice
-        validate(need(sum(keep_sex) >= 6, sprintf("Fewer than 6 samples remain after restricting to sex = \"%s\".", sex_choice)))
-        beta0 <- beta0[, keep_sex, drop = FALSE]
-        ph0 <- ph0[keep_sex, , drop = FALSE]
-        sex_label <- sex_choice
-      }
-      n_after_sex <- ncol(beta0)
-
-      ## ---- group/reference/comparison subset ----------------------------
-      grp_raw <- as.character(ph0[[input$live_group_col]])
-      keep_grp <- !is.na(grp_raw) & grp_raw %in% c(input$live_ref, input$live_comp)
-      beta1 <- beta0[, keep_grp, drop = FALSE]
-      ph1 <- ph0[keep_grp, , drop = FALSE]
-      grp <- factor(grp_raw[keep_grp], levels = c(input$live_ref, input$live_comp))
-      rm(beta0)  ## free the full-size matrix now that beta1 exists (memory pressure on full arrays)
-
-      ## ---- optional covariates (complete cases only) --------------------
-      covariate_cols <- input$live_covariates %||% character(0)
-      cov_df <- NULL
-      if (length(covariate_cols) > 0) {
-        cc <- ph1[, covariate_cols, drop = FALSE]
-        complete <- stats::complete.cases(cc)
-        validate(need(sum(complete) >= 6, "Fewer than 6 samples have no missing values in the selected covariates. Deselect a covariate, or pick different ones."))
-        beta1 <- beta1[, complete, drop = FALSE]
-        ph1 <- ph1[complete, , drop = FALSE]
-        grp <- grp[complete]
-        cov_df <- ph1[, covariate_cols, drop = FALSE]
-        for (cl in covariate_cols) if (!is.numeric(cov_df[[cl]])) cov_df[[cl]] <- factor(as.character(cov_df[[cl]]))
-      }
-
-      n_ref <- sum(grp == input$live_ref, na.rm = TRUE)
-      n_comp <- sum(grp == input$live_comp, na.rm = TRUE)
-      validate(need(n_ref >= 3 && n_comp >= 3,
-        sprintf("Each group needs at least 3 samples to fit a model (reference \"%s\": %d, comparison \"%s\": %d).",
-                input$live_ref, n_ref, input$live_comp, n_comp)))
-
-      ## ---- probe filters (missingness / variance / SNP), before the M-value transform ----
-      ## Filters run on beta1 (beta scale); m/beta_scale are derived only
-      ## from the filtered subset afterward, to avoid holding multiple
-      ## full-size matrix copies in memory at once on a full array.
-      is_m_scale <- identical(methyl_dataset$input_scale, "m")
-      beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
-
-      max_na_frac <- 1 - (input$live_min_valid_pct %||% 80) / 100
-      f_miss <- methyl_filter_missing(beta_scale_full, max_na_frac)
-      keep_probe <- f_miss$keep
-      f_var <- methyl_filter_variance(beta_scale_full, input$live_min_variance %||% 0)
-      keep_probe <- keep_probe & f_var$keep
-      snp_note <- NULL
-      if (isTRUE(input$live_snp_filter)) {
-        ar <- anno_result()
-        if (isTRUE(ar$ok)) {
-          f_snp <- methyl_filter_snp(beta_scale_full, ar)
-          keep_probe <- keep_probe & f_snp$keep
-          snp_note <- f_snp$note
-        } else snp_note <- ar$reason
-      }
-      validate(need(sum(keep_probe) >= 10,
-        "Fewer than 10 CpGs remain after the missingness/variance/SNP filters. Relax the filters and try again."))
-
-      beta1 <- beta1[keep_probe, , drop = FALSE]
-      if (is_m_scale) rm(beta_scale_full)  ## a real extra copy only in this branch; the else-branch aliases beta1, nothing to free
-      gc(FALSE)  ## proactively reclaim the freed full-size copies before the memory-heavy limma fit below
-
-      ## ---- beta/M-value matrices (filtered subset only) ---------------------
-      m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
-      beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
+      sub <- mod_methyl_dmp_prepare_subset(
+        methyl_dataset, input$live_sex %||% "__all__", sex_col(),
+        input$live_group_col, input$live_ref, input$live_comp,
+        input$live_covariates %||% character(0),
+        input$live_min_valid_pct, input$live_min_variance,
+        isTRUE(input$live_snp_filter), anno_result()
+      )
+      m <- sub$m; beta_scale <- sub$beta_scale; grp <- sub$grp; cov_df <- sub$cov_df
 
       ## ---- design + limma fit ---------------------------------------------
       design_grp <- stats::model.matrix(~0 + grp)
@@ -572,13 +1000,13 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
 
       list(
         df = df, ref = input$live_ref, comp = input$live_comp,
-        group_col = input$live_group_col, sex_label = sex_label, sex_col = sc,
+        group_col = input$live_group_col, sex_label = sub$sex_label, sex_col = sex_col(),
         covariates = cov_names, design_formula = design_formula,
-        n_after_sex = n_after_sex, n_ref = n_ref, n_comp = n_comp,
-        n_probes_tested = nrow(df), n_probes_before_filter = nrow(beta1),
+        n_after_sex = sub$n_after_sex, n_ref = sub$n_ref, n_comp = sub$n_comp,
+        n_probes_tested = nrow(df), n_probes_before_filter = sub$n_probes_before_filter,
         min_valid_pct = input$live_min_valid_pct %||% 80, min_variance = input$live_min_variance %||% 0,
-        snp_filter = isTRUE(input$live_snp_filter), snp_note = snp_note,
-        missing_note = f_miss$note, variance_note = f_var$note,
+        snp_filter = isTRUE(input$live_snp_filter), snp_note = sub$snp_note,
+        missing_note = sub$missing_note, variance_note = sub$variance_note,
         anno_ok = isTRUE(ar$ok), norm_status = dataset_norm_status(),
         dataset_source = methyl_dataset$source %||% "(unnamed)", preloaded = isTRUE(methyl_dataset$preloaded),
         beta_scale = beta_scale, grp = grp,
@@ -683,7 +1111,8 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
             div(class = "card-title", icon("table"), "Results table"),
             div(class = "table-toolbar",
                 downloadButton(ns("download_live"), "Download filtered CSV", class = "btn-default btn-sm"),
-                downloadButton(ns("download_live_config"), "Download analysis configuration", class = "btn-default btn-sm")),
+                downloadButton(ns("download_live_config"), "Download analysis configuration", class = "btn-default btn-sm"),
+                downloadButton(ns("download_provenance"), "Download analysis record (.json)", class = "btn-default btn-sm")),
             DT::dataTableOutput(ns("live_table"))
         )
       )
@@ -752,5 +1181,35 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
         utils::write.csv(cfg, file, row.names = FALSE)
       }
     )
+
+    ## Provenance manifest (R/provenance.R): checksum of the exact filtered
+    ## beta/M-value matrix + group assignment that went into the limma fit
+    ## (m/grp, captured inside live_result() above), plus the group/
+    ## covariate/threshold choices already surfaced in download_live_config's
+    ## own CSV above. No seed - this live DMP engine's only statistical
+    ## step is limma::eBayes(), which is deterministic (no internal RNG).
+    dmp_provenance_record <- reactive({
+      r <- live_result()
+      arthomix_provenance_record(
+        module = "mod_methyl_dmp",
+        checksum_input = list(beta_scale = r$beta_scale, grp = as.character(r$grp)),
+        params = list(
+          dataset_source = r$dataset_source, sex = r$sex_label,
+          group_col = r$group_col, reference_level = r$ref, comparison_level = r$comp,
+          covariates = r$covariates, design_formula = r$design_formula,
+          fdr_threshold = input$live_fdr %||% 0.05, dbeta_threshold = input$live_dbeta %||% 0,
+          direction_filter = input$live_direction %||% "any",
+          min_valid_sample_pct = r$min_valid_pct, min_variance = r$min_variance,
+          snp_filter_applied = r$snp_filter,
+          n_reference = r$n_ref, n_comparison = r$n_comp,
+          n_probes_tested = r$n_probes_tested, n_probes_before_filter = r$n_probes_before_filter
+        ),
+        seed = NULL,
+        packages = "limma",
+        extra = list(lambda_gc = r$lambda_gc, n_significant = live_sig_count())
+      )
+    })
+
+    output$download_provenance <- arthomix_provenance_download_handler(dmp_provenance_record, "mod_methyl_dmp_provenance")
   })
 }

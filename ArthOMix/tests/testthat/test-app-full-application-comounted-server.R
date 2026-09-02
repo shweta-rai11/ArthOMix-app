@@ -20,6 +20,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
 source_from_app_root(file.path("R", "methylomics", "parse_upload.R"))
 source_from_app_root(file.path("R", "methylomics", "qc.R"))

@@ -319,8 +319,24 @@ multi_live_sample_overlap <- function(mat_list) {
   per_layer <- vapply(ids_by_layer, length, integer(1))
 
   ## Byte-exact matches - always trusted, even where the normalized form is
-  ## ambiguous within a layer (spec: require exact match as a tiebreak).
-  exact_shared <- Reduce(intersect, ids_by_layer)
+  ## ambiguous within a layer (spec: require exact match as a tiebreak) - but
+  ## an ID that is itself duplicated byte-for-byte within a single layer is
+  ## NOT a safe exact match either: base::intersect() silently de-duplicates
+  ## its own output (the same gotcha ch_evaluate_binary_outcome()'s
+  ## duplicate-ID guard, cohort_harmonization_helpers.R, had to work
+  ## around), so an exact-duplicate raw sample ID used to reach shared_ids anyway even
+  ## though the matrix still held 2+ rows under that name - a later
+  ## `mat[shared_ids, ]` subset then silently kept only the FIRST of them
+  ## and discarded the rest, contradicting this function's own contract
+  ## above ("never silently resolved to one of them"). Excluding within-
+  ## layer exact duplicates from the candidate set before intersecting
+  ## closes that gap; they fall through to `layer_only` (excluded, not
+  ## silently kept) exactly like an ambiguous normalized duplicate already
+  ## does below.
+  dup_exact_by_layer <- lapply(ids_by_layer, function(x) duplicated(x) | duplicated(x, fromLast = TRUE))
+  unambig_ids_by_layer <- Map(function(ids, dup) unique(ids[!dup]), ids_by_layer, dup_exact_by_layer)
+  exact_shared <- Reduce(intersect, unambig_ids_by_layer)
+  exact_dup_ids <- unique(unlist(Map(function(ids, dup) unique(ids[dup]), ids_by_layer, dup_exact_by_layer)))
 
   ## Normalized matches - only where the normalized ID is unambiguous
   ## (appears at most once) within every single layer.
@@ -341,7 +357,7 @@ multi_live_sample_overlap <- function(mat_list) {
   }, mat_list, ids_by_layer, norm_by_layer)
 
   shared <- union(exact_shared, unname(canonical[shared_norm]))
-  ambiguous <- unique(unlist(Map(function(nrm, dup) unique(nrm[dup & nzchar(nrm)]), norm_by_layer, dup_by_layer)))
+  ambiguous <- unique(c(exact_dup_ids, unlist(Map(function(nrm, dup) unique(nrm[dup & nzchar(nrm)]), norm_by_layer, dup_by_layer))))
 
   list(
     ok = TRUE, mats = mats_out, per_layer = setNames(per_layer, names(mat_list)),
@@ -780,7 +796,7 @@ multi_geo_platform_matrix <- function(eset, collapse_genes = TRUE) {
   used_collapse <- FALSE
   if (isTRUE(collapse_genes)) {
     collapsed <- tryCatch(collapse_probes_to_genes(eset), error = function(e) NULL)
-    if (!is.null(collapsed) && nrow(collapsed) > 0 && nrow(collapsed) < nrow(ex)) { ex <- collapsed; used_collapse <- TRUE }
+    if (!is.null(collapsed) && nrow(collapsed) > 0 && isTRUE(attr(collapsed, "collapsed"))) { ex <- collapsed; used_collapse <- TRUE }
   }
   mat <- t(as.matrix(ex))
   storage.mode(mat) <- "double"

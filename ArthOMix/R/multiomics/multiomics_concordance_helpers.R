@@ -555,7 +555,11 @@ mcc_priority_score <- function(df) {
   meth_component <- norm01(df$dbeta) %||% rep(NA_real_, nrow(df))
   fdr_component <- 1 - norm01(pmin(df$expr_fdr, df$meth_fdr, na.rm = FALSE))
   cor_component <- norm01(df$correlation_r)
-  region_component <- ifelse(isTRUE(df$canonical), 1, ifelse(is.na(df$canonical), 0.3, 0))
+  ## isTRUE() is scalar (identical(TRUE, x)) - always FALSE for a vector of
+  ## length > 1, which previously collapsed ifelse()'s whole result to a
+  ## single recycled constant instead of one value per row. is.na()/a plain
+  ## logical vector drive ifelse()'s shape correctly here.
+  region_component <- ifelse(is.na(df$canonical), 0.3, ifelse(df$canonical, 1, 0))
   diablo_component <- as.numeric(isTRUE(df$diablo) | df$diablo %in% TRUE)
   snf_component <- as.numeric(df$snf %in% TRUE)
   joint_component <- as.numeric(df$joint %in% TRUE)

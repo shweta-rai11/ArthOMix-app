@@ -52,22 +52,33 @@ mod_crossancestry_config <- list(
 ## tile, plot and table column reads from these three columns so they can
 ## never disagree with one another.
 ca_classify <- function(df, p_eur, p_eas, require_dir) {
+  ## Every row in the bundled panel has a European (Stahl) estimate by
+  ## construction; only an uploaded replacement GWAS can leave a gene without
+  ## a usable instrument (live_arm_for_genes()), so callers that never touch
+  ## the European arm don't have to know this column exists.
+  if (is.null(df$testable_EUR)) df$testable_EUR <- TRUE
   dir_eur <- if (require_dir) df$dir_okada_eq_stahl else TRUE
   dir_eas <- if (require_dir) df$dir_okada_eq_bbj else TRUE
   ## A gene with no computable estimate in a cohort (e.g. zero surviving
   ## instrument SNPs) yields NA here, not FALSE - coerced explicitly so it
   ## reads as "not replicated"/"not transferable" rather than silently
   ## poisoning every downstream sum()/table with NA.
-  replicated <- dir_eur & df$p_stahl < p_eur
+  replicated <- df$testable_EUR & dir_eur & df$p_stahl < p_eur
   transferable <- df$testable_EAS & dir_eas & df$p_bbj < p_eas
   df$replicated_EUR <- !is.na(replicated) & replicated
   df$transferable_EAS <- !is.na(transferable) & transferable
   df$biomarker <- df$replicated_EUR & df$transferable_EAS
+  ## An untestable European arm (no harmonised instrument survived against an
+  ## uploaded replacement GWAS - see live_arm_for_genes()) gets its own class,
+  ## the same way !testable_EAS does below: absence of a usable instrument is
+  ## not evidence against replication, so it must never collapse into
+  ## "not EUR-replicated".
   df$ancestry_class <- ifelse(
     df$biomarker, "shared EUR+EAS",
-    ifelse(df$replicated_EUR & !df$testable_EAS, "EUR-replicated, untestable in EAS",
-           ifelse(df$replicated_EUR & !df$transferable_EAS, "EUR-replicated, not EAS",
-                  "not EUR-replicated"))
+    ifelse(!df$testable_EUR, "untestable in EUR",
+           ifelse(df$replicated_EUR & !df$testable_EAS, "EUR-replicated, untestable in EAS",
+                  ifelse(df$replicated_EUR & !df$transferable_EAS, "EUR-replicated, not EAS",
+                         "not EUR-replicated")))
   )
   df
 }
@@ -266,6 +277,7 @@ mod_crossancestry_server <- function(id, dataset, results) {
           df$p_stahl  <- live$table$p[m]
           df$nSNP_stahl <- live$table$nSNP[m]
           df$dir_okada_eq_stahl <- (df$OR_okada > 1) == (df$OR_stahl > 1)
+          df$testable_EUR <- !is.na(m)
         } else {
           df$OR_bbj <- live$table$OR[m]
           df$p_bbj  <- live$table$p[m]

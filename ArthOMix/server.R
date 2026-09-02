@@ -22,6 +22,12 @@ existing_app_server <- function(input, output, session, auth) {
     d$source_type <- "preloaded"
     d$is_bundled_reference <- TRUE
     d$geo_ids <- MERGED_DEFAULT_GEO_IDS
+    ## No raw-vs-normalized declaration UI for the startup default (or any
+    ## other preloaded/GEO source) - Differential Expression/Immune
+    ## Deconvolution fall back to live heuristic inference, same as before
+    ## this field existed. See mod_dataset.R's upload handler for where a
+    ## real declaration gets set.
+    d$declared_data_type <- NA_character_
     do.call(reactiveValues, d)
   })
 

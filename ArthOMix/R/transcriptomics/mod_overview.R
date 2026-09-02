@@ -106,7 +106,8 @@ mod_overview_ui <- function(id) {
             column(8, withSpinner(uiOutput(ns("norm_summary_ui")), color = "#2c6fbb", type = 6))
           ),
           withSpinner(uiOutput(ns("norm_views_ui")), color = "#2c6fbb", type = 6),
-          uiOutput(ns("norm_apply_ui"))
+          uiOutput(ns("norm_apply_ui")),
+          uiOutput(ns("adopt_confirmation_ui"))
         ),
         tabPanel(
           "Group", br(),
@@ -246,11 +247,25 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     qc_stale <- reactiveVal(FALSE)
     norm_stale <- reactiveVal(FALSE)
     filter_stale <- reactiveVal(FALSE)
+    ## Confirmation banner for "Adopt" (below) - kept as its own reactiveVal
+    ## and its own uiOutput, deliberately NOT nested inside norm_apply_ui,
+    ## because adopting writes dataset$expr, which immediately invalidates
+    ## qc_target() and flips norm_stale() TRUE in the SAME reactive flush -
+    ## if the confirmation lived inside norm_apply_ui (gated on
+    ## !norm_stale()), it would be hidden before the user ever saw it
+    ## (verified via testServer: norm_apply_ui's rendered HTML is empty
+    ## immediately after adopt_norm_btn). Cleared on input$qc_source itself
+    ## (the user picking a different dataset to inspect), not on qc_target()
+    ## - qc_target() also changes as a side effect of the adopt write below,
+    ## and clearing on that would wipe the banner in the very same flush
+    ## that sets it.
+    adopted_note <- reactiveVal(NULL)
     observeEvent(qc_target(), {
       qc_stale(TRUE); norm_stale(TRUE); filter_stale(TRUE)
     }, ignoreInit = TRUE)
+    observeEvent(input$qc_source, adopted_note(NULL), ignoreInit = TRUE)
     observeEvent(input$run_qc_btn, qc_stale(FALSE), ignoreInit = TRUE)
-    observeEvent(input$run_norm_btn, norm_stale(FALSE), ignoreInit = TRUE)
+    observeEvent(input$run_norm_btn, { norm_stale(FALSE); adopted_note(NULL) }, ignoreInit = TRUE)
     observeEvent(input$apply_btn, filter_stale(FALSE), ignoreInit = TRUE)
 
     output$qc_source_info_ui <- renderUI({
@@ -530,10 +545,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                           plotOutput(ns("norm_after_plot"), height = 260)))
         ),
         if (identical(input$qc_source, "active")) {
-          div(
-            actionButton(ns("adopt_norm_btn"), "Use this normalised version for every sub-module", icon = icon("check"), class = "btn-success btn-sm"),
-            uiOutput(ns("adopt_norm_msg"))
-          )
+          actionButton(ns("adopt_norm_btn"), "Use this normalised version for every sub-module", icon = icon("check"), class = "btn-success btn-sm")
         } else {
           p(class = "empty-note", icon("circle-info"),
             "This is one of the app's fixed reference datasets, so it stays read-only here - only its diagnostics change, not the data every sub-module reads. Upload your own data, or fetch from NCBI GEO, on the Dataset tab to normalise it and use the result app-wide.")
@@ -554,10 +566,19 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     observeEvent(input$adopt_norm_btn, {
       req(norm_apply_result(), identical(input$qc_source, "active"))
       dataset$expr <- norm_apply_result()$expr_after
-      dataset$source <- paste0(dataset$source, " (quantile-normalised)")
-      output$adopt_norm_msg <- renderUI(
-        div(class = "empty-note", icon("check"), "Done - every sub-module now reads the quantile-normalised version of your data.")
-      )
+      ## Idempotent: without this guard, adopting a second time in the same
+      ## session (e.g. after uploading fresh data into the same slot) kept
+      ## appending the suffix - "... (quantile-normalised) (quantile-
+      ## normalised)" - instead of just re-stating the already-true fact.
+      if (!grepl("(quantile-normalised)", dataset$source, fixed = TRUE)) {
+        dataset$source <- paste0(dataset$source, " (quantile-normalised)")
+      }
+      adopted_note("Done - every sub-module now reads the quantile-normalised version of your data.")
+    })
+
+    output$adopt_confirmation_ui <- renderUI({
+      req(adopted_note())
+      div(class = "empty-note", icon("check"), adopted_note())
     })
 
     ## Server-side DT paging (server = TRUE below) since these matrices run to

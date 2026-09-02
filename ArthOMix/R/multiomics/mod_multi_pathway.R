@@ -59,7 +59,7 @@ mod_multi_pathway_ui <- function(id) {
                  column(6, numericInput(ns("max_size"), "Max gene-set size", value = 500, min = 5, step = 10))),
         selectInput(ns("background"), "Background / universe", choices = c(
           "Auto (measured features in active dataset)" = "auto_experimental",
-          "Preloaded cohort candidate-gene list (small - not genome-wide)" = "preloaded_universe",
+          "Preloaded cohort's own candidate gene list (already filtered to significant hits - not a valid statistical background, use for highlighting only)" = "preloaded_universe",
           "Uploaded file's own identifier list" = "uploaded_background",
           "Entire selected database (no experimental universe)" = "entire_database"
         ), selected = "auto_experimental"),

@@ -58,11 +58,24 @@ diag_obs_weights <- function(y, mode, ratio) {
   unname(wl[as.character(y)])
 }
 
-## Stratified train/test split of one sex's pool, fixed single split (seed 1234).
-diag_split_train_test <- function(y_full, test_frac, seed = 1234) {
+## Stratified train/test split of one sex's pool. When `holdout_ids` (sample
+## IDs reserved by Feature Selection before it ever chose this gene panel)
+## overlap `sample_ids` enough to be usable, those exact samples become the
+## test set - this is what makes the split disjoint from whoever chose the
+## panel, rather than merely disjoint by chance from an independent random
+## draw (fixed single split, seed 1234, when no holdout is supplied/usable).
+diag_split_train_test <- function(y_full, test_frac, seed = 1234, sample_ids = NULL, holdout_ids = NULL) {
+  if (!is.null(sample_ids) && length(holdout_ids) > 0) {
+    test_idx <- which(sample_ids %in% holdout_ids)
+    train_idx <- setdiff(seq_along(y_full), test_idx)
+    if (length(test_idx) >= 4 && length(train_idx) >= 10 &&
+        length(unique(y_full[train_idx])) == 2 && length(unique(y_full[test_idx])) == 2) {
+      return(list(train = train_idx, test = test_idx, leakage_safe = TRUE))
+    }
+  }
   set.seed(seed)
   train_idx <- as.integer(caret::createDataPartition(y_full, p = 1 - test_frac, list = FALSE))
-  list(train = train_idx, test = setdiff(seq_along(y_full), train_idx))
+  list(train = train_idx, test = setdiff(seq_along(y_full), train_idx), leakage_safe = FALSE)
 }
 
 ## k-fold CV AUC for an already-tuned classifier; rescales per fold with
@@ -261,7 +274,7 @@ diag_perf_at_cutoff <- function(prob, y, threshold, positive_level) {
 ## Fits logistic regression + elastic net + random forest + SVM on one sex's
 ## full sample pool, splitting into Train/Test first; Test is scored once at
 ## the end. `expr_full` is genes x samples, raw (not yet z-scored).
-diag_fit_sex <- function(expr_full, y_full, params = list()) {
+diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = character(0)) {
   ## caret::train(classProbs = TRUE) requires factor levels that are valid R
   ## variable names - it make.names()s them internally to build its own
   ## predicted-probability column names, so a raw group label with a space
@@ -279,7 +292,8 @@ diag_fit_sex <- function(expr_full, y_full, params = list()) {
   genes <- rownames(expr_full)
   safe <- make.names(genes, unique = TRUE)
 
-  split <- diag_split_train_test(y_full, params$test_frac, seed = GLOBAL_SEED)
+  split <- diag_split_train_test(y_full, params$test_frac, seed = GLOBAL_SEED,
+                                  sample_ids = colnames(expr_full), holdout_ids = holdout_ids)
   validate(need(length(split$train) >= 10 && length(split$test) >= 4,
                 "Not enough samples for a train/test split at this ratio - lower the test-set size or provide more samples for this sex."))
   y <- y_full[split$train]
@@ -305,8 +319,21 @@ diag_fit_sex <- function(expr_full, y_full, params = list()) {
   Xtest_full <- scale(t(expr_test_sub), center = mu_tr, scale = sg_tr)
   colnames(Xtest_full) <- safe
 
-  youden <- function(roc_obj) pROC::coords(roc_obj, "best", best.method = "youden",
-                                            ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
+  ## pROC::coords(..., "best") returns ONE ROW PER TIED THRESHOLD when several
+  ## cutpoints share the same maximal Youden index (common with tree/ensemble
+  ## probabilities, or near-perfect separation on small panels) - verified
+  ## empirically (pROC 1.19.0.1) rather than assumed. Left un-collapsed, every
+  ## downstream `rr$best$threshold` used as a scalar (data.frame row-building,
+  ## and diag_perf_at_cutoff()'s vectorised `prob >= threshold`) would silently
+  ## recycle across a length>1 threshold instead of erroring, corrupting the
+  ## reported sensitivity/specificity/accuracy without any visible failure.
+  ## Deterministically keep the first tie so every caller always sees a scalar.
+  youden <- function(roc_obj) {
+    b <- pROC::coords(roc_obj, "best", best.method = "youden",
+                       ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
+    if (nrow(b) > 1) b <- b[1, , drop = FALSE]
+    b
+  }
 
   ## Scores the Test split with the locked model, never re-optimising
   ## anything on it.
@@ -371,7 +398,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list()) {
     rf_mtry <- min(p, max(1, round(params$rf_mtry_manual)))
   } else {
     nf_rf <- max(2, min(params$rf_cv_folds, min(table(y))))
-    mtry_grid <- sort(unique(pmin(p, c(1, 2, floor(sqrt(p)), floor(p / 3), floor(p / 2), p))))
+    mtry_grid <- sort(unique(pmax(1, pmin(p, c(1, 2, floor(sqrt(p)), floor(p / 3), floor(p / 2), p)))))
     ctrl <- caret::trainControl(method = "cv", number = nf_rf, classProbs = TRUE, summaryFunction = caret::twoClassSummary)
     set.seed(GLOBAL_SEED)
     rf_tune <- tryCatch(caret::train(x = Xtr_full, y = y, method = "rf", metric = "ROC", trControl = ctrl,
@@ -474,7 +501,8 @@ diag_fit_sex <- function(expr_full, y_full, params = list()) {
   list(lr = lr, enet = enet, rf = rf, svm = svm_fit, genes = genes, n_input = length(genes),
        n_samples = nrow(Xtr_full), n_test = nrow(Xtest_full), test_frac = params$test_frac,
        gene_roc_train = diag_gene_roc(expr_train_sub, y),
-       gene_roc_test = diag_gene_roc(expr_test_sub, ytest))
+       gene_roc_test = diag_gene_roc(expr_test_sub, ytest),
+       leakage_safe = isTRUE(split$leakage_safe))
 }
 
 DIAG_TECHNIQUES <- list(
@@ -906,23 +934,26 @@ mod_diagnostic_server <- function(id, dataset, results) {
       live <- results$featureselection[[sex_label]]$consensus_genes
       if (!is.null(live) && length(live) >= 2) {
         return(list(genes = live, is_live = TRUE,
-                    note = sprintf("%d genes from this session's live %s consensus panel.", length(live), sex_label)))
+                    note = sprintf("%d genes from this session's live %s consensus panel.", length(live), sex_label),
+                    holdout_sample_ids = results$featureselection[[sex_label]]$holdout_sample_ids %||% character(0)))
       }
       if (isTRUE(dataset$is_bundled_reference)) {
         bundled <- read_table_safe(sprintf("FS_input_%s.csv", sex_label))
         if (!is.null(bundled) && nrow(bundled) >= 2 && "gene" %in% colnames(bundled)) {
           return(list(genes = unique(as.character(bundled$gene)), is_live = FALSE,
-                      note = sprintf("%d genes from the bundled %s panel.", nrow(bundled), sex_label)))
+                      note = sprintf("%d genes from the bundled %s panel.", nrow(bundled), sex_label),
+                      holdout_sample_ids = character(0)))
         }
       }
       list(genes = character(0), is_live = FALSE,
-           note = sprintf("No live %s panel yet - run Feature Selection on the currently loaded dataset first.", sex_label))
+           note = sprintf("No live %s panel yet - run Feature Selection on the currently loaded dataset first.", sex_label),
+           holdout_sample_ids = character(0))
     }
 
     own_panel_genes <- function(sex_label) {
       genes <- unique(trimws(unlist(strsplit(input$gene_list %||% "", "[,\n\t ]+"))))
       genes <- genes[nzchar(genes)]
-      list(genes = genes, is_live = FALSE, note = sprintf("%d pasted genes.", length(genes)))
+      list(genes = genes, is_live = FALSE, note = sprintf("%d pasted genes.", length(genes)), holdout_sample_ids = character(0))
     }
 
     ## Same WGCNA module regardless of sex_label (not sex-specific by construction).
@@ -933,7 +964,8 @@ mod_diagnostic_server <- function(id, dataset, results) {
                     "Run WGCNA Step 3 (Modules) first, then pick a module above."))
       genes <- unique(as.character(mg[[input$wgcna_module_pick]]))
       list(genes = genes, is_live = TRUE,
-           note = sprintf("%d genes from WGCNA module \"%s\" (this session).", length(genes), input$wgcna_module_pick))
+           note = sprintf("%d genes from WGCNA module \"%s\" (this session).", length(genes), input$wgcna_module_pick),
+           holdout_sample_ids = character(0))
     }
 
     ## Module-color dropdown (grey excluded), mirroring mod_featureselection.R's own picker.
@@ -1236,7 +1268,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       fit <- withProgress(
         message = sprintf("Fitting %s diagnostic models (logistic regression, elastic net, random forest, SVM)...", sex_label),
         value = 0.3,
-        diag_fit_sex(expr_sub, y, params = diag_advanced_params())
+        diag_fit_sex(expr_sub, y, params = diag_advanced_params(), holdout_ids = cand$holdout_sample_ids %||% character(0))
       )
       fit$candidate_note <- cand$note
       fit$n_ref <- sum(y == input$ref_group); fit$n_comp <- sum(y == input$comp_group)
@@ -1590,9 +1622,10 @@ mod_diagnostic_server <- function(id, dataset, results) {
       res_p <- diag_result_value("pooled")
       status_row <- function(sex, sex_label, r) {
         if (!is.null(r)) {
-          best_label <- c("Logistic Regression", "Elastic Net", "Random Forest", "SVM")[which.max(c(mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE)))]
+          cv_aucs <- c(mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))
+          best_label <- c("Logistic Regression", "Elastic Net", "Random Forest", "SVM")[which.max(cv_aucs)]
           return(tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s completed: ", sex)),
-                          sprintf("best CV-AUC = %s", best_label)))
+                          sprintf("best model %s (CV-AUC = %.3f)", best_label, max(cv_aucs, na.rm = TRUE))))
         }
         ## Real validate() failure vs. genuinely never clicked - see diag_result_error_msg() above.
         err <- diag_result_error_msg(sex_label)
@@ -1612,10 +1645,16 @@ mod_diagnostic_server <- function(id, dataset, results) {
     ## One-line results summary shown inside that sex's own tab.
     diag_result_line <- function(sex_label, r) {
       if (!is.null(r)) {
-        return(p(strong("Result: "),
-          sprintf("%d genes, %d samples (%d vs %d), %s vs %s → CV-AUC logistic regression %.3f / elastic net %.3f / random forest %.3f / SVM %.3f.",
-                  r$n_input, r$n_samples, r$n_comp, r$n_ref, r$comp_group, r$ref_group,
-                  mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))))
+        return(tagList(
+          p(strong("Result: "),
+            sprintf("%d genes, %d samples (%d vs %d), %s vs %s → CV-AUC logistic regression %.3f / elastic net %.3f / random forest %.3f / SVM %.3f.",
+                    r$n_input, r$n_samples, r$n_comp, r$n_ref, r$comp_group, r$ref_group,
+                    mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))),
+          if (isTRUE(r$leakage_safe))
+            p(class = "empty-note", icon("shield-halved"), "Leakage-safe: the Test split above is the held-out sample set this gene panel was never selected against.")
+          else
+            p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this gene panel's Test-set AUC is exploratory, not a validated estimate - either it came from the bundled/precomputed panel, or Feature Selection's held-out split was disabled or didn't overlap this cohort.")
+        ))
       }
       err <- diag_result_error_msg(sex_label)
       if (!is.null(err)) p(strong("Result: "), span(style = "color: #c0392b;", sprintf("failed - %s", err))) else NULL

@@ -9,7 +9,7 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "methylomics", "parse_upload.R"))
 source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "celltype.R"))
+source_from_app_root(file.path("R", "methylomics", "mod_methyl_celltype.R"))
 
 ## ---- Scale detection / conversion --------------------------------------------
 

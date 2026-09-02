@@ -287,16 +287,15 @@ mod_multi_dataset_ui <- function(id) {
         column(8, uiOutput(ns("pipeline_ui")))
       ),
 
-      ## Dataset Summary / Data Provenance apply to any source that has run
-      ## through this shared pipeline, including the reference dataset (its
-      ## own "Load Reference Dataset" click stands in for "Validate
-      ## Datasets" below). Each box is hidden until its own step has
-      ## actually run, never shown as an empty placeholder first.
+      ## Data Provenance applies to any source that has run through this
+      ## shared pipeline, including the reference dataset (its own "Load
+      ## Reference Dataset" click stands in for "Validate Datasets" below).
+      ## Hidden until its own step has actually run, never shown as an empty
+      ## placeholder first. (Dataset Summary now lives in the MOFA2
+      ## sub-module box below - see mod_multi_mofa.R.)
       conditionalPanel(
         condition = sprintf("input['%s'] > 0 || input['%s'] > 0", ns("validate_btn"), ns("load_preloaded_btn")),
         hr(),
-        box(width = NULL, title = "Dataset Summary", status = "primary", solidHeader = FALSE,
-            DT::dataTableOutput(ns("summary_table"))),
         box(width = NULL, title = "Data Provenance", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
             uiOutput(ns("provenance_ui")))
       ),
@@ -812,6 +811,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
       long_group_dfs <- list()
       explicit_meta_dfs <- list()
+      geo_meta_dfs <- list()
 
       if (identical(mode, "upload")) {
         for (i in seq_len(n_upload_blocks())) {
@@ -900,7 +900,16 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           validations[[label]] <- v
           labels[[gbid]] <- label
           provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
-          if (is.null(raw$meta) && !is.null(gf$meta)) raw$meta <- gf$meta
+          ## Every fetched GEO series' own pData() phenotype/characteristics_ch1
+          ## columns are kept (accumulated below via mo_merge_sample_meta the
+          ## same way Upload's per-block explicit metadata already is) -
+          ## previously only the FIRST series to reach this loop iteration
+          ## ever set raw$meta at all (`if (is.null(raw$meta) ...)`), so every
+          ## subsequent GEO block's own metadata was silently discarded
+          ## whenever 2+ series were fetched (the realistic one-series-per-
+          ## omics-layer case), starving downstream outcome/batch/phenotype
+          ## pickers of columns that legitimately exist only on that series.
+          if (!is.null(gf$meta)) geo_meta_dfs[[label]] <- gf$meta
           m <- mo_read_meta_file(input[[mo_meta_file_input_id(gbid, gen)]])
           if (!is.null(m)) explicit_meta_dfs[[label]] <- m
         }
@@ -923,6 +932,15 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       if (length(long_group_dfs) > 0) {
         merged_groups <- Reduce(mo_merge_sample_meta, long_group_dfs)
         raw$meta <- mo_merge_sample_meta(raw$meta, merged_groups)
+      }
+      ## Merge every fetched GEO series' own metadata in - union of sample
+      ## IDs across series, later series winning on a column-name collision
+      ## (matching mo_merge_sample_meta's existing a/b precedence) - before
+      ## any explicitly-uploaded supplementary metadata file, which should
+      ## still be able to override/extend what GEO itself supplied.
+      if (length(geo_meta_dfs) > 0) {
+        merged_geo <- Reduce(mo_merge_sample_meta, geo_meta_dfs)
+        raw$meta <- mo_merge_sample_meta(raw$meta, merged_geo)
       }
       if (length(explicit_meta_dfs) > 0) {
         merged_explicit <- Reduce(mo_merge_sample_meta, explicit_meta_dfs)
@@ -1330,11 +1348,20 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       bad <- intersect(chosen, names(Filter(function(p) p$status$level == "not_compatible", cmp$per_layer)))
       validate(need(length(bad) == 0, sprintf("\"%s\" is marked Not Compatible and cannot be used for analysis.", paste(bad, collapse = ", "))))
 
+      ## proc$scaled_mats is only ever populated by the "3. Preprocessing"
+      ## step's own button (observeEvent(input$preprocess_btn, ...)), which is
+      ## also where per-layer matrices get restricted to the matched sample
+      ## set (matched <- ov$shared_ids). Falling back to raw$mats here used to
+      ## let Activate silently publish the raw, unmatched, unprocessed
+      ## per-layer data whenever a user skipped step 3 - requiring
+      ## proc$scaled_mats explicitly closes that gap for all three pipelines
+      ## (Upload/GEO/Preloaded all populate it identically).
+      validate(need(!is.null(proc$scaled_mats), "Preprocess the selected datasets first (step 3: \"Apply normalization, filtering, and scaling\") before activating them."))
       final_mats <- if (!is.null(proc$batch_corrected) && !is.null(input$batch_layer)) {
         c(proc$scaled_mats[setdiff(names(proc$scaled_mats), input$batch_layer)], setNames(list(proc$batch_corrected), input$batch_layer))
-      } else if (!is.null(proc$scaled_mats)) proc$scaled_mats else raw$mats
+      } else proc$scaled_mats
       final_mats <- final_mats[intersect(names(final_mats), chosen)]
-      validate(need(length(final_mats) >= 2, "Preprocess the selected datasets (step 3) before activating them."))
+      validate(need(length(final_mats) >= 2, "At least two of the selected datasets must have been preprocessed (step 3) before activating them."))
 
       ov_now <- tryCatch(overlap(), error = function(e) NULL)
       layer_meta <- lapply(names(final_mats), function(nm) list(
@@ -1361,16 +1388,11 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
 
     ## =========================================================================
-    ## Dataset Summary / Provenance - only meaningful for an uploaded or
-    ## GEO-fetched dataset (see the UI-side comment above); shown empty until
-    ## "Use Selected Datasets for Multi-Omics Analysis" is clicked.
+    ## Provenance - only meaningful for an uploaded or GEO-fetched dataset
+    ## (see the UI-side comment above); shown empty until "Use Selected
+    ## Datasets for Multi-Omics Analysis" is clicked. (Dataset Summary table
+    ## itself now renders inside mod_multi_mofa.R.)
     ## =========================================================================
-    output$summary_table <- DT::renderDataTable({
-      df <- mo_summary_table(multi_dataset$layer_meta %||% list())
-      if (is.null(df)) df <- data.frame(Dataset = character(0), `Omics Type` = character(0), Samples = integer(0),
-                                          Features = integer(0), Processing = character(0), Status = character(0), check.names = FALSE)
-      DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
-    })
     output$provenance_ui <- renderUI(mo_provenance_ui(multi_dataset$layer_meta %||% list()))
 
     mod_multi_mofa_server("integrated", multi_dataset, multi_results)

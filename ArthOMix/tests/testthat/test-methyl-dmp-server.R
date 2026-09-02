@@ -8,6 +8,7 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "methylomics", "qc.R"))
 source_from_app_root(file.path("R", "methylomics", "annotation.R"))
 source_from_app_root(file.path("R", "methylomics", "normalization.R"))
+source_from_app_root(file.path("R", "provenance.R"))
 source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
 
 dmp_fixture_dataset <- function(n_per_group = 10, seed = 260) {

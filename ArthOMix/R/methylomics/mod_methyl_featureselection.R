@@ -791,7 +791,14 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
             tags$h5("Grouping"),
             if (length(cols) == 0) p(class = "empty-note", icon("triangle-exclamation"), "No phenotype/sample metadata loaded - group-dependent methods will be unavailable.")
             else selectInput(ns("fs_group_col"), "Group / phenotype column", choices = cols, selected = methyl_fs_guess_group_col(cols)),
-            uiOutput(ns("fs_group_levels_ui"))
+            uiOutput(ns("fs_group_levels_ui")),
+            tags$h5(icon("shield-halved"), " Held-out test set"),
+            checkboxInput(ns("fs_holdout_enabled"), "Reserve a held-out set before selection (recommended)", value = TRUE),
+            conditionalPanel(condition = sprintf("input['%s']", ns("fs_holdout_enabled")),
+              numericInput(ns("fs_holdout_frac"), "Held-out fraction", value = 0.3, min = 0.1, max = 0.5, step = 0.05),
+              numericInput(ns("fs_holdout_seed"), "Split seed", value = 1234, min = 1, step = 1),
+              p(class = "empty-note", icon("circle-info"),
+                "These samples are set aside before Univariate/LASSO/Tree-Based/RFE/Stability/Consensus ever run and are never used to choose CpGs - only the Diagnostic module's evaluation against them is a leakage-free performance estimate."))
           ),
           column(4,
             tags$h5("Missingness"),
@@ -900,6 +907,28 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       grp <- factor(grp_raw[keep_s], levels = c(input$fs_ref_group, input$fs_comp_group))
       validate(need(all(table(grp) >= 3), "Each group needs at least 3 samples."))
 
+      ## Train/holdout split - MUST happen before any filtering/selection step
+      ## below. Everything from here through Consensus Selection only ever
+      ## sees the training partition; held-out sample IDs are carried in the
+      ## returned list so the Diagnostic module can evaluate the exported
+      ## panel on samples it never influenced, instead of re-splitting the
+      ## full pool (which would risk re-including a selection-time sample).
+      holdout_sample_ids <- character(0)
+      if (isTRUE(input$fs_holdout_enabled %||% TRUE)) {
+        frac <- min(max(input$fs_holdout_frac %||% 0.3, 0.1), 0.5)
+        full_ids <- colnames(mat1)
+        set.seed(input$fs_holdout_seed %||% 1234)
+        train_idx <- tryCatch(
+          as.integer(caret::createDataPartition(grp, p = 1 - frac, list = FALSE)[, 1]),
+          error = function(e) seq_along(full_ids)
+        )
+        validate(need(length(train_idx) >= 6 && all(table(grp[train_idx]) >= 2),
+          "The training partition after the held-out split has too few samples per group - lower the held-out fraction, disable the split, or add more samples."))
+        holdout_sample_ids <- setdiff(full_ids, full_ids[train_idx])
+        mat1 <- mat1[, train_idx, drop = FALSE]
+        grp <- grp[train_idx]
+      }
+
       beta_scale <- if (identical(src$scale, "m")) 2^mat1 / (1 + 2^mat1) else mat1
 
       f_samp <- methyl_fs_sample_missing_ok(beta_scale, (input$fs_max_na_sample %||% 20) / 100)
@@ -927,6 +956,11 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         sprintf("After filtering, only %d CpGs remain. Reduce the filtering thresholds or increase the number of retained features.", sum(keep_probe))))
       cascade <- methyl_probe_retention_cascade(n_probes_start, filters)
       filter_notes <- vapply(filters, function(f) f$note, character(1))
+      if (length(holdout_sample_ids) > 0) {
+        filter_notes <- c("Held-out split" = sprintf(
+          "Reserved %d of %d samples as a held-out set before any feature selection; selection below only ever saw the remaining %d.",
+          length(holdout_sample_ids), length(holdout_sample_ids) + ncol(mat1), ncol(mat1)), filter_notes)
+      }
       beta_scale <- beta_scale[keep_probe, , drop = FALSE]
 
       ## Top-variance cap subsets rows rather than producing a keep mask, so it's
@@ -955,7 +989,8 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
            group_col = input$fs_group_col, array_type = src$array_type, source_label = src$source_label,
            n_probes = nrow(beta_scale), n_samples = ncol(beta_scale), cascade = cascade,
            filter_notes = filter_notes, imputed_method = imputed_method, impute_fallback = impute_fallback,
-           anno = anno_result(), run_at = Sys.time(), sex_label = sex_label)
+           anno = anno_result(), run_at = Sys.time(), sex_label = sex_label,
+           holdout_sample_ids = holdout_sample_ids, holdout_seed = if (length(holdout_sample_ids) > 0) (input$fs_holdout_seed %||% 1234) else NA_integer_)
     }
 
     fs_filter_result_female <- eventReactive(input$run_female_btn, { fs_build_filters("female", fs_sex_value_for("female")) }, ignoreInit = TRUE)
@@ -1845,20 +1880,25 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         p(class = "empty-note", icon("circle-info"),
           sprintf("Validating and exporting the \"%s\" stratum selected in Selected Features.", fs_sex_display_label(fs_selected_stratum()))),
         div(class = "card",
-          div(class = "card-title", icon("vial"), "Validate selected panel"),
+          div(class = "card-title", icon("vial"), "Internal training-set check"),
+          p(class = "empty-note", icon("circle-info"),
+            if (length(fs_filter_result_for(fs_selected_stratum())$holdout_sample_ids %||% character(0)) > 0)
+              sprintf("This panel was already selected on a training partition only (%d samples reserved as held-out in Data & Filters). Both modes below estimate performance WITHIN that same training partition - they are a diagnostic sanity check, not the model's real generalization estimate. For an unbiased estimate, evaluate this exported panel against the reserved held-out samples in the Diagnostic module.",
+                      length(fs_filter_result_for(fs_selected_stratum())$holdout_sample_ids))
+            else "No held-out set was reserved for this run (the held-out split was disabled in Data & Filters), so neither mode below is leakage-free - re-run Data & Filters with the split enabled before treating any AUC here as an honest estimate."),
           fluidRow(
-            column(4, radioButtons(ns("validate_mode"), "Validation mode",
-                                    choices = c("Frozen panel (fast, optimistic)" = "frozen", "Leakage-safe (reselect per fold)" = "nested"), selected = "frozen")),
+            column(4, radioButtons(ns("validate_mode"), "Check mode",
+                                    choices = c("Quick (fit once on training data)" = "frozen", "Repeated nested CV (reselect per fold, within training data)" = "nested"), selected = "nested")),
             column(4, radioButtons(ns("validate_classifier"), "Classifier", choices = c("Logistic Regression" = "glm", "Random Forest" = "rf", "SVM" = "svm"), selected = "glm")),
             column(4, numericInput(ns("validate_k"), "Folds (k)", value = 5, min = 3, max = 10, step = 1), numericInput(ns("validate_repeats"), "Repeats", value = 1, min = 1, max = 10, step = 1),
                    numericInput(ns("validate_seed"), "Random seed", value = 1234, min = 1, step = 1))
           ),
           conditionalPanel(condition = sprintf("input['%s'] == 'frozen'", ns("validate_mode")),
-            p(class = "empty-note", icon("triangle-exclamation"), "This mode evaluates the panel that was already chosen using this same data, so the reported AUC is optimistic - use \"Leakage-safe\" for an honest estimate.")),
+            p(class = "empty-note", icon("triangle-exclamation"), "Fits and CVs the exact exported panel on the training partition only - fast, but every training sample already influenced which CpGs were chosen, so this still overstates generalization somewhat. Prefer the held-out evaluation in Diagnostic for the real number.")),
           conditionalPanel(condition = sprintf("input['%s'] == 'nested'", ns("validate_mode")),
-            p(class = "empty-note", icon("circle-info"), "Leakage-safe mode reselects the panel using the Univariate + Regularization steps inside every outer fold - not literally the same panel shown in Selected Features - and it does not rerun Tree-Based/RFE/Stability/Consensus per fold, since a full 5-method ensemble refit per fold is impractical in a live session."),
-            p(class = "empty-note", icon("triangle-exclamation"), "Data & Filters' own missingness/variance filtering, the top-variance cap, and imputation are still computed once on the full dataset before this outer cross-validation runs, not redone per fold - so \"leakage-safe\" here means the supervised feature-selection step is redone per fold, not that the estimate is completely free of leakage.")),
-          actionButton(ns("validate_run_btn"), "Run Validation", icon = icon("play"), class = "btn-primary"),
+            p(class = "empty-note", icon("circle-info"), "Reselects the panel using the Univariate + Regularization steps inside every outer fold of the training partition - not literally the same panel shown in Selected Features - and does not rerun Tree-Based/RFE/Stability/Consensus per fold, since a full 5-method ensemble refit per fold is impractical in a live session."),
+            p(class = "empty-note", icon("triangle-exclamation"), "This is nested CV within the training partition, not a substitute for evaluating against the held-out set reserved in Data & Filters - use it to sanity-check the training-time selection process, not as the model's reportable performance.")),
+          actionButton(ns("validate_run_btn"), "Run Check", icon = icon("play"), class = "btn-primary"),
           uiOutput(ns("validate_result_ui"))
         ),
         div(class = "card",
@@ -1916,17 +1956,54 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     fs_model_export <- reactive({
       sx <- fs_selected_stratum()
       r <- fs_filter_result_for(sx); panel <- fs_final_panel(); cr <- fs_consensus_store[[sx]]
+
+      ## Which technique stages actually produced a result for this stratum
+      ## (not just "was clicked" - a caught validate()/error condition in the
+      ## store still counts as not-ran) - computed once and reused both for
+      ## the `methods` block below (unchanged from before) and for the new
+      ## `seed` block, so a method's recorded seed is only ever the seed
+      ## that was ACTUALLY threaded into a computation that produced this
+      ## export's selected_ids, never a UI default nobody's run yet fired on.
+      uni_ran <- !is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition")
+      reg_ran <- !is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition")
+      rf_ran  <- !is.null(fs_rf_store[[sx]])  && !inherits(fs_rf_store[[sx]],  "condition")
+      rfe_ran <- !is.null(fs_rfe_store[[sx]]) && !inherits(fs_rfe_store[[sx]], "condition")
+      stab_ran <- !is.null(fs_stab_store[[sx]]) && !inherits(fs_stab_store[[sx]], "condition")
+
       list(
         schema_version = "1.0", module = "mod_methyl_featureselection", saved_at = Sys.time(), sex_label = sx,
         dataset = list(source_label = r$source_label, array_type = r$array_type, n_probes_input = r$n_probes,
                         n_samples = r$n_samples, group_col = r$group_col, reference_level = r$ref_group, comparison_level = r$comp_group),
+        holdout_sample_ids = r$holdout_sample_ids %||% character(0), holdout_seed = r$holdout_seed,
+        leakage_safe = length(r$holdout_sample_ids %||% character(0)) > 0,
+        ## Content fingerprint of the exact filtered M-value matrix + group
+        ## assignment that fed every technique stage below, plus the
+        ## group/reference/comparison choice - the same digest::digest(...,
+        ## algo = "xxhash64") primitive global.R already uses as a WGCNA
+        ## cache key over matrices this size (R/provenance.R).
+        checksum = digest::digest(list(m = r$m, grp = as.character(r$grp),
+                                        group_col = r$group_col, ref_group = r$ref_group, comp_group = r$comp_group),
+                                   algo = "xxhash64"),
+        ## Every seed ACTUALLY passed into a computation that ran for this
+        ## export - NOT a blanket "the global seed controls everything"
+        ## assumption (each technique stage below takes its own seed=
+        ## input, independently settable in the UI; a stage that never ran
+        ## for this stratum has no seed to report and is left NA).
+        seed = list(
+          holdout_split = r$holdout_seed,
+          regularization = if (reg_ran) input$reg_seed else NA_integer_,
+          tree_based = if (rf_ran) input$rf_seed else NA_integer_,
+          rfe = if (rfe_ran) input$rfe_seed else NA_integer_,
+          stability = if (stab_ran) input$stab_seed else NA_integer_,
+          validation = if (validate_has_run()) input$validate_seed else NA_integer_
+        ),
         filters = list(notes = r$filter_notes, cascade = r$cascade, imputed_method = r$imputed_method),
         methods = list(
-          univariate = if (!is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_uni_store[[sx]]$selected_ids, ranked = fs_uni_store[[sx]]$ranked) else list(ran = FALSE),
-          regularization = if (!is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_reg_store[[sx]]$selected_ids, coefficients = fs_reg_store[[sx]]$coefficients) else list(ran = FALSE),
-          tree_based = if (!is.null(fs_rf_store[[sx]]) && !inherits(fs_rf_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_rf_store[[sx]]$selected_ids, ranked = fs_rf_store[[sx]]$ranked) else list(ran = FALSE),
-          rfe = if (!is.null(fs_rfe_store[[sx]]) && !inherits(fs_rfe_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_rfe_store[[sx]]$selected_ids, optimal_size = fs_rfe_store[[sx]]$optimal_size) else list(ran = FALSE),
-          stability = if (!is.null(fs_stab_store[[sx]]) && !inherits(fs_stab_store[[sx]], "condition")) list(ran = TRUE, selected_ids = fs_stab_store[[sx]]$selected_ids, ranked = fs_stab_store[[sx]]$ranked) else list(ran = FALSE)
+          univariate = if (uni_ran) list(ran = TRUE, selected_ids = fs_uni_store[[sx]]$selected_ids, ranked = fs_uni_store[[sx]]$ranked) else list(ran = FALSE),
+          regularization = if (reg_ran) list(ran = TRUE, selected_ids = fs_reg_store[[sx]]$selected_ids, coefficients = fs_reg_store[[sx]]$coefficients) else list(ran = FALSE),
+          tree_based = if (rf_ran) list(ran = TRUE, selected_ids = fs_rf_store[[sx]]$selected_ids, ranked = fs_rf_store[[sx]]$ranked) else list(ran = FALSE),
+          rfe = if (rfe_ran) list(ran = TRUE, selected_ids = fs_rfe_store[[sx]]$selected_ids, optimal_size = fs_rfe_store[[sx]]$optimal_size) else list(ran = FALSE),
+          stability = if (stab_ran) list(ran = TRUE, selected_ids = fs_stab_store[[sx]]$selected_ids, ranked = fs_stab_store[[sx]]$ranked) else list(ran = FALSE)
         ),
         consensus = list(methods_used = cr$methods, min_methods_required = cr$min_methods, weights = cr$weights, selected_ids = cr$selected_ids, table = cr$table),
         correlation_reduction = list(applied = isTRUE(input$use_corr_reduced) && corr_has_run(),
@@ -1987,6 +2064,8 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         p(class = "empty-note", icon("circle-info"), "Loaded for reference/comparison only - does not modify the current run."),
         p(strong("Saved at: "), format(x$saved_at)),
         p(strong("Source: "), x$dataset$source_label, sprintf(" (%d CpGs, %d samples)", x$dataset$n_probes_input, x$dataset$n_samples)),
+        if (isTRUE(x$leakage_safe)) p(class = "empty-note", icon("shield-halved"), sprintf("Leakage-safe: %d held-out samples were reserved before selection.", length(x$holdout_sample_ids)))
+        else p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: no held-out set was reserved for this panel (saved before this feature existed, or the split was disabled)."),
         p(strong("Final panel: "), sprintf("%d CpGs", x$final_panel$n)),
         if (!identical(x$validation$mode, NA) && !is.null(x$validation$mode)) p(strong("Validation: "), sprintf("mean AUC %.3f (%s)", x$validation$mean_auc, x$validation$mode)) else NULL,
         DT::dataTableOutput(ns("loaded_model_table"))

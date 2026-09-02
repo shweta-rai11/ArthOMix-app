@@ -200,8 +200,11 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       if (is.null(client)) {
         cl <- ellmer::chat_ollama(
           model = ARTHOMIX_OLLAMA_MODEL,
+          base_url = ollama_base_url(),
           system_prompt = system_prompt_r(),
-          ## qwen3's reasoning mode is ~15x slower with little benefit here (see mod_assistant.R).
+          ## qwen3's reasoning mode is ~15x slower with little benefit here - see the
+          ## ARTHOMIX_OLLAMA_MODEL/ollama_available() comments in global.R for the
+          ## model-selection testing this was decided from.
           api_args = list(think = FALSE)
         )
         cl$register_tool(ellmer::tool(

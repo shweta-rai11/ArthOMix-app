@@ -70,15 +70,11 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Non-negative values with 99th percentile > 100 flag linear-scale
-    ## expression (same scale-detection rule as mod_dge.R/mod_preprocessing.R).
-    is_linear_counts <- function(expr) {
-      vals <- as.numeric(expr)
-      vals <- vals[is.finite(vals)]
-      if (length(vals) == 0 || any(vals < 0)) return(FALSE)
-      q99 <- suppressWarnings(stats::quantile(vals[vals > 0], 0.99, na.rm = TRUE))
-      isTRUE(!is.na(q99) && q99 > 100)
-    }
+    ## Linear-scale-expression detection (non-negative, 99th percentile > 100)
+    ## now shared with mod_dge.R/mod_dataset.R via the top-level
+    ## looks_like_raw_counts() in R/transcriptomics/expression_type.R - this
+    ## module used to keep an independent near-copy of that exact logic under
+    ## the name is_linear_counts().
 
     ## Extract LM22 fraction columns from IOBR's CIBERSORT output, dropping
     ## the P-value/Correlation/RMSE diagnostic columns.
@@ -183,7 +179,16 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
                             id_overlap_pct)))
 
       ## --- CIBERSORT (LM22, primary) ---------------------------------
-      is_counts <- is_linear_counts(expr)
+      ## Prefer the upload-time declaration (dataset$declared_data_type, set
+      ## by mod_dataset.R's upload handler - NA for preloaded/GEO sources)
+      ## over live heuristic inference, same precedence as mod_dge.R's own
+      ## method gate.
+      declared_type <- dataset$declared_data_type
+      is_counts <- if (!is.null(declared_type) && !is.na(declared_type) && nzchar(declared_type)) {
+        identical(declared_type, "raw")
+      } else {
+        looks_like_raw_counts(expr)
+      }
       lin_expr <- if (is_counts) as.matrix(expr) else 2^as.matrix(expr)
       lin_expr[!is.finite(lin_expr)] <- 0
       perm <- suppressWarnings(as.integer(input$cib_perm %||% 100))

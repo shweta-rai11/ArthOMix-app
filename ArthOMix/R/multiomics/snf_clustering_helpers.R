@@ -96,6 +96,12 @@ sfc_validate_dataset <- function(layers, sample_meta = NULL, outcome_col = NULL)
   if (length(layers) == 1) {
     nm <- names(layers)
     ids <- rownames(layers[[1]])
+    if (anyDuplicated(ids) > 0) {
+      return(list(ok = FALSE, error = sprintf(
+        "Duplicate sample IDs detected in this omics block (%d duplicate row name(s)) - resolve before clustering, since a repeated ID would silently keep only its first row and discard the rest.",
+        sum(duplicated(ids))
+      ), n_blocks = 1L))
+    }
     per_block <- stats::setNames(list(multi_live_validate_matrix(layers[[1]], layer_label = nm)), nm)
     outcome_summary <- if (!is.null(sample_meta) && !is.null(outcome_col) && outcome_col %in% colnames(sample_meta)) {
       mi_outcome_summary(sample_meta, outcome_col, ids)

@@ -13,6 +13,7 @@ License: file LICENSE
 Encoding: UTF-8
 Imports:
     AnnotationDbi (>= 1.68.0),
+    bacon (>= 1.34.0),
     base64enc (>= 0.1.6),
     Biobase (>= 2.66.0),
     BiocGenerics (>= 0.52.0),

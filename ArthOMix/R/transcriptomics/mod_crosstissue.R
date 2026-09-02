@@ -109,8 +109,22 @@ CT_TECHNIQUES <- list(
   list(key = "svm", label = "SVM")
 )
 
-ct_youden <- function(roc_obj) pROC::coords(roc_obj, "best", best.method = "youden",
-                                             ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
+## pROC::coords(..., "best") returns ONE ROW PER TIED THRESHOLD when several
+## cutpoints share the same maximal Youden index (common with tree/ensemble
+## probabilities, or near-perfect separation on small panels) - verified
+## empirically (pROC 1.19.0.1), same gotcha mod_diagnostic.R's own youden()
+## documents and guards against. Left un-collapsed, every downstream
+## `rr$best$threshold` used as a scalar (data.frame row-building, and
+## diag_perf_at_cutoff()'s vectorised `prob >= threshold`) would silently
+## recycle across a length>1 threshold instead of erroring, corrupting the
+## reported sensitivity/specificity/accuracy without any visible failure.
+## Deterministically keep the first tie so every caller always sees a scalar.
+ct_youden <- function(roc_obj) {
+  b <- pROC::coords(roc_obj, "best", best.method = "youden",
+                     ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
+  if (nrow(b) > 1) b <- b[1, , drop = FALSE]
+  b
+}
 
 ## A panel gene counts as a validated cross-tissue biomarker when all three
 ## hold: its direction of effect agrees between blood and synovium, its
@@ -437,6 +451,263 @@ ct_build_uploaded_val <- function(expr, meta, id_col, sex_col, group_col, ref_gr
 }
 
 ## ---------------------------------------------------------------------------
+## Tissue-type validation - metadata-aware classification of the training
+## (blood) dataset and the active cross-tissue validation dataset. Pure
+## functions only - no `input`/`session`/`dataset` - so this logic is unit-
+## testable on its own (see test-txn-crosstissue-tissue-validation-
+## functions.R) and reusable from anywhere a raw sample-metadata data.frame
+## or a single tissue string needs to be checked. The server body below (see
+## ct_training_tissue/ct_validation_tissue/ct_cross_tissue_gate) wires these
+## to this module's own data sources; nothing here depends on Shiny beyond
+## `validate()`/`need()`, already used by ct_voom_de_table()/
+## ct_build_uploaded_val() above.
+##
+## The rule (this module's own cross-tissue validation requirement):
+## training = blood + validation = any blood-derived sample -> REJECT;
+## training = blood + validation = non-blood tissue -> ACCEPT; same tissue
+## on both sides (blood or not) -> REJECT (not actually cross-tissue);
+## either side unclassifiable -> REJECT SAFELY ("unknown" is never treated
+## as a pass).
+## ---------------------------------------------------------------------------
+
+## Column names, in priority order, searched for a tissue/sample-type signal
+## on a raw metadata data.frame. Matched case-insensitively after collapsing
+## "_"/"." to a single form, so "Tissue_Type", "tissue.type" and
+## "tissuetype" all hit the same entry.
+TISSUE_META_COLUMNS <- c(
+  "tissue", "tissue_type", "tissuetype", "sample_type", "sampletype",
+  "source", "source_name", "biomaterial", "bio_material",
+  "characteristics", "organism_part", "organismpart",
+  "body_site", "specimen", "specimen_type", "tissue_source"
+)
+
+## GEO/GEOquery `pData()` columns carry a tissue signal under names that
+## don't match TISSUE_META_COLUMNS exactly (e.g. "tissue:ch1",
+## "characteristics_ch1", "characteristics_ch1.1", "source_name_ch1") -
+## matched by substring, then gated by the value itself actually looking
+## tissue-related (see tissue_extract_field()) so an unrelated
+## "characteristics_ch1.3" column (e.g. "age: 45") isn't grabbed.
+TISSUE_META_COLUMN_PATTERN <- "tissue|characteristics|source_name|organism_part|organismpart|biomaterial"
+
+## Terms/phrases recognised as blood-derived, checked as whole-word/phrase
+## matches against the NORMALIZED (lowercased, punctuation-collapsed) text -
+## so "blood" alone still catches anything containing it as a standalone
+## word ("cord blood", "circulating blood", ...) while never matching
+## "bloodwork panel" partial-word noise thanks to \\b boundaries. Centralized
+## here as the single list every classification call reads from.
+BLOOD_DERIVED_TERMS <- c(
+  "whole blood", "peripheral blood", "pbmc",
+  "peripheral blood mononuclear cell", "peripheral blood mononuclear cells",
+  "buffy coat", "plasma", "serum", "blood plasma", "blood serum",
+  "venous blood", "arterial blood", "cord blood", "circulating blood",
+  "blood derived", "blood"
+)
+
+## Lowercases, strips a leading GEO-style "label: " prefix (e.g. "tissue:
+## whole blood", "sample type: peripheral blood" -> "whole blood",
+## "peripheral blood"), then normalizes separators/punctuation to single
+## spaces. Returns NA_character_ for anything empty/NA so every downstream
+## check has one "nothing here" sentinel to test against.
+tissue_normalize <- function(x) {
+  if (is.null(x) || length(x) == 0) return(NA_character_)
+  x <- as.character(x)[1]
+  if (is.na(x)) return(NA_character_)
+  x <- tolower(trimws(x))
+  if (!nzchar(x)) return(NA_character_)
+  if (grepl("^[a-z][a-z0-9 _]{1,40}:\\s*.+$", x)) {
+    x <- sub("^[a-z][a-z0-9 _]{1,40}:\\s*", "", x)
+  }
+  x <- gsub("[_-]+", " ", x)
+  x <- gsub("[[:punct:]]", " ", x)
+  x <- gsub("\\s+", " ", x)
+  trimws(x)
+}
+
+## TRUE iff the normalized text contains any BLOOD_DERIVED_TERMS entry as a
+## whole word/phrase - deliberately not a bare grepl("blood", ...), which
+## this module's own spec calls out as too broad/context-blind.
+tissue_is_blood_derived <- function(normalized) {
+  if (is.na(normalized) || !nzchar(normalized)) return(FALSE)
+  any(vapply(BLOOD_DERIVED_TERMS, function(term) grepl(paste0("\\b", term, "\\b"), normalized), logical(1)))
+}
+
+## Classifies one already-extracted tissue string (not a whole metadata
+## table - see classify_tissue_from_metadata() below for that). `field` is
+## just carried through for the "which metadata field was inspected"
+## transparency requirement; it never affects the classification itself.
+classify_tissue_string <- function(raw_value, field = NA_character_) {
+  if (is.null(raw_value) || length(raw_value) == 0) raw_value <- NA_character_
+  raw_value <- as.character(raw_value)[1]
+  if (is.na(raw_value) || !nzchar(trimws(raw_value))) {
+    return(list(field = NA_character_, raw_value = NA_character_, normalized = NA_character_,
+                classification = "unknown",
+                reason = "No tissue/sample-type value was available to classify."))
+  }
+  norm <- tissue_normalize(raw_value)
+  if (is.na(norm) || !nzchar(norm)) {
+    return(list(field = field, raw_value = raw_value, normalized = NA_character_,
+                classification = "unknown",
+                reason = sprintf("The value \"%s\" could not be normalized into a classifiable tissue string.", raw_value)))
+  }
+  is_blood <- tissue_is_blood_derived(norm)
+  classification <- if (is_blood) "blood" else "non-blood"
+  field_note <- if (!is.na(field) && nzchar(field)) sprintf(" (field: %s)", field) else ""
+  reason <- if (is_blood) {
+    sprintf("Matched blood-derived terminology in \"%s\"%s.", raw_value, field_note)
+  } else {
+    sprintf("No blood-derived terminology matched in \"%s\"%s - treated as a distinct, non-blood tissue.", raw_value, field_note)
+  }
+  list(field = field, raw_value = raw_value, normalized = norm, classification = classification, reason = reason)
+}
+
+## Searches a raw metadata data.frame for the first usable tissue/sample-type
+## value: exact-name columns from TISSUE_META_COLUMNS first (highest
+## confidence - a column actually called "tissue"/"tissue_type"/etc.), then
+## GEO-style pattern columns (TISSUE_META_COLUMN_PATTERN), each of THOSE only
+## accepted if its value itself looks tissue-related (so a same-pattern
+## "characteristics_ch1.3" column holding "age: 45" isn't mistaken for
+## tissue). Returns list(field=, value=) with both NA_character_ when
+## nothing usable was found anywhere.
+tissue_extract_field <- function(meta) {
+  none <- list(field = NA_character_, value = NA_character_)
+  if (is.null(meta) || !is.data.frame(meta) || nrow(meta) == 0 || ncol(meta) == 0) return(none)
+
+  cols <- colnames(meta)
+  cols_norm <- tolower(gsub("[_.]+", "_", cols))
+  first_value <- function(col) {
+    vals <- as.character(meta[[col]])
+    vals <- vals[!is.na(vals) & nzchar(trimws(vals))]
+    if (length(vals) == 0) NA_character_ else vals[1]
+  }
+
+  for (want in TISSUE_META_COLUMNS) {
+    hit <- which(cols_norm == want)[1]
+    if (!is.na(hit)) {
+      v <- first_value(cols[hit])
+      if (!is.na(v)) return(list(field = cols[hit], value = v))
+    }
+  }
+
+  pat_hits <- grep(TISSUE_META_COLUMN_PATTERN, tolower(cols))
+  tissue_hint <- "tissue|blood|synov|muscle|marrow|organ|biopsy|pbmc|plasma|serum|node|skin|liver|kidney|lung|cartilage|membrane"
+  for (hit in pat_hits) {
+    v <- first_value(cols[hit])
+    if (!is.na(v) && grepl(tissue_hint, v, ignore.case = TRUE)) return(list(field = cols[hit], value = v))
+  }
+
+  none
+}
+
+## Main entry point for "classify a whole metadata table" - extracts the
+## tissue field, then classifies its value the same way classify_tissue_
+## string() does. Used for both the training dataset's `dataset$meta` and an
+## uploaded validation cohort's raw metadata.
+classify_tissue_from_metadata <- function(meta) {
+  ex <- tissue_extract_field(meta)
+  if (is.na(ex$value)) {
+    return(list(field = NA_character_, raw_value = NA_character_, normalized = NA_character_,
+                classification = "unknown",
+                reason = "No tissue/sample-type metadata field (e.g. tissue, tissue_type, sample_type, source_name, characteristics_ch1) could be identified."))
+  }
+  classify_tissue_string(ex$value, field = ex$field)
+}
+
+## Compares a training-dataset classification against a validation-dataset
+## classification (each the list shape returned by classify_tissue_string()/
+## classify_tissue_from_metadata() above) and decides whether the pair
+## qualifies as genuine cross-tissue validation:
+##   - either side "unknown"            -> reject (fail safely, never a pass)
+##   - both sides "blood"               -> reject (blood-derived vs
+##                                          blood-derived is not cross-tissue,
+##                                          regardless of sample-prep detail)
+##   - same normalized tissue text      -> reject (not distinguishable from
+##                                          the training tissue)
+##   - otherwise                        -> accept
+validate_cross_tissue <- function(train, val) {
+  if (identical(train$classification, "unknown") || identical(val$classification, "unknown")) {
+    return(list(
+      valid = FALSE, status = "Unable to determine tissue type",
+      reason = paste(
+        "Unable to determine the tissue type from the available metadata for the training and/or",
+        "cross-tissue validation dataset. Cross-tissue validation cannot proceed until the tissue origin",
+        "can be verified from the uploaded metadata."
+      )
+    ))
+  }
+  if (identical(train$classification, "blood") && identical(val$classification, "blood")) {
+    return(list(
+      valid = FALSE, status = "Rejected - both datasets are blood-derived",
+      reason = paste(
+        "The training dataset and cross-tissue validation dataset are both blood-derived",
+        sprintf("(training: \"%s\"; validation: \"%s\").", train$raw_value, val$raw_value),
+        "Cross-tissue validation requires a biologically distinct tissue - please upload a validation",
+        "dataset from a non-blood tissue."
+      )
+    ))
+  }
+  same_tissue <- !is.na(train$normalized) && !is.na(val$normalized) && identical(train$normalized, val$normalized)
+  if (same_tissue) {
+    return(list(
+      valid = FALSE, status = "Rejected - not cross-tissue",
+      reason = sprintf(
+        paste("The validation dataset (\"%s\") is the same tissue as the training dataset (\"%s\").",
+              "Cross-tissue validation requires a biologically distinct tissue."),
+        val$raw_value, train$raw_value
+      )
+    ))
+  }
+  list(valid = TRUE, status = "Valid cross-tissue dataset",
+       reason = sprintf("The validation dataset (\"%s\") is biologically distinct from the training tissue (\"%s\").",
+                         val$raw_value, train$raw_value))
+}
+
+## Classifies the shared/"training" blood dataset (`dataset` reactiveValues
+## below). Tries, in order: (1) any tissue-carrying column still present in
+## `dataset$meta` (present for the "geo"/"uploaded" source types, which keep
+## pData()/the user's original columns; stripped for "preloaded", see
+## mod_dataset.R's harmonizers); (2) ONLY for `source_type == "preloaded"`,
+## the dataset's own human-readable `source` label, which for every bundled/
+## preloaded entry in this app already names its tissue (e.g.
+## "sex-stratified RA blood cohort", "Whole Blood Training Cohort A",
+## "Synovial Tissue Validation Cohort" - see mod_dataset.R's
+## INDIVIDUAL_DATASET_LABELS and global.R's load_default_dataset()); (3)
+## this app's own GEO_SOURCES registry, keyed by whichever accession(s) were
+## actually loaded, as a last resort for a preloaded pick whose `source`
+## label happens not to be tissue-worded. Step (2) is deliberately gated to
+## "preloaded" only - for "uploaded"/"geo" the `source` field is a filename
+## or accession/platform string (e.g. "Uploaded dataset: expr.csv +
+## meta.csv"), never a curated tissue description, and classifying THAT
+## would silently derive tissue from a filename, exactly what this feature
+## must not do - those source_types fall straight through to "unknown" when
+## their metadata has no real tissue column. Pure function - `geo_sources`
+## is passed in (this app's GEO_SOURCES list, or a fixture in tests) rather
+## than looked up as a global, so this stays testable without sourcing
+## global.R.
+ct_classify_training_tissue <- function(meta, source = NA_character_, source_type = NA_character_, geo_ids = NULL, geo_sources = NULL) {
+  from_meta <- classify_tissue_from_metadata(meta)
+  if (!identical(from_meta$classification, "unknown")) return(from_meta)
+
+  if (identical(source_type, "preloaded")) {
+    from_source <- classify_tissue_string(source, field = "dataset source label")
+    if (!identical(from_source$classification, "unknown")) return(from_source)
+  }
+
+  if (length(geo_ids) > 0 && !is.null(geo_sources)) {
+    roles <- vapply(geo_ids, function(gid) {
+      hit <- Find(function(s) identical(s$gse, gid), geo_sources)
+      if (is.null(hit)) NA_character_ else hit$role
+    }, character(1))
+    roles <- unique(stats::na.omit(roles))
+    if (length(roles) > 0) {
+      from_registry <- classify_tissue_string(paste(roles, collapse = "; "), field = "GEO_SOURCES role registry")
+      if (!identical(from_registry$classification, "unknown")) return(from_registry)
+    }
+  }
+
+  from_meta
+}
+
+## ---------------------------------------------------------------------------
 ## UI
 ## ---------------------------------------------------------------------------
 
@@ -600,7 +871,8 @@ mod_crosstissue_ui <- function(id) {
                 "CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
             fileInput(ns("val_meta_file"), "Validation sample metadata", accept = c(".csv", ".rds", ".Rds")),
             uiOutput(ns("val_column_mapping"))
-          )
+          ),
+          uiOutput(ns("tissue_validation_status"))
         ),
         box(
           width = NULL, title = "Gene panel & synovium contrast", status = "primary", solidHeader = FALSE,
@@ -790,12 +1062,100 @@ mod_crosstissue_server <- function(id, dataset, results) {
     val_uploaded <- reactive({
       req(input$val_map_id, input$val_map_sex, input$val_map_group, input$val_ref_group, input$val_comp_group)
       validate(need(input$val_ref_group != input$val_comp_group, "Reference and comparison group must be different."))
+      ## Tissue-type gate BEFORE ct_build_uploaded_val() (which fits the
+      ## voom/limma DE model - the expensive step) so a rejected upload never
+      ## reaches normalization/DE fitting, matching the mandatory reject-at-
+      ## metadata-stage rule below (see ct_cross_tissue_gate()).
+      gate <- ct_cross_tissue_gate()
+      validate(need(isTRUE(gate$valid), gate$reason))
       ct_build_uploaded_val(val_expr_raw(), val_meta_raw(), input$val_map_id, input$val_map_sex, input$val_map_group,
                             input$val_ref_group, input$val_comp_group)
     })
 
     val_active <- reactive({
       if (identical(input$val_source %||% "preloaded", "upload")) val_uploaded() else val_bundled
+    })
+
+    ## -----------------------------------------------------------------
+    ## Tissue-type validation - metadata-aware check that the active
+    ## validation dataset is genuinely a different tissue from the shared
+    ## blood `dataset` (see this file's own "Tissue-type validation" section
+    ## above, right before the UI section, for the full acceptance/rejection
+    ## rules). Classification logic is pure and lives there; these three
+    ## reactives only wire it to this module's own data sources: the shared
+    ## `dataset` reactiveValues for the training side, and either the
+    ## bundled synovium dataset (always non-blood, keyed off this app's own
+    ## GEO_SOURCES role for GSE89408) or the user's uploaded validation
+    ## metadata for the validation side.
+    ## -----------------------------------------------------------------
+
+    ct_training_tissue <- reactive({
+      ct_classify_training_tissue(dataset$meta, dataset$source, dataset$source_type, dataset$geo_ids, GEO_SOURCES)
+    })
+
+    ct_validation_tissue <- reactive({
+      if (identical(input$val_source %||% "preloaded", "upload")) {
+        if (is.null(input$val_meta_file)) {
+          return(list(field = NA_character_, raw_value = NA_character_, normalized = NA_character_,
+                      classification = "unknown", reason = "No validation metadata uploaded yet."))
+        }
+        classify_tissue_from_metadata(val_meta_raw())
+      } else {
+        role <- Find(function(s) identical(s$gse, "GSE89408"), GEO_SOURCES)$role
+        classify_tissue_string(role %||% "Synovium (GSE89408)", field = "Bundled validation dataset (GSE89408, GEO_SOURCES role)")
+      }
+    })
+
+    ## Single source of truth every gate below reads from - so the visible
+    ## status panel (tissue_validation_status) and the actual pipeline
+    ## blocks (val_uploaded()/ct_build_sex()) can never disagree.
+    ct_cross_tissue_gate <- reactive({
+      validate_cross_tissue(ct_training_tissue(), ct_validation_tissue())
+    })
+
+    ## A plain bordered div, not box() - this renders inside the "Validation
+    ## dataset" box above (uiOutput(ns("tissue_validation_status")) at
+    ## mod_crosstissue_ui()), and shinydashboard boxes nested inside another
+    ## box's body double up their borders/shadows and misrender (the whole
+    ## reason references_box_ui above uses a plain tags$details rather than
+    ## a nested box too) - so this stays a self-contained card, styled with
+    ## the same "empty-note" left-accent-border convention already used
+    ## throughout this file, just promoted to a full panel with its own
+    ## background tint for a status this consequential to see at a glance.
+    output$tissue_validation_status <- renderUI({
+      tt <- ct_training_tissue(); vt <- ct_validation_tissue()
+      gate <- validate_cross_tissue(tt, vt)
+      ok <- isTRUE(gate$valid)
+      accent <- if (ok) ARTHOMIX_STATUS$good else ARTHOMIX_STATUS$critical
+
+      cls_label <- function(cl) switch(cl, blood = "Blood-derived", `non-blood` = "Non-blood", "Unknown")
+      cls_color <- function(cl) switch(cl, blood = ARTHOMIX_STATUS$critical, `non-blood` = ARTHOMIX_STATUS$good, ARTHOMIX_STATUS$warning)
+      tissue_block <- function(title, info) {
+        tagList(
+          tags$p(style = "margin: 0 0 2px 0; font-size: 12.5px;", strong(title)),
+          tags$p(style = "margin: 0 0 2px 10px; font-size: 12px; color: #6b7280;",
+                 "Metadata field: ", tags$code(if (is.na(info$field)) "none identified" else info$field)),
+          tags$p(style = "margin: 0 0 2px 10px; font-size: 12.5px;",
+                 "Detected tissue: ", if (is.na(info$raw_value)) tags$em("not detected") else strong(info$raw_value)),
+          tags$p(style = "margin: 0 0 8px 10px; font-size: 12.5px;",
+                 "Classification: ", span(style = sprintf("color: %s; font-weight: 600;", cls_color(info$classification)), cls_label(info$classification)))
+        )
+      }
+
+      div(
+        style = sprintf("margin-top: 12px; padding: 10px 12px; border: 1px solid %s; border-left: 4px solid %s; border-radius: 4px; background: %s;",
+                         accent, accent, if (ok) "#f0faf3" else "#fdf2f2"),
+        tags$p(style = "margin: 0 0 6px 0; font-weight: 700; font-size: 13px;", "Tissue-type validation"),
+        tissue_block("Training dataset", tt),
+        tissue_block("Cross-Tissue Validation dataset", vt),
+        tags$hr(style = "margin: 6px 0; border-color: rgba(0,0,0,0.08);"),
+        tags$p(
+          style = "margin: 0;",
+          icon(if (ok) "circle-check" else "circle-xmark", style = sprintf("color: %s;", accent)),
+          strong(" Validation status: "), gate$status
+        ),
+        if (!ok) div(class = "empty-note", style = "font-size: 12.5px; margin-top: 6px; border-left: 3px solid #c0392b;", gate$reason) else NULL
+      )
     })
 
     ## -----------------------------------------------------------------
@@ -921,6 +1281,12 @@ mod_crosstissue_server <- function(id, dataset, results) {
     ## -----------------------------------------------------------------
 
     ct_build_sex <- function(sex_label) {
+      ## Tissue-type gate, checked again here (val_uploaded() already blocks
+      ## the uploaded path before its DE fit runs) so the bundled/preloaded
+      ## path's Run button also can't reach discovery-table computation or
+      ## panel-classifier fitting on a non-cross-tissue pair.
+      gate <- ct_cross_tissue_gate()
+      validate(need(isTRUE(gate$valid), gate$reason))
       va <- val_active()
       is_upload <- identical(input$val_source %||% "preloaded", "upload")
       sex_code <- switch(sex_label, female = "F", male = "M", NULL)

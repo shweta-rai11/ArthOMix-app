@@ -130,14 +130,25 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     })
 
     output$int_table <- DT::renderDataTable({
-      if (!int_has_run()) return(NULL)
+      ## req(), not `if (!int_has_run()) return(NULL)`: an explicit NULL still
+      ## gets sent to the client as a real value, and DT's own JS binding
+      ## throws "Cannot read properties of null (reading 'lazyRender')" the
+      ## first time it's asked to render one - which happens as soon as this
+      ## tab is added (insertTab(..., select = TRUE) in server.R makes it
+      ## visible immediately, before Run is ever clicked). Same fix as
+      ## mod_dge.R's dge_table.
+      req(int_has_run())
       DT::datatable(sig_table(), rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
+    outputOptions(output, "int_table", suspendWhenHidden = FALSE)
 
     output$download_int <- downloadHandler(
       filename = function() "sex_interaction.csv",
-      content = function(file) write.csv(sig_table(), file, row.names = FALSE)
+      content = function(file) {
+        if (!int_has_run()) stop("No interaction model run yet in this session - click \"Run interaction model\" first.")
+        write.csv(sig_table(), file, row.names = FALSE)
+      }
     )
   })
 }

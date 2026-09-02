@@ -223,19 +223,25 @@ tbc_hpa_evidence_for_gene <- function(ensembl) {
   }, error = function(e) NULL)
   if (is.null(res)) return(list(ok = FALSE, reason = sprintf("No Human Protein Atlas entry found for Ensembl ID \"%s\".", ensembl)))
 
+  ## Each per-tissue value is normally a JSON scalar, but is defensively
+  ## collapsed with paste() rather than as.character() so an unexpected
+  ## multi-value entry can't throw inside vapply(FUN.VALUE = character(1)) -
+  ## this parsing step must stay as fail-soft as every other lookup in this file.
   named_list_to_df <- function(x, value_label) {
     if (is.null(x) || length(x) == 0) return(NULL)
-    data.frame(Tissue = names(x), Value = vapply(x, function(v) as.character(v %||% NA), character(1)), check.names = FALSE, stringsAsFactors = FALSE) %>%
+    data.frame(Tissue = names(x), Value = vapply(x, function(v) paste(as.character(v %||% NA), collapse = ", "), character(1)), check.names = FALSE, stringsAsFactors = FALSE) %>%
       stats::setNames(c("Tissue / cell type", value_label))
   }
-  list(ok = TRUE,
+  parsed <- tryCatch(list(ok = TRUE,
        tissue_specificity = res[["RNA tissue specificity"]] %||% "Not available",
        tissue_top = named_list_to_df(res[["RNA tissue specific nTPM"]], "nTPM"),
        blood_specificity = res[["RNA blood lineage specificity"]] %||% "Not available",
        blood_top = named_list_to_df(res[["RNA blood lineage specific nTPM"]], "nTPM"),
        blood_cluster = res[["Blood expression cluster"]] %||% NA_character_,
        secretome = res[["Secretome location"]] %||% NA_character_,
-       protein_class = if (!is.null(res[["Protein class"]])) paste(unlist(res[["Protein class"]]), collapse = ", ") else NA_character_)
+       protein_class = if (!is.null(res[["Protein class"]])) paste(unlist(res[["Protein class"]]), collapse = ", ") else NA_character_),
+    error = function(e) list(ok = FALSE, reason = sprintf("Human Protein Atlas response had an unexpected shape: %s", conditionMessage(e))))
+  parsed
 }
 
 ## STRING PPI neighborhood; a 404 means "no partners found", not a request failure.
@@ -258,9 +264,13 @@ tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
   if (!is.data.frame(res) || nrow(res) == 0) return(list(ok = TRUE, partners = NULL, reason = NULL))
   ## STRING's 7 evidence channels: nscore=neighborhood, fscore=fusion, pscore=cooccurrence,
   ## ascore=coexpression, escore=experimental, dscore=database, tscore=textmining.
-  chan_cols <- c("score", "nscore", "fscore", "pscore", "ascore", "escore", "dscore", "tscore")
-  df <- res[order(-res$score), c("preferredName_B", intersect(chan_cols, colnames(res))), drop = FALSE]
-  colnames(df) <- c("Partner gene", "Combined", "Neighborhood", "Fusion", "Cooccurrence", "Coexpression", "Experimental", "Database", "Textmining")[seq_len(ncol(df))]
+  ## Renamed via a name->label map (not position) so a channel STRING omits from
+  ## the response can never shift a later column into the wrong label.
+  chan_labels <- c(score = "Combined", nscore = "Neighborhood", fscore = "Fusion", pscore = "Cooccurrence",
+                    ascore = "Coexpression", escore = "Experimental", dscore = "Database", tscore = "Textmining")
+  present <- intersect(names(chan_labels), colnames(res))
+  df <- res[order(-res$score), c("preferredName_B", present), drop = FALSE]
+  colnames(df) <- c("Partner gene", unname(chan_labels[present]))
   num_cols <- setdiff(colnames(df), "Partner gene")
   df[num_cols] <- lapply(df[num_cols], round, digits = 3)
   list(ok = TRUE, partners = utils::head(df, top_n), reason = NULL)
@@ -529,7 +539,9 @@ tbc_single_gene_roc <- function(expr_row, group_vec, case_label, control_label) 
        threshold = best$threshold, sensitivity = best$sensitivity, specificity = best$specificity,
        accuracy = best$accuracy, ppv = best$ppv, npv = best$npv, balanced_accuracy = (best$sensitivity + best$specificity) / 2,
        n_case = n_case, n_control = n_control,
-       confusion = matrix(c(tp, fp, fn, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
+       ## Column-major fill: c(tp, fn, fp, tn) so [Predicted=Case, Actual=Control] = fp
+       ## and [Predicted=Control, Actual=Case] = fn (matching the dimnames below).
+       confusion = matrix(c(tp, fn, fp, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
        roc_obj = roc_obj, case_label = case_label, control_label = control_label)
 }
 
@@ -568,7 +580,9 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
   spec <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
   list(ok = TRUE, k = k_eff, n_used = sum(usable), auc = auc_pooled, sensitivity = sens, specificity = spec,
        accuracy = (tp + tn) / (tp + tn + fp + fn), balanced_accuracy = (sens + spec) / 2,
-       confusion = matrix(c(tp, fp, fn, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
+       ## Column-major fill: c(tp, fn, fp, tn) so [Predicted=Case, Actual=Control] = fp
+       ## and [Predicted=Control, Actual=Case] = fn (matching the dimnames below).
+       confusion = matrix(c(tp, fn, fp, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
        roc_obj = roc_pooled, case_label = case_label, control_label = control_label)
 }
 
@@ -908,7 +922,7 @@ tbc_section_signature <- function(d) {
 ## reactives) - reported honestly as "Not available" rather than guessed.
 tbc_multi_gene_perf_table <- function(diag) {
   if (length(diag) == 0) return(NULL)
-  do.call(rbind, lapply(names(diag), function(s) {
+  df <- do.call(rbind, lapply(names(diag), function(s) {
     x <- diag[[s]]
     aucs <- c(lr = x$lr_cv_auc, enet = x$enet_cv_auc, rf = x$rf_cv_auc, svm = x$svm_cv_auc)
     train_aucs <- c(lr = x$lr_auc, enet = x$enet_auc, rf = x$rf_auc, svm = x$svm_auc)
@@ -920,8 +934,16 @@ tbc_multi_gene_perf_table <- function(diag) {
       `Internal validation AUC (CV)` = if (is.na(best_key)) "Not available" else tbc_fmt_field(aucs[[best_key]]),
       Sensitivity = "Not available (only AUC is stored for saved panels)",
       Specificity = "Not available (only AUC is stored for saved panels)",
+      `.best_cv_auc` = if (is.na(best_key)) NA_real_ else unname(aucs[[best_key]]),
       check.names = FALSE, stringsAsFactors = FALSE)
   }))
+  ## Raw numeric CV AUC kept as an attribute (not a displayed column) so callers
+  ## that need to compare against it don't have to regex-parse the formatted
+  ## "Internal validation AUC (CV)" display string back into a number.
+  raw_auc <- df$`.best_cv_auc`
+  df$`.best_cv_auc` <- NULL
+  attr(df, "best_cv_auc") <- raw_auc
+  df
 }
 
 ## ---- Single-vs-multi-gene comparison (tab: "Single-Gene vs Multi-Gene ------
@@ -945,7 +967,7 @@ tbc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
 
   comparison <- NULL
   if (isTRUE(sgd$ok) && !is.null(multi_table)) {
-    best_multi_cv <- suppressWarnings(max(as.numeric(gsub("[^0-9.]", "", multi_table$`Internal validation AUC (CV)`)), na.rm = TRUE))
+    best_multi_cv <- suppressWarnings(max(attr(multi_table, "best_cv_auc"), na.rm = TRUE))
     if (is.finite(best_multi_cv)) {
       diff <- best_multi_cv - sgd$auc
       comparison <- div(class = "empty-note", icon("scale-balanced"),
@@ -1157,7 +1179,11 @@ tbc_section_go <- function(ext) {
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   go_body <- if (!is.null(ext$go) && nrow(ext$go) > 0) {
     go_df <- ext$go
-    go_df$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', go_df$GOID, go_df$GOID)
+    ## htmlEscape() on the external ID before hand-building this raw <a> string -
+    ## this column is later rendered with escape = -1, so an unescaped ID would
+    ## be inserted into the page verbatim.
+    safe_id <- htmltools::htmlEscape(go_df$GOID)
+    go_df$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
     ## escape = -1: leave only column 1 (the hand-built <a> link) unescaped;
     ## column 2 (TERM, raw external GO.db text) stays HTML-escaped instead of
     ## being rendered as-is, unlike the previous whole-table escape = FALSE.
@@ -1175,7 +1201,9 @@ tbc_section_kegg <- function(ext, kegg_map = NULL) {
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   kegg_body <- if (isTRUE(ext$kegg$ok) && nrow(ext$kegg$pathways) > 0) {
     kdf <- ext$kegg$pathways
-    kdf$Link <- sprintf('<a href="https://www.kegg.jp/pathway/%s" target="_blank" rel="noopener">%s</a>', kdf$id, kdf$id)
+    ## htmlEscape() before hand-building this raw <a> string - see GO section above.
+    safe_id <- htmltools::htmlEscape(kdf$id)
+    kdf$Link <- sprintf('<a href="https://www.kegg.jp/pathway/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
     ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
     ## KEGG pathway name text) stays HTML-escaped.
     DT::datatable(kdf[, c("Link", "name")], colnames = c("KEGG ID", "Pathway"), rownames = FALSE, escape = -1,
@@ -1196,7 +1224,9 @@ tbc_section_reactome <- function(ext, reactome_map = NULL) {
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   reactome_body <- if (isTRUE(ext$reactome$ok) && nrow(ext$reactome$pathways) > 0) {
     rdf <- ext$reactome$pathways
-    rdf$Link <- sprintf('<a href="https://reactome.org/PathwayBrowser/#/%s" target="_blank" rel="noopener">%s</a>', rdf$stId, rdf$stId)
+    ## htmlEscape() before hand-building this raw <a> string - see GO section above.
+    safe_id <- htmltools::htmlEscape(rdf$stId)
+    rdf$Link <- sprintf('<a href="https://reactome.org/PathwayBrowser/#/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
     ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
     ## Reactome pathway name text) stays HTML-escaped.
     DT::datatable(rdf[, c("Link", "displayName")], colnames = c("Reactome ID", "Pathway"), rownames = FALSE, escape = -1,
@@ -1220,7 +1250,9 @@ tbc_section_wikipathways <- function(ext) {
           else if (is.null(wp$pathways) || nrow(wp$pathways) == 0) div(class = "empty-note", icon("circle-info"), "No WikiPathways pathways found for this gene.")
           else {
             wdf <- wp$pathways
-            wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', wdf$id, wdf$id)
+            ## htmlEscape() before hand-building this raw <a> string - see GO section above.
+            safe_id <- htmltools::htmlEscape(wdf$id)
+            wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
             ## escape = -1: leave only column 1 (the link) unescaped; column 2
             ## (raw WikiPathways pathway name text) stays HTML-escaped.
             DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = -1,
@@ -1240,7 +1272,9 @@ tbc_section_literature <- function(lit, gene = NULL, query_used = NULL) {
           else if (is.null(lit$papers)) div(class = "empty-note", icon("circle-info"), "No matching PubMed records were returned for this query.")
           else {
             df <- lit$papers
-            df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', df$PMID, df$PMID)
+            ## htmlEscape() before hand-building this raw <a> string - see GO section above.
+            safe_id <- htmltools::htmlEscape(df$PMID)
+            df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
             ## escape = -5: leave only column 5 (the PMID link) unescaped;
             ## columns 1-4 (raw PubMed title/authors/journal/year text) stay
             ## HTML-escaped instead of being rendered as-is.

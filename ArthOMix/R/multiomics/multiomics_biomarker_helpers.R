@@ -237,7 +237,7 @@ mb_cv_roc <- function(X, Y, params, seed = 1) {
     Xtr <- lapply(X, function(m) m[tr, , drop = FALSE])
     Xte <- lapply(X, function(m) m[te, , drop = FALSE])
     fit_f <- tryCatch(
-      mixOmics::block.splsda(X = Xtr, Y = ytr, ncomp = params$ncomp, keepX = params$keepX, design = params$design, near.zero.var = TRUE),
+      mixOmics::block.splsda(X = Xtr, Y = ytr, ncomp = params$ncomp, keepX = params$keepX, design = params$design, near.zero.var = TRUE, scale = isTRUE(params$scale %||% TRUE)),
       error = function(e) NULL
     )
     if (is.null(fit_f)) next

@@ -7,6 +7,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
 
 ## ---- Unit: catalog helpers -----------------------------------------------
@@ -77,6 +78,21 @@ test_that("loading an individual raw GEO entry is NOT marked as the bundled refe
     expect_equal(dataset$source_type, "preloaded")
     expect_false(dataset$is_bundled_reference)
     expect_equal(dataset$geo_ids, "GSE15573")
+  })
+})
+
+test_that("loading a preloaded dataset clears any stale declared_data_type left over from a previous upload", {
+  ## Simulates a session that previously uploaded raw counts (setting
+  ## dataset$declared_data_type <- "raw"), then switched to a preloaded
+  ## source - that stale declaration must not leak onto the newly loaded
+  ## (batch-corrected, normalized) preloaded dataset, or Differential
+  ## Expression's/Immune Deconvolution's method gates would wrongly treat it
+  ## as raw counts.
+  dataset <- shiny::reactiveValues(declared_data_type = "raw")
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(preloaded_choice = "__default_merged__")
+    session$setInputs(load_preloaded_btn = 1)
+    expect_true(is.na(dataset$declared_data_type))
   })
 })
 

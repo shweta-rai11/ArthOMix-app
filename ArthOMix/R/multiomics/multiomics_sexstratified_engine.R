@@ -336,6 +336,14 @@ mss_full_cohort_panel <- function(expr, meth, outcome, covariate = NULL, engine 
     for (j in which(colSums(is.na(mat)) > 0)) { if (is.na(means[j])) next; mat[is.na(mat[, j]), j] <- means[j] }
     mat
   }
+  ## Both blocks get the same train-only-style mean imputation the per-fold
+  ## path already applies (mss_impute_fold_matrix) - expr was previously left
+  ## raw here while meth was imputed, so any NA in the expression block made
+  ## this descriptive panel fail (randomForest rejects NA predictors outright)
+  ## even when the CV performance path succeeded via its own fold-level
+  ## imputation, an inconsistent and confusing "performance shown, panel
+  ## silently missing" outcome for the same dataset.
+  expr <- impute_full(expr)
   meth_full <- impute_full(meth)
 
   if (identical(engine, "diablo")) {

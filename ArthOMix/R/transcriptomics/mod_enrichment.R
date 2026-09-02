@@ -14,6 +14,17 @@ mod_enrichment_config <- list(
 
 ## Batched MyGene.info query for the whole gene list; returns GeneCards-style fields.
 fetch_gene_cards <- function(genes) {
+  ## MyGene.info returns entrezgene/genomic_pos as a JSON array instead of a
+  ## scalar for symbols with an ambiguous mapping; jsonlite then turns that
+  ## row into a list-column instead of an atomic one, and sprintf("%s", .)
+  ## on a list errors downstream in gene_cards_ui. Collapse to the first
+  ## value defensively instead of assuming every row is scalar.
+  first_scalar <- function(x) {
+    if (is.null(x)) return(NA)
+    if (is.list(x)) x <- unlist(x, use.names = FALSE)
+    if (!length(x)) return(NA)
+    x[[1]]
+  }
   tryCatch({
     resp <- httr::POST(
       "https://mygene.info/v3/query",
@@ -25,17 +36,26 @@ fetch_gene_cards <- function(genes) {
     hits <- jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"), simplifyDataFrame = TRUE)
     if (!is.data.frame(hits) || !nrow(hits)) return(list())
     lapply(seq_len(nrow(hits)), function(i) {
-      found <- !isTRUE(hits$notfound[i])
-      alias_i <- if ("alias" %in% names(hits)) hits$alias[[i]] else NULL
-      list(
-        symbol  = hits$query[i],
-        found   = found,
-        name    = if (found && "name" %in% names(hits)) hits$name[i] else NA_character_,
-        summary = if (found && "summary" %in% names(hits)) hits$summary[i] else NA_character_,
-        alias   = if (is.null(alias_i) || !length(alias_i)) NA_character_ else paste(unlist(alias_i), collapse = ", "),
-        chr     = if (found && "genomic_pos" %in% names(hits)) hits$genomic_pos$chr[i] else NA_character_,
-        entrez  = if (found && "entrezgene" %in% names(hits)) hits$entrezgene[i] else NA_character_
-      )
+      tryCatch({
+        found <- !isTRUE(hits$notfound[i])
+        alias_i <- if ("alias" %in% names(hits)) hits$alias[[i]] else NULL
+        chr_i <- if (found && "genomic_pos" %in% names(hits)) {
+          gp <- hits$genomic_pos
+          if (is.data.frame(gp)) first_scalar(gp$chr[i]) else first_scalar(gp[[i]]$chr)
+        } else NA
+        list(
+          symbol  = hits$query[i],
+          found   = found,
+          name    = if (found && "name" %in% names(hits)) as.character(first_scalar(hits$name[i])) else NA_character_,
+          summary = if (found && "summary" %in% names(hits)) as.character(first_scalar(hits$summary[i])) else NA_character_,
+          alias   = if (is.null(alias_i) || !length(alias_i)) NA_character_ else paste(unlist(alias_i), collapse = ", "),
+          chr     = as.character(chr_i),
+          entrez  = if (found && "entrezgene" %in% names(hits)) as.character(first_scalar(hits$entrezgene[i])) else NA_character_
+        )
+      }, error = function(e) list(
+        symbol = as.character(hits$query[i]), found = FALSE, name = NA_character_,
+        summary = NA_character_, alias = NA_character_, chr = NA_character_, entrez = NA_character_
+      ))
     })
   }, error = function(e) list())
 }
@@ -82,8 +102,8 @@ fetch_string_degrees <- function(genes) {
 
 ## Loads the bundled WGCNA module/hub tables once per session, returns a per-gene lookup fn.
 build_wgcna_hub_lookup <- function() {
-  modules <- read_table_safe("WGCNA_05_gene_module_assignment.csv")
-  hubs    <- read_table_safe("WGCNA_07_hub_genes_only.csv")
+  modules <- tryCatch(read_table_safe("WGCNA_05_gene_module_assignment.csv"), error = function(e) NULL)
+  hubs    <- tryCatch(read_table_safe("WGCNA_07_hub_genes_only.csv"), error = function(e) NULL)
   function(gene) {
     m <- if (!is.null(modules)) modules[modules$gene == gene, , drop = FALSE] else NULL
     h <- if (!is.null(hubs)) hubs[hubs$gene == gene, , drop = FALSE] else NULL
@@ -205,7 +225,7 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     ## only invoked lazily from inside a reactive context) and around the
     ## wgcna_hub_lookup() call further down.
     bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
-    bundled_venn <- read_table_safe("FS_venn_membership.csv")
+    bundled_venn <- tryCatch(read_table_safe("FS_venn_membership.csv"), error = function(e) NULL)
     wgcna_hub_lookup <- build_wgcna_hub_lookup()
     wgcna_hub_lookup_gated <- function(gene) {
       if (isTRUE(dataset$is_bundled_reference)) wgcna_hub_lookup(gene)
@@ -286,14 +306,25 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       src <- input$gene_source %||% "own"
       if (identical(src, "own")) return(NULL)
 
+      ## Cross-Ancestry MR only ever runs female/male (no pooled analysis
+      ## exists, live or bundled - see mod_crossancestry.R), so offering
+      ## "Pooled" there is a dead end that always reports "run it first"
+      ## for an analysis that can never be run. Drop it from the picker and
+      ## fall back off any stale "pooled" selection left from another source.
+      sex_choices <- if (identical(src, "cross_ancestry")) {
+        c("Female" = "female", "Male" = "male")
+      } else {
+        c("Pooled (all)" = "pooled", "Female" = "female", "Male" = "male")
+      }
       sex_label <- input$panel_sex %||% "female"
+      if (!(sex_label %in% names(sex_choices))) sex_label <- "female"
       panel <- panel_fns[[src]](sex_label)
 
       div(class = "preset-panel",
         div(class = "card-title", style = "font-size: 13.5px;", panel_labels[[src]]),
         div(class = "card-subtitle", panel_blurbs[[src]]),
         shinyWidgets::radioGroupButtons(
-          ns("panel_sex"), NULL, choices = c("Pooled (all)" = "pooled", "Female" = "female", "Male" = "male"),
+          ns("panel_sex"), NULL, choices = sex_choices,
           selected = sex_label, status = "default", size = "xs", justified = TRUE
         ),
         if (!length(panel$genes)) {
@@ -309,7 +340,9 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     observeEvent(input$load_panel, {
       src <- input$gene_source
       req(src %in% names(panel_fns))
-      p <- panel_fns[[src]](input$panel_sex %||% "female")
+      sex_label <- input$panel_sex %||% "female"
+      if (identical(src, "cross_ancestry") && identical(sex_label, "pooled")) sex_label <- "female"
+      p <- panel_fns[[src]](sex_label)
       validate(need(length(p$genes) > 0, "No genes available for this panel/sex."))
       updateTextAreaInput(session, "gene_list", value = paste(p$genes, collapse = "\n"))
     })
@@ -491,6 +524,8 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
                     "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       }
       res <- result()
+      validate(need(is.numeric(input$qval_cut) && !is.na(input$qval_cut) && input$qval_cut >= 0 && input$qval_cut <= 1,
+                    "Enter a q-value cutoff between 0 and 1."))
       df <- res$table %>% filter(qvalue < input$qval_cut)
       tagList(
         p(strong(res$n_submitted), " gene(s) submitted",
@@ -512,9 +547,14 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     output$bar_plot <- renderPlot({
       validate(need(enrich_has_run(), "Not run yet. Enter a gene list on the left, then click \"Run enrichment\"."))
       res <- result()
+      validate(need(is.numeric(input$qval_cut) && !is.na(input$qval_cut) && input$qval_cut >= 0 && input$qval_cut <= 1,
+                    "Enter a q-value cutoff between 0 and 1."))
       df <- res$table %>% filter(qvalue < input$qval_cut) %>% arrange(qvalue) %>% head(15)
       validate(need(nrow(df) > 0, "No terms pass the current q-value cutoff."))
-      ggplot(df, aes(x = reorder(Description, -log10(qvalue)), y = -log10(qvalue))) +
+      ## Floor qvalue before -log10(): a floating-point underflow to exact 0
+      ## (common for very strong enrichments) would otherwise plot as Inf.
+      df$neg_log10_q <- -log10(pmax(df$qvalue, .Machine$double.xmin))
+      ggplot(df, aes(x = reorder(Description, neg_log10_q), y = neg_log10_q)) +
         geom_col(fill = "#2563EB") +
         coord_flip() +
         labs(x = NULL, y = "-log10 q-value") +

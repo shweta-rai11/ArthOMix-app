@@ -75,3 +75,31 @@ test_that("threshold sensitivity: a gene just above p_eur is not replicated, jus
   below <- ca_classify(df, p_eur = 0.01, p_eas = 0.05, require_dir = TRUE)
   expect_true(below$replicated_EUR)
 })
+
+test_that("ca_classify() defaults testable_EUR to TRUE when the column is absent (bundled panel)", {
+  ## ca_fixture() never sets testable_EUR - every existing call above relies
+  ## on this default, since only an uploaded EUR-replacement GWAS ever
+  ## populates that column (mod_crossancestry.R's live_arm_for_genes()).
+  out <- ca_classify(ca_fixture(), p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)
+  expect_true(all(out$testable_EUR))
+})
+
+test_that("ca_classify() assigns 'untestable in EUR' rather than 'not EUR-replicated' when testable_EUR is FALSE", {
+  ## Simulates an uploaded European replacement GWAS that produced no usable
+  ## harmonised instrument for this gene: p_stahl/dir are NA-like inputs, but
+  ## the point of testable_EUR is that this must read as "no test was
+  ## possible", not "the test failed" - the exact distinction the module
+  ## already makes for testable_EAS.
+  df <- ca_fixture()[1, ]
+  df$testable_EUR <- FALSE
+  out <- ca_classify(df, p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)
+  expect_false(out$replicated_EUR)
+  expect_false(out$biomarker)
+  expect_equal(out$ancestry_class, "untestable in EUR")
+})
+
+test_that("ca_classify() never labels a gene 'untestable in EUR' when testable_EUR is TRUE and it fails on p-value", {
+  row <- ca_fixture()[ca_fixture()$gene == "NOT_REPLICATED", ]
+  out <- ca_classify(row, p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)
+  expect_equal(out$ancestry_class, "not EUR-replicated")
+})

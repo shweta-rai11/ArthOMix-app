@@ -72,6 +72,34 @@ test_that("adopting the normalised version writes back into the shared dataset$e
   })
 })
 
+test_that("adopting shows a persistent confirmation banner, and a repeat adopt doesn't double the source suffix", {
+  dataset <- fixture_dataset()
+  shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = NULL), {
+    session$setInputs(qc_source = "active", norm_color_by = "group")
+    session$setInputs(run_norm_btn = 1)
+    session$setInputs(apply_norm_btn = 1)
+    session$setInputs(adopt_norm_btn = 1)
+
+    ## Regression: adopting writes dataset$expr, which invalidates
+    ## qc_target() and flips norm_stale() TRUE in the same flush - a
+    ## confirmation nested inside the norm_stale()-gated panel would be
+    ## hidden before ever reaching the user. It must live in its own output.
+    banner <- paste(as.character(output$adopt_confirmation_ui), collapse = "")
+    expect_true(grepl("Done - every sub-module", banner))
+
+    ## Re-running the same normalise -> apply -> adopt cycle a second time
+    ## must not accumulate the suffix.
+    session$setInputs(run_norm_btn = 2)
+    session$setInputs(apply_norm_btn = 2)
+    session$setInputs(adopt_norm_btn = 2)
+    expect_equal(dataset$source, "test cohort (quantile-normalised)")
+
+    ## Switching to inspect a different dataset clears the stale banner.
+    session$setInputs(qc_source = "GSE15573")
+    expect_error(as.character(output$adopt_confirmation_ui))
+  })
+})
+
 test_that("adopt_norm_btn is a no-op when qc_source is not 'active' (a read-only reference source is selected)", {
   dataset <- fixture_dataset()
   original_expr <- shiny::isolate(dataset$expr)

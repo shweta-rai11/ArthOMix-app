@@ -557,7 +557,19 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         return(simpleError("Enter a valid GEO Series accession, e.g. GSE12345."))
       }
       tryCatch({
-        gset <- suppressMessages(GEOquery::getGEO(acc, GSEMatrix = TRUE))
+        ## GEOquery's default getGPL=TRUE also downloads the platform annotation file;
+        ## when NCBI rate-limits/captchas that request, it hands back an HTML challenge
+        ## page that GEOquery's SOFT parser chokes on with this same generic message even
+        ## though the series matrix itself downloaded fine - retry once without it. This
+        ## module never reads featureData/fData() from the platform annotation anyway
+        ## (only the GPL accession string via Biobase::annotation()), so nothing is lost.
+        gset <- tryCatch(
+          suppressMessages(GEOquery::getGEO(acc, GSEMatrix = TRUE)),
+          error = function(e) {
+            if (!grepl("series_data_table_begin", conditionMessage(e), fixed = TRUE)) stop(e)
+            suppressMessages(GEOquery::getGEO(acc, GSEMatrix = TRUE, getGPL = FALSE))
+          }
+        )
         if (!is.list(gset) || length(gset) == 0) {
           stop(paste(acc, "returned no series matrix from GEO - check the accession is a Series (GSExxxxx), not a Sample (GSM) or Platform (GPL) ID."))
         }

@@ -228,6 +228,23 @@ mod_mr_server <- function(id, dataset, results) {
     mr_primary_all <- mr_loaded$primary
     available_genes <- sort(unique(mr_dat_all$gene))
 
+    ## Static, filter-independent "is this gene in the MHC region" lookup for
+    ## the batch screen (below) - taken from the pipeline's own per-gene
+    ## MHC_gene flag (mr_primary_all$MHC_gene, the same source already used
+    ## for the single-gene Result panel's "(MHC-flagged)" note), NOT derived
+    ## from `any(MHC)` over that gene's currently-filtered instrument rows.
+    ## The latter is wrong under "Exclude" MHC mode - by construction every
+    ## surviving instrument row has MHC == FALSE once MHC rows are excluded,
+    ## so `any(MHC)` over the filtered set is FALSE for every gene and the
+    ## batch table's "In MHC" column would silently read "No" across the
+    ## board regardless of a gene's true MHC status. It can be wrong under
+    ## "Include" mode too whenever the "cap instruments per gene" filter
+    ## happens to drop a gene's (typically weaker) MHC-region instruments
+    ## while keeping its non-MHC ones. 7 of the 1,701 cached genes have no
+    ## row in mr_primary_all (primary-estimate step failed upstream); their
+    ## MHC status is genuinely unknown here rather than silently "No".
+    mhc_gene_lookup <- stats::setNames(as.logical(mr_primary_all$MHC_gene), mr_primary_all$gene)
+
     ## Transparency record of exactly what the relabelling changed, surfaced
     ## to the user via data_quality_note below rather than fixed silently -
     ## a correctness fix a user can't see isn't verifiable.
@@ -452,7 +469,14 @@ mod_mr_server <- function(id, dataset, results) {
 
     make_dl_xlsx <- function(sx) downloadHandler(
       filename = function() sprintf("MR_%s_all_tables.xlsx", sx),
-      content = function(file) file.copy(file.path(TABLES_DIR, sprintf("MR_%s_all_tables.xlsx", sx)), file, overwrite = TRUE)
+      content = function(file) {
+        src <- file.path(TABLES_DIR, sprintf("MR_%s_all_tables.xlsx", sx))
+        ## file.copy() on a missing source silently returns FALSE and leaves
+        ## `file` unwritten/empty rather than raising anything a user could
+        ## see - fail loudly instead of handing back a 0-byte "download".
+        if (!file.exists(src)) stop(sprintf("MR_%s_all_tables.xlsx is not present in this deployment's TABLES_DIR.", sx))
+        file.copy(src, file, overwrite = TRUE)
+      }
     )
     output$dl_proj_xlsx_female <- make_dl_xlsx("female")
     output$dl_proj_xlsx_male   <- make_dl_xlsx("male")
@@ -852,11 +876,13 @@ mod_mr_server <- function(id, dataset, results) {
       p
     })
 
-    output$scatter_plot <- renderPlot({
-      p <- tryCatch(scatter_plot_obj(), error = function(e) NULL)
-      req(p)
-      p
-    })
+    ## No tryCatch(..., error = function(e) NULL) here: scatter_plot_obj()
+    ## re-reads mr_result(), and swallowing its errors would also swallow
+    ## mr_result()'s own validate()/need() messages (e.g. "No instruments
+    ## remain after filtering...") - leaving this panel silently blank while
+    ## the "Result" box above correctly explains why. Letting Shiny's normal
+    ## validate() handling reach this output keeps both panels consistent.
+    output$scatter_plot <- renderPlot(scatter_plot_obj())
 
     ## ---------------------------------------------------------------------
     ## Leave-one-out: re-fit IVW with each SNP dropped in turn, plus the
@@ -998,7 +1024,7 @@ mod_mr_server <- function(id, dataset, results) {
               gene = genes[i], method = prim$method, nSNP = est$n_snp,
               estimate = prim$estimate, se = prim$se, p = prim$p,
               OR = exp(prim$estimate), OR_lo = exp(prim$ci_low), OR_hi = exp(prim$ci_high),
-              MHC_gene = any(dg$MHC), sensitivity_testable = est$n_snp >= 3,
+              MHC_gene = unname(mhc_gene_lookup[genes[i]]), sensitivity_testable = est$n_snp >= 3,
               stringsAsFactors = FALSE
             )
           }
@@ -1037,7 +1063,7 @@ mod_mr_server <- function(id, dataset, results) {
       df$estimate <- round(df$estimate, 4); df$se <- round(df$se, 4)
       df$p <- signif(df$p, 3); df$FDR <- signif(df$FDR, 3)
       df$OR <- round(df$OR, 3); df$OR_lo <- round(df$OR_lo, 3); df$OR_hi <- round(df$OR_hi, 3)
-      df$MHC_gene <- ifelse(df$MHC_gene, "Yes", "No")
+      df$MHC_gene <- ifelse(is.na(df$MHC_gene), "Unknown", ifelse(df$MHC_gene, "Yes", "No"))
       df$sensitivity_testable <- ifelse(df$sensitivity_testable, "Yes", "No")
       colnames(df) <- c("Gene", "Method", "nSNP", "b", "SE", "p", "OR", "OR low", "OR high", "In MHC", "≥3 SNP (pleiotropy testable)", "FDR")
       DT::datatable(df, rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")

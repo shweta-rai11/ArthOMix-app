@@ -782,22 +782,31 @@ geo_link <- function(gse) paste0("https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi
 ## common; merging by gene symbol instead is what actually lets the example
 ## pipeline's own GSE93272 (GPL570) and GSE110169 (GPL13667) combine.
 ## Reference: Miller JA et al. BMC Bioinformatics 2011;12:322.
+## Result carries a "collapsed" attribute stating whether collapsing
+## actually happened, so callers don't have to infer it from a row-count
+## decrease (wrong for the rare platform where every probe maps 1:1 to a
+## unique gene symbol - genuine collapsing renames rows to gene symbols
+## without shrinking row count, so a row-count-based check would wrongly
+## report "not collapsed"). Backward compatible: the return value is still
+## a plain matrix, so existing callers that ignore the attribute are
+## unaffected.
 collapse_probes_to_genes <- function(eset) {
   fd <- Biobase::fData(eset)
   col <- grep("^gene[ ._]?symbol$", colnames(fd), ignore.case = TRUE, value = TRUE)[1]
   ex <- Biobase::exprs(eset)
-  if (is.na(col)) return(ex)
+  if (is.na(col)) return(structure(ex, collapsed = FALSE))
   sym <- as.character(fd[[col]])
   keep <- !is.na(sym) & sym != "" & !grepl("///", sym)
   ex <- ex[keep, , drop = FALSE]; sym <- sym[keep]
   ok <- rowSums(is.na(ex)) < ncol(ex)
   ex <- ex[ok, , drop = FALSE]; sym <- sym[ok]
-  if (nrow(ex) == 0) return(ex)
-  WGCNA::collapseRows(
+  if (nrow(ex) == 0) return(structure(ex, collapsed = FALSE))
+  out <- WGCNA::collapseRows(
     ex, rowGroup = sym, rowID = rownames(ex), method = "MaxMean",
     connectivityBasedCollapsing = FALSE, connectivityPower = 1,
     selectFewestMissing = TRUE, thresholdCombine = NA
   )$datETcollapsed
+  structure(out, collapsed = TRUE)
 }
 
 ## Disease-group + sex harmonisation from a raw GEO ExpressionSet's

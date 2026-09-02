@@ -42,6 +42,7 @@ MX_MODULES <- list(
   list(config = mod_methyl_celltype_config,        ui = mod_methyl_celltype_ui,        server = mod_methyl_celltype_server),
   list(config = mod_methyl_dmp_config,             ui = mod_methyl_dmp_ui,             server = mod_methyl_dmp_server),
   list(config = mod_methyl_dmr_config,             ui = mod_methyl_dmr_ui,             server = mod_methyl_dmr_server),
+  list(config = mod_methyl_interaction_config,     ui = mod_methyl_interaction_ui,     server = mod_methyl_interaction_server),
   list(config = mod_methyl_wgcna_config,           ui = mod_methyl_wgcna_ui,           server = mod_methyl_wgcna_server),
   list(config = mod_methyl_candidates_config,      ui = mod_methyl_candidates_ui,      server = mod_methyl_candidates_server),
   list(config = mod_methyl_featureselection_config, ui = mod_methyl_featureselection_ui, server = mod_methyl_featureselection_server),

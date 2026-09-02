@@ -11,6 +11,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_deconvolution.R"))
 
 test_that("real gene symbols score a high overlap percentage", {

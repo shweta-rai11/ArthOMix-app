@@ -835,10 +835,29 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     ns <- session$ns
 
     dxm <- reactiveValues(train_X = NULL, train_y = NULL, test_internal_X = NULL, test_internal_y = NULL,
-                           all_cpgs = character(0),
+                           full_X = NULL, full_y = NULL, all_cpgs = character(0),
                            ref_level = "Control", comp_level = "RA", sex = "female", mode = "preloaded",
-                           validated = FALSE, validation_report = NULL)
+                           validated = FALSE, validation_report = NULL, leakage_safe = FALSE)
     feat <- reactiveValues(source = NULL, table = NULL, selected = character(0))
+
+    ## Re-derives dxm$train_X/test_internal_X from dxm$full_X using an
+    ## explicit set of held-out sample IDs (from a leakage-safe Feature
+    ## Selection export), instead of the arbitrary random split made at
+    ## Validate & Split time - this is what makes the internal test set
+    ## genuinely disjoint from whatever samples chose the loaded panel's
+    ## CpGs, rather than merely disjoint by chance.
+    dxm_apply_holdout_split <- function(holdout_ids) {
+      req(dxm$full_X, dxm$full_y)
+      avail <- rownames(dxm$full_X)
+      test_ids <- intersect(as.character(holdout_ids), avail)
+      if (length(test_ids) < 4 || (length(avail) - length(test_ids)) < 4) return(FALSE)
+      test_rows <- avail %in% test_ids
+      if (length(unique(dxm$full_y[!test_rows])) < 2 || length(unique(dxm$full_y[test_rows])) < 2) return(FALSE)
+      dxm$train_X <- dxm$full_X[!test_rows, , drop = FALSE]; dxm$train_y <- dxm$full_y[!test_rows]
+      dxm$test_internal_X <- dxm$full_X[test_rows, , drop = FALSE]; dxm$test_internal_y <- dxm$full_y[test_rows]
+      dxm$leakage_safe <- TRUE
+      TRUE
+    }
     runs <- reactiveValues()
     compare_state <- reactiveValues(generated = FALSE, bundles = NULL)
 
@@ -925,6 +944,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         Xm <- as.data.frame(t(dxm_beta_to_m(beta_sub))); rownames(Xm) <- pheno_sub$gsm
         dxm$train_X <- Xm[train_idx, , drop = FALSE]; dxm$train_y <- y_all[train_idx]
         dxm$test_internal_X <- Xm[-train_idx, , drop = FALSE]; dxm$test_internal_y <- y_all[-train_idx]
+        dxm$full_X <- Xm; dxm$full_y <- y_all
         dxm$all_cpgs <- colnames(Xm)
         dxm$mode <- "preloaded"; dxm$sex <- sex_sel
       } else {
@@ -964,6 +984,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         Xm <- as.data.frame(t(m_vals))
         dxm$train_X <- Xm[train_idx, , drop = FALSE]; dxm$train_y <- y_all[train_idx]
         dxm$test_internal_X <- Xm[-train_idx, , drop = FALSE]; dxm$test_internal_y <- y_all[-train_idx]
+        dxm$full_X <- Xm; dxm$full_y <- y_all
         dxm$all_cpgs <- colnames(Xm)
         dxm$mode <- "upload"; dxm$sex <- sex_sel
       }
@@ -971,6 +992,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       dxm$ref_level <- ref_lab; dxm$comp_level <- comp_lab
       dxm$validation_report <- dxm_validate_checklist(dxm)
       dxm$validated <- TRUE
+      dxm$leakage_safe <- FALSE
       feat$source <- NULL; feat$table <- NULL; feat$selected <- character(0)
       showNotification("Data validated - see the Validation summary below, then continue to Feature Source.", type = "message")
     })
@@ -1029,6 +1051,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
 
     observeEvent(input$wgcna_load_btn, {
       req(dxm$validated)
+      dxm$leakage_safe <- FALSE
       if (identical(dxm$mode, "preloaded")) {
         mt <- dxm_load_wgcna_for_sex(dxm$sex)
         validate(need(!is.null(mt), "Published WGCNA module assignment isn't available in this deployment."))
@@ -1059,6 +1082,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
 
     observeEvent(input$fs_load_btn, {
       req(dxm$validated)
+      dxm$leakage_safe <- FALSE
       if (identical(dxm$mode, "preloaded")) {
         tbl <- dxm_load_fs_votes_for_sex(dxm$sex)
         validate(need(!is.null(tbl), "Published Feature Selection ensemble-vote table isn't available in this deployment."))
@@ -1066,6 +1090,10 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         sub <- tbl[tbl$n_votes >= min_votes, , drop = FALSE]
         cpgs <- intersect(as.character(sub$cpg), dxm$all_cpgs)
         src_tbl <- sub[as.character(sub$cpg) %in% cpgs, , drop = FALSE]
+        ## This precomputed ensemble-vote panel is an offline-script output,
+        ## not this session's live Feature Selection run, so there is no
+        ## held-out sample list to enforce here - dxm$leakage_safe stays
+        ## FALSE and the UI shows the "not leakage-safe" badge accordingly.
       } else {
         req(input$fs_upload)
         loaded <- safe_read_rds(input$fs_upload$datapath)
@@ -1074,6 +1102,15 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         panel_ids <- as.character(obj$final_panel$cpg_ids %||% character(0))
         cpgs <- intersect(panel_ids, dxm$all_cpgs)
         src_tbl <- data.frame(cpg = cpgs)
+        holdout_ids <- as.character(obj$holdout_sample_ids %||% character(0))
+        if (length(holdout_ids) > 0) {
+          applied <- dxm_apply_holdout_split(holdout_ids)
+          if (isTRUE(applied)) {
+            showNotification(sprintf("Leakage-safe: using the %d sample(s) this panel reserved as held-out as the internal test set.", length(dxm$test_internal_y)), type = "message")
+          } else {
+            showNotification("This panel's held-out samples don't overlap enough with the currently loaded cohort - falling back to the Validate & Split partition (not leakage-safe against this panel).", type = "warning")
+          }
+        }
       }
       validate(need(length(cpgs) > 0, "None of the Feature-Selection-derived CpGs are present in the active training data."))
       n_top <- input$fs_top_n %||% 0
@@ -1084,6 +1121,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
 
     observeEvent(input$panel_load_btn, {
       req(dxm$validated, input$panel_upload)
+      dxm$leakage_safe <- FALSE
       is_txt <- grepl("\\.txt$", input$panel_upload$name, ignore.case = TRUE)
       if (is_txt) {
         pl <- methyl_parse_probe_list(input$panel_upload$datapath, input$panel_upload$name)
@@ -1103,6 +1141,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
 
     observeEvent(input$manual_load_btn, {
       req(dxm$validated)
+      dxm$leakage_safe <- FALSE
       cpgs <- intersect(input$manual_cpg_select, dxm$all_cpgs)
       validate(need(length(cpgs) > 0, "Select at least one CpG present in the active training data."))
       feat$source <- "manual"; feat$table <- data.frame(cpg = cpgs); feat$selected <- cpgs
@@ -1115,6 +1154,12 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       req(dxm$validated)
       tagList(
         box(width = 12, status = "primary", solidHeader = TRUE, title = "Analysis type & feature panel",
+          if (length(feat$selected) > 0)
+            (if (isTRUE(dxm$leakage_safe))
+               p(class = "empty-note", icon("shield-halved"), "Leakage-safe: the internal test set below is the held-out sample set this panel's CpGs were never selected against.")
+             else
+               p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this panel's CpGs were not confirmed to be selected without seeing the internal test-set samples - treat any internal-test AUC as exploratory, not a validated estimate."))
+          else NULL,
           radioButtons(ns("analysis_type"), "Analysis Type", choices = c("Single CpG" = "single", "Combined CpG Panel" = "combined"), selected = "combined", inline = TRUE),
           conditionalPanel(sprintf("input['%s'] == 'single'", ns("analysis_type")),
             selectInput(ns("single_cpg"), "Select CpG", choices = if (length(feat$selected) > 0) feat$selected else dxm$all_cpgs)),

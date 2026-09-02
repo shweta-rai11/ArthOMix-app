@@ -314,7 +314,7 @@ test_that("multi_build_report() marks every sub-module 'not loaded this session'
   lines <- multi_build_report(list())
   text <- paste(lines, collapse = "\n")
   expect_true(grepl("## overview", text, fixed = TRUE))
-  expect_equal(sum(grepl("(not loaded this session)", lines, fixed = TRUE)), 8L)  ## all 8 tracked sub-modules
+  expect_equal(sum(grepl("(not loaded this session)", lines, fixed = TRUE)), 9L)  ## all 9 tracked sub-modules
 })
 
 test_that("multi_build_report() marks a loaded sub-module distinctly from the unloaded ones, and always lists limitations/reproducibility scripts", {

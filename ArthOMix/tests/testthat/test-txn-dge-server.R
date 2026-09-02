@@ -6,6 +6,8 @@ suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "crossomics", "crossomics_integration_upload.R"))
+source_from_app_root(file.path("R", "provenance.R"))
+source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_dge.R"))
 
 dge_fixture_dataset <- function(n_per_group = 6, seed = 70) {
@@ -159,6 +161,72 @@ test_that("fewer than 3 samples in one contrast level is rejected even with >=6 
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
     expect_true(grepl("at least 3 samples", conditionMessage(err)))
+  })
+})
+
+test_that("a declared_data_type = 'raw' on the shared dataset lets DESeq2 run even when the live heuristic would be ambiguous, and blocks limma", {
+  ## Small-panel count-like data (40 genes, low counts) that the LIVE
+  ## heuristic alone would call ambiguous (99th percentile <= 100) - but an
+  ## explicit dataset$declared_data_type = "raw" (set by mod_dataset.R's
+  ## upload handler) must take precedence over that heuristic per the method
+  ## gate's own declared-first rule.
+  set.seed(73)
+  n <- 12
+  genes <- paste0("GENE", 1:40)
+  samples <- paste0("S", 1:n)
+  grp <- rep(c("HC", "RA"), each = n / 2)
+  m <- matrix(rpois(40 * n, lambda = 20), 40, n, dimnames = list(genes, samples))
+  meta <- data.frame(sample = samples, group = grp, stringsAsFactors = FALSE)
+  dataset <- shiny::reactiveValues(expr = m, meta = meta, source = "small-panel counts",
+                                     source_type = "uploaded", is_bundled_reference = FALSE,
+                                     geo_ids = character(0), declared_data_type = "raw")
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "pipeline", method = "deseq2", contrast_col = "group",
+                        ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
+    session$setInputs(run_btn = 0)
+    session$setInputs(run_btn = 1)
+    tbl <- fit_result()$table
+    expect_true(all(c("gene", "logFC", "P.Value", "adj.P.Val") %in% colnames(tbl)))
+
+    session$setInputs(method = "limma")
+    session$setInputs(run_btn = 2)
+    err <- tryCatch(fit_result(), error = function(e) e)
+    expect_s3_class(err, "validation")
+    expect_true(grepl("raw, non-negative sequencing counts", conditionMessage(err)))
+  })
+})
+
+test_that("declaring the wrong data type on this module's own upload path blocks at upload time, before any fit is attempted", {
+  fm <- fx_expr_meta(n_genes = 40, n_samples = 12, seed = 74)
+  counts_like <- round(exp(fm$expr))
+  tpm_like <- sweep(counts_like, 2, colSums(counts_like), FUN = "/") * 1e6
+  dir <- withr::local_tempdir()
+  expr_path <- file.path(dir, "expr.csv")
+  meta_path <- file.path(dir, "meta.csv")
+  fx_write_expr_csv(tpm_like, expr_path)
+  fx_write_meta_csv(fm$meta, meta_path)
+
+  dataset <- shiny::reactiveValues(expr = NULL, meta = NULL, source = NULL, source_type = "preloaded")
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "upload")
+    session$setInputs(dge_expr_file = fx_mkfile(expr_path))
+    session$setInputs(dge_meta_file = fx_mkfile(meta_path))
+    session$setInputs(map_sample_id = "sample")
+    session$setInputs(dge_declared_data_type = "raw")
+
+    ## Visible, live feedback (not gated behind a button click) surfaces the
+    ## block right on the upload card.
+    expect_true(grepl("TPM/FPKM/CPM-normalized", fx_html_text(output$upload_type_warning_ui)))
+
+    ## The mismatched upload is never actually used as the fit's data
+    ## source - active_upload_input()'s own validate() gate (same
+    ## tx_validate_expr_upload() check) rejects it, so cur_source() falls
+    ## back to the (empty, in this test) Dataset Pipeline data instead of
+    ## silently fitting against the bad upload.
+    src <- cur_source()
+    expect_equal(src$mode, "pipeline")
   })
 })
 

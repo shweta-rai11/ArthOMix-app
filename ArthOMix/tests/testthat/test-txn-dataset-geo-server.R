@@ -23,6 +23,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "transcriptomics", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "mod_dataset.R"))
 
 geo_fixture_eset <- readRDS(normalizePath(
@@ -76,6 +77,19 @@ test_that("loading a mocked GEO fetch activates the dataset with source_type = '
   })
 })
 
+test_that("loading a GEO dataset clears any stale declared_data_type left over from a previous upload", {
+  testthat::local_mocked_bindings(getGEO = function(...) list(GPL_FIXTURE = geo_fixture_eset), .package = "GEOquery")
+
+  dataset <- shiny::reactiveValues(declared_data_type = "raw")
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(geo_accession = "GSE99999")
+    session$setInputs(geo_fetch_btn = 1)
+    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)")
+    session$setInputs(geo_load_btn = 1)
+    expect_true(is.na(dataset$declared_data_type))
+  })
+})
+
 test_that("a multi-platform series (mocked) shows a platform picker, and switching platforms switches the parsed expr/meta", {
   eset_b <- geo_fixture_eset
   Biobase::exprs(eset_b) <- Biobase::exprs(eset_b) + 100  ## distinguishable from platform A
@@ -96,6 +110,42 @@ test_that("a multi-platform series (mocked) shows a platform picker, and switchi
     session$setInputs(geo_platform_choice = "GPL_FIXTURE_B")
     em_b <- geo_expr_meta()
     expect_false(isTRUE(all.equal(as.numeric(em_a$expr[1, 1]), as.numeric(em_b$expr[1, 1]))))
+  })
+})
+
+test_that("geo_fetch_status shows no error banner for a multi-platform series before a platform is picked", {
+  ## Regression test: geo_eset()'s req(input$geo_platform_choice) throws a
+  ## shiny.silent.error, which DOES inherit from "error" - a tryCatch that
+  ## isn't careful to treat that as "still waiting" instead of a real
+  ## failure re-surfaces it through geo_fetch_status's generic
+  ## inherits(em, "error") branch as a visible (near-blank) warning banner,
+  ## right after every multi-platform fetch, before the user has had a
+  ## chance to pick a platform.
+  eset_b <- geo_fixture_eset
+  Biobase::annotation(eset_b) <- "GPL_FIXTURE_B"
+  testthat::local_mocked_bindings(
+    getGEO = function(...) list(GPL_FIXTURE = geo_fixture_eset, GPL_FIXTURE_B = eset_b),
+    .package = "GEOquery"
+  )
+
+  dataset <- shiny::reactiveValues()
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(geo_accession = "GSE99999")
+    session$setInputs(geo_fetch_btn = 1)
+    expect_false(is.null(output$geo_platform_ui))
+    ## No geo_platform_choice set yet. Correct behavior is either (a) Shiny's
+    ## own silent req()-halt (accessing the output re-throws its stored
+    ## shiny.silent.error - normal testServer behavior for an unrendered,
+    ## still-waiting output), or (b) real rendered content with no error
+    ## banner in it. Before the fix, this used to render REAL content - a
+    ## visible triangle-exclamation warning div - so branch (b) below is
+    ## what would have caught the regression.
+    status_result <- tryCatch(output$geo_fetch_status, error = function(e) e)
+    if (inherits(status_result, "error")) {
+      expect_true(inherits(status_result, "shiny.silent.error"))
+    } else {
+      expect_false(grepl("triangle-exclamation|Could not fetch", fx_html_text(status_result)))
+    }
   })
 })
 

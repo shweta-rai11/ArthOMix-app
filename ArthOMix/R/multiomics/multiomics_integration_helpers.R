@@ -258,7 +258,8 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
         X = X, Y = Y, ncomp = ncomp, test.keepX = grid, design = design,
         validation = validation_method, folds = folds, nrepeat = nrepeat,
         dist = if (identical(dist_choice, "automatic")) "max.dist" else dist_choice,
-        measure = "BER", progressBar = FALSE, near.zero.var = TRUE, seed = seed
+        measure = "BER", progressBar = FALSE, near.zero.var = TRUE, seed = seed,
+        scale = isTRUE(params$scale %||% TRUE)
       ),
       error = function(e) e
     )
@@ -299,7 +300,8 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
       validation_method = validation_method, folds = folds, nrepeat = nrepeat, distance = resolved_dist,
       distance_mode = dist_choice, n_samples = length(Y),
       classes = names(class_tab), class_counts = as.integer(class_tab),
-      loo_downgraded = loo_downgraded, seed = seed
+      loo_downgraded = loo_downgraded, seed = seed,
+      scale = isTRUE(params$scale %||% TRUE)
     )
   )
 }

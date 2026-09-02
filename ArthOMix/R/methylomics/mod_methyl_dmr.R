@@ -1,29 +1,41 @@
 ## R/methylomics/mod_methyl_dmr.R
 ## Methylomics sub-module: Differentially Methylated Regions (DMRs).
 ##
-## Two sections, gated on data availability (can both be visible together
-## when the preloaded dataset's live matrix is available):
+## Two tabs, mirroring mod_methyl_dmp.R's own "SVA"/"DMP" split one-for-one:
 ##
-##   1. "Default analysis (GSE42861)" - shown when methyl_dataset$preloaded
-##      is TRUE. Reproduces the published sex-stratified DMRcate region
-##      calling (script04_dmr_sexstratified/04_dmr_sexstratified.R:
-##      lambda=1000, C=2, on the SVA-adjusted, bacon-corrected per-CpG
-##      statistics from the DMP tab's default analysis) at its documented
-##      region-level FDR (BH on the Stouffer statistic, <0.05, adjustable).
-##      Filters/plots existing tables; nothing is recomputed. Gated behind
-##      "Run DMR Analysis" via an eventReactive (mirrors mod_methyl_dmp.R's
-##      sva_run).
+##   "SVA" tab -
+##     1a. "Default analysis (GSE42861)" - shown when methyl_dataset$preloaded
+##         is TRUE. Reproduces the published sex-stratified DMRcate region
+##         calling (script04_dmr_sexstratified/04_dmr_sexstratified.R:
+##         lambda=1000, C=2, on the SVA-adjusted, bacon-corrected per-CpG
+##         statistics from the DMP tab's default analysis) at its documented
+##         region-level FDR (BH on the Stouffer statistic, <0.05, adjustable).
+##         Filters/plots existing tables; nothing is recomputed. Gated behind
+##         "Run DMR Analysis" via an eventReactive (mirrors mod_methyl_dmp.R's
+##         sva_run).
+##     1b. Live SVA-adjusted engine - shown instead of 1a whenever a real
+##         beta/M-value matrix is loaded via Upload or GEO (i.e.
+##         methyl_dataset$preloaded is not TRUE). Same statistical method as
+##         1a: mod_methyl_sva_fit() (shared with mod_methyl_dmp.R's own live
+##         SVA-adjusted DMP engine) estimates surrogate variables and appends
+##         them to the design, bacon::bacon() bias/inflation-corrects the
+##         resulting per-CpG statistics, and DMRcate::dmrcate() calls regions
+##         from those corrected statistics - run live here against whatever
+##         dataset is loaded, not just the preloaded reference cohort. Always
+##         applies the correction (no plain/adjusted toggle), exactly as the
+##         DMP tab's own SVA tab always does.
 ##
-##   2. "DMR Analysis" - shown whenever a real beta/M-value matrix is
-##      loaded, whether uploaded or (if this deployment has the raw matrix
-##      bundled) the preloaded dataset's own live matrix. A full,
-##      configurable region-level engine: the DMP tab's live sex/group/
-##      covariate/QC-filter machinery feeds a per-CpG limma fit into
-##      DMRcate::dmrcate() (same algorithm the preloaded pipeline uses,
-##      with lambda/C/min.cpgs/seeding-p exposed as controls), including an
-##      All-Samples option alongside Female-only/Male-only. Shows an
-##      explanatory message instead when only metadata (not the live
-##      matrix) is available.
+##   "DMR" tab -
+##     2. "DMR Analysis" - shown whenever a real beta/M-value matrix is
+##        loaded, whether uploaded or (if this deployment has the raw matrix
+##        bundled) the preloaded dataset's own live matrix. A full,
+##        configurable region-level engine: the DMP tab's live sex/group/
+##        covariate/QC-filter machinery feeds a per-CpG limma fit into
+##        DMRcate::dmrcate() (same algorithm the preloaded pipeline uses,
+##        with lambda/C/min.cpgs/seeding-p exposed as controls), including an
+##        All-Samples option alongside Female-only/Male-only. Deliberately
+##        does not apply SVA/bacon correction - it's the fast, unadjusted
+##        counterpart to the SVA tab's live engine above.
 
 mod_methyl_dmr_config <- list(
   id = "dmr", title = "Differentially Methylated Regions (DMRs)", icon = "map-location-dot", group = "Data",
@@ -174,6 +186,74 @@ methyl_dmr_engine_pkgs_ok <- function() {
     requireNamespace("S4Vectors", quietly = TRUE)
 }
 
+## UI for the SVA tab's live engine (Upload/GEO-fetched data). Deliberately
+## mirrors mod_methyl_dmp.R's own mod_methyl_svalive_panel_ui() (same
+## fluidRow(4,8) split, same control types, same svalive_* input naming) so
+## the SVA tab reads as one consistent pattern across both modules, with the
+## DMR-specific controls (seeding p-value, region-definition thresholds,
+## advanced lambda/C) added the same way the "DMR" tab's own live_ui
+## exposes them.
+mod_methyl_dmr_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
+  sheet <- methyl_dataset$sample_sheet
+  cols <- colnames(sheet)
+  tagList(
+    div(class = "card",
+        div(class = "card-title", icon("flask"), "SVA-adjusted DMR Analysis (live)"),
+        p(class = "empty-note", icon("circle-info"),
+          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva, full-vs-null contrast) and applies bacon bias/inflation correction on a per-CpG limma model, then calls regions from the corrected statistics with DMRcate - the same method used for the preloaded cohort's reproduced analysis above, run live here against your own data.",
+                  methyl_dataset$source %||% "(unnamed)",
+                  format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta))),
+        fluidRow(
+          column(4,
+            tags$h5("Sex"),
+            radioButtons(ns("svalive_sex"), NULL, inline = TRUE, choices = mod_methyl_dmp_sex_choices(sheet, sc), selected = "__all__"),
+            if (length(mod_methyl_dmp_sex_choices(sheet, sc)) <= 1) p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only."),
+
+            tags$h5("Comparison"),
+            selectInput(ns("svalive_group_col"), "Group column", choices = cols,
+                        selected = intersect(c("group", "Group", "disease", "Disease"), cols)[1] %||% cols[1]),
+            uiOutput(ns("svalive_level_ui")),
+            uiOutput(ns("svalive_comparison_label_ui")),
+
+            tags$h5("Statistical significance"),
+            numericInput(ns("svalive_fdr"), "Region-level FDR threshold", value = 0.05, min = 0, max = 1, step = 0.01),
+            numericInput(ns("svalive_seed_p"), "CpG seeding p-value (bacon-corrected, seeds candidate regions)", value = 0.05, min = 0.0001, max = 1, step = 0.01),
+
+            tags$h5("Effect size"),
+            numericInput(ns("svalive_dbeta"), "Minimum absolute mean Δβ", value = 0.05, min = 0, max = 1, step = 0.01),
+            radioButtons(ns("svalive_direction"), "Direction", inline = TRUE,
+                         choices = c("All DMRs" = "any", "Hypermethylated" = "hyper", "Hypomethylated" = "hypo"), selected = "any"),
+
+            tags$h5("Region definition"),
+            numericInput(ns("svalive_mincpgs"), "Minimum CpGs per region", value = 3, min = 2, step = 1),
+            numericInput(ns("svalive_minwidth"), "Minimum region size (bp, 0 = no limit)", value = 0, min = 0, step = 50),
+            numericInput(ns("svalive_maxwidth"), "Maximum region size (bp, 0 = no limit)", value = 0, min = 0, step = 500),
+
+            tags$h5("CpG coverage / data quality"),
+            numericInput(ns("svalive_min_valid_pct"), "Minimum valid (non-missing) sample %", value = 80, min = 0, max = 100, step = 5),
+            numericInput(ns("svalive_min_variance"), "Minimum methylation variance (optional)", value = 0, min = 0, step = 0.001),
+            checkboxInput(ns("svalive_snp_filter"), "Remove SNP-associated probes (manifest Probe_rs/CpG_rs/SBE_rs)", value = FALSE),
+
+            tags$h5("Covariates (optional)"),
+            uiOutput(ns("svalive_covariate_ui")),
+
+            checkboxInput(ns("svalive_show_advanced"), "Show advanced DMR settings", value = FALSE),
+            conditionalPanel(condition = sprintf("input['%s']", ns("svalive_show_advanced")),
+              numericInput(ns("svalive_lambda"), "Kernel bandwidth / max CpG gap (lambda, nt)", value = 1000, min = 100, step = 100),
+              numericInput(ns("svalive_c"), "Bandwidth scaling factor (C)", value = 2, min = 0.2, step = 0.1),
+              checkboxInput(ns("svalive_pcutoff_manual"), "Override candidate-region kernel-smoothed FDR cutoff (not recommended)", value = FALSE),
+              conditionalPanel(condition = sprintf("input['%s']", ns("svalive_pcutoff_manual")),
+                numericInput(ns("svalive_pcutoff"), "Candidate-region cutoff", value = 0.05, min = 0, max = 1, step = 0.01))
+            ),
+
+            actionButton(ns("svalive_run_btn"), "Run SVA-adjusted Analysis", icon = icon("play"), class = "btn-primary")
+          ),
+          column(8, withSpinner(uiOutput(ns("svalive_results_ui")), color = "#2563EB", type = 6))
+        )
+    )
+  )
+}
+
 mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -189,8 +269,39 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$default_ui <- renderUI({
-      ## Only for the preloaded dataset's own reproduced region calling.
-      req(isTRUE(methyl_dataset$preloaded))
+      ## Three data sources this tab has to cover, mirroring mod_methyl_dmp.R's
+      ## own SVA tab exactly: preloaded (reproduced, precomputed - below),
+      ## Upload/GEO with no data yet, and Upload/GEO with data loaded (live
+      ## SVA-adjusted DMR engine, further down this file).
+      if (!isTRUE(methyl_dataset$preloaded)) {
+        if (is.null(methyl_dataset$beta)) {
+          return(div(class = "card",
+            div(class = "card-title", icon("upload"), "SVA-adjusted DMR Analysis"),
+            p(class = "submodule-desc",
+              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Methylomics Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected differentially methylated region analysis - the same statistical method used for the preloaded reference cohort's reproduced analysis.")
+          ))
+        }
+        if (is.null(methyl_dataset$sample_sheet)) {
+          return(div(class = "card",
+            div(class = "card-title", icon("triangle-exclamation"), "No sample sheet"),
+            p(class = "submodule-desc", "An SVA-adjusted DMR model needs a group variable - re-load on the Dataset tab with a sample sheet/phenotype file included.")
+          ))
+        }
+        if (!methyl_dmr_engine_pkgs_ok()) {
+          return(div(class = "card",
+            div(class = "card-title", icon("triangle-exclamation"), "SVA-adjusted DMR Analysis"),
+            p(class = "submodule-desc", "The DMRcate/GenomicRanges packages needed for region-level calling are not installed in this deployment.")
+          ))
+        }
+        ar <- anno_result()
+        if (!isTRUE(ar$ok)) {
+          return(div(class = "card",
+            div(class = "card-title", icon("triangle-exclamation"), "SVA-adjusted DMR Analysis"),
+            p(class = "submodule-desc", sprintf("Region calling needs chromosome/position annotation for every tested CpG, which is unavailable for this array type in this deployment: %s", ar$reason))
+          ))
+        }
+        return(mod_methyl_dmr_svalive_panel_ui(ns, methyl_dataset, sex_col(), ar))
+      }
       d <- default_data()
       req(d)
       validate(need(!is.null(d$dmr_f) || !is.null(d$dmr_m), "No precomputed DMR results are available in this deployment."))
@@ -405,6 +516,533 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         DT::formatSignif(columns = c("dbeta", "p_bacon", "fdr_bacon"), digits = 4)
     })
     outputOptions(output, "d_region_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
+
+    ## ================= 1b. Live SVA-adjusted engine (Upload / GEO) ========
+    ## Same "SVA" tab, shown instead of the block above whenever the active
+    ## dataset isn't the preloaded reference cohort - see
+    ## mod_methyl_dmr_svalive_panel_ui() for the panel this drives, and
+    ## mod_methyl_dmp.R's own live SVA engine for the method being mirrored.
+    ## Reuses mod_methyl_sva_fit() to estimate surrogate variables and
+    ## bacon::bacon() to bias/inflation-correct the resulting per-CpG
+    ## statistics before they seed and rank DMRcate's regions - the same
+    ## method the precomputed panel above reproduces, run live here against
+    ## whatever dataset is actually loaded. Always applies the correction
+    ## (no plain/adjusted toggle - see the separate "DMR" tab below for the
+    ## fast, unadjusted counterpart).
+
+    output$svalive_level_ui <- renderUI({
+      req(input$svalive_group_col)
+      sheet <- methyl_dataset$sample_sheet
+      req(input$svalive_group_col %in% colnames(sheet))
+      levels_available <- sort(unique(as.character(stats::na.omit(sheet[[input$svalive_group_col]]))))
+      validate(need(length(levels_available) >= 2, "This column has fewer than two distinct values - pick a different group column."))
+      tagList(
+        selectInput(ns("svalive_ref"), "Group 1 (reference)", choices = levels_available, selected = levels_available[1]),
+        selectInput(ns("svalive_comp"), "Group 2 (comparison)", choices = levels_available, selected = levels_available[min(2, length(levels_available))])
+      )
+    })
+
+    output$svalive_comparison_label_ui <- renderUI({
+      req(input$svalive_ref, input$svalive_comp)
+      validate(need(input$svalive_ref != input$svalive_comp, "Group 1 and Group 2 must be different."))
+      sex_lbl <- mod_methyl_dmr_sex_label(methyl_dataset$sample_sheet, sex_col(), input$svalive_sex %||% "__all__")
+      prefix <- if (identical(sex_lbl, "All samples")) "" else paste0(sex_lbl, " ")
+      p(class = "empty-note", icon("code-compare"), strong("Comparison: "),
+        sprintf("%s%s vs %s%s", prefix, input$svalive_comp, prefix, input$svalive_ref))
+    })
+
+    output$svalive_covariate_ui <- renderUI({
+      sheet <- methyl_dataset$sample_sheet
+      req(sheet, input$svalive_group_col)
+      exclude <- c(id_cols(), input$svalive_group_col)
+      if (!identical(input$svalive_sex %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
+      cand <- mod_methyl_dmp_covariate_cols(sheet, exclude)
+      if (length(cand) == 0) {
+        return(p(class = "empty-note", icon("circle-info"), "No additional phenotype columns are available to use as covariates."))
+      }
+      checkboxGroupInput(ns("svalive_covariates"), NULL, choices = cand, selected = character(0))
+    })
+
+    svalive_has_run <- reactiveVal(FALSE)
+    observeEvent(methyl_dataset$beta, svalive_has_run(FALSE), ignoreNULL = TRUE)
+
+    svalive_result <- eventReactive(input$svalive_run_btn, withProgress(
+      message = "Estimating surrogate variables and fitting the bacon-corrected model, then calling regions with DMRcate - slower than the plain DMR model, and can take several minutes on a full genome-wide array...",
+      value = 0.15, {
+      validate(need(!is.null(methyl_dataset$beta), "Load a dataset first."))
+      sheet <- methyl_dataset$sample_sheet
+      validate(need(!is.null(sheet), "No sample sheet loaded."))
+      validate(need(!is.null(input$svalive_group_col) && input$svalive_group_col %in% colnames(sheet), "Pick a group column."))
+      validate(need(!is.null(input$svalive_ref) && !is.null(input$svalive_comp), "Pick Group 1 and Group 2."))
+      validate(need(input$svalive_ref != input$svalive_comp, "Group 1 and Group 2 must be different."))
+      ar <- anno_result()
+      validate(need(isTRUE(ar$ok), sprintf("Region calling needs chromosome/position annotation, unavailable for this array type in this deployment%s.",
+                                            if (!is.null(ar$reason)) paste0(": ", ar$reason) else "")))
+
+      sample_ids <- methyl_sheet_sample_ids(sheet, colnames(methyl_dataset$beta))
+      common <- intersect(colnames(methyl_dataset$beta), sample_ids)
+      validate(need(length(common) >= 6, "Fewer than 6 samples match between the matrix and the sample sheet."))
+      beta0 <- methyl_dataset$beta[, common, drop = FALSE]
+      ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
+
+      ## ---- sex subset --------------------------------------------------
+      sex_choice <- input$svalive_sex %||% "__all__"
+      sc <- sex_col()
+      sex_label <- "All samples"
+      if (!identical(sex_choice, "__all__")) {
+        validate(need(!is.null(sc), "No sex column available to subset on."))
+        keep_sex <- !is.na(ph0[[sc]]) & as.character(ph0[[sc]]) == sex_choice
+        validate(need(sum(keep_sex) >= 6, sprintf("Fewer than 6 samples remain after restricting to sex = \"%s\".", sex_choice)))
+        beta0 <- beta0[, keep_sex, drop = FALSE]
+        ph0 <- ph0[keep_sex, , drop = FALSE]
+        sex_label <- mod_methyl_dmr_sex_label(sheet, sc, sex_choice)
+      }
+
+      ## ---- group subset --------------------------------------------------
+      grp_raw <- as.character(ph0[[input$svalive_group_col]])
+      keep_grp <- !is.na(grp_raw) & grp_raw %in% c(input$svalive_ref, input$svalive_comp)
+      beta1 <- beta0[, keep_grp, drop = FALSE]
+      ph1 <- ph0[keep_grp, , drop = FALSE]
+      grp <- factor(grp_raw[keep_grp], levels = c(input$svalive_ref, input$svalive_comp))
+      rm(beta0)  ## no further use once beta1 exists; frees a full-size copy
+
+      ## ---- optional covariates (complete cases only) ----------------------
+      covariate_cols <- input$svalive_covariates %||% character(0)
+      cov_df <- NULL
+      if (length(covariate_cols) > 0) {
+        cc <- ph1[, covariate_cols, drop = FALSE]
+        complete <- stats::complete.cases(cc)
+        validate(need(sum(complete) >= 6, "Fewer than 6 samples have no missing values in the selected covariates. Deselect a covariate, or pick different ones."))
+        beta1 <- beta1[, complete, drop = FALSE]
+        ph1 <- ph1[complete, , drop = FALSE]
+        grp <- grp[complete]
+        cov_df <- ph1[, covariate_cols, drop = FALSE]
+        for (cl in covariate_cols) if (!is.numeric(cov_df[[cl]])) cov_df[[cl]] <- factor(as.character(cov_df[[cl]]))
+      }
+
+      n_ref <- sum(grp == input$svalive_ref, na.rm = TRUE)
+      n_comp <- sum(grp == input$svalive_comp, na.rm = TRUE)
+      validate(need(n_ref >= 3 && n_comp >= 3,
+        sprintf("Each group needs at least 3 samples to fit a model (Group 1 \"%s\": %d, Group 2 \"%s\": %d).",
+                input$svalive_ref, n_ref, input$svalive_comp, n_comp)))
+
+      ## ---- probe filters (missingness / variance / SNP / position), BEFORE
+      ## the M-value transform -------------------------------------------------
+      is_m_scale <- identical(methyl_dataset$input_scale, "m")
+      beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
+
+      max_na_frac <- 1 - (input$svalive_min_valid_pct %||% 80) / 100
+      f_miss <- methyl_filter_missing(beta_scale_full, max_na_frac)
+      keep_probe <- f_miss$keep
+      f_var <- methyl_filter_variance(beta_scale_full, input$svalive_min_variance %||% 0)
+      keep_probe <- keep_probe & f_var$keep
+      snp_note <- NULL
+      if (isTRUE(input$svalive_snp_filter)) {
+        f_snp <- methyl_filter_snp(beta_scale_full, ar)
+        keep_probe <- keep_probe & f_snp$keep
+        snp_note <- f_snp$note
+      }
+      ## Region calling needs a chromosome + position for every tested probe;
+      ## probes absent from the manifest can't be placed.
+      a <- ar$anno
+      hit <- match(rownames(beta_scale_full), rownames(a))
+      has_pos <- !is.na(hit) & !is.na(a$chr[hit]) & !is.na(a$pos[hit])
+      keep_probe <- keep_probe & has_pos
+      validate(need(sum(keep_probe) >= 20,
+        "Fewer than 20 CpGs remain after the missingness/variance/SNP/position filters. Relax the filters and try again."))
+
+      beta1 <- beta1[keep_probe, , drop = FALSE]
+      if (is_m_scale) rm(beta_scale_full)  ## extra copy only in this branch
+      gc(FALSE)  ## reclaim before the memory-heavy limma fit below
+
+      ## ---- beta/M-value matrices (filtered subset only) ---------------------
+      m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
+      beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
+
+      ## ---- SVA-adjusted design + limma fit + bacon correction --------------
+      incProgress(0.3, detail = "Estimating surrogate variables (sva::sva)")
+      sv_fit <- mod_methyl_sva_fit(m, grp, cov_df)
+      design <- sv_fit$design
+      validate(need(qr(design)$rank == ncol(design),
+        "The selected group/covariate combination produces a rank-deficient design even after dropping surrogate variables. Remove a covariate or change the comparison."))
+
+      incProgress(0.2, detail = "Fitting limma model")
+      fit <- methyl_chunked_lmfit(m, design)
+      cm <- tryCatch(limma::makeContrasts(contrasts = paste0(input$svalive_comp, "-", input$svalive_ref), levels = design),
+                      error = function(e) validate(need(FALSE, "Could not build the Group 1/Group 2 contrast - group names may contain characters limma can't use directly (try renaming the group levels in your sample sheet).")))
+      fit2 <- tryCatch(limma::eBayes(limma::contrasts.fit(fit, cm)),
+                        error = function(e) validate(need(FALSE, paste("limma could not fit this model:", conditionMessage(e)))))
+      tt <- limma::topTable(fit2, number = Inf, sort.by = "none")
+
+      incProgress(0.15, detail = "bacon bias/inflation correction")
+      bc <- tryCatch(bacon::bacon(teststatistics = tt$t, verbose = FALSE),
+                      error = function(e) validate(need(FALSE, paste("bacon could not fit a bias/inflation model on these test statistics:", conditionMessage(e)))))
+      p_bacon <- as.numeric(bacon::pval(bc))
+
+      beta_ref <- rowMeans(beta_scale[, grp == input$svalive_ref, drop = FALSE], na.rm = TRUE)
+      beta_comp <- rowMeans(beta_scale[, grp == input$svalive_comp, drop = FALSE], na.rm = TRUE)
+      dbeta <- (beta_comp - beta_ref)[rownames(tt)]
+
+      hit2 <- match(rownames(tt), rownames(a))
+      chr <- a$chr[hit2]; pos <- a$pos[hit2]
+
+      ## ---- CpGannotated + DMRcate region calling ----------------------------
+      ## Same construction as the precomputed pipeline's build_annot()
+      ## (script04_dmr_sexstratified.R): a GRanges of per-CpG stat/rawpval/
+      ## diff/ind.fdr/is.sig, seeded and ranked on the bacon-corrected
+      ## p-value rather than the raw limma p-value - matching the precomputed
+      ## panel above, which seeds on the same SVA-adjusted, bacon-corrected
+      ## statistics.
+      seed_p <- input$svalive_seed_p %||% 0.05
+      ind_fdr <- stats::p.adjust(p_bacon, "BH")
+      requireNamespace("DMRcate", quietly = TRUE)
+      gr <- GenomicRanges::GRanges(
+        seqnames = chr, ranges = IRanges::IRanges(pos, pos),
+        stat = tt$t, rawpval = p_bacon, diff = dbeta, ind.fdr = ind_fdr,
+        is.sig = p_bacon < seed_p
+      )
+      names(gr) <- rownames(tt)
+      n_seed <- sum(gr$is.sig)
+      validate(need(n_seed >= 2, sprintf("Only %d CpG(s) pass the seeding p-value threshold (bacon-corrected p < %s) - relax it, or check the comparison/covariates.", n_seed, seed_p)))
+      annot <- methods::new("CpGannotated", ranges = gr)
+
+      lambda <- input$svalive_lambda %||% 1000
+      C <- input$svalive_c %||% 2
+      min_cpgs <- max(2, as.integer(input$svalive_mincpgs %||% 3))
+      pcutoff <- if (isTRUE(input$svalive_pcutoff_manual)) (input$svalive_pcutoff %||% 0.05) else "fdr"
+
+      dmr_raw <- tryCatch(
+        DMRcate::dmrcate(annot, lambda = lambda, C = C, min.cpgs = min_cpgs, pcutoff = pcutoff),
+        error = function(e) validate(need(FALSE, paste("DMRcate could not call regions with these settings:", conditionMessage(e))))
+      )
+      ranges <- tryCatch(
+        DMRcate::extractRanges(dmr_raw, genome = "hg19"),
+        error = function(e) validate(need(FALSE, paste("Could not extract genomic ranges for the candidate regions:", conditionMessage(e))))
+      )
+      validate(need(length(ranges) >= 1, "No candidate DMRs were returned with these settings - relax the seeding p-value, lambda, or minimum CpGs."))
+
+      dt <- as.data.frame(ranges)
+      dt$seqnames <- as.character(dt$seqnames)
+      dt$overlapping.genes <- vapply(dt$overlapping.genes, function(g) {
+        if (length(g) == 0 || all(is.na(g))) NA_character_ else paste(unique(as.character(g)), collapse = ";")
+      }, character(1))
+      dt$dmr_fdr <- stats::p.adjust(dt$Stouffer, method = "BH")
+      dt$direction <- ifelse(dt$meandiff > 0, "hyper", "hypo")
+      dt <- dt[order(dt$dmr_fdr), , drop = FALSE]
+      dt$dmr_id <- sprintf("DMR%03d", seq_len(nrow(dt)))
+
+      ## Region-level per-group mean methylation, computed from the filtered
+      ## beta matrix and reported alongside DMRcate's meandiff/maxdiff, via
+      ## a vectorized region-CpG join (GenomicRanges::findOverlaps()).
+      region_gr <- GenomicRanges::GRanges(dt$seqnames, IRanges::IRanges(dt$start, dt$end))
+      probe_gr <- GenomicRanges::GRanges(chr, IRanges::IRanges(pos, pos))
+      hits <- GenomicRanges::findOverlaps(probe_gr, region_gr)
+      qh <- S4Vectors::queryHits(hits); sh <- S4Vectors::subjectHits(hits)
+      dt$ref_mean_beta <- NA_real_; dt$comp_mean_beta <- NA_real_
+      if (length(qh) > 0) {
+        ref_by_region <- tapply(beta_ref[rownames(tt)[qh]], sh, mean, na.rm = TRUE)
+        comp_by_region <- tapply(beta_comp[rownames(tt)[qh]], sh, mean, na.rm = TRUE)
+        idx <- as.integer(names(ref_by_region))
+        dt$ref_mean_beta[idx] <- as.numeric(ref_by_region)
+        dt$comp_mean_beta[idx] <- as.numeric(comp_by_region)
+      }
+
+      cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
+      design_formula <- sprintf("Methylation ~ %s%s + %d surrogate variable(s)", input$svalive_group_col,
+                                 if (length(cov_names) > 0) paste0(" + ", paste(cov_names, collapse = " + ")) else "",
+                                 sv_fit$n_sv)
+
+      list(
+        dt = dt, ref = input$svalive_ref, comp = input$svalive_comp, group_col = input$svalive_group_col,
+        sex_label = sex_label, sex_col = sc, covariates = cov_names, n_sv = sv_fit$n_sv, design_formula = design_formula,
+        n_ref = n_ref, n_comp = n_comp, n_cpgs_tested = nrow(tt), n_cpgs_before_filter = nrow(beta1),
+        n_seed_cpgs = n_seed, seed_p = seed_p, lambda = lambda, C = C, min_cpgs = min_cpgs, pcutoff = pcutoff,
+        min_valid_pct = input$svalive_min_valid_pct %||% 80, min_variance = input$svalive_min_variance %||% 0,
+        snp_filter = isTRUE(input$svalive_snp_filter), snp_note = snp_note,
+        missing_note = f_miss$note, variance_note = f_var$note,
+        norm_status = dataset_norm_status(), dataset_source = methyl_dataset$source %||% "(unnamed)",
+        beta_scale = beta_scale, grp = grp, probe_chr = chr, probe_pos = pos,
+        lambda_gc = mod_methyl_lambda_gc(tt$P.Value), lambda_bacon = bacon::inflation(bc), bias_bacon = bacon::bias(bc),
+        cpg_p_raw = tt$P.Value,
+        run_at = Sys.time()
+      )
+    }), ignoreInit = TRUE)
+
+    observeEvent(svalive_result(), {
+      r <- svalive_result()
+      methyl_results$dmr <- list(
+        comparison = sprintf("%s vs %s (%s)", r$comp, r$ref, r$sex_label),
+        n_regions = nrow(r$dt),
+        n_sig = sum(!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr < 0.05, na.rm = TRUE)
+      )
+      ## Publishes the full live SVA-adjusted region table for Candidate CpGs
+      ## (Module-DMR Overlap) to pick up automatically - the more
+      ## scientifically appropriate table to feed downstream, mirroring
+      ## METHODS_dmr_sexstratified.md's own framing that the SVA-adjusted
+      ## panel "is the panel actually used downstream".
+      methyl_results$dmr_table <- r$dt
+      methyl_results$dmr_meta <- list(comp = r$comp, ref = r$ref, sex_label = r$sex_label)
+      svalive_has_run(TRUE)
+    })
+
+    svalive_filtered <- reactive({
+      r <- svalive_result()
+      max_w <- if (isTRUE((input$svalive_maxwidth %||% 0) > 0)) input$svalive_maxwidth else Inf
+      direction <- if (identical(input$svalive_direction, "any")) NULL else input$svalive_direction
+      mod_methyl_dmr_filter(r$dt, "dmr_fdr", "meandiff", input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0, direction,
+                             min_cpgs = input$svalive_mincpgs %||% 2, min_width = input$svalive_minwidth %||% 0, max_width = max_w)
+    })
+
+    svalive_sig <- reactive({
+      r <- svalive_result()
+      r$dt[!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr <= (input$svalive_fdr %||% 0.05) & abs(r$dt$meandiff) >= (input$svalive_dbeta %||% 0), , drop = FALSE]
+    })
+
+    output$svalive_results_ui <- renderUI({
+      req(svalive_has_run(), svalive_result())
+      r <- svalive_result()
+      sig <- svalive_sig()
+      n_sig <- nrow(sig)
+      n_hyper <- sum(sig$meandiff > 0)
+      n_hypo <- sum(sig$meandiff < 0)
+      sex_heading <- if (identical(r$sex_label, "All samples")) "All-Sample" else r$sex_label
+
+      tagList(
+        div(class = "card",
+            div(class = "card-title", icon("circle-check"), "Configuration & sample sizes"),
+            p(strong("Model: "), tags$code(r$design_formula),
+              sprintf(" (limma moderated t-test per CpG, bacon-corrected; DMRcate kernel region calling, lambda=%s nt, C=%s, min.cpgs=%s).", r$lambda, r$C, r$min_cpgs)),
+            p(strong("Sex: "), r$sex_label, " | ", strong("Group 1: "), r$ref, sprintf(" (n=%d)", r$n_ref),
+              " | ", strong("Group 2: "), r$comp, sprintf(" (n=%d)", r$n_comp),
+              " | ", strong("Total analyzed: "), r$n_ref + r$n_comp),
+            if (length(r$covariates) > 0) p(strong("Covariates: "), paste(r$covariates, collapse = ", ")) else p(class = "submodule-desc", "No covariates selected."),
+            p(strong("Surrogate variables: "), r$n_sv,
+              if (r$n_sv == 0) " - none were estimated for this cohort; results below are bacon-corrected but not SVA-adjusted." else ""),
+            p(class = "submodule-desc", r$norm_status$message),
+            if ((r$n_ref < 10 || r$n_comp < 10))
+              p(class = "empty-note", icon("triangle-exclamation"), "One or both groups have fewer than 10 samples - results may be underpowered, and surrogate-variable estimation is less reliable at this scale."),
+            p(class = "submodule-desc", sprintf("%s CpGs tested after QC filters: %s of %s. Seeded %s CpG(s) at bacon-corrected p < %s for region calling.",
+                                                  paste(c(r$missing_note, r$variance_note, r$snp_note), collapse = " "),
+                                                  format(r$n_cpgs_tested, big.mark = ","), format(r$n_cpgs_before_filter, big.mark = ","),
+                                                  format(r$n_seed_cpgs, big.mark = ","), r$seed_p))
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("gauge-high"), "Genomic inflation diagnostic"),
+            p(strong("Genomic inflation factor before bacon (λ): "), if (is.na(r$lambda_gc)) "not available" else sprintf("%.2f", r$lambda_gc)),
+            p(strong("bacon inflation: "), sprintf("%.2f", r$lambda_bacon), " | ", strong("bacon bias: "), sprintf("%.3f", r$bias_bacon),
+              " - bacon's own bias/inflation estimates on the SVA-adjusted test statistics feeding region calling; 1.0 inflation and 0 bias indicate a well-calibrated model."),
+            withSpinner(plotOutput(ns("svalive_qq"), height = 320), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-simple"), sprintf("%s SVA-adjusted DMR Analysis: Summary", sex_heading)),
+            div(class = "methyl-stats-row",
+              fluidRow(
+                valueBox(format(nrow(r$dt), big.mark = ","), "Candidate DMRs detected", icon = icon("map-location-dot"), color = "purple", width = 3),
+                valueBox(format(n_sig, big.mark = ","), "Significant (FDR + Δβ)", icon = icon("star"), color = if (n_sig > 0) "green" else "light-blue", width = 3),
+                valueBox(format(n_hyper, big.mark = ","), "Hypermethylated", icon = icon("arrow-up"), color = "red", width = 3),
+                valueBox(format(n_hypo, big.mark = ","), "Hypomethylated", icon = icon("arrow-down"), color = "blue", width = 3)
+              ),
+              fluidRow(
+                valueBox(format(sum(!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr <= (input$svalive_fdr %||% 0.05)), big.mark = ","),
+                          sprintf("Pass region FDR < %s", input$svalive_fdr %||% 0.05), icon = icon("filter"), color = "light-blue", width = 4),
+                valueBox(format(sum(!is.na(r$dt$meandiff) & abs(r$dt$meandiff) >= (input$svalive_dbeta %||% 0)), big.mark = ","),
+                          sprintf("Pass |Δβ| ≥ %s", input$svalive_dbeta %||% 0), icon = icon("filter"), color = "light-blue", width = 4),
+                valueBox(r$sex_label, "Sex subset", icon = icon("venus-mars"), color = "black", width = 4)
+              )
+            ),
+            if (n_sig == 0) p(class = "empty-note", icon("circle-info"),
+              "No DMRs passed the selected FDR and Δβ thresholds. Consider relaxing the thresholds, the seeding p-value, or reviewing the sample/group configuration.")
+        ),
+        div(class = "card", div(class = "card-title", icon("chart-scatter"), "Volcano plot"),
+            withSpinner(plotOutput(ns("svalive_volcano"), height = 340), color = "#2563EB", type = 6)),
+        div(class = "card", div(class = "card-title", icon("chart-column"), "Genomic (Manhattan) plot"),
+            withSpinner(plotOutput(ns("svalive_manhattan"), height = 320), color = "#2563EB", type = 6)),
+        div(class = "card",
+            div(class = "card-title", icon("ranking-star"), "Top DMRs by significance"),
+            selectInput(ns("svalive_top_n"), "Show top", choices = c(10, 20, 50, 100), selected = 20),
+            withSpinner(plotOutput(ns("svalive_effectplot"), height = 380), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("chart-simple"), "Methylation heatmap (significant DMRs x samples)"),
+            if (n_sig > 50) p(class = "empty-note", icon("circle-info"), sprintf("Showing the top 50 of %d significant DMRs by region-level FDR - all %d appear in the results table and exports below.", n_sig, n_sig)),
+            withSpinner(plotOutput(ns("svalive_heatmap"), height = 420), color = "#2563EB", type = 6)
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("table"), sprintf("%s SVA-adjusted DMR Analysis: results table", sex_heading)),
+            p(class = "submodule-desc", "Additional per-column filtering (chromosome, gene, direction, CpG count) is available in the table's own search boxes. Click a row to inspect that region's constituent CpGs below."),
+            div(class = "table-toolbar",
+                downloadButton(ns("download_svalive_full"), "Complete results", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_sig"), "Significant DMRs", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_filtered"), "Filtered table", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_anno"), "Annotation only", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_matrix"), "Region methylation matrix", class = "btn-default btn-sm"),
+                downloadButton(ns("download_svalive_config"), "Analysis configuration", class = "btn-default btn-sm")),
+            DT::dataTableOutput(ns("svalive_table"))
+        ),
+        div(class = "card",
+            div(class = "card-title", icon("magnifying-glass-chart"), "Region-level inspection"),
+            uiOutput(ns("svalive_region_ui"))
+        )
+      )
+    })
+
+    output$svalive_qq <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_qq_plot(r$cpg_p_raw)
+    })
+
+    output$svalive_volcano <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmp_volcano(r$dt, "meandiff", "dmr_fdr", "Mean Δβ", input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0)
+    })
+
+    output$svalive_manhattan <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmr_manhattan(r$dt, input$svalive_fdr %||% 0.05)
+    })
+
+    output$svalive_effectplot <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmr_topplot(r$dt, n = as.integer(input$svalive_top_n %||% 20))
+    })
+
+    output$svalive_heatmap <- renderPlot({
+      r <- svalive_result()
+      mod_methyl_dmr_heatmap(svalive_sig(), r$beta_scale, r$probe_chr, r$probe_pos, r$grp, max_regions = 50)
+    })
+
+    output$svalive_table <- DT::renderDataTable({
+      df <- svalive_filtered()
+      show_cols <- intersect(c("dmr_id", "seqnames", "start", "end", "width", "no.cpgs", "ref_mean_beta", "comp_mean_beta",
+                                "meandiff", "maxdiff", "Stouffer", "dmr_fdr", "overlapping.genes", "direction"), colnames(df))
+      df$significant <- ifelse(!is.na(df$dmr_fdr) & df$dmr_fdr <= (input$svalive_fdr %||% 0.05) & abs(df$meandiff) >= (input$svalive_dbeta %||% 0), "Yes", "No")
+      DT::datatable(df[, c(show_cols, "significant")], rownames = FALSE, filter = "top", selection = "single",
+                    options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+        DT::formatSignif(columns = intersect(c("ref_mean_beta", "comp_mean_beta", "meandiff", "maxdiff", "Stouffer", "dmr_fdr"), show_cols), digits = 4)
+    })
+    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
+
+    output$download_svalive_full <- downloadHandler(
+      filename = function() { r <- svalive_result(); sprintf("dmr_sva_%s_vs_%s_%s_complete.csv", r$comp, r$ref, gsub(" ", "_", r$sex_label)) },
+      content = function(file) utils::write.csv(svalive_result()$dt, file, row.names = FALSE)
+    )
+    output$download_svalive_sig <- downloadHandler(
+      filename = function() { r <- svalive_result(); sprintf("dmr_sva_%s_vs_%s_%s_significant.csv", r$comp, r$ref, gsub(" ", "_", r$sex_label)) },
+      content = function(file) utils::write.csv(svalive_sig(), file, row.names = FALSE)
+    )
+    output$download_svalive_filtered <- downloadHandler(
+      filename = function() { r <- svalive_result(); sprintf("dmr_sva_%s_vs_%s_%s_filtered.csv", r$comp, r$ref, gsub(" ", "_", r$sex_label)) },
+      content = function(file) utils::write.csv(svalive_filtered(), file, row.names = FALSE)
+    )
+    output$download_svalive_anno <- downloadHandler(
+      filename = function() "dmr_sva_annotation.csv",
+      content = function(file) {
+        df <- svalive_result()$dt
+        cols <- intersect(c("dmr_id", "seqnames", "start", "end", "width", "no.cpgs", "overlapping.genes"), colnames(df))
+        utils::write.csv(df[, cols, drop = FALSE], file, row.names = FALSE)
+      }
+    )
+    output$download_svalive_matrix <- downloadHandler(
+      filename = function() "dmr_sva_region_methylation_matrix.csv",
+      content = function(file) {
+        r <- svalive_result()
+        sig <- svalive_sig()
+        validate(need(nrow(sig) > 0, "No significant DMRs to export a region methylation matrix for."))
+        region_gr <- GenomicRanges::GRanges(sig$seqnames, IRanges::IRanges(sig$start, sig$end))
+        probe_gr <- GenomicRanges::GRanges(r$probe_chr, IRanges::IRanges(r$probe_pos, r$probe_pos))
+        hits <- GenomicRanges::findOverlaps(probe_gr, region_gr)
+        qh <- S4Vectors::queryHits(hits); sh <- S4Vectors::subjectHits(hits)
+        mat <- matrix(NA_real_, nrow = nrow(sig), ncol = ncol(r$beta_scale), dimnames = list(sig$dmr_id, colnames(r$beta_scale)))
+        for (i in seq_len(nrow(sig))) {
+          probes_i <- qh[sh == i]
+          if (length(probes_i) > 0) mat[i, ] <- colMeans(r$beta_scale[probes_i, , drop = FALSE], na.rm = TRUE)
+        }
+        out <- data.frame(dmr_id = rownames(mat), mat, check.names = FALSE)
+        utils::write.csv(out, file, row.names = FALSE)
+      }
+    )
+    output$download_svalive_config <- downloadHandler(
+      filename = function() "dmr_sva_analysis_configuration.csv",
+      content = function(file) {
+        r <- svalive_result()
+        cfg <- data.frame(
+          parameter = c("dataset", "sex", "group1", "group2", "n_group1", "n_group2", "n_total_analyzed", "covariates",
+                        "n_surrogate_variables", "bacon_inflation", "bacon_bias",
+                        "statistical_method", "design_formula", "cpg_seeding_pvalue", "n_seed_cpgs", "lambda_bp", "C_scaling",
+                        "min_cpgs_per_region", "candidate_region_pcutoff", "region_fdr_threshold", "min_abs_dbeta", "direction_filter",
+                        "min_region_width_bp", "max_region_width_bp", "min_valid_sample_pct", "min_variance", "snp_filter_applied",
+                        "n_cpgs_tested", "n_candidate_regions", "n_significant_regions", "run_at"),
+          value = c(r$dataset_source, r$sex_label, r$ref, r$comp, r$n_ref, r$n_comp, r$n_ref + r$n_comp,
+                    if (length(r$covariates) > 0) paste(r$covariates, collapse = ";") else "(none)",
+                    r$n_sv, r$lambda_bacon, r$bias_bacon,
+                    "sva::sva() + limma (per-CpG) + bacon::bacon() + DMRcate (kernel-smoothed region calling)", r$design_formula,
+                    r$seed_p, r$n_seed_cpgs, r$lambda, r$C, r$min_cpgs,
+                    if (identical(r$pcutoff, "fdr")) "fdr (DMRcate default)" else r$pcutoff,
+                    input$svalive_fdr %||% 0.05, input$svalive_dbeta %||% 0, input$svalive_direction %||% "any",
+                    input$svalive_minwidth %||% 0, input$svalive_maxwidth %||% 0,
+                    r$min_valid_pct, r$min_variance, r$snp_filter,
+                    r$n_cpgs_tested, nrow(r$dt), nrow(svalive_sig()), format(r$run_at)),
+          stringsAsFactors = FALSE
+        )
+        utils::write.csv(cfg, file, row.names = FALSE)
+      }
+    )
+
+    ## ---- Region-level CpG inspection (SVA-adjusted live section) ----------
+    ## Verifies a selected region is a coordinated, multi-CpG change rather
+    ## than a single isolated CpG - identical in spirit to the "DMR" tab's
+    ## own region-level inspection below.
+    svalive_region_selected <- reactive({
+      sel <- input$svalive_table_rows_selected
+      req(length(sel) == 1)
+      r <- svalive_result()
+      row <- svalive_filtered()[sel, , drop = FALSE]
+      hit <- !is.na(r$probe_chr) & r$probe_chr == as.character(row$seqnames) & r$probe_pos >= row$start & r$probe_pos <= row$end
+      validate(need(any(hit), "No analyzed CpG falls within this region's coordinates."))
+      cpg_ids <- rownames(r$beta_scale)[hit]
+      ord <- order(r$probe_pos[hit])
+      cpg_ids <- cpg_ids[ord]
+      list(row = row, cpg = cpg_ids, beta = r$beta_scale[cpg_ids, , drop = FALSE], grp = r$grp, ref = r$ref, comp = r$comp)
+    })
+
+    output$svalive_region_ui <- renderUI({
+      if (is.null(input$svalive_table_rows_selected) || length(input$svalive_table_rows_selected) == 0) {
+        return(p(class = "empty-note", icon("circle-info"),
+                  "Select a row in the results table above to inspect that region's constituent CpGs and verify it reflects a coordinated, multi-CpG methylation change rather than a single isolated CpG."))
+      }
+      tagList(
+        uiOutput(ns("svalive_region_summary")),
+        withSpinner(plotOutput(ns("svalive_region_plot"), height = 320), color = "#2563EB", type = 6),
+        DT::dataTableOutput(ns("svalive_region_table"))
+      )
+    })
+
+    output$svalive_region_summary <- renderUI({
+      d <- svalive_region_selected(); row <- d$row
+      tagList(
+        p(strong("Region: "), sprintf("%s:%s-%s", row$seqnames, format(row$start, big.mark = ","), format(row$end, big.mark = ","))),
+        p(strong("Width: "), sprintf("%s bp", format(row$width, big.mark = ",")), " | ", strong("CpGs in region: "), row$no.cpgs,
+          " | ", strong("Gene(s): "), if (!is.na(row$overlapping.genes) && nzchar(row$overlapping.genes)) row$overlapping.genes else "(none annotated)"),
+        p(strong("Mean Δβ: "), sprintf("%.4f", row$meandiff), sprintf(" (%s)", row$direction),
+          " | ", strong(sprintf("%s mean β: ", d$ref)), sprintf("%.4f", row$ref_mean_beta),
+          " | ", strong(sprintf("%s mean β: ", d$comp)), sprintf("%.4f", row$comp_mean_beta),
+          " | ", strong("Region FDR: "), signif(row$dmr_fdr, 4))
+      )
+    })
+
+    output$svalive_region_plot <- renderPlot({
+      d <- svalive_region_selected()
+      mod_methyl_dmp_betadist(d$beta, d$cpg, d$grp)
+    })
+
+    output$svalive_region_table <- DT::renderDataTable({
+      d <- svalive_region_selected()
+      long <- as.data.frame(t(d$beta))
+      long <- cbind(sample = rownames(long), group = as.character(d$grp), long)
+      DT::datatable(long, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
+        DT::formatSignif(columns = d$cpg, digits = 4)
+    })
+    outputOptions(output, "svalive_region_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
 
     ## ================= 2. DMR Analysis (configurable live engine) =========
     ## Sex/group/covariate/QC-filter machinery reused directly from

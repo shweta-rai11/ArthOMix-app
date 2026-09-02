@@ -16,7 +16,7 @@ source_from_app_root(file.path("R", "multiomics", "multiomics_dataset_helpers.R"
 source_from_app_root(file.path("R", "multiomics", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "celltype.R"))
+source_from_app_root(file.path("R", "methylomics", "mod_methyl_celltype.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "multiomics_concordance_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "snf_clustering_helpers.R"))

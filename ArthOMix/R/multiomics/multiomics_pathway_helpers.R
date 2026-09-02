@@ -377,12 +377,25 @@ mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, me
     return(list(ok = TRUE, universe_entrez = NULL, universe_label = "Entire selected database - no experimental universe supplied.", n = NA_integer_))
   }
   ids <- unique(ids[!is.na(ids) & nzchar(ids)])
+  ## "auto_experimental" is the UI's default selection, but it can only ever
+  ## resolve to something when an Active Multi-Omics Dataset with expr/meth
+  ## layers is loaded - otherwise this used to hard-fail Run for the common
+  ## "preloaded candidate panel, no dataset loaded" case with no advance
+  ## warning. Fall back to the same "entire selected database" universe
+  ## entire_database uses, disclosed via the label, rather than blocking.
+  if (identical(background_choice, "auto_experimental") && length(ids) == 0) {
+    return(list(ok = TRUE, universe_entrez = NULL,
+                universe_label = "No active dataset layers to build an experimental universe from - falling back to the entire selected database.",
+                n = NA_integer_))
+  }
   if (length(ids) == 0) return(list(ok = FALSE, universe_entrez = NULL, universe_label = NULL, n = 0L, error = "No background/universe identifiers available for the selected option."))
   harm <- cx_harmonize_gene_ids(ids)
   entrez <- if (isTRUE(harm$ok)) unique(stats::na.omit(harm$df$entrez_id)) else character(0)
   if (length(entrez) == 0) return(list(ok = FALSE, universe_entrez = NULL, universe_label = NULL, n = 0L, error = "None of the background identifiers could be mapped to Entrez IDs."))
   label <- switch(background_choice, auto_experimental = "Measured features in the active dataset's layer(s)",
-                   uploaded_background = "Uploaded background file", preloaded_universe = "Preloaded cohort candidate-gene list", background_choice)
+                   uploaded_background = "Uploaded background file",
+                   preloaded_universe = "Preloaded cohort's own candidate gene list (already filtered to significant hits, not a genome/panel-wide background)",
+                   background_choice)
   list(ok = TRUE, universe_entrez = entrez, universe_label = sprintf("%s (%s genes)", label, format(length(entrez), big.mark = ",")), n = length(entrez))
 }
 

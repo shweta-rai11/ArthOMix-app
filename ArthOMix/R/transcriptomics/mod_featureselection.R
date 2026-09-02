@@ -72,7 +72,16 @@ fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tole
                        tolerance = tolerance, class.weights = class_weights)$tot.accuracy
     1 - acc / 100
   }, numeric(1))
-  list(k = ks, err = err, best = ks[which.min(err)], besterr = min(err))
+  ## which.min() already skips NA entries (a k whose only new gene is zero-variance for this
+  ## sex/contrast - not rare with modest candidate panels), so `best` lands on the real optimum;
+  ## min(err) WITHOUT na.rm does NOT skip them, so besterr previously came back NA any time a
+  ## single k was skipped, even though a well-defined optimum existed elsewhere in the curve -
+  ## silently printing "CV error = NA" in the SVM-RFE summary. best_idx of length 0 (every k
+  ## skipped) falls back to the full ranking instead of the seq_len(integer(0)) crash that
+  ## which.min() returning integer(0) would otherwise cause downstream.
+  best_idx <- which.min(err)
+  if (length(best_idx) == 0) return(list(k = ks, err = err, best = length(ks), besterr = NA_real_))
+  list(k = ks, err = err, best = ks[best_idx], besterr = min(err, na.rm = TRUE))
 }
 
 FS_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
@@ -490,6 +499,13 @@ mod_featureselection_server <- function(id, dataset, results) {
         meta$sample <- as.character(meta[[input$map_id]])
         meta$group  <- as.character(meta[[input$map_group]])
         meta$sex    <- as.character(meta[[input$map_sex]])
+        ## match() below silently keeps only the FIRST metadata row for a repeated sample ID,
+        ## which would mis-pair that sample's expression column with the wrong group/sex if the
+        ## chosen ID column turns out not to be unique - reject rather than silently mismatch.
+        dup <- unique(meta$sample[duplicated(meta$sample) & !is.na(meta$sample)])
+        validate(need(length(dup) == 0, sprintf(
+          "The sample ID column has %d duplicated value(s) (e.g. \"%s\") - pick a column with one row per sample.",
+          length(dup), dup[1])))
         common <- intersect(colnames(expr), meta$sample)
         validate(need(length(common) >= 20, "Fewer than 20 sample IDs in the expression matrix match the metadata sample-ID column. Check the column mapping."))
         list(expr = expr[, common, drop = FALSE], meta = meta[match(common, meta$sample), , drop = FALSE])
@@ -529,7 +545,14 @@ mod_featureselection_server <- function(id, dataset, results) {
         conditionalPanel(condition = sprintf("input['%s'] == 'manual'", ns("class_weight_mode")),
                           numericInput(ns("class_weight_ratio"), "Weight ratio (comparison : reference)", value = 1, min = 0.05, max = 20, step = 0.05)),
         div(class = "empty-note", style = "font-size: 12.5px; margin-top: -6px;", icon("circle-info"),
-            "Applied to all three methods (LASSO, Random Forest, SVM-RFE) for both sexes.")
+            "Applied to all three methods (LASSO, Random Forest, SVM-RFE) for both sexes."),
+        tags$hr(),
+        checkboxInput(ns("fs_holdout_enabled"), "Reserve a held-out set before selection (recommended)", value = TRUE),
+        conditionalPanel(condition = sprintf("input['%s']", ns("fs_holdout_enabled")),
+          numericInput(ns("fs_holdout_frac"), "Held-out fraction", value = 0.3, min = 0.1, max = 0.5, step = 0.05),
+          numericInput(ns("fs_holdout_seed"), "Split seed", value = 1234, min = 1, step = 1),
+          div(class = "empty-note", style = "font-size: 12.5px;", icon("shield-halved"),
+              "These samples are set aside before LASSO/Random Forest/SVM-RFE ever run and are never used to choose genes - they're published as the panel's held-out set so the Diagnostic module can evaluate it without re-using a selection sample. (Only applies to a live run - the precomputed bundled-reference panel has no per-run split.)"))
       )
     })
 
@@ -672,6 +695,11 @@ mod_featureselection_server <- function(id, dataset, results) {
         list(genes = genes, note = sprintf("%d pasted genes present in the %s expression matrix.", length(genes), sex_label))
       } else {
         v <- apply(expr_sub, 1, stats::var)
+        ## sort() drops NA entries (e.g. a gene row with an NA expression value) but n was being
+        ## computed from the pre-drop length, so seq_len(n) could run past the sorted vector and
+        ## silently pad `genes` with NA - filtered out downstream by intersect(), but it made this
+        ## note's gene count overstate what was actually used.
+        v <- v[!is.na(v)]
         n <- min(input$n_genes %||% 50, length(v))
         genes <- names(sort(v, decreasing = TRUE))[seq_len(n)]
         list(genes = genes, note = sprintf("Top %d most variable genes in the %s subset.", n, sex_label))
@@ -831,7 +859,15 @@ mod_featureselection_server <- function(id, dataset, results) {
 
       # fast path only when: default pipeline, unmodified bundled candidates, no customized params,
       # standard HC-vs-RA contrast, and the project's own example dataset still loaded
-      use_fast_path <- identical(input$data_source, "project") &&
+      ## ml_features(.rds)/ml_features_noMHC.rds only ever contain $female/$male (LASSO/RF/
+      ## SVM-RFE were never precomputed pooled - sexes are "always modeled separately, never
+      ## pooled", per this file's own top-of-file note). Without this guard, every "Run All
+      ## (pooled)" click would read + deserialize that multi-MB RDS file only for
+      ## load_precomputed_fs() to return NULL and fall through to the live fit anyway - wasted
+      ## work, and it would silently contradict speed_hint_ui's "instant" reasoning for that
+      ## button.
+      use_fast_path <- !identical(sex_label, "pooled") &&
+        identical(input$data_source, "project") &&
         !isTRUE(cand_project$is_live) && !any_customized &&
         identical(input$ref_group, "HC") && identical(input$comp_group, "RA") &&
         isTRUE(dataset$is_bundled_reference)
@@ -841,6 +877,11 @@ mod_featureselection_server <- function(id, dataset, results) {
         if (!is.null(fit)) {
           fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
           fit$mhc_mode <- if (isTRUE(input$mhc_exclude)) "exclude" else "include"
+          ## This is an offline-precomputed panel, not a live per-run
+          ## selection, so there is no per-run held-out sample list to
+          ## enforce - it's marked not leakage-safe rather than silently
+          ## implying one exists.
+          fit$holdout_sample_ids <- character(0)
           return(fit)
         }
       }
@@ -852,6 +893,33 @@ mod_featureselection_server <- function(id, dataset, results) {
       validate(need(length(common) >= 10, sprintf("Fewer than 10 %s samples match this contrast; feature selection needs more samples to be meaningful.", sex_label)))
       meta <- meta[match(common, meta$sample), , drop = FALSE]
       expr_sub <- sem$expr[, common, drop = FALSE]
+
+      ## Train/holdout split - closes the review's information-leakage
+      ## finding. Everything below (candidate variance cap, LASSO/RF/SVM-RFE,
+      ## Consensus) only ever sees the training partition; held-out sample
+      ## IDs are published in results$featureselection so mod_diagnostic.R
+      ## can use them directly as its test set instead of an independent
+      ## re-split that could re-include a selection-time sample.
+      holdout_sample_ids <- character(0)
+      if (isTRUE(input$fs_holdout_enabled %||% TRUE)) {
+        frac <- min(max(input$fs_holdout_frac %||% 0.3, 0.1), 0.5)
+        y_split <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
+        set.seed(input$fs_holdout_seed %||% 1234)
+        train_idx <- tryCatch(
+          as.integer(caret::createDataPartition(y_split, p = 1 - frac, list = FALSE)[, 1]),
+          error = function(e) NULL
+        )
+        ## A failed partition must NOT silently fall back to "use every sample as training" -
+        ## that would quietly defeat the leakage-safety guarantee this checkbox promises (the
+        ## panel would then be selected from samples the Diagnostic module is told are held out).
+        ## Surfacing it as a validate() failure instead keeps that guarantee true whenever the
+        ## split is reported as enabled.
+        validate(need(!is.null(train_idx) && length(train_idx) >= 6 && all(table(y_split[train_idx]) >= 2),
+          sprintf("Could not create a held-out split for %s with these settings (too few samples per group) - lower the held-out fraction, disable the split, or add more samples.", sex_label)))
+        holdout_sample_ids <- setdiff(common, common[train_idx])
+        meta <- meta[train_idx, , drop = FALSE]
+        expr_sub <- expr_sub[, train_idx, drop = FALSE]
+      }
 
       cand <- switch(input$data_source,
         project = cand_project,
@@ -885,6 +953,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       fit$min_group_n <- min(grp_counts)
       fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
       fit$mhc_mode <- if (identical(input$data_source, "project")) (if (isTRUE(input$mhc_exclude)) "exclude" else "include") else "n/a"
+      fit$holdout_sample_ids <- holdout_sample_ids
       fit
     }
 
@@ -1062,7 +1131,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           female = list(n_input = r$n_input, n_samples = r$n_samples,
                         n_lasso = length(r$lasso_genes), n_rf = length(r$rf_genes),
                         n_svm = length(r$svm_genes), n_consensus = length(r$consensus),
-                        consensus_genes = r$consensus)
+                        consensus_genes = r$consensus, holdout_sample_ids = r$holdout_sample_ids %||% character(0))
         )
       )
 
@@ -1091,7 +1160,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           male = list(n_input = r$n_input, n_samples = r$n_samples,
                       n_lasso = length(r$lasso_genes), n_rf = length(r$rf_genes),
                       n_svm = length(r$svm_genes), n_consensus = length(r$consensus),
-                      consensus_genes = r$consensus)
+                      consensus_genes = r$consensus, holdout_sample_ids = r$holdout_sample_ids %||% character(0))
         )
       )
 
@@ -1120,7 +1189,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           pooled = list(n_input = r$n_input, n_samples = r$n_samples,
                         n_lasso = length(r$lasso_genes), n_rf = length(r$rf_genes),
                         n_svm = length(r$svm_genes), n_consensus = length(r$consensus),
-                        consensus_genes = r$consensus)
+                        consensus_genes = r$consensus, holdout_sample_ids = r$holdout_sample_ids %||% character(0))
         )
       )
 
@@ -1250,7 +1319,10 @@ mod_featureselection_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_lasso_download")]] <- downloadHandler(
         filename = function() sprintf("%s_lasso_genes.csv", sex_label),
-        content = function(file) write.csv(data.frame(gene = tx_csv_safe(res()$lasso_genes)), file, row.names = FALSE)
+        content = function(file) {
+          r <- res(); req(r)
+          write.csv(data.frame(gene = tx_csv_safe(r$lasso_genes)), file, row.names = FALSE)
+        }
       )
 
       # Random Forest
@@ -1287,7 +1359,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       output[[paste0(sex_label, "_rf_download")]] <- downloadHandler(
         filename = function() sprintf("%s_random_forest_genes.csv", sex_label),
         content = function(file) {
-          r <- res()
+          r <- res(); req(r)
           df <- data.frame(gene = names(r$gini), gini_importance = as.numeric(r$gini), selected = names(r$gini) %in% r$rf_genes)
           df$gene <- tx_csv_safe(df$gene)
           write.csv(df, file, row.names = FALSE)
@@ -1326,7 +1398,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       output[[paste0(sex_label, "_svm_download")]] <- downloadHandler(
         filename = function() sprintf("%s_svm_rfe_genes.csv", sex_label),
         content = function(file) {
-          r <- res()
+          r <- res(); req(r)
           df <- data.frame(gene = r$svm_rank, rank = seq_along(r$svm_rank), selected = r$svm_rank %in% r$svm_genes)
           df$gene <- tx_csv_safe(df$gene)
           write.csv(df, file, row.names = FALSE)
@@ -1398,7 +1470,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       output[[paste0(sex_label, "_consensus_download")]] <- downloadHandler(
         filename = function() sprintf("%s_consensus_genes.csv", sex_label),
         content = function(file) {
-          r <- res()
+          r <- res(); req(r)
           used <- consensus_used_methods(r)
           genes <- consensus_used_genes(r, used)
           df <- data.frame(gene = union(union(r$lasso_genes, r$rf_genes), r$svm_genes), stringsAsFactors = FALSE)

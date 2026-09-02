@@ -78,7 +78,11 @@ load_precomputed_wgcna_result <- function() {
   gene_module <- data.frame(gene = colnames(texpr), module = module_colors, stringsAsFactors = FALSE)
   gene_module <- gene_module[order(gene_module$module), ]
 
-  net_files <- sort(list.files(proc_dir, pattern = "^wgcna_net_.*\\.rds$", full.names = TRUE), decreasing = TRUE)
+  ## Filenames are content-hash based (e.g. "wgcna_net_00048f2e.rds"), not
+  ## timestamps - sorting them as strings has no relationship to recency, so
+  ## rank by actual file modification time instead if more than one exists.
+  net_files <- list.files(proc_dir, pattern = "^wgcna_net_.*\\.rds$", full.names = TRUE)
+  if (length(net_files) > 1) net_files <- net_files[order(file.info(net_files)$mtime, decreasing = TRUE)]
   dendro <- NULL
   block_colors <- module_colors
   if (length(net_files) > 0) {
@@ -400,6 +404,13 @@ mod_wgcna_server <- function(id, dataset, results) {
         tree <- sample_tree()
         clust <- WGCNA::cutreeStatic(tree, cutHeight = input$outlier_height, minSize = 2)
         tab <- table(clust)
+        ## cutreeStatic labels every sample outside a big-enough branch "0" (its
+        ## unassigned bin) - excluded here so a very low cut height (where most/
+        ## all samples fail to form a >=2-member branch) can't have that bin
+        ## mistaken for "the largest real cluster" and silently keep everyone.
+        tab <- tab[names(tab) != "0"]
+        validate(need(length(tab) > 0,
+                      "No cluster of at least 2 samples was found at this cut height; raise it a little."))
         main_label <- as.integer(names(tab)[which.max(tab)])
         keep <- clust == main_label
         removed <- rownames(texpr_full)[!keep]
@@ -742,6 +753,15 @@ mod_wgcna_server <- function(id, dataset, results) {
       box(
         width = 12, title = tagList(icon("wave-square"), " Network settings"), status = "primary", solidHeader = FALSE,
         p(class = "submodule-desc", "WGCNA raises gene-gene correlations to a power so the network is approximately scale-free. Pick the lowest power that reaches a good fit below."),
+        ## This dataset's power/network-type/etc. are never actually read - "Compute power"
+        ## short-circuits straight to load_precomputed_wgcna_sft() for it - so without this
+        ## notice a user could change these, see a "Using power = X (manual override)" status
+        ## line below that looks like it took effect, and never learn Step 3 still used the
+        ## fixed precomputed power (12) regardless.
+        if (!uploaded) div(
+          class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
+          "This is the app's own default reference cohort: its network was precomputed offline at power = 12, so the settings below don't change the results shown after \"Compute power\" or Step 3's \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
+        ),
         fluidRow(
           column(
             6,
@@ -985,7 +1005,16 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
       n_genes <- ncol(net$texpr)
       n_select <- min(input$tom_n_select %||% 400, n_genes)
-      set.seed(1234) ## fixed so the subsample doesn't reshuffle on every re-render
+      ## Fixed subsample (doesn't reshuffle on every re-render) without leaking a
+      ## deterministic seed into the rest of this R session's RNG stream - restores
+      ## whatever .Random.seed existed before this draw (e.g. so ggraph's later
+      ## force-directed layout in network_plot_obj() isn't silently reseeded too).
+      old_seed <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) get(".Random.seed", envir = .GlobalEnv) else NULL
+      on.exit({
+        if (!is.null(old_seed)) assign(".Random.seed", old_seed, envir = .GlobalEnv)
+        else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) rm(".Random.seed", envir = .GlobalEnv)
+      }, add = TRUE)
+      set.seed(1234)
       select <- sample(seq_len(n_genes), size = n_select)
       diss_tom <- 1 - full_tom
       select_tom <- diss_tom[select, select]
@@ -1046,8 +1075,11 @@ mod_wgcna_server <- function(id, dataset, results) {
     output$eigengene_network_plot <- renderPlot({
       net <- tryCatch(net_result(), error = function(e) NULL)
       req(net)
-      me_cor <- wgcna_cor_fnc(net$cor_method)(as.matrix(net$MEs), use = "p")
-      rownames(me_cor) <- colnames(me_cor) <- sub("^ME", "", colnames(net$MEs))
+      ## Drop grey (WGCNA's unassigned-gene bin) here too - not a real co-expression
+      ## module, same reasoning already applied to Step 4's module-trait heatmap.
+      MEs_use <- net$MEs[, colnames(net$MEs) != "MEgrey", drop = FALSE]
+      me_cor <- wgcna_cor_fnc(net$cor_method)(as.matrix(MEs_use), use = "p")
+      rownames(me_cor) <- colnames(me_cor) <- sub("^ME", "", colnames(MEs_use))
       df <- as.data.frame(as.table(me_cor)); colnames(df) <- c("module1", "module2", "cor")
       ## Cell/axis text scales down as module count grows, to avoid label overlap.
       n_mod <- length(unique(df$module1))
@@ -1091,6 +1123,15 @@ mod_wgcna_server <- function(id, dataset, results) {
         box(
           width = 12, title = tagList(icon("diagram-project"), " Module detection settings"), status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Genes are clustered by co-expression and cut into modules; similar modules are then merged into one."),
+          ## Same reasoning as the identical notice on Step 2: "Run" loads this dataset's
+          ## precomputed module-detection result unconditionally, so changing minimum module
+          ## size / deep split / merge height / TOM type / PAM below has no effect on it -
+          ## without this, a user could set them and see the exact same result every time
+          ## with no indication their choice was ignored.
+          if (!uploaded) div(
+            class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
+            "This is the app's own default reference cohort: its modules were detected offline, so the settings below don't change the results shown after \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
+          ),
           fluidRow(
             column(
               6,
@@ -1190,28 +1231,39 @@ mod_wgcna_server <- function(id, dataset, results) {
     module_trait <- eventReactive(input$run_traits_btn, {
       net <- net_result()
       validate(need(length(input$trait_cols) > 0, "Select at least one trait above."))
-      traits <- data.frame(row.names = rownames(net$texpr))
-      used_names <- character(0)
-      uniquify <- function(nm, cl) if (nm %in% used_names) paste0(nm, " (", cl, ")") else nm
 
-      for (cl in input$trait_cols) {
+      ## Resolved in two passes so a name shared by two different traits (e.g. a
+      ## "group" trait and a "smoker" trait that both happen to have a "yes"
+      ## level) gets disambiguated with "(colname)" on EVERY occurrence, not just
+      ## the second one seen - the previous single-pass uniquify() left whichever
+      ## column was processed first with the bare, now-ambiguous label.
+      col_plan <- lapply(input$trait_cols, function(cl) {
         v <- net$meta[[cl]]
         if (is.numeric(v)) {
-          nm <- uniquify(cl, cl)
-          traits[[nm]] <- as.numeric(v)
-          used_names <- c(used_names, nm)
+          list(col = cl, numeric = TRUE, levels = NULL, raw_names = cl)
         } else {
           v <- as.character(v)
           lv <- wgcna_trait_levels(input, net$meta, cl, eligible_traits())
           if (is.null(lv) || length(lv) == 0) lv <- sort(unique(stats::na.omit(v)))
           validate(need(length(lv) >= 2, sprintf("Select at least two levels for \"%s\" above.", cl)))
-          in_set <- v %in% lv
-          for (level in lv) {
-            nm <- uniquify(level, cl)
+          list(col = cl, numeric = FALSE, levels = lv, raw_names = lv)
+        }
+      })
+      raw_names_all <- unlist(lapply(col_plan, `[[`, "raw_names"))
+      dup_raw <- unique(raw_names_all[duplicated(raw_names_all)])
+      disambiguate <- function(raw, cl) if (raw %in% dup_raw) paste0(raw, " (", cl, ")") else raw
+
+      traits <- data.frame(row.names = rownames(net$texpr))
+      for (p in col_plan) {
+        if (p$numeric) {
+          traits[[disambiguate(p$col, p$col)]] <- as.numeric(net$meta[[p$col]])
+        } else {
+          v <- as.character(net$meta[[p$col]])
+          in_set <- v %in% p$levels
+          for (level in p$levels) {
             ind <- rep(NA_real_, length(v))
             ind[in_set] <- as.numeric(v[in_set] == level)
-            traits[[nm]] <- ind
-            used_names <- c(used_names, nm)
+            traits[[disambiguate(level, p$col)]] <- ind
           }
         }
       }
@@ -1335,13 +1387,19 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Same "which levels?" idea as Step 4, for the single trait picked here; hidden for numeric traits.
+    ## Same "which levels?" idea as Step 4, for the single trait picked here; hidden for numeric
+    ## traits. Uses the same eligible_traits()-position widget id as Step 4 (rather than one fixed
+    ## id reused for every trait) so switching hub_trait can't read a stale selection left over from
+    ## the previously picked trait during the brief round-trip before this checkbox group re-renders
+    ## with its new choices - a real, reproducible race otherwise, since me_trait_plot below is a
+    ## plain renderPlot with no button gate and reacts the instant hub_trait changes.
     output$hub_trait_levels_ui <- renderUI({
       req(input$hub_trait)
       meta <- net_result()$meta
       if (is.numeric(meta[[input$hub_trait]])) return(NULL)
       lv <- sort(unique(stats::na.omit(as.character(meta[[input$hub_trait]]))))
-      checkboxGroupInput(ns("hub_trait_levels"), sprintf("\"%s\" levels to include", input$hub_trait),
+      checkboxGroupInput(ns(wgcna_trait_widget_id(input$hub_trait, eligible_traits())),
+                          sprintf("\"%s\" levels to include", input$hub_trait),
                           choices = lv, selected = lv, inline = TRUE)
     })
 
@@ -1354,7 +1412,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       ## Use the precomputed hub table only when module+trait matches exactly what it was built for
       ## (disease module, trait = "group", no level filter); otherwise fall through to live computation.
       pre <- net$hub_table_precomputed
-      lv <- if (!is.numeric(net$meta[[input$hub_trait]])) input$hub_trait_levels else NULL
+      lv <- wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits())
       use_precomputed <- !is.null(pre) && identical(input$hub_trait, "group") &&
         input$hub_module %in% unique(pre$module) &&
         (is.null(lv) || setequal(lv, sort(unique(stats::na.omit(as.character(net$meta$group))))))
@@ -1369,8 +1427,22 @@ mod_wgcna_server <- function(id, dataset, results) {
         kme <- as.numeric(corFnc(net$texpr, net$MEs[[me_col]], use = "p"))
         names(kme) <- colnames(net$texpr)
         trait_vec <- wgcna_encode_trait(net$meta, input$hub_trait, levels_keep = lv)
-        validate(need(length(unique(stats::na.omit(trait_vec))) >= 2,
-                      "Select at least two levels for this trait above."))
+        n_levels_used <- length(unique(stats::na.omit(trait_vec)))
+        if (is.numeric(net$meta[[input$hub_trait]])) {
+          validate(need(n_levels_used >= 2, "This trait has fewer than two distinct values in the current samples."))
+        } else {
+          ## Gene significance is a correlation against a single numeric variable. wgcna_encode_trait()
+          ## recodes an unordered categorical trait to its alphabetical level RANK (1, 2, 3, ...) - valid
+          ## as a stand-in for a 0/1 indicator only when there are exactly two levels (correlation is
+          ## invariant to that affine 1/2-vs-0/1 relabeling). For 3+ levels the rank has no real order,
+          ## so correlating expression against it would be a statistically meaningless "gene
+          ## significance" that depends only on how the levels happen to sort alphabetically - reject
+          ## it here instead of silently reporting a number, and point the user at Step 4's per-level
+          ## binary-column heatmap instead, which handles any number of levels correctly.
+          validate(need(n_levels_used == 2,
+                        sprintf("\"%s\" has %d levels selected. Gene significance needs exactly two levels for a categorical trait - narrow the level checkboxes above to two, or use Step 4's module-trait heatmap for a multi-level comparison.",
+                                input$hub_trait, n_levels_used)))
+        }
         gs <- as.numeric(corFnc(net$texpr, trait_vec, use = "p"))
         names(gs) <- colnames(net$texpr)
         ik <- intramod_conn()
@@ -1440,8 +1512,9 @@ mod_wgcna_server <- function(id, dataset, results) {
       me_col <- paste0("ME", input$hub_module)
       raw <- net$meta[[input$hub_trait]]
       df <- data.frame(ME = net$MEs[[me_col]], trait = raw)
-      if (!is.numeric(raw) && length(input$hub_trait_levels %||% character(0)) > 0) {
-        df <- df[df$trait %in% input$hub_trait_levels, , drop = FALSE]
+      hub_lv <- if (!is.numeric(raw)) wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits()) else NULL
+      if (!is.numeric(raw) && length(hub_lv %||% character(0)) > 0) {
+        df <- df[df$trait %in% hub_lv, , drop = FALSE]
       }
       if (is.numeric(raw)) {
         ggplot(df, aes(x = trait, y = ME)) +

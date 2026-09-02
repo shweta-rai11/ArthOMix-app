@@ -385,6 +385,16 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
     }
 
     nom_cross_ancestry_panel <- function(sex_label) {
+      ## mod_crossancestry.R only ever fits/saves "female"/"male" (its Run
+      ## buttons are per-sex; there is no pooled arm and no
+      ## MR35_crossancestry_pooled.csv bundled table), so live and bundled
+      ## both fail for sex_label == "pooled" no matter what the user does -
+      ## the generic "run Cross-Ancestry MR first" message below would send
+      ## them to do something that module can't do. Say so explicitly instead.
+      if (identical(sex_label, "pooled")) {
+        return(list(genes = character(0), is_live = FALSE,
+             note = "Cross-Ancestry MR is fit per sex only (Female/Male) in this project - there is no pooled panel. Switch Sex to Female or Male, or use \"Your own\" to enter a gene list."))
+      }
       live <- results$crossancestry[[sex_label]]$biomarker_genes
       if (!is.null(live) && length(live) >= 2) {
         return(list(genes = live, is_live = TRUE,
@@ -511,6 +521,17 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       src <- input$gene_source %||% "own"
       cohort <- current_cohort()
       params <- nom_advanced_params()
+      ## numericInput()'s min/max are client-side hints only - Shiny does not
+      ## clamp server-side, and a value typed directly (bypassing the
+      ## spinner arrows) reaches here as-is. dca_step <= 0 makes seq(0.01,
+      ## 0.99, by = dca_step) error ("invalid '(to - from)/by'" or "wrong
+      ## sign in 'by'"); impact_B < 1 makes nom_clinical_impact()'s
+      ## matrix(NA, length(th), B) + apply() error ("invalid 'ncol' value")
+      ## - both uncaught, which would surface as a raw R error instead of
+      ## this app's usual guided message. calibrate_B doesn't need this: its
+      ## call site already wraps rms::calibrate() in tryCatch().
+      validate(need(is.numeric(params$dca_step) && params$dca_step > 0, "Decision-curve threshold step must be a positive number."))
+      validate(need(is.numeric(params$impact_B) && params$impact_B >= 1, "Clinical impact bootstrap reps must be at least 1."))
 
       genes_req <- if (identical(src, "own")) {
         g <- unique(trimws(unlist(strsplit(input$gene_list %||% "", "[,\n\t ]+"))))
@@ -532,7 +553,13 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
                       sprintf("The %s synovium subset needs at least 10 samples in each group (RA/Normal).", sex_label)))
         expr_sub <- val$logcpm[genes_present, idx_sex, drop = FALSE]
         df <- as.data.frame(t(expr_sub)); names(df) <- make.names(names(df))
-        df$y <- as.numeric(y_full) - 1  ## factor levels "Normal","RA" -> Normal = 0, RA = 1
+        ## Explicit relevel, not the stored factor's own level order: this
+        ## project's val_synovium.rds happens to store levels(grp) as
+        ## c("Normal","RA") today, but as.numeric() on whatever order the RDS
+        ## was last built with would silently invert Normal/RA (and hence
+        ## event_label = "RA" below) if that object were ever regenerated
+        ## with a different level order - nothing downstream would catch it.
+        df$y <- as.numeric(factor(as.character(y_full), levels = c("Normal", "RA"))) - 1  ## Normal = 0, RA = 1
         event_label <- "RA"
         tissue_label <- "Cross-tissue - synovium (GSE89408)"
       } else {

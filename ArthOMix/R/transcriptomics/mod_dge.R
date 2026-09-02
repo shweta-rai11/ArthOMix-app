@@ -152,7 +152,9 @@ mod_dge_ui <- function(id) {
         box(
           width = 12, title = "Result table", status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Every tested gene, with an up/down/not-significant “direction” column. Use the column filter below the header to show only Up or only Down genes."),
-          div(class = "table-toolbar", downloadButton(ns("download_dge"), "Download CSV", class = "btn-sm")),
+          div(class = "table-toolbar",
+              downloadButton(ns("download_dge"), "Download CSV", class = "btn-sm"),
+              downloadButton(ns("download_provenance"), "Download analysis record (.json)", class = "btn-sm btn-default")),
           DT::dataTableOutput(ns("dge_table"))
         )
       )
@@ -176,6 +178,34 @@ mod_dge_server <- function(id, dataset, results) {
       dge_read_table_upload(input$dge_annot_file$datapath, input$dge_annot_file$name)
     })
 
+    ## Live declare-then-verify feedback for this module's own decoupled
+    ## upload path, shown as soon as an expression file is selected - not
+    ## gated behind a button click, unlike mod_dataset.R's upload card.
+    ## active_upload_input() below runs the same tx_validate_expr_upload()
+    ## check as its actual gate (falling back to the Dataset Pipeline data on
+    ## failure, the same fail-soft pattern this reactive already uses for any
+    ## other upload-read error), but that failure is otherwise invisible to
+    ## the user - this reactive re-parses just the expression file to surface
+    ## the block/warning message inline instead.
+    upload_type_check <- reactive({
+      req(input$dge_expr_file)
+      expr <- tryCatch(dge_read_expr_upload(input$dge_expr_file$datapath, input$dge_expr_file$name), error = function(e) NULL)
+      req(expr)
+      tx_validate_expr_upload(expr, input$dge_declared_data_type)
+    })
+
+    output$upload_type_warning_ui <- renderUI({
+      checked <- tryCatch(upload_type_check(), error = function(e) NULL)
+      req(checked)
+      if (!isTRUE(checked$ok)) {
+        div(class = "empty-note", icon("triangle-exclamation"), checked$error)
+      } else if (!is.null(checked$note)) {
+        div(class = "empty-note", icon("triangle-exclamation"), checked$note)
+      } else {
+        NULL
+      }
+    })
+
     output$upload_ui <- renderUI({
       req(input$data_source)
       if (!identical(input$data_source, "upload")) return(NULL)
@@ -183,7 +213,11 @@ mod_dge_server <- function(id, dataset, results) {
         tags$hr(),
         div(class = "upload-step-label", "STEP 1 · Upload your files"),
         p(strong("Expression matrix"), " - CSV, TSV, TXT, XLSX, or RDS. Features in rows, samples in columns; for delimited/XLSX files, the first column is the feature ID."),
+        radioButtons(ns("dge_declared_data_type"), "Data type", inline = TRUE,
+                     choices = c("Raw counts" = "raw", "Normalized (TPM/FPKM/CPM)" = "normalized", "Already log-transformed" = "logtransformed"),
+                     selected = "normalized"),
         fileInput(ns("dge_expr_file"), "Expression matrix", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+        uiOutput(ns("upload_type_warning_ui")),
         p(strong("Sample metadata"), " - CSV, TSV, TXT, XLSX, or RDS; one row per sample."),
         fileInput(ns("dge_meta_file"), "Sample metadata", accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
         p(strong("Feature annotation"), " (optional) - only needed if the expression matrix's row IDs aren't already gene symbols (e.g. probe IDs)."),
@@ -247,6 +281,14 @@ mod_dge_server <- function(id, dataset, results) {
         rownames(expr) <- new_rn
       }
 
+      ## Declare-then-verify: block/warn here at upload time (same
+      ## tx_validate_expr_upload() used by the Dataset tab's own upload
+      ## handler) rather than only discovering a raw-vs-normalized mismatch
+      ## later, at "Run differential expression" click.
+      checked <- tx_validate_expr_upload(expr, input$dge_declared_data_type)
+      validate(need(isTRUE(checked$ok), checked$error))
+      expr <- checked$mat
+
       cleaned <- dge_clean_expr_matrix(expr)
       list(
         expr = cleaned$mat, meta = meta,
@@ -254,19 +296,25 @@ mod_dge_server <- function(id, dataset, results) {
           "Uploaded dataset: %s + %s%s", input$dge_expr_file$name, input$dge_meta_file$name,
           if (!is.null(input$dge_annot_file)) paste0(" + ", input$dge_annot_file$name) else ""
         ),
-        mode = "upload", clean_notes = cleaned$notes
+        mode = "upload", clean_notes = c(cleaned$notes, checked$note),
+        declared_type = input$dge_declared_data_type %||% NA_character_
       )
     })
 
     ## The single data source every reactive/output below reads from; falls
     ## back to the Dataset Pipeline while an upload is still incomplete.
+    ## declared_type: the Dataset Pipeline path reads dataset$declared_data_type
+    ## (set by mod_dataset.R's upload handler, NA for preloaded/GEO sources);
+    ## the upload path reads its own input$dge_declared_data_type above - both
+    ## feed the run-time method gate in fit_result() below.
     cur_source <- reactive({
       if (identical(input$data_source, "upload")) {
         up <- tryCatch(active_upload_input(), error = function(e) NULL)
         if (!is.null(up)) return(up)
       }
       list(expr = dataset$expr, meta = dataset$meta, source_label = dataset$source,
-           mode = "pipeline", clean_notes = character(0))
+           mode = "pipeline", clean_notes = character(0),
+           declared_type = dataset$declared_data_type %||% NA_character_)
     })
 
     ## Any metadata column with 2-20 distinct non-missing values is a
@@ -336,27 +384,10 @@ mod_dge_server <- function(id, dataset, results) {
       selectInput(ns("covariate_level"), "Restrict to", choices = lvls, selected = lvls[1], selectize = FALSE)
     })
 
-    ## Flags raw-count-like data: non-negative with a wide linear range
-    ## (99th percentile > 100). Not an integer check, since count matrices
-    ## like RSEM output are often fractional.
-    looks_like_raw_counts <- function(m) {
-      vals <- as.numeric(m)
-      vals <- vals[is.finite(vals)]
-      if (length(vals) == 0 || any(vals < 0)) return(FALSE)
-      q99 <- suppressWarnings(stats::quantile(vals[vals > 0], 0.99, na.rm = TRUE))
-      isTRUE(!is.na(q99) && q99 > 100)
-    }
-
-    ## Flags TPM/FPKM/CPM-normalised data: column sums cluster tightly around
-    ## a fixed target (1e2/1e4/1e6), unlike raw counts' varying library sizes.
-    looks_like_normalized_totals <- function(m) {
-      csums <- colSums(m, na.rm = TRUE)
-      csums <- csums[is.finite(csums) & csums > 0]
-      if (length(csums) < 2) return(FALSE)
-      cv <- stats::sd(csums) / mean(csums)
-      pinned <- any(vapply(c(1e2, 1e4, 1e6), function(target) abs(mean(csums) - target) / target < 0.05, logical(1)))
-      isTRUE(cv < 0.05 && pinned)
-    }
+    ## looks_like_raw_counts()/looks_like_normalized_totals() are now shared,
+    ## top-level functions in R/transcriptomics/expression_type.R (used by
+    ## mod_dataset.R's/this module's own upload validators, and
+    ## mod_deconvolution.R's run gate too) rather than local closures here.
 
     fit_result <- eventReactive(input$run_btn, {
       req(input$contrast_col, input$ref_group, input$comp_group)
@@ -396,8 +427,20 @@ mod_dge_server <- function(id, dataset, results) {
       }
 
       used_method <- input$method
-      is_counts <- looks_like_raw_counts(expr)
-      is_normalized_totals <- looks_like_normalized_totals(expr)
+      ## Prefer the user's own upload-time declaration (dataset$declared_data_type
+      ## for the Dataset Pipeline path, input$dge_declared_data_type for this
+      ## module's own decoupled upload path - both funnelled into cs$declared_type
+      ## by cur_source()/active_upload_input() above) over live heuristic
+      ## inference - only falls back to the heuristic when nothing was declared
+      ## (preloaded/GEO data, or data uploaded before this field existed).
+      declared_type <- cs$declared_type
+      if (!is.null(declared_type) && !is.na(declared_type) && nzchar(declared_type)) {
+        is_counts <- identical(declared_type, "raw")
+        is_normalized_totals <- identical(declared_type, "normalized")
+      } else {
+        is_counts <- looks_like_raw_counts(expr)
+        is_normalized_totals <- looks_like_normalized_totals(expr)
+      }
       if (identical(used_method, "deseq2")) {
         validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts directly via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with Preprocessing's own log2 set to \"Skip\")."))
         validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw sequencing counts. DESeq2 requires raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
@@ -480,8 +523,14 @@ mod_dge_server <- function(id, dataset, results) {
     observeEvent(input$run_btn, dge_has_run(TRUE), ignoreInit = TRUE)
 
     ## fit_result() is an eventReactive, so it keeps the previous dataset's fit
-    ## until Run is clicked again; clear the gate so nothing stale stays on screen.
-    observeEvent(dataset$source, {
+    ## until Run is clicked again; clear the gate so nothing stale stays on
+    ## screen. Watches cur_source() itself, not just dataset$source, so this
+    ## also fires when the user switches to/within "Upload your own data" -
+    ## watching dataset$source alone missed that case entirely (the shared
+    ## Dataset Pipeline object never changes just because this module's own
+    ## decoupled upload changed), leaving stale pipeline-run results marked
+    ## as current after switching sources.
+    observeEvent(cur_source(), {
       dge_has_run(FALSE)
     }, ignoreInit = TRUE)
 
@@ -607,7 +656,14 @@ mod_dge_server <- function(id, dataset, results) {
       n_up <- sum(df$direction == "Up")
       n_down <- sum(df$direction == "Down")
       sig_p <- suppressWarnings(max(df$P.Value[df$significant], na.rm = TRUE))
-      xr <- max(abs(df$logFC), na.rm = TRUE) * 1.08
+      ## Includes lfc_cut itself, not just the data's own range: when the
+      ## cutoff exceeds every gene's |logFC| (weak/no signal, or a filtered
+      ## gene panel), the dashed cutoff lines below would otherwise fall
+      ## outside scale_x_continuous()'s limits and ggplot silently drops them
+      ## (confirmed live: "Removed 2 rows ... outside the scale range
+      ## (`geom_vline()`)") - the reader would see a volcano plot with no
+      ## visible cutoff lines and no indication why.
+      xr <- max(c(abs(df$logFC), input$lfc_cut), na.rm = TRUE) * 1.08
 
       p <- ggplot(df, aes(x = logFC, y = -log10(P.Value), color = direction, size = direction)) +
         geom_point(alpha = 0.7) +
@@ -654,7 +710,10 @@ mod_dge_server <- function(id, dataset, results) {
     ## Fixed 7x6in @ 300dpi, matching standard journal figure dimensions.
     output$download_volcano_png <- downloadHandler(
       filename = function() "volcano_plot.png",
-      content = function(file) ggsave(file, plot = volcano_plot_obj(), width = 7, height = 6, dpi = 300, bg = "white")
+      content = function(file) {
+        if (!dge_has_run()) stop("No differential expression run yet in this session - click \"Run differential expression\" first.")
+        ggsave(file, plot = volcano_plot_obj(), width = 7, height = 6, dpi = 300, bg = "white")
+      }
     )
 
     ## Heatmap of top significant genes, z-scored per gene, with a group
@@ -709,6 +768,7 @@ mod_dge_server <- function(id, dataset, results) {
     output$download_heatmap_png <- downloadHandler(
       filename = function() "dge_heatmap.png",
       content = function(file) {
+        if (!dge_has_run()) stop("No differential expression run yet in this session - click \"Run differential expression\" first.")
         a <- heatmap_args()
         pheatmap::pheatmap(
           a$mat, annotation_col = a$annotation_col, annotation_colors = a$annotation_colors,
@@ -722,7 +782,17 @@ mod_dge_server <- function(id, dataset, results) {
     )
 
     output$dge_table <- DT::renderDataTable({
-      if (!dge_has_run()) return(NULL)
+      ## req(), not `if (!dge_has_run()) return(NULL)`: an explicit NULL still
+      ## gets sent to the client as a real value, and DT's own JS binding
+      ## (unlike renderPlot's) throws "Cannot read properties of null (reading
+      ## 'lazyRender')" the first time it's asked to render one - which
+      ## happens on this tab's very first insertion (suspendWhenHidden=FALSE
+      ## below means it binds immediately, before any run has happened), and
+      ## the resulting uncaught client error was aborting that same message
+      ## batch's tab-switch, leaving the newly-added tab stuck showing the
+      ## Sub-modules grid instead of the Differential Expression module.
+      ## req() suppresses the output message entirely instead of sending null.
+      req(dge_has_run())
       df <- tryCatch(sig_table(), error = function(e) NULL)
       req(df)
       DT::datatable(df, rownames = FALSE, filter = "top",
@@ -732,7 +802,50 @@ mod_dge_server <- function(id, dataset, results) {
 
     output$download_dge <- downloadHandler(
       filename = function() "differential_expression.csv",
-      content = function(file) write.csv(sig_table(), file, row.names = FALSE)
+      content = function(file) {
+        if (!dge_has_run()) stop("No differential expression run yet in this session - click \"Run differential expression\" first.")
+        write.csv(sig_table(), file, row.names = FALSE)
+      }
     )
+
+    ## Provenance manifest (R/provenance.R) for this run: checksum of the
+    ## exact expression subset + group assignment that went into the fit,
+    ## the contrast/covariate/threshold parameters chosen, and the
+    ## limma/DESeq2 version actually loaded - whichever one was used, not
+    ## both, since a deployment only needs the one it ran. limma and DESeq2
+    ## fits here are both deterministic (no internal RNG step), so seed is
+    ## NULL rather than a placeholder value. declared_data_type (from the
+    ## upload-time schema declaration - dataset$declared_data_type for the
+    ## Dataset Pipeline path, input$dge_declared_data_type for this module's
+    ## own upload path, both already folded into cur_source()$declared_type
+    ## above) is included in extra when set.
+    dge_provenance_record <- reactive({
+      if (!dge_has_run()) stop("No differential expression run yet in this session - click \"Run differential expression\" first.")
+      res <- fit_result()
+      declared_type <- cur_source()$declared_type
+      arthomix_provenance_record(
+        module = "mod_dge",
+        checksum_input = list(expr = res$expr, grp = as.character(res$grp)),
+        params = list(
+          method = res$method,
+          data_source = input$data_source,
+          contrast_col = input$contrast_col,
+          reference_level = input$ref_group,
+          comparison_level = input$comp_group,
+          covariate_col = input$covariate_col %||% "(none)",
+          covariate_mode = if (!identical(input$covariate_col %||% "(none)", "(none)")) input$covariate_mode %||% NA_character_ else NA_character_,
+          covariate_level = if (identical(input$covariate_mode %||% "", "filter")) input$covariate_level %||% NA_character_ else NA_character_,
+          padj_cut = input$padj_cut, lfc_cut = input$lfc_cut,
+          design_formula = res$design_formula,
+          n_reference = res$n_ref, n_comparison = res$n_comp
+        ),
+        seed = NULL,
+        packages = if (identical(res$method, "deseq2")) "DESeq2" else "limma",
+        extra = if (!is.null(declared_type) && !is.na(declared_type) && nzchar(declared_type))
+          list(declared_data_type = declared_type) else list()
+      )
+    })
+
+    output$download_provenance <- arthomix_provenance_download_handler(dge_provenance_record, "mod_dge_provenance")
   })
 }

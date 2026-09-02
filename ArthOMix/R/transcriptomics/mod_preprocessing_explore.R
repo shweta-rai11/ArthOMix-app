@@ -658,12 +658,17 @@ mod_data_exploration_server <- function(id) {
     ns <- session$ns
 
     raw_data <- reactiveVal(NULL)
+    ## Bumped on every upload; lets results_ui tell a stale eda_result() (still
+    ## cached from a PRIOR file - eda_result only recomputes on run_btn, not on
+    ## raw_data) apart from one that actually matches the currently uploaded file.
+    raw_version <- reactiveVal(0L)
 
     observeEvent(input$raw_file, {
       fi <- input$raw_file
       parsed <- tryCatch(eda_parse_upload(fi$datapath, fi$name),
                           error = function(e) list(ok = FALSE, error = "The file could not be processed. Please check its format and try again."))
       raw_data(parsed)
+      raw_version(isolate(raw_version()) + 1L)
     }, ignoreInit = TRUE)
 
     output$body_ui <- renderUI({
@@ -741,7 +746,8 @@ mod_data_exploration_server <- function(id) {
       list(m = m, parsed = parsed, overview = overview, feat_stats = feat_stats, samp_stats = samp_stats,
            pooled_sample = pooled_sample, x_label = x_label, normality = normality, norm_assess = norm_assess,
            pca = pca, corr = corr, feat_outliers = feat_outliers, samp_outliers = samp_outliers,
-           missingness = missingness, meanvar_df = meanvar_df, transform_diag = transform_diag, summary = summ)
+           missingness = missingness, meanvar_df = meanvar_df, transform_diag = transform_diag, summary = summ,
+           run_version = raw_version())
     })
 
     ## ---- A. Dataset overview ----------------------------------------------
@@ -945,8 +951,13 @@ mod_data_exploration_server <- function(id) {
 
     ## Assembles every section above into the results UI, only after a successful run.
     output$results_ui <- renderUI({
+      cur_version <- raw_version()
       res <- tryCatch(eda_result(), error = function(e) NULL)
       if (is.null(res)) return(NULL)
+      if (!identical(res$run_version, cur_version)) {
+        return(div(class = "empty-note", icon("circle-info"),
+                   "A new file has been uploaded. Click \"Run Exploratory Data Analysis\" above to analyze it - the results below are still from the previous file."))
+      }
       tagList(
         box(width = 12, title = "A. Dataset overview", status = "primary", solidHeader = FALSE, uiOutput(ns("overview_ui"))),
         box(width = 12, title = "B. Descriptive statistics", status = "primary", solidHeader = FALSE, collapsible = TRUE,
