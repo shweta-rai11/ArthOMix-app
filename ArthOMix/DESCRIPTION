@@ -111,4 +111,9 @@ Suggests:
     shinytest2 (>= 0.5.1),
     chromote (>= 0.5.1)
 Config/testthat/edition: 3
+Remotes:
+    MRCIEU/ieugwasr,
+    MRCIEU/TwoSampleMR,
+    rondolab/MR-PRESSO,
+    ebecht/MCPcounter/Source
 

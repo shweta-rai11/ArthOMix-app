@@ -20,7 +20,7 @@
     },
     "base64enc": {
       "Package": "base64enc",
-      "Version": "0.1.6",
+      "Version": "0.1-6",
       "Source": "Repository"
     },
     "Biobase": {
@@ -40,7 +40,7 @@
     },
     "caret": {
       "Package": "caret",
-      "Version": "7.0.1",
+      "Version": "7.0-1",
       "Source": "Repository"
     },
     "ChAMP": {
@@ -100,7 +100,7 @@
     },
     "e1071": {
       "Package": "e1071",
-      "Version": "1.7.17",
+      "Version": "1.7-17",
       "Source": "Repository"
     },
     "edgeR": {
@@ -196,7 +196,13 @@
     "ieugwasr": {
       "Package": "ieugwasr",
       "Version": "1.1.0.9000",
-      "Source": "Unknown"
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteUsername": "MRCIEU",
+      "RemoteRepo": "ieugwasr",
+      "RemoteRef": "master",
+      "RemoteSha": "1f53b4a2c3a4864c31c093bc6b43b0bd99ac93d3"
     },
     "igraph": {
       "Package": "igraph",
@@ -210,8 +216,8 @@
     },
     "IOBR": {
       "Package": "IOBR",
-      "Version": "0.99.0",
-      "Source": "Unknown"
+      "Version": "2.2.3",
+      "Source": "Repository"
     },
     "IRanges": {
       "Package": "IRanges",
@@ -246,7 +252,14 @@
     "MCPcounter": {
       "Package": "MCPcounter",
       "Version": "1.2.0",
-      "Source": "Unknown"
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteUsername": "ebecht",
+      "RemoteRepo": "MCPcounter",
+      "RemoteSubdir": "Source",
+      "RemoteRef": "master",
+      "RemoteSha": "b6eac73e91c246fcff0bb1a5c68a816cd588fc48"
     },
     "MendelianRandomization": {
       "Package": "MendelianRandomization",
@@ -265,7 +278,7 @@
     },
     "mixOmics": {
       "Package": "mixOmics",
-      "Version": "6.37.0",
+      "Version": "6.36.0",
       "Source": "Bioconductor"
     },
     "MLmetrics": {
@@ -281,7 +294,13 @@
     "MRPRESSO": {
       "Package": "MRPRESSO",
       "Version": "1.0",
-      "Source": "Unknown"
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteUsername": "rondolab",
+      "RemoteRepo": "MR-PRESSO",
+      "RemoteRef": "master",
+      "RemoteSha": "3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87"
     },
     "msigdbr": {
       "Package": "msigdbr",
@@ -340,7 +359,7 @@
     },
     "randomForest": {
       "Package": "randomForest",
-      "Version": "4.7.1.2",
+      "Version": "4.7-1.2",
       "Source": "Repository"
     },
     "reactome.db": {
@@ -370,7 +389,7 @@
     },
     "rms": {
       "Package": "rms",
-      "Version": "8.1.0",
+      "Version": "8.1-1",
       "Source": "Repository"
     },
     "S4Vectors": {
@@ -445,8 +464,14 @@
     },
     "TwoSampleMR": {
       "Package": "TwoSampleMR",
-      "Version": "0.7.8",
-      "Source": "Unknown"
+      "Version": "0.7.9",
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteUsername": "MRCIEU",
+      "RemoteRepo": "TwoSampleMR",
+      "RemoteRef": "master",
+      "RemoteSha": "c14776b89056e88422d9dff92b517b870a1339a4"
     },
     "TxDb.Hsapiens.UCSC.hg19.knownGene": {
       "Package": "TxDb.Hsapiens.UCSC.hg19.knownGene",
@@ -466,6 +491,16 @@
     "xgboost": {
       "Package": "xgboost",
       "Version": "3.2.0.1",
+      "Source": "Repository"
+    },
+    "kpmt": {
+      "Package": "kpmt",
+      "Version": "0.1.0",
+      "Source": "Repository"
+    },
+    "Deriv": {
+      "Package": "Deriv",
+      "Version": "4.3.0",
       "Source": "Repository"
     }
   }
