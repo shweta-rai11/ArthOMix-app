@@ -26,10 +26,7 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R"))
 
-geo_fixture_eset <- readRDS(normalizePath(
-  file.path(app_dir, "tests", "fixtures", "transcriptomics", "geo_offline", "GSE_FIXTURE_eset.rds"),
-  mustWork = TRUE
-))
+geo_fixture_eset <- fx_geo_eset()
 
 ## ---- Offline, deterministic (mocked GEOquery::getGEO) --------------------
 

@@ -8,9 +8,35 @@
 ## fx_write_expr_csv()/fx_write_meta_csv() rather than reading a committed
 ## copy - same convention methylomics/multiomics/crossomics tests use.
 ## tests/fixtures/ itself is reserved for things that can't be regenerated
-## this way: tests/fixtures/edge_cases/ (deliberately malformed content) and
-## tests/fixtures/transcriptomics/geo_offline/ (a captured GEOquery response
-## shape, not a plain matrix).
+## this way: tests/fixtures/edge_cases/ (deliberately malformed content).
+
+## Small, deterministic ExpressionSet shaped like a real (messy) GEO series -
+## with decoy pData columns ("status", "characteristics_ch1") that must NOT
+## win guess_col()'s group/sex guess over the real "disease state:ch1"/
+## "Sex:ch1" fields, reproducing the GSE93272 case mod_dataset.R's guess_col()
+## comment describes. Used by the offline GEO-fetch tests via mocked
+## GEOquery::getGEO() - in-memory, same convention as fx_expr_meta() above,
+## rather than a committed .rds (there's nothing in this object that a
+## captured API response would have and a hand-built one wouldn't).
+fx_geo_eset <- function(n_probes = 30, n_samples = 10, seed = 1) {
+  set.seed(seed)
+  genes <- sprintf("PROBE%d", seq_len(n_probes))
+  samples <- sprintf("GSM%04d", 1000 + seq_len(n_samples))
+  mat <- matrix(runif(n_probes * n_samples, 3, 12), n_probes, n_samples,
+                dimnames = list(genes, samples))
+  pdat <- data.frame(
+    title = sprintf("sample_%d", seq_len(n_samples)),
+    geo_accession = samples,
+    status = "Public on Jan 01 2020",
+    characteristics_ch1 = "tissue: whole blood",
+    `disease state:ch1` = rep(c("RA", "HC"), length.out = n_samples),
+    `Sex:ch1` = rep(c("female", "male"), length.out = n_samples),
+    check.names = FALSE, row.names = samples, stringsAsFactors = FALSE
+  )
+  eset <- Biobase::ExpressionSet(assayData = mat, phenoData = Biobase::AnnotatedDataFrame(pdat))
+  Biobase::annotation(eset) <- "GPL_FIXTURE"
+  eset
+}
 
 ## n_genes x n_samples numeric matrix + matching sample metadata data.frame
 ## (sample/group/sex/batch columns), balanced group and sex assignment,
