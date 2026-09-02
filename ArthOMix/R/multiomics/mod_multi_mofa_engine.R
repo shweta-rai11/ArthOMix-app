@@ -1,7 +1,7 @@
-## R/multiomics/mod_multi_live_mofa.R
-## Nested sub-module mounted inside mod_multi_live.R (sections 5-8: MOFA2
+## R/multiomics/mod_multi_mofa_engine.R
+## Nested sub-module mounted inside mod_multi_mofa.R (sections 5-8: MOFA2
 ## Integration, Factor Results, Cross-Omics Correlation, Export). Reads the
-## `live_state` reactiveValues mod_multi_live_server publishes (final
+## `live_state` reactiveValues mod_multi_mofa_server publishes (final
 ## preprocessed/scaled, matched-sample matrices per layer + uploaded
 ## metadata) - never touches the precomputed-cohort tabs' own state.
 ##
@@ -12,7 +12,7 @@
 ## rest of the app for every open session. Falls back to a blocking call
 ## with a clear notice if `future`/`promises` aren't installed.
 
-mod_multi_live_mofa_ui <- function(id) {
+mod_multi_mofa_engine_ui <- function(id) {
   ns <- NS(id)
   tagList(
     uiOutput(ns("mofa_availability_note")),
@@ -49,7 +49,7 @@ mod_multi_live_mofa_ui <- function(id) {
   )
 }
 
-mod_multi_live_mofa_server <- function(id, live_state, multi_results = NULL) {
+mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
