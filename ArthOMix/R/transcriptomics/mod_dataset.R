@@ -436,7 +436,7 @@ mod_dataset_server <- function(id, dataset) {
 
       result <- tryCatch({
         expr <- expr_raw()
-        ## Declare-then-verify (mirrors R/methylomics/parse_upload.R's
+        ## Declare-then-verify (mirrors R/methylomics/functions/parse_upload.R's
         ## methyl_validate_matrix_upload()): checks the "Data type" radio
         ## button above against the matrix's actual value range/shape, hard-
         ## blocking on an unambiguous mismatch (negative/TPM-pinned values

@@ -7,9 +7,9 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "parse_upload.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_celltype.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "parse_upload.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "04_Cell_Type_Deconvolution", "mod_methyl_celltype.R"))
 
 ## ---- Scale detection / conversion --------------------------------------------
 

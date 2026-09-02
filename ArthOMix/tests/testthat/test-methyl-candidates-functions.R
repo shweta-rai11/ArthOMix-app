@@ -6,7 +6,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_candidates.R"))
+source_from_app_root(file.path("R", "methylomics", "09_Candidate_CpGs", "mod_methyl_candidates.R"))
 
 ## ---- mcd_norm_chr() ----------------------------------------------------------
 

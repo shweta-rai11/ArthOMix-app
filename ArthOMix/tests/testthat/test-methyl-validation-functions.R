@@ -5,7 +5,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_validation.R"))
+source_from_app_root(file.path("R", "methylomics", "14_Validation", "mod_methyl_validation.R"))
 
 ## ---- vld_feature_alignment() -------------------------------------------------
 

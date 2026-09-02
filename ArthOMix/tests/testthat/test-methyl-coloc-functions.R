@@ -11,7 +11,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_coloc.R"))
+source_from_app_root(file.path("R", "methylomics", "12_Colocalization", "mod_methyl_coloc.R"))
 
 ## ---- .mcol_prep_ld() -----------------------------------------------------
 

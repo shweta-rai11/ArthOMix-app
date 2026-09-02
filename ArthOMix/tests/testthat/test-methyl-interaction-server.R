@@ -14,11 +14,11 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "normalization.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_interaction.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R"))
+source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
+source_from_app_root(file.path("R", "methylomics", "07_Sex_Interaction_Analysis", "mod_methyl_interaction.R"))
 
 methyl_interaction_fixture <- function(n_per_cell = 4, sex_col = TRUE, sexes = c("F", "M"), seed = 380) {
   set.seed(seed)

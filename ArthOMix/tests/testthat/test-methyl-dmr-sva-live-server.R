@@ -19,12 +19,12 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "normalization.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R"))
 source_from_app_root(file.path("R", "provenance.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmr.R"))
+source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
+source_from_app_root(file.path("R", "methylomics", "06_Differential_Methylation_Region", "mod_methyl_dmr.R"))
 
 ## Locates the densest real EPIC CpG cluster on chr1 within a 3kb window
 ## (skipped if the EPIC annotation package isn't installed in this

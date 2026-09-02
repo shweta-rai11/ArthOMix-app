@@ -5,8 +5,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_wgcna.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "08_WGCNA_Co_Methylation_Network", "mod_methyl_wgcna.R"))
 
 ## ---- mx_wgcna_top_variable() ------------------------------------------------
 

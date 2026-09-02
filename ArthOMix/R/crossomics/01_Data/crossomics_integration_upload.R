@@ -3,7 +3,7 @@
 ## CSV/TSV/TXT via data.table::fread, XLSX via openxlsx (both already
 ## installed in this deployment, called by namespace so no global.R library()
 ## edit is needed). Same fail-soft list(ok = FALSE, error = <message>)
-## sentinel as R/methylomics/parse_upload.R, so a bad upload shows a clean
+## sentinel as R/methylomics/functions/parse_upload.R, so a bad upload shows a clean
 ## message instead of a raw Shiny error screen.
 
 CX_UPLOAD_NA_STRINGS <- c("NA", "", "NaN", "null", "NULL", "#N/A")

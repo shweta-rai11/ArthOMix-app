@@ -11,8 +11,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmr.R"))
+source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
+source_from_app_root(file.path("R", "methylomics", "06_Differential_Methylation_Region", "mod_methyl_dmr.R"))
 
 ## ---- mod_methyl_dmr_filter() ------------------------------------------------
 

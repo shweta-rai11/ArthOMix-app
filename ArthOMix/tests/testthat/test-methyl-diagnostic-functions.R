@@ -9,7 +9,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_diagnostic.R"))
+source_from_app_root(file.path("R", "methylomics", "13_Diagnostic_Classifier", "mod_methyl_diagnostic.R"))
 
 ## ---- Sex-label / normalization helpers --------------------------------------
 

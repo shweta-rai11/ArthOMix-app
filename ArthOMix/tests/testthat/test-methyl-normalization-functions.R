@@ -12,8 +12,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "normalization.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R"))
 
 ## ---- methyl_norm_quantile() (real limma::normalizeQuantiles) --------------
 

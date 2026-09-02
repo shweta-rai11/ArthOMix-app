@@ -5,10 +5,10 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "idat_metrics.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "idat_metrics.R"))
+source_from_app_root(file.path("R", "methylomics", "02_Quality_Control", "mod_methyl_qc.R"))
 
 methyl_qc_fixture <- function(n_probes = 30, n_samples = 12, seed = 240) {
   set.seed(seed)

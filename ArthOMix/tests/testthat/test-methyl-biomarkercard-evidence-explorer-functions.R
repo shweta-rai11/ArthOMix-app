@@ -11,9 +11,9 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
 source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_biomarkercard.R"))
+source_from_app_root(file.path("R", "methylomics", "15_Biomarker_Analysis", "mod_methyl_biomarkercard.R"))
 
 ## ---- Identifier detection & resolution ------------------------------------
 

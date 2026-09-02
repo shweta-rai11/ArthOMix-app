@@ -5,7 +5,7 @@
 ## correlation, and provenance. No Shiny dependency, so this is unit-testable
 ## on its own. Every function returns a fail-soft list(ok = TRUE/FALSE, ...)
 ## rather than throwing, the same sentinel convention as
-## R/methylomics/parse_upload.R.
+## R/methylomics/functions/parse_upload.R.
 
 ## ---------------------------------------------------------------------------
 ## Column auto-detection
@@ -617,7 +617,7 @@ cx_adjust_p <- function(p, method = c("BH", "bonferroni")) {
 ## ---------------------------------------------------------------------------
 ## CpG -> gene/region annotation for the Preloaded pathway (450K/EPIC)
 ## ---------------------------------------------------------------------------
-## Deliberately independent of R/methylomics/annotation.R::methyl_get_annotation()
+## Deliberately independent of R/methylomics/functions/annotation.R::methyl_get_annotation()
 ## - that function's `anno` object doesn't expose UCSC_RefGene_Group (only the
 ## gene symbol), which this module needs for promoter/gene-body aggregation.
 ## Reads the same underlying Bioconductor data objects directly (Locations +

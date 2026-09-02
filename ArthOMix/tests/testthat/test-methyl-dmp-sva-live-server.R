@@ -7,11 +7,11 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "normalization.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R"))
 source_from_app_root(file.path("R", "provenance.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
+source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
 
 ## Larger than the plain-DMP fixture (300 probes, 40 samples): SVA needs
 ## enough probes/samples to estimate anything meaningful, and a batch

@@ -14,7 +14,7 @@
 ##     reused directly against the real SNF cluster vector published by the
 ##     Patient Stratification submodule to multi_results$stratification$clusters.
 ##   - multiomics_dataset_helpers.R (multi_live_*): sample-overlap primitives.
-##   - R/methylomics/qc.R::methyl_beta_to_mvalue() for beta->M conversion.
+##   - R/methylomics/functions/qc.R::methyl_beta_to_mvalue() for beta->M conversion.
 ## Every function below fails soft (returns NA/"Not available"/ok=FALSE with
 ## a reason) rather than fabricating a gene, CpG, coordinate, or statistic -
 ## per the module's own "never invent" requirement.

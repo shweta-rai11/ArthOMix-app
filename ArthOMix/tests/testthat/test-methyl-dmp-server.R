@@ -5,11 +5,11 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "normalization.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R"))
 source_from_app_root(file.path("R", "provenance.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dmp.R"))
+source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
 
 dmp_fixture_dataset <- function(n_per_group = 10, seed = 260) {
   set.seed(seed)

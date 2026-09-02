@@ -6,7 +6,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "parse_upload.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "parse_upload.R"))
 
 ## ---- methyl_parse_matrix() -------------------------------------------------
 

@@ -7,8 +7,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "idat_metrics.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "idat_metrics.R"))
 
 test_that("methyl_probe_is_cpg() identifies 'cg'-prefixed probe IDs case-insensitively", {
   ids <- c("cg00000029", "CG00000108", "ch.1.1000", "rs9363764")

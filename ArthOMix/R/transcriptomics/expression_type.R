@@ -10,7 +10,7 @@
 ## looks_like_raw_counts() under the name is_linear_counts(), now removed in
 ## favor of calling looks_like_raw_counts() directly.
 ##
-## Mirrors R/methylomics/parse_upload.R's methyl_validate_matrix_upload():
+## Mirrors R/methylomics/functions/parse_upload.R's methyl_validate_matrix_upload():
 ## never throws, always returns list(ok=, mat=, error=, note=), hard-blocks
 ## on an unambiguous declared-vs-actual mismatch, and only warns (does not
 ## block) on an ambiguous one.

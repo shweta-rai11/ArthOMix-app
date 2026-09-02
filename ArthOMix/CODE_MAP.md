@@ -5,7 +5,7 @@ Maps every analysis in the app to its code location, UI entry point, and depende
 ```
 ArthOMix
 ├── Transcriptomics   (R/transcriptomics/)      — not yet reorganized, see below
-├── Methylomics       (R/methylomics/)          — not yet reorganized, see below
+├── Methylomics       (R/methylomics/)          — reorganized
 ├── Cross-Omics       (R/crossomics/)           — reorganized
 └── Multiomics        (R/multiomics/)           — not yet reorganized, see below
 ```
@@ -39,6 +39,29 @@ See `R/crossomics/README.md` for the full narrative. Summary:
 
 **Publication relevance**: this pipeline is what supports any figure/table showing gene-methylation concordance classification, cross-omics biomarker ranking, or MR estimates on cross-omics-convergent candidates.
 
-## Methylomics, Multiomics, Transcriptomics
+## Methylomics
 
-Not yet reorganized into numbered stage folders — still flat directories (`R/methylomics/`, `R/multiomics/`, `R/transcriptomics/`), each with a `MX_MODULES`/`MULTI_MODULES`/`TX_MODULES` registry in `R/submodules_registry.R` giving the authoritative stage list, titles, and order. Each stage's file(s) can be found by grepping `R/submodules_registry.R` for the stage's `config` object name (e.g. `mod_methyl_dmp_config`) and locating the matching `mod_methyl_dmp.R`/`mod_multi_*.R`/`mod_*.R` file in the vertical's directory.
+See `R/methylomics/README.md` for the full narrative and dependency table. Summary:
+
+| Folder | Stage (`MX_MODULES` id) | Main file |
+|---|---|---|
+| `R/methylomics/01_Data/` | Dataset tab (not an `MX_MODULES` entry) | `mod_methyl_dataset.R` |
+| `R/methylomics/02_Quality_Control/` | `qc` | `mod_methyl_qc.R` |
+| `R/methylomics/03_Normalisation/` | `normalization` | `mod_methyl_normalization.R` |
+| `R/methylomics/04_Cell_Type_Deconvolution/` | `celltype` | `mod_methyl_celltype.R` |
+| `R/methylomics/05_Differential_Methylation_Position/` | `dmp` | `mod_methyl_dmp.R` |
+| `R/methylomics/06_Differential_Methylation_Region/` | `dmr` | `mod_methyl_dmr.R` |
+| `R/methylomics/07_Sex_Interaction_Analysis/` | `interaction` | `mod_methyl_interaction.R` |
+| `R/methylomics/08_WGCNA_Co_Methylation_Network/` | `wgcna` | `mod_methyl_wgcna.R` |
+| `R/methylomics/09_Candidate_CpGs/` | `candidates` | `mod_methyl_candidates.R` |
+| `R/methylomics/10_ML_Feature_Selection/` | `featureselection` | `mod_methyl_featureselection.R` |
+| `R/methylomics/11_Mendelian_Randomization/` | `mr` | `mod_methyl_mr.R` |
+| `R/methylomics/12_Colocalization/` | `coloc` | `mod_methyl_coloc.R` |
+| `R/methylomics/13_Diagnostic_Classifier/` | `diagnostic` | `mod_methyl_diagnostic.R` |
+| `R/methylomics/14_Validation/` | `validation` | `mod_methyl_validation.R` |
+| `R/methylomics/15_Biomarker_Analysis/` | `biomarkercard` | `mod_methyl_biomarkercard.R` |
+| `R/methylomics/functions/` | shared (`qc.R`, `annotation.R`, `parse_upload.R`, `normalization.R`, `idat_metrics.R`) | — |
+
+## Multiomics, Transcriptomics
+
+Not yet reorganized into numbered stage folders — still flat directories (`R/multiomics/`, `R/transcriptomics/`), each with a `MULTI_MODULES`/`TX_MODULES` registry in `R/submodules_registry.R` giving the authoritative stage list, titles, and order. Each stage's file(s) can be found by grepping `R/submodules_registry.R` for the stage's `config` object name (e.g. `mod_multi_biomarker_config`) and locating the matching `mod_multi_*.R`/`mod_*.R` file in the vertical's directory.

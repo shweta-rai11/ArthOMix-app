@@ -10,8 +10,8 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_featureselection.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "10_ML_Feature_Selection", "mod_methyl_featureselection.R"))
 
 ## ---- Scale detection / group-column guessing / filters --------------------
 

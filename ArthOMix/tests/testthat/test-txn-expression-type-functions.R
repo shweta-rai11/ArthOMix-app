@@ -3,7 +3,7 @@
 ## looks_like_normalized_totals() (promoted out of mod_dge.R, and de-
 ## duplicated out of mod_deconvolution.R's own is_linear_counts()), and the
 ## declare-then-verify upload validator tx_validate_expr_upload(), mirroring
-## R/methylomics/parse_upload.R's methyl_validate_matrix_upload() and its own
+## R/methylomics/functions/parse_upload.R's methyl_validate_matrix_upload() and its own
 ## test file's structure (test-methyl-parse-upload-functions.R).
 
 suppressWarnings(suppressMessages(

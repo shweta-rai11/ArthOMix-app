@@ -7,7 +7,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
 
 qc_fixture_mat <- function(n_probes = 20, n_samples = 8, seed = 210) {
   set.seed(seed)

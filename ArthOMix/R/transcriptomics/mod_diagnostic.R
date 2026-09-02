@@ -525,7 +525,7 @@ DIAG_TECHNIQUES <- list(
 ## rescaling are genuinely leakage-free, the panel handed to it is not.
 ##
 ## This mirrors the fix already shipped for methylomics
-## (methyl_fs_validate_nested(), R/methylomics/mod_methyl_featureselection.R):
+## (methyl_fs_validate_nested(), R/methylomics/10_ML_Feature_Selection/mod_methyl_featureselection.R):
 ## an outer stratified k-fold loop that RESELECTS the panel - a lightweight
 ## univariate ranking (limma moderated t-test, without mod_dge.R's array-
 ## weighting/contrast-string bookkeeping, which isn't needed for a ranking-

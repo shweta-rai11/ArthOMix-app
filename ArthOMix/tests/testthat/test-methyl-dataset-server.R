@@ -10,10 +10,10 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-source_from_app_root(file.path("R", "methylomics", "parse_upload.R"))
-source_from_app_root(file.path("R", "methylomics", "qc.R"))
-source_from_app_root(file.path("R", "methylomics", "annotation.R"))
-source_from_app_root(file.path("R", "methylomics", "mod_methyl_dataset.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "parse_upload.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
+source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
+source_from_app_root(file.path("R", "methylomics", "01_Data", "mod_methyl_dataset.R"))
 
 test_that("loading the preloaded whole-blood dataset (pre-warmed cache) populates methyl_dataset with a real beta matrix", {
   invisible(load_default_meth_matrix())  ## pre-warm .arthomix_cache
