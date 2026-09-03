@@ -162,5 +162,6 @@ jobs:
         working-directory: ArthOMix
         run: |
           renv::activate()
+          testthat::set_max_fails(Inf)
           testthat::test_dir("tests/testthat")
         shell: Rscript {0}
