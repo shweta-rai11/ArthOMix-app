@@ -342,10 +342,31 @@ mod_dge_server <- function(id, dataset, results) {
     })
 
     compute_dge_fit <- function(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method) {
-      validate(need(ref_group != comp_group, "Reference and comparison level must be different."))
-
       cs <- cur_source()
       meta <- cs$meta
+
+      ## Case-insensitive resolution of contrast_col/ref_group/comp_group against
+      ## the real metadata column names/values - matches the case-insensitive
+      ## matching every OTHER ArthOChat tool-invocation path already uses
+      ## (project_methods/project_methods_methylomics's module lookup, gwas_catalog_search,
+      ## other_module_context's tolower(module)). Only letter-casing is forgiven here;
+      ## a value that genuinely doesn't exist (in any case) is still rejected below,
+      ## same as before. The UI's own selectInput always supplies exact-case choices
+      ## already present in `meta`, so this is a no-op for the button-driven path.
+      .ci_resolve <- function(value, choices) {
+        if (is.null(value) || !length(choices)) return(value)
+        hit <- choices[tolower(choices) == tolower(value)]
+        if (length(hit)) hit[[1]] else value
+      }
+      contrast_col <- .ci_resolve(contrast_col, colnames(meta))
+      validate(need(!is.null(contrast_col) && contrast_col %in% colnames(meta),
+                    sprintf("Column \"%s\" was not found in the sample metadata.", contrast_col %||% "")))
+      actual_levels <- unique(as.character(stats::na.omit(meta[[contrast_col]])))
+      ref_group <- .ci_resolve(ref_group, actual_levels)
+      comp_group <- .ci_resolve(comp_group, actual_levels)
+
+      validate(need(ref_group != comp_group, "Reference and comparison level must be different."))
+
       meta <- meta[!is.na(meta[[contrast_col]]) & as.character(meta[[contrast_col]]) %in% c(ref_group, comp_group), , drop = FALSE]
 
       use_covariate <- !is.null(covariate_col) && !identical(covariate_col, "(none)")

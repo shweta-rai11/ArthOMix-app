@@ -123,7 +123,13 @@ build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
 }
 
 .format_cx_integration <- function(cx) {
-  if (is.null(cx)) return("(not yet run in this session)")
+  if (is.null(cx)) {
+    return(c(
+      "NOT YET RUN IN THIS SESSION - no numbers exist for this sub-module yet.",
+      "If asked for a result from it, say it hasn't been run in this session -",
+      "do not answer with a number from methodology/literature instead."
+    ))
+  }
   s <- cx$summary
   counts <- s$counts
   c(
@@ -140,13 +146,46 @@ build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
   )
 }
 
-build_cx_context <- function(cross_results, focus_id = NULL) {
+## Every sub-module in this vertical (integration/biomarkerconv/mrstage) shares
+## one "Dataset" tab (cross_dataset), unlike Transcriptomics/Methylomics/Multi-
+## Omics where each vertical's own dataset object is scoped per-vertical. Before
+## this fix, build_cx_context() never emitted a "currently loaded dataset" line
+## at all - so a scoped context for biomarkerconv/mrstage (whose own formatter
+## is just .format_results_block(), with no dataset info) gave the model no
+## dataset-scope line to fall back on, and it fabricated a plausible-but-wrong
+## answer instead of saying "not shown to me" (see
+## tests/arthochat_verification/README.md, "What went wrong (Cross-Omics
+## only)", finding 2). Always emitting this line - mirroring the "## <Vertical>:
+## currently loaded dataset" line every other vertical's builder already has -
+## is the actual fix; the fabrication guard in R/shared/mod_arthochat.R is a
+## second, independent safety net for whatever this line doesn't cover.
+.format_cx_dataset_scope <- function(cross_dataset) {
+  expr_source <- cross_dataset$user_expr_source
+  meth_source <- cross_dataset$user_meth_source
+  if (is.null(expr_source) && is.null(meth_source)) {
+    return(c(
+      "## Cross-Omics: currently loaded dataset",
+      "NOT YET LOADED IN THIS SESSION - visit the Cross-Omics Dataset tab to load",
+      "Transcriptomics (DEG) and/or Methylomics (DMP/DMR) data before Expression",
+      "and Methylation, Biomarker Convergence, or Cross-Omics MR can be run.",
+      ""
+    ))
+  }
+  c(
+    "## Cross-Omics: currently loaded dataset",
+    sprintf("- Transcriptomics (DEG) source: %s", expr_source %||% "(not loaded)"),
+    sprintf("- Methylomics (DMP/DMR) source: %s", meth_source %||% "(not loaded)"),
+    ""
+  )
+}
+
+build_cx_context <- function(cross_dataset, cross_results, focus_id = NULL) {
   ids <- focus_id %||% vapply(CX_MODULES, function(m) m$config$id, character(1))
-  lines <- character(0)
+  lines <- .format_cx_dataset_scope(cross_dataset %||% list())
   for (mid in ids) {
     title <- CX_MODULES_BY_ID[[mid]]$config$title
     if (identical(mid, "integration")) {
-      lines <- c(lines, sprintf("## Cross-Omics: %s", title), .format_cx_integration(cross_results$integration))
+      lines <- c(lines, sprintf("## Cross-Omics: %s", title), .format_cx_integration(cross_results[["integration"]]))
     } else {
       lines <- c(lines, .format_results_block(paste("Cross-Omics:", title), cross_results[[mid]]))
     }
@@ -173,8 +212,10 @@ build_mo_context <- function(multi_dataset, multi_results, focus_id = NULL) {
   paste(lines, collapse = "\n")
 }
 
-build_assistant_context <- function(dataset, results, cross_results = NULL) {
-  paste(build_tx_context(dataset, results), "", build_cx_context(cross_results %||% list(), focus_id = "integration"), sep = "\n")
+build_assistant_context <- function(dataset, results, cross_dataset = NULL, cross_results = NULL) {
+  paste(build_tx_context(dataset, results), "",
+        build_cx_context(cross_dataset %||% list(), cross_results %||% list(), focus_id = "integration"),
+        sep = "\n")
 }
 
 build_scoped_assistant_context <- function(module, submodule_id,
@@ -185,8 +226,8 @@ build_scoped_assistant_context <- function(module, submodule_id,
   switch(module,
     transcriptomics = build_tx_context(dataset, results, focus_id = submodule_id),
     methylomics = build_mx_context(methyl_dataset, methyl_results, focus_id = submodule_id),
-    crossomics = build_cx_context(cross_results, focus_id = submodule_id),
+    crossomics = build_cx_context(cross_dataset, cross_results, focus_id = submodule_id),
     multiomics = build_mo_context(multi_dataset, multi_results, focus_id = submodule_id),
-    build_assistant_context(dataset, results, cross_results)
+    build_assistant_context(dataset, results, cross_dataset, cross_results)
   )
 }

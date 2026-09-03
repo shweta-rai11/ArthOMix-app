@@ -6,6 +6,117 @@ ARTHOCHAT_MAX_TURNS <- 40L
 
 ARTHOCHAT_MAX_EXECUTIONS <- 5L
 
+## A fixed seed and temperature = 0 make ArthOChat's sampling deterministic
+## for a given prompt/context - the verification harness (tests/
+## arthochat_verification/README.md) documented the same unanswerable
+## question producing two different fabricated numbers on retry when Ollama's
+## own (non-zero) default temperature applied. This doesn't fix fabrication
+## itself (see arthochat_detect_ungrounded_reference() below for that), but it
+## does mean a given session/context no longer has run-to-run answer drift.
+ARTHOCHAT_TEMPERATURE <- 0
+ARTHOCHAT_SEED <- 20260904L
+
+## Module labels ArthOChat's context builders use as "## <label>" section
+## headers (see build_tx_context()/build_mx_context()/build_cx_context()/
+## build_mo_context() and .format_results_block() in R/modules_index.R).
+## Used by arthochat_detect_ungrounded_reference() to recognise when the
+## model's response names a specific sub-module, and by
+## arthochat_grounded_modules_label() to summarise which ones actually had
+## live data this turn.
+ARTHOCHAT_KNOWN_MODULES <- c(
+  "Differential Expression", "WGCNA", "Candidate Gene Identification", "Feature Selection",
+  "Diagnostic Model", "Diagnostic Classifier", "Nomogram", "Biomarker Card",
+  "Mendelian Randomization", "Colocalization", "Cross-Tissue Validation", "Cross-Ancestral Validation",
+  "Functional Enrichment", "Immune Deconvolution", "Sex Interaction Analysis",
+  "Quality Control", "Normalisation", "Cell-Type Deconvolution", "Differential Methylation Position",
+  "Differential Methylation Region", "Candidate CpGs", "ML Feature Selection", "Validation",
+  "Expression and Methylation Integration", "Biomarker Convergence", "Cross-Omics MR",
+  "Cohort Harmonization", "DIABLO/SNF Integration", "SNF Clustering", "Biomarker Discovery",
+  "Gene-CpG Mapping", "Pathways", "Results Summary"
+)
+
+## Scans a draft assistant response for a mention of a known sub-module that
+## the CURRENT context (system prompt, including the "## <module>" sections
+## built by build_scoped_assistant_context()) marks as not yet run/loaded in
+## this session - i.e. a claim the model could only have produced from its
+## own training knowledge, not this session's data, without hedging that it's
+## doing so. This is a second, independent safety net alongside the system
+## prompt's own "say plainly when unavailable" instruction (which a small
+## local model does not reliably follow under pressure - see
+## tests/arthochat_verification/README.md) and the context-builder fix in
+## R/modules_index.R (which addresses the specific root cause the harness
+## found, but not every way a response could still reference an unrun module).
+## Splits context_text into "## <header>" sections (the convention every
+## context builder in R/modules_index.R uses) and, for each section whose
+## header names a known module, classifies it as run/not-run based on
+## whether a not-yet-run/loaded marker appears WITHIN THAT SECTION ONLY -
+## scoping the check per-section (rather than a flat proximity regex over the
+## whole context) so one module's own marker can never be mistaken for a
+## different, unrelated module's status just because they're both short
+## sections close together in the same context block.
+.arthochat_classify_context_modules <- function(context_text, known_modules = ARTHOCHAT_KNOWN_MODULES) {
+  empty <- list(not_run = character(0), grounded = character(0))
+  if (is.null(context_text) || !nzchar(trimws(context_text %||% ""))) return(empty)
+  lines <- strsplit(context_text, "\n", fixed = TRUE)[[1]]
+  header_idx <- grep("^## ", lines)
+  if (!length(header_idx)) return(empty)
+
+  not_run <- character(0); grounded <- character(0)
+  for (i in seq_along(header_idx)) {
+    start <- header_idx[i]
+    end <- if (i < length(header_idx)) header_idx[i + 1] - 1 else length(lines)
+    label_raw <- trimws(sub("^## ", "", lines[start]))
+    hits <- known_modules[vapply(known_modules, function(m) grepl(tolower(m), tolower(label_raw), fixed = TRUE), logical(1))]
+    if (!length(hits)) next
+    section_text <- paste(lines[start:end], collapse = " ")
+    if (grepl("not yet run|not yet loaded", section_text, ignore.case = TRUE)) {
+      not_run <- c(not_run, hits[[1]])
+    } else {
+      grounded <- c(grounded, hits[[1]])
+    }
+  }
+  list(not_run = unique(not_run), grounded = unique(grounded))
+}
+
+## Scans a draft assistant response for a mention of a known sub-module that
+## the CURRENT context (system prompt, including the "## <module>" sections
+## built by build_scoped_assistant_context()) marks as not yet run/loaded in
+## this session - i.e. a claim the model could only have produced from its
+## own training knowledge, not this session's data, without hedging that it's
+## doing so. This is a second, independent safety net alongside the system
+## prompt's own "say plainly when unavailable" instruction (which a small
+## local model does not reliably follow under pressure - see
+## tests/arthochat_verification/README.md) and the context-builder fix in
+## R/modules_index.R (which addresses the specific root cause the harness
+## found, but not every way a response could still reference an unrun module).
+arthochat_detect_ungrounded_reference <- function(response_text, context_text,
+                                                   known_modules = ARTHOCHAT_KNOWN_MODULES) {
+  empty <- list(flagged = FALSE, modules = character(0))
+  if (is.null(response_text) || !nzchar(trimws(response_text %||% ""))) return(empty)
+  resp_lower <- tolower(response_text)
+  not_run_modules <- .arthochat_classify_context_modules(context_text, known_modules)$not_run
+  if (!length(not_run_modules)) return(empty)
+
+  hedge_pattern <- paste(
+    "hasn't been run", "has not been run", "not available", "no live result",
+    "not yet run", "not yet loaded", "isn't available", "is not available",
+    "haven't run", "hasn't run", "no results yet", "not been computed",
+    sep = "|"
+  )
+  hedged <- grepl(hedge_pattern, resp_lower, perl = TRUE)
+  flagged_modules <- Filter(function(mod) grepl(tolower(mod), resp_lower, fixed = TRUE), not_run_modules)
+  if (hedged) flagged_modules <- character(0)
+  list(flagged = length(flagged_modules) > 0, modules = unique(flagged_modules))
+}
+
+## Summarises, for the transparency footer, which known sub-modules the
+## CURRENT context actually had live session data for - shown to the user
+## only when arthochat_detect_ungrounded_reference() did NOT flag the
+## response, so the footer never contradicts a caveat already given.
+arthochat_grounded_modules_label <- function(context_text, known_modules = ARTHOCHAT_KNOWN_MODULES) {
+  paste(.arthochat_classify_context_modules(context_text, known_modules)$grounded, collapse = ", ")
+}
+
 ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "You are ArthOChat, the assistant embedded in the ArthOMix Shiny app",
   "for rheumatoid arthritis multi-omics analysis. Answer anything the user",
@@ -194,6 +305,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           model = ARTHOMIX_OLLAMA_MODEL,
           base_url = ollama_base_url(),
           system_prompt = system_prompt_r(),
+          params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE, seed = ARTHOCHAT_SEED),
           api_args = list(think = FALSE)
         )
         cl$register_tool(ellmer::tool(
@@ -387,10 +499,46 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       last_module <<- view$module
 
       cl <- get_client()
-      cl$set_system_prompt(system_prompt_r())
+      ctx_text <- system_prompt_r()
+      cl$set_system_prompt(ctx_text)
 
       stream <- cl$stream_async(input$chat_user_input)
-      shinychat::chat_append("chat", stream)
+      p <- shinychat::chat_append("chat", stream, session = session)
+
+      ## Post-hoc, non-blocking checks once the full response has streamed:
+      ## (1) the fabrication guard appends a caveat if the response named a
+      ## sub-module this session's context marked as not-yet-run/loaded
+      ## without hedging; (2) otherwise, a short transparency footer names
+      ## which sub-modules' live data the response could actually draw on.
+      promises::then(p, onFulfilled = function(full_text) {
+        chk <- arthochat_detect_ungrounded_reference(full_text, ctx_text)
+        if (isTRUE(chk$flagged)) {
+          shinychat::chat_append(
+            "chat",
+            sprintf(
+              "_Note: I don't have live results for %s in this session - the above may reflect general/training knowledge, not this session's data._",
+              paste(chk$modules, collapse = ", ")
+            ),
+            session = session
+          )
+        } else {
+          grounded <- arthochat_grounded_modules_label(ctx_text)
+          if (nzchar(grounded)) {
+            shinychat::chat_append("chat", sprintf("_Grounded in: %s_", grounded), session = session)
+          }
+        }
+      })
+      ## Error handling: if Ollama becomes unreachable mid-session (after the
+      ## initial ollama_available() check passed) or the stream otherwise
+      ## fails, show a clear chat message instead of an unhandled/silent
+      ## failure.
+      promises::catch(p, function(e) {
+        shinychat::chat_append(
+          "chat",
+          "The AI assistant hit an error while responding - check that Ollama is running, then try again.",
+          session = session
+        )
+      })
     })
   })
 }
