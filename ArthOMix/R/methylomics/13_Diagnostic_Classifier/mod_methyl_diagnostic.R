@@ -283,6 +283,90 @@ dxm_overfitting_note <- function(train_auc, cv_auc, test_auc, test_label = "inde
   }
 }
 
+DXM_MAX_CANDIDATE_CPGS <- 200
+
+## Leakage-safe nested-CV validator for the Diagnostic Classifier's default
+## (no genuine held-out split) path. Mirrors transcriptomics' diag_validate_nested()
+## in spirit - reselect the panel (limma moderated-t ranking, then LASSO) inside
+## every outer fold, using only that fold's training labels - but built from this
+## module's own building blocks (dxm_roc_bundle) so this file stays self-contained.
+## X_full is samples (rows) x CpGs (columns), matching dxm$train_X/full_X's own
+## orientation in this module; y_full is a two-level factor (DXM_NEG/DXM_POS).
+dxm_validate_nested <- function(X_full, y_full, outer_k = 5, uni_top_n = 100, lasso_alpha = 1, seed = 42) {
+  y_full <- droplevels(factor(as.character(y_full), levels = c(DXM_NEG, DXM_POS)))
+  validate(need(nlevels(y_full) == 2, "Leakage-safe nested-CV validation needs exactly two classes."))
+  n <- nrow(X_full)
+
+  nf <- max(2, min(outer_k, min(table(y_full))))
+  set.seed(seed)
+  folds <- caret::createFolds(y_full, k = nf, list = TRUE)
+
+  pred_oof <- rep(NA_real_, n)
+  per_fold <- list()
+
+  for (fi in seq_along(folds)) {
+    te <- folds[[fi]]; tr <- setdiff(seq_len(n), te)
+    y_tr <- droplevels(y_full[tr]); y_te <- droplevels(y_full[te])
+    if (nlevels(y_tr) < 2 || nlevels(y_te) < 2) next
+
+    m_tr <- t(as.matrix(X_full[tr, , drop = FALSE]))  # CpG rows x sample cols, training fold only
+
+    design <- stats::model.matrix(~y_tr)
+    uni_fit <- tryCatch(limma::eBayes(limma::lmFit(m_tr, design)), error = function(e) NULL)
+    if (is.null(uni_fit)) next
+    tt <- tryCatch(limma::topTable(uni_fit, coef = 2, number = Inf, sort.by = "P"), error = function(e) NULL)
+    if (is.null(tt) || nrow(tt) < 2) next
+    uni_cpgs <- rownames(tt)[seq_len(min(uni_top_n, nrow(tt)))]
+
+    Xtr_raw <- as.matrix(X_full[tr, uni_cpgs, drop = FALSE])
+    nf_lasso <- max(2, min(5, min(table(y_tr))))
+    cv <- tryCatch(glmnet::cv.glmnet(Xtr_raw, y_tr, family = "binomial", alpha = lasso_alpha, nfolds = nf_lasso),
+                   error = function(e) NULL)
+    panel <- character(0)
+    if (!is.null(cv)) {
+      co <- stats::coef(cv, s = "lambda.min")[-1, 1, drop = TRUE]
+      panel <- names(co)[co != 0]
+    }
+    if (length(panel) < 1) panel <- utils::head(uni_cpgs, min(5, length(uni_cpgs)))
+
+    fit_df <- data.frame(y = y_tr, X_full[tr, panel, drop = FALSE], check.names = FALSE)
+    model <- tryCatch(suppressWarnings(stats::glm(y ~ ., data = fit_df, family = stats::binomial)), error = function(e) NULL)
+    if (is.null(model)) next
+    newdata_te <- data.frame(X_full[te, panel, drop = FALSE], check.names = FALSE)
+    pred <- tryCatch(as.numeric(stats::predict(model, newdata = newdata_te, type = "response")), error = function(e) NULL)
+    if (is.null(pred)) next
+    pred_oof[te] <- pred
+
+    rb <- dxm_roc_bundle(y_te, pred)
+    auc_i <- if (!is.null(rb)) rb$auc else NA_real_
+    per_fold[[length(per_fold) + 1]] <- data.frame(fold = fi, n_panel = length(panel), auc = round(auc_i, 3))
+  }
+
+  per_fold_df <- if (length(per_fold) > 0) do.call(rbind, per_fold) else data.frame(fold = integer(0), n_panel = integer(0), auc = numeric(0))
+  have_oof <- !is.na(pred_oof)
+  pooled <- list(available = FALSE, reason = "Not enough folds completed to score a pooled AUC.")
+  if (sum(have_oof) >= 10 && length(unique(y_full[have_oof])) == 2) {
+    rb_pooled <- dxm_roc_bundle(y_full[have_oof], pred_oof[have_oof])
+    if (!is.null(rb_pooled)) {
+      pooled <- list(available = TRUE, auc = rb_pooled$auc, ci_lo = rb_pooled$ci_lo, ci_hi = rb_pooled$ci_hi, n = sum(have_oof))
+    }
+  }
+  list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
+}
+
+## Decides which AUC is this classifier session's headline (primary) metric,
+## mirroring transcriptomics' diag_attach_headline(). A genuine leakage-safe
+## held-out split (dxm$leakage_safe == TRUE) keeps the naive Test AUC as
+## primary. Otherwise the automatic nested-CV AUC becomes primary whenever
+## it's available; the naive Test AUC is still always shown, just demoted.
+dxm_attach_headline <- function(leakage_safe, nested_cv = NULL) {
+  if (isTRUE(leakage_safe)) {
+    return(list(headline_metric = "test_split", nested_cv = NULL))
+  }
+  metric <- if (!is.null(nested_cv) && isTRUE(nested_cv$pooled$available)) "nested_cv" else "test_split"
+  list(headline_metric = metric, nested_cv = nested_cv)
+}
+
 dxm_learning_curve <- function(X, y, fit_one, fracs, seed) {
   out <- lapply(fracs, function(fr) {
     set.seed(seed)
@@ -479,7 +563,7 @@ dxm_metrics_display <- function(m) {
   )
 }
 
-dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
+dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms, headline = NULL) {
   if (!isTRUE(dxm$validated)) return(p(class = "text-muted", "Validate your data on the Datasets tab first."))
   single <- identical(input$analysis_type, "single")
 
@@ -513,9 +597,42 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
   out <- list(setup_box, params_box, results_box)
 
   if (!is.null(ms$test_internal_prob)) {
-    out <- c(out, list(box(width = 12, status = "success", solidHeader = TRUE, title = "Results: Test Internal Data",
+    leak_safe <- isTRUE(dxm$leakage_safe)
+    headline <- headline %||% list(headline_metric = "test_split", nested_cv = NULL)
+    is_primary_nested <- !leak_safe && identical(headline$headline_metric, "nested_cv")
+
+    if (!leak_safe) {
+      out <- c(out, list(
+        if (is_primary_nested) {
+          pooled <- headline$nested_cv$pooled
+          box(width = 12, status = "primary", solidHeader = TRUE, title = "Leakage-safe headline metric (computed automatically)",
+            fluidRow(
+              valueBox(sprintf("%.3f", pooled$auc),
+                       sprintf("Nested-CV AUC (95%% CI %.3f-%.3f, n=%d) - PRIMARY, leakage-safe", pooled$ci_lo, pooled$ci_hi, pooled$n),
+                       icon = icon("shield-halved"), color = "light-blue", width = 6),
+              valueBox(sprintf("%d / %d", headline$nested_cv$n_folds_completed, headline$nested_cv$outer_k),
+                       "Outer folds completed (auto-run)", icon = icon("layer-group"), color = "purple", width = 6)
+            ),
+            p(class = "submodule-desc", icon("circle-info"),
+              "Computed automatically because this run has no confirmed leakage-safe held-out split. Reselects the CpG panel with limma (moderated t) + LASSO inside every outer fold, on this cohort's candidate CpGs - see \"Results: Test Internal Data\" below for the exploratory, not-leakage-safe Test AUC."))
+        } else {
+          div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;", icon("triangle-exclamation"),
+              sprintf("Not leakage-safe, and the automatic nested-CV headline metric is unavailable: %s The Test AUC below is exploratory only.",
+                      headline$nested_cv$pooled$reason %||% "Not enough candidate CpGs or completed folds."))
+        }
+      ))
+    }
+
+    test_box_title <- if (leak_safe) "Results: Test Internal Data" else "Results: Test Internal Data (NOT leakage-safe - exploratory only)"
+    test_auc_label <- if (leak_safe) sprintf("Test AUC (95%% CI %.3f-%.3f)", ms$test_internal_metrics$auc_ci_lo, ms$test_internal_metrics$auc_ci_hi) else
+      sprintf("Test AUC (95%% CI %.3f-%.3f) - not leakage-safe", ms$test_internal_metrics$auc_ci_lo, ms$test_internal_metrics$auc_ci_hi)
+    out <- c(out, list(box(width = 12, status = if (leak_safe) "success" else "warning", solidHeader = TRUE, title = test_box_title,
+      if (!leak_safe)
+        div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px; margin-bottom: 8px;", icon("triangle-exclamation"),
+            "This panel's Test AUC below was not confirmed to be selected without seeing these test samples - exploratory only, not a validated estimate. See the leakage-safe headline metric above.")
+      else NULL,
       fluidRow(
-        valueBox(sprintf("%.3f", ms$test_internal_metrics$auc), sprintf("Test AUC (95%% CI %.3f-%.3f)", ms$test_internal_metrics$auc_ci_lo, ms$test_internal_metrics$auc_ci_hi), icon = icon("chart-area"), color = "blue", width = 3),
+        valueBox(sprintf("%.3f", ms$test_internal_metrics$auc), test_auc_label, icon = icon("chart-area"), color = if (leak_safe) "blue" else "orange", width = 3),
         valueBox(sprintf("%.3f", ms$test_internal_metrics$sensitivity), "Sensitivity", icon = icon("check"), color = "light-blue", width = 3),
         valueBox(sprintf("%.3f", ms$test_internal_metrics$specificity), "Specificity", icon = icon("shield"), color = "light-blue", width = 3),
         valueBox(ms$test_internal_metrics$n, "Test N", icon = icon("users"), color = "teal", width = 3)
@@ -590,7 +707,7 @@ dxm_active_ids <- function(mid, input, feat) {
   } else feat$selected
 }
 
-dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm, feat, ms, runs, results) {
+dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm, feat, ms, runs, results, dxm_headline = NULL) {
 
   if (identical(mid, "svm")) {
     output[[paste0(mid, "_kernel_params")]] <- renderUI({
@@ -717,7 +834,10 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
     content = function(file) { req(ms$last_roc_plot); ggplot2::ggsave(file, ms$last_roc_plot, width = 7, height = 6, dpi = 150) }
   )
 
-  output[[paste0("panel_", mid)]] <- renderUI({ dxm_render_model_panel(mid, spec, ns, input, dxm, feat, ms) })
+  output[[paste0("panel_", mid)]] <- renderUI({
+    dxm_render_model_panel(mid, spec, ns, input, dxm, feat, ms,
+                            headline = if (!is.null(dxm_headline)) dxm_headline() else NULL)
+  })
 
   invisible(NULL)
 }
@@ -1097,6 +1217,40 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
+    # Automatic leakage-safe headline metric: whenever this session has no confirmed
+    # genuine held-out split (dxm$leakage_safe == FALSE - the default/preloaded path,
+    # or any live feature-source load that didn't apply a real holdout), compute the
+    # nested-CV AUC right here so it's ready by the time any model's results render -
+    # no separate manual step needed. Memoized as ordinary reactives: only recomputes
+    # when the underlying data/leakage state actually changes.
+    dxm_nested_result <- reactive({
+      req(dxm$validated)
+      if (isTRUE(dxm$leakage_safe)) return(NULL)
+      cpgs <- intersect(dxm$all_cpgs, colnames(dxm$full_X))
+      if (length(cpgs) < 5) {
+        return(list(
+          pooled = list(available = FALSE, reason = "Fewer than 5 candidate CpGs are available for automatic leakage-safe validation."),
+          per_fold = data.frame(fold = integer(0), n_panel = integer(0), auc = numeric(0)),
+          outer_k = NA_integer_, n_folds_completed = 0
+        ))
+      }
+      if (length(cpgs) > DXM_MAX_CANDIDATE_CPGS) {
+        v <- apply(dxm$full_X[, cpgs, drop = FALSE], 2, stats::var)
+        cpgs <- names(sort(v, decreasing = TRUE))[seq_len(DXM_MAX_CANDIDATE_CPGS)]
+      }
+      tryCatch(
+        withProgress(
+          message = "Computing automatic leakage-safe nested-CV AUC (headline metric)...",
+          value = 0.6,
+          dxm_validate_nested(dxm$full_X[, cpgs, drop = FALSE], dxm$full_y, outer_k = 5, seed = input$dxm_seed %||% 42)
+        ),
+        error = function(e) NULL
+      )
+    })
+    dxm_headline <- reactive({
+      dxm_attach_headline(isTRUE(dxm$leakage_safe), dxm_nested_result())
+    })
+
     model_states <- lapply(DXM_MODEL_SPECS, function(spec) {
       ms <- reactiveValues(fit = NULL, analysis_type = NULL, feature_ids = NULL, ran_at = NULL,
                             train_prob = NULL, train_roc = NULL, train_metrics = NULL, confusion_train = NULL,
@@ -1104,7 +1258,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
                             test_internal_prob = NULL, test_internal_roc = NULL, test_internal_metrics = NULL, confusion_test = NULL,
                             roc_generated = FALSE, calib = NULL, calib_generated = FALSE, lc = NULL, lc_generated = FALSE,
                             last_roc_plot = NULL, last_calib_plot = NULL, last_lc_plot = NULL)
-      dxm_register_model_server(spec$id, spec, input, output, session, ns, dxm, feat, ms, runs, results)
+      dxm_register_model_server(spec$id, spec, input, output, session, ns, dxm, feat, ms, runs, results, dxm_headline = dxm_headline)
       ms
     })
     names(model_states) <- names(DXM_MODEL_SPECS)

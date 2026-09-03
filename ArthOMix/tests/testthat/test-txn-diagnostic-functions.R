@@ -179,3 +179,27 @@ test_that("diag_validate_nested() fold-specific feature selection only ever sees
     expect_true(all(cols %in% full_pool))
   }
 })
+
+test_that("diag_attach_headline() marks the automatic nested-CV AUC as the primary/headline metric only when the run is not leakage-safe and nested-CV succeeded", {
+  fit_leaky <- list(leakage_safe = FALSE)
+  nested_ok <- list(pooled = list(available = TRUE, auc = 0.55, ci_lo = 0.4, ci_hi = 0.7, n = 40),
+                     per_fold = data.frame(), outer_k = 5, n_folds_completed = 5)
+
+  out1 <- diag_attach_headline(fit_leaky, nested_ok)
+  expect_equal(out1$headline_metric, "nested_cv")
+  expect_identical(out1$nested_cv, nested_ok)
+
+  nested_unavailable <- list(pooled = list(available = FALSE, reason = "not enough genes"), per_fold = data.frame(), outer_k = NA_integer_)
+  out2 <- diag_attach_headline(fit_leaky, nested_unavailable)
+  expect_equal(out2$headline_metric, "test_split")
+  expect_identical(out2$nested_cv, nested_unavailable)
+
+  out3 <- diag_attach_headline(fit_leaky, NULL)
+  expect_equal(out3$headline_metric, "test_split")
+  expect_null(out3$nested_cv)
+
+  fit_safe <- list(leakage_safe = TRUE)
+  out4 <- diag_attach_headline(fit_safe, nested_ok)
+  expect_equal(out4$headline_metric, "test_split")
+  expect_null(out4$nested_cv)
+})

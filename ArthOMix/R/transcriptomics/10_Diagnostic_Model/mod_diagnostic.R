@@ -512,6 +512,24 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
+## Decides which AUC is this sex-run's headline (primary) metric. A genuine
+## leakage-safe held-out split (leakage_safe == TRUE) keeps the naive
+## Test-split AUC as primary - it's a valid estimate in that case. Otherwise
+## (the default/bundled-panel path) the automatically-computed nested-CV AUC
+## becomes primary whenever it's available; the naive Test-split AUC is
+## always still attached/shown, just demoted in the UI. Pure and testable
+## independent of the nested-CV computation itself.
+diag_attach_headline <- function(fit, nested_cv = NULL) {
+  if (isTRUE(fit$leakage_safe)) {
+    fit$nested_cv <- NULL
+    fit$headline_metric <- "test_split"
+    return(fit)
+  }
+  fit$nested_cv <- nested_cv
+  fit$headline_metric <- if (!is.null(nested_cv) && isTRUE(nested_cv$pooled$available)) "nested_cv" else "test_split"
+  fit
+}
+
 mod_diagnostic_training_panel <- function(ns, prefix, title, roc_height = 440, side_height = 260) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -598,6 +616,7 @@ mod_diagnostic_testing_sex_panel <- function(ns, sex_label) {
     div(style = "height:10px;"),
     conditionalPanel(
       condition = cond,
+      uiOutput(ns(paste0(sex_label, "_headline_ui"))),
       tabsetPanel(
         type = "pills",
         tabPanel("Logistic Regression", br(), mod_diagnostic_testing_panel(ns, paste0(sex_label, "_lr"), NULL)),
@@ -1094,6 +1113,42 @@ mod_diagnostic_server <- function(id, dataset, results) {
       fit$candidate_note <- cand$note
       fit$n_ref <- sum(y == input$ref_group); fit$n_comp <- sum(y == input$comp_group)
       fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
+
+      # Automatic leakage-safe headline metric: when this run's Test-split AUC is NOT
+      # leakage-safe (the default/bundled-panel path), compute the nested-CV AUC right
+      # here - so it's ready the moment results render, no separate manual tab/click
+      # needed - and make it the primary metric instead of the naive Test-split AUC.
+      nested <- NULL
+      if (!isTRUE(fit$leakage_safe)) {
+        compute_nested_cv <- function() {
+          cand_genes <- tryCatch(diag_leakagesafe_candidate_genes(sex_label), error = function(e) character(0))
+          cand_genes <- intersect(cand_genes, rownames(dataset$expr))
+          if (length(cand_genes) < 5) {
+            return(list(
+              pooled = list(available = FALSE, reason = sprintf(
+                "Fewer than 5 %s WGCNA-candidate genes are available for automatic leakage-safe validation - run Candidate Gene Identification on this dataset for a leakage-safe headline metric.",
+                sex_label)),
+              per_fold = data.frame(fold = integer(0), n_panel = integer(0), auc = numeric(0)),
+              outer_k = NA_integer_, n_folds_completed = 0
+            ))
+          }
+          if (length(cand_genes) > FS_MAX_CANDIDATE_GENES) {
+            v <- apply(dataset$expr[cand_genes, common, drop = FALSE], 1, stats::var)
+            cand_genes <- names(sort(v, decreasing = TRUE))[seq_len(FS_MAX_CANDIDATE_GENES)]
+          }
+          expr_candidates <- dataset$expr[cand_genes, common, drop = FALSE]
+          diag_validate_nested(expr_candidates, y, outer_k = 5)
+        }
+        nested <- tryCatch(
+          withProgress(
+            message = sprintf("Computing automatic leakage-safe nested-CV AUC for %s (this run's headline metric)...", sex_label),
+            value = 0.7,
+            compute_nested_cv()
+          ),
+          error = function(e) NULL
+        )
+      }
+      fit <- diag_attach_headline(fit, nested)
       fit
     }
 
@@ -1432,6 +1487,12 @@ mod_diagnostic_server <- function(id, dataset, results) {
                     mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))),
           if (isTRUE(r$leakage_safe))
             p(class = "empty-note", icon("shield-halved"), "Leakage-safe: the Test split above is the held-out sample set this gene panel was never selected against.")
+          else if (identical(r$headline_metric, "nested_cv"))
+            p(class = "empty-note", icon("shield-halved"),
+              sprintf(
+                "Not leakage-safe via the Test split above (this gene panel was chosen using the full sample pool) - the leakage-safe headline metric is instead the automatic nested-CV AUC = %.3f (95%% CI %.3f-%.3f), computed for every run. See Model Testing (Internal) for details.",
+                r$nested_cv$pooled$auc, r$nested_cv$pooled$ci_lo, r$nested_cv$pooled$ci_hi
+              ))
           else
             p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this gene panel's Test-set AUC is exploratory, not a validated estimate - either it came from the bundled/precomputed panel, or Feature Selection's held-out split was disabled or didn't overlap this cohort.")
         ))
@@ -1507,6 +1568,33 @@ mod_diagnostic_server <- function(id, dataset, results) {
     register_sex_model_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
       test_color <- ARTHOMIX_COLORS$orange
+
+      output[[paste0(sex_label, "_headline_ui")]] <- renderUI({
+        r <- res()
+        if (is.null(r) || isTRUE(r$leakage_safe)) return(NULL)
+        if (identical(r$headline_metric, "nested_cv")) {
+          pooled <- r$nested_cv$pooled
+          box(
+            width = NULL, status = "primary", solidHeader = FALSE,
+            title = sprintf("Leakage-safe headline metric - %s (computed automatically)", tools::toTitleCase(sex_label)),
+            fluidRow(
+              valueBox(sprintf("%.3f", pooled$auc),
+                       sprintf("Nested-CV AUC (95%% CI %.3f-%.3f, n=%d) - PRIMARY, leakage-safe", pooled$ci_lo, pooled$ci_hi, pooled$n),
+                       icon = icon("shield-halved"), color = "light-blue", width = 6),
+              valueBox(sprintf("%d / %d", r$nested_cv$n_folds_completed, r$nested_cv$outer_k), "Outer folds completed (auto-run)",
+                       icon = icon("layer-group"), color = "purple", width = 6)
+            ),
+            p(class = "empty-note", icon("circle-info"),
+              "Computed automatically because this gene panel was chosen using the full sample pool (no live held-out split) - see the disclosure under Leakage-safe Validation for how this reselects the panel per outer fold. Each technique tab below still shows its own Test-split AUC, now marked exploratory/not leakage-safe.")
+          )
+        } else {
+          div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;",
+              icon("triangle-exclamation"),
+              sprintf("Not leakage-safe, and the automatic nested-CV headline metric is unavailable: %s Each technique tab's Test-split AUC below is exploratory only.",
+                      r$nested_cv$pooled$reason %||% "Reselect a live gene panel or provide more candidate genes."))
+        }
+      })
+
       not_yet_note <- function() {
         err <- diag_result_error_msg(sex_label)
         if (!is.null(err)) {
@@ -1621,14 +1709,22 @@ mod_diagnostic_server <- function(id, dataset, results) {
           r <- res()
           if (is.null(r)) return(not_yet_note())
           rr <- r[[key]]
+          leak_safe <- isTRUE(r$leakage_safe)
+          test_title <- if (leak_safe) sprintf("Test-split AUC (n=%d)%s", rr$test$n, diag_separation_note(rr$test)) else
+            sprintf("Test-split AUC (n=%d)%s - NOT leakage-safe, exploratory only", rr$test$n, diag_separation_note(rr$test))
           test_tile <- if (isTRUE(rr$test$available)) {
-            valueBox(sprintf("%.3f", rr$test$auc), sprintf("Test-split AUC (n=%d)%s", rr$test$n, diag_separation_note(rr$test)),
-                     icon = icon("flask"), color = "light-blue", width = 6)
+            valueBox(sprintf("%.3f", rr$test$auc), test_title,
+                     icon = icon("flask"), color = if (leak_safe) "light-blue" else "orange", width = 6)
           } else {
             valueBox("N/A", "Test-split AUC", icon = icon("flask"), color = "red", width = 6)
           }
           n_tile <- valueBox(if (isTRUE(rr$test$available)) rr$test$n else "-", "Test samples held out", icon = icon("users"), color = "purple", width = 6)
           tagList(
+            if (!leak_safe)
+              div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px; margin-bottom: 8px;",
+                  icon("triangle-exclamation"),
+                  "This model's Test-split AUC below evaluates a gene panel chosen using the full sample pool - exploratory only, not a validated estimate. See the leakage-safe headline metric above.")
+            else NULL,
             fluidRow(test_tile, n_tile),
             if (!isTRUE(rr$test$available)) p(class = "submodule-desc", style = "font-size: 12.5px;", icon("circle-info"), rr$test$reason %||% "Test split unavailable.") else NULL
           )
