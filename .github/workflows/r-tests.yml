@@ -63,8 +63,17 @@ jobs:
       SUPABASE_ANON_KEY: ""
 
     steps:
+      # .gitattributes tracks *.rds/*.RData/*.rda via Git LFS. actions/checkout
+      # doesn't fetch LFS content by default - confirmed live: every one of
+      # 78 real test failures traced to the exact same root cause,
+      # readRDS(): "unknown input format", because CI was checking out
+      # 133-byte LFS pointer files instead of the actual ~20MB+ binaries
+      # (bundled reference expression matrices, precomputed WGCNA results,
+      # etc.) that a large share of this suite's fixtures depend on.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # This app's DESCRIPTION lists a large, Bioconductor-heavy dependency
       # set (see ArthOMix/DESCRIPTION Imports) - these are the common
