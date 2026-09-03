@@ -35,7 +35,7 @@ jobs:
     # for the larger methylation/annotation packages (Gviz, lumi,
     # wateRmelon, etc.). actions/cache (via r-lib/actions/setup-renv)
     # should make subsequent runs much faster once a cache exists.
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       RENV_PATHS_ROOT: ~/.local/share/renv
       # renv.lock pins several GitHub-only packages (ggtree/ieugwasr/
