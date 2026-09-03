@@ -24,6 +24,13 @@ on:
 
 permissions:
   contents: read
+  # actions: write is required for actions/cache to actually save a cache
+  # at the end of the job - confirmed live: renv::restore() succeeded in
+  # a previous run (all ~95+ packages, ~55 minutes from scratch) but no
+  # cache was ever saved (checked via the Actions API), leaving every
+  # subsequent run to rebuild from scratch again. Without this permission
+  # the cache-save step appears to fail silently rather than error.
+  actions: write
 
 jobs:
   test:
