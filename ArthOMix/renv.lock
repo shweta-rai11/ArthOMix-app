@@ -8,7 +8,7 @@
       },
       {
         "Name": "Bioconductor",
-        "URL": "https://bioconductor.org/packages/release/bioc"
+        "URL": "https://bioconductor.org/packages/3.20/bioc"
       }
     ]
   },
@@ -278,7 +278,7 @@
     },
     "mixOmics": {
       "Package": "mixOmics",
-      "Version": "6.36.0",
+      "Version": "6.30.0",
       "Source": "Bioconductor"
     },
     "MLmetrics": {
@@ -500,7 +500,7 @@
     },
     "Deriv": {
       "Package": "Deriv",
-      "Version": "4.3.0",
+      "Version": "4.2.0",
       "Source": "Repository"
     },
     "ggtree": {
