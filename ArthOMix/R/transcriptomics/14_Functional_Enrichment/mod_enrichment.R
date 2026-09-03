@@ -9,16 +9,7 @@ mod_enrichment_config <- list(
   icon = "diagram-project"
 )
 
-## Live external lookups (called once per "Run enrichment" click); wrapped so
-## an unreachable service degrades to an empty result rather than failing.
-
-## Batched MyGene.info query for the whole gene list; returns GeneCards-style fields.
 fetch_gene_cards <- function(genes) {
-  ## MyGene.info returns entrezgene/genomic_pos as a JSON array instead of a
-  ## scalar for symbols with an ambiguous mapping; jsonlite then turns that
-  ## row into a list-column instead of an atomic one, and sprintf("%s", .)
-  ## on a list errors downstream in gene_cards_ui. Collapse to the first
-  ## value defensively instead of assuming every row is scalar.
   first_scalar <- function(x) {
     if (is.null(x)) return(NA)
     if (is.list(x)) x <- unlist(x, use.names = FALSE)
@@ -60,7 +51,6 @@ fetch_gene_cards <- function(genes) {
   }, error = function(e) list())
 }
 
-## Fetches the STRING PPI network as a pre-rendered PNG from string-db.org.
 fetch_string_network_png <- function(genes) {
   tryCatch({
     ids <- utils::URLencode(paste(genes, collapse = "\r"), reserved = TRUE)
@@ -72,11 +62,6 @@ fetch_string_network_png <- function(genes) {
   }, error = function(e) NULL)
 }
 
-## Hub genes: two independent measures - live STRING PPI degree within just
-## this gene list, vs. this project's precomputed WGCNA co-expression hub
-## status across the full training cohort (see build_wgcna_hub_lookup below).
-
-## STRING PPI degree of each submitted gene against the rest of the list (confidence >= 0.4).
 fetch_string_degrees <- function(genes) {
   tryCatch({
     ids <- utils::URLencode(paste(genes, collapse = "\r"), reserved = TRUE)
@@ -100,7 +85,6 @@ fetch_string_degrees <- function(genes) {
   }, error = function(e) list())
 }
 
-## Loads the bundled WGCNA module/hub tables once per session, returns a per-gene lookup fn.
 build_wgcna_hub_lookup <- function() {
   modules <- tryCatch(read_table_safe("WGCNA_05_gene_module_assignment.csv"), error = function(e) NULL)
   hubs    <- tryCatch(read_table_safe("WGCNA_07_hub_genes_only.csv"), error = function(e) NULL)
@@ -117,15 +101,10 @@ build_wgcna_hub_lookup <- function() {
   }
 }
 
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
-
 mod_enrichment_ui <- function(id) {
   ns <- NS(id)
   wrap_id <- ns("wrap")
 
-  ## gsub() instead of sprintf() - the CSS below has literal "%" widths.
   enrichment_css <- gsub("__WRAP__", wrap_id, fixed = TRUE, "
       #__WRAP__ .gene-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
       #__WRAP__ .gene-chip {
@@ -203,27 +182,10 @@ mod_enrichment_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_enrichment_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Gene-source panels (same-tissue, cross-tissue, cross-ancestry), each
-    ## sex-stratified and preferring this session's live results over the
-    ## bundled fallback, same convention as mod_diagnostic.R/mod_crosstissue.R.
-    ## Every bundled_* fallback below was only ever computed from the app's own
-    ## default merged cohort - only read/offer it when that exact dataset is
-    ## still active (dataset$is_bundled_reference), never for an uploaded,
-    ## GEO-fetched, or individual raw preloaded dataset. The reactiveValues
-    ## read itself can only happen inside a reactive consumer, so loading these
-    ## (cheap, static files - harmless regardless of active dataset) stays
-    ## unconditional here at module-setup time; the gate is applied instead at
-    ## each function's own call site below (same_tissue_panel/etc. are already
-    ## only invoked lazily from inside a reactive context) and around the
-    ## wgcna_hub_lookup() call further down.
     bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
     bundled_venn <- tryCatch(read_table_safe("FS_venn_membership.csv"), error = function(e) NULL)
     wgcna_hub_lookup <- build_wgcna_hub_lookup()
@@ -300,17 +262,10 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       cross_ancestry = "Genes whose Mendelian-randomisation causal signal replicates in both European and East-Asian ancestry GWAS."
     )
 
-    ## Dynamic panel above the always-present gene_list textarea; avoids the
-    ## race of updating an input just removed/re-added to the DOM.
     output$preset_panel_ui <- renderUI({
       src <- input$gene_source %||% "own"
       if (identical(src, "own")) return(NULL)
 
-      ## Cross-Ancestry MR only ever runs female/male (no pooled analysis
-      ## exists, live or bundled - see mod_crossancestry.R), so offering
-      ## "Pooled" there is a dead end that always reports "run it first"
-      ## for an analysis that can never be run. Drop it from the picker and
-      ## fall back off any stale "pooled" selection left from another source.
       sex_choices <- if (identical(src, "cross_ancestry")) {
         c("Female" = "female", "Male" = "male")
       } else {
@@ -354,14 +309,11 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       genes_raw <- genes_raw[nzchar(genes_raw)]
       validate(need(length(genes_raw) > 0, "Paste gene symbols below (one per line or comma separated), or load a panel above."))
 
-      ## Normalize to uppercase HGNC and dedupe; genes_raw is kept for the submitted-count report.
       genes <- unique(toupper(genes_raw))
       validate(need(length(genes) >= 3, sprintf(
         "Provide at least 3 distinct gene symbols (got %d after removing duplicates).", length(genes)
       )))
 
-      ## Map symbols via this app's shared HGNC harmonizer (cx_harmonize_gene_ids(),
-      ## also used by Multi-Omics Pathways) so aliases resolve and unmatched IDs are reported.
       harm <- cx_harmonize_gene_ids(genes)
       validate(need(isTRUE(harm$ok), harm$error %||% "Gene identifier mapping is unavailable in this deployment."))
       mapped_mask <- harm$df$match_type %in% c("exact_symbol", "exact_entrez", "exact_ensembl", "alias_resolved")
@@ -372,7 +324,6 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         length(genes), length(unmapped_genes), paste(utils::head(unmapped_genes, 10), collapse = ", ")
       )))
 
-      ## Background/universe is genes measured in the loaded dataset, not the whole genome.
       universe_symbols <- rownames(dataset$expr)
       map <- suppressMessages(AnnotationDbi::select(
         org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID"
@@ -410,13 +361,10 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
           pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1, readable = TRUE
         ), error = function(e) e)
       }
-      ## need() forces its message arg eagerly, so conditionMessage(ego) must stay
-      ## conditional here - it has no method for a successful enrichResult object.
       validate(need(!inherits(ego, "error"),
         if (inherits(ego, "error")) sprintf("%s enrichment failed: %s", db_label, conditionMessage(ego)) else NULL
       ))
 
-      ## enrichKEGG() has no `readable` arg, so convert its Entrez-keyed geneID column post hoc.
       if (identical(input$ontology, "KEGG")) {
         ego <- tryCatch(clusterProfiler::setReadable(ego, OrgDb = org.Hs.eg.db, keyType = "ENTREZID"), error = function(e) ego)
       }
@@ -462,7 +410,6 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
     # again - retire it on a dataset switch instead of showing it as if it were the current one.
     observeEvent(dataset$source, enrich_has_run(FALSE), ignoreInit = TRUE)
 
-    ## Result boxes stay out of the DOM until "Run enrichment" is clicked once.
     output$result_box_ui <- renderUI({
       if (!enrich_has_run()) {
         return(box(
@@ -551,8 +498,6 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
                     "Enter a q-value cutoff between 0 and 1."))
       df <- res$table %>% filter(qvalue < input$qval_cut) %>% arrange(qvalue) %>% head(15)
       validate(need(nrow(df) > 0, "No terms pass the current q-value cutoff."))
-      ## Floor qvalue before -log10(): a floating-point underflow to exact 0
-      ## (common for very strong enrichments) would otherwise plot as Inf.
       df$neg_log10_q <- -log10(pmax(df$qvalue, .Machine$double.xmin))
       ggplot(df, aes(x = reorder(Description, neg_log10_q), y = neg_log10_q)) +
         geom_col(fill = "#2563EB") +

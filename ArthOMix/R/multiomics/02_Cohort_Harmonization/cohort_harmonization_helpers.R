@@ -1,24 +1,6 @@
 ## R/multiomics/02_Cohort_Harmonization/cohort_harmonization_helpers.R
 ## Pure data-processing logic for the "Cohort Harmonization" sub-module
 ## (mod_multi_overview.R) - data-adaptive: every function here inspects
-## whatever is actually in the Active Multi-Omics Dataset (multi_dataset,
-## built on the Dataset Workspace tab) rather than assuming any fixed
-## modality combination. Nothing here silently invents a match, an
-## outcome, or a "beats chance" claim - a fact that can't be established
-## from the actual data is reported as "Unmatched"/"Unknown"/"Not
-## available", never guessed.
-##
-## Reuses multi_live_validate_matrix()/multi_live_pca()/
-## multi_live_correlation_heatmap_data() etc. (multiomics_dataset_helpers.R)
-## wherever they already answer the question - nothing here duplicates
-## that logic.
-
-## ---------------------------------------------------------------------------
-## 0. Sample Explorer - a per-sample master table (one row per sample seen
-## in any selected modality, "Present"/"Missing" per modality, plus every
-## detected metadata column) so the user can browse and search individual
-## samples rather than only aggregate counts.
-## ---------------------------------------------------------------------------
 
 ch_sample_master_table <- function(id_sets, meta = NULL) {
   id_sets <- Filter(function(x) length(x) > 0, id_sets)
@@ -39,17 +21,6 @@ ch_sample_master_table <- function(id_sets, meta = NULL) {
   df
 }
 
-## ---------------------------------------------------------------------------
-## 1. Modality descriptors - one entry per modality in the active dataset,
-## built adaptively depending on whether a raw matrix actually exists
-## (Upload/GEO) or only a per-patient availability table does (Preloaded -
-## no raw expression/methylation matrix is bundled in this deployment).
-## ---------------------------------------------------------------------------
-
-## Best-effort, always-labeled-as-a-guess description of what a matrix's
-## values likely are - never used to transform data, only to report
-## "Preprocessing status: Unknown" honestly when it can't be told (spec
-## section 11).
 ch_value_scale <- function(mat) {
   if (is.null(mat) || !is.matrix(mat)) return("Unknown")
   v <- as.numeric(mat)
@@ -64,7 +35,6 @@ ch_value_scale <- function(mat) {
   "Unknown"
 }
 
-## Upload/GEO: real matrices exist in multi_dataset$layers.
 ch_modality_descriptors_live <- function(multi_dataset) {
   layers <- multi_dataset$layers %||% list()
   if (length(layers) == 0) return(list())
@@ -82,11 +52,6 @@ ch_modality_descriptors_live <- function(multi_dataset) {
   stats::setNames(out, names(layers))
 }
 
-## Preloaded: only a per-patient availability table + QC summaries exist -
-## no raw sample x feature matrix is bundled in this deployment. Report
-## exactly what's determinable (sample counts, feature counts) and nothing
-## more; anything needing a raw matrix (ID-format detail, PCA, correlation,
-## model evaluation) reports "Insufficient information" downstream.
 ch_modality_descriptors_preloaded <- function() {
   matching <- multi_read_registry_table("Patient sample matching (all 80 patients)")
   if (!matching$ok || !"patient_id" %in% colnames(matching$df)) return(list())
@@ -127,12 +92,6 @@ ch_modality_descriptors <- function(multi_dataset) {
   ch_modality_descriptors_live(multi_dataset)
 }
 
-## ---------------------------------------------------------------------------
-## 2. Pairwise sample overlap - the NxN matrix (spec section 5B), built
-## purely from the actual detected sample identifiers per modality, never
-## from row order.
-## ---------------------------------------------------------------------------
-
 ch_pairwise_overlap_matrix <- function(sample_id_lists) {
   sample_id_lists <- Filter(Negate(is.null), sample_id_lists)
   nm <- names(sample_id_lists)
@@ -145,19 +104,6 @@ ch_pairwise_overlap_matrix <- function(sample_id_lists) {
   m
 }
 
-## ---------------------------------------------------------------------------
-## 3. Sample-ID harmonization - safe normalization only (trim + case-fold),
-## never applied to the underlying data, never fuzzy-matched. Every ID gets
-## an explicit status (spec section 6): Exact match / Normalized match /
-## Duplicate / Unmatched / Ambiguous / Invalid.
-## ---------------------------------------------------------------------------
-
-## Single normalization rule for a sample/patient identifier - trim
-## whitespace, fold case. This is the ONLY place that definition lives; both
-## the harmonization report below AND the real join that actually merges
-## omics layers (mo_apply_matching()/multi_live_sample_overlap(), mod_multi_
-## dataset.R / multiomics_dataset_helpers.R) call this same function, so a
-## report of "matched" can never disagree with what the real join did.
 ch_normalize_id <- function(x) trimws(tolower(as.character(x)))
 
 ch_id_harmonization_table <- function(sample_id_lists) {
@@ -173,12 +119,6 @@ ch_id_harmonization_table <- function(sample_id_lists) {
 
   status <- character(nrow(rows))
   reason <- character(nrow(rows))
-  ## Iterated by POSITION, not by name: `by_norm[["", ...]]` (i.e. looking
-  ## up a list element by an empty-string name via `[[`) always returns
-  ## NULL in base R, even when that element's real name genuinely is "" -
-  ## confirmed directly. Looking elements up by their integer position
-  ## instead sidesteps that entirely, so blank/empty identifiers (which
-  ## normalize to "") are no longer silently skipped.
   by_norm <- split(seq_len(nrow(rows)), rows$Normalized)
   for (i_grp in seq_along(by_norm)) {
     nrm <- names(by_norm)[i_grp]
@@ -216,23 +156,8 @@ ch_id_harmonization_table <- function(sample_id_lists) {
   rows[, c("Modality", "Original", "Normalized", "Status", "Reason")]
 }
 
-## ---------------------------------------------------------------------------
-## 4. Candidate phenotype/batch columns - name/shape heuristics only, never
-## an auto-selected single answer (spec section 16: "do not fabricate an
-## outcome"). The user picks from these in a filter.
-## ---------------------------------------------------------------------------
-
-## Column names that read as a sample/patient identifier rather than a
-## biological or technical grouping variable - shared by ch_detect_candidate_
-## columns() and ch_classify_metadata_columns() so both use the same rule.
 CH_ID_LIKE_NAME_REGEX <- "^(sample|id|patient|subject)([_.]?id)?$"
 
-## Value-shape classification of one metadata column: "identifier" (near-
-## all-unique - not a useful grouping/coloring variable), "continuous"
-## (numeric with high cardinality), else "categorical". Report-only, mirrors
-## the cardinality rule mi_outcome_summary() (multiomics_integration_live_
-## helpers.R) already uses for its own outcome-type check - unified here so
-## the two don't quietly disagree on a borderline column.
 ch_classify_column <- function(v) {
   vv <- v[!is.na(v) & nzchar(trimws(as.character(v)))]
   n_total <- length(vv)
@@ -243,13 +168,6 @@ ch_classify_column <- function(v) {
   "categorical"
 }
 
-## Classifies every metadata column and suggests a default categorical
-## grouping variable (spec: "sensible default, always user-overridable") -
-## first a name-keyword match (phenotype/response/group/...), else the first
-## reasonably balanced categorical column (no single level over 90% of
-## samples - a looser bar than mi_outcome_summary()'s 0.7 "imbalanced" flag
-## on purpose, since this only picks a *starting* selection, not an
-## eligibility gate).
 ch_classify_metadata_columns <- function(meta) {
   if (is.null(meta) || ncol(meta) == 0) return(list(table = NULL, suggested_default = NULL))
   id_like <- grepl(CH_ID_LIKE_NAME_REGEX, colnames(meta), ignore.case = TRUE)
@@ -284,13 +202,6 @@ ch_detect_candidate_columns <- function(meta, kind = c("phenotype", "batch")) {
   intersect(cols, cls$table$column[cls$table$type == "categorical"])
 }
 
-## ---------------------------------------------------------------------------
-## 4b. Matched-sample summary sentence + tri-state status (spec: "42
-## transcriptomics / 39 methylomics / 35 matched / 83.3% overlap", and a
-## clear Matched/Partially matched/Unmatched call so an unmatched cohort is
-## never presented as if it were paired multi-omics data).
-## ---------------------------------------------------------------------------
-
 ch_matched_sample_summary <- function(id_sets) {
   id_sets <- Filter(Negate(is.null), id_sets)
   if (length(id_sets) == 0) return(list(per_modality = integer(0), n_matched = 0L, n_union = 0L, pct_overlap = 0, sentence = "No modalities available.", status = "Unmatched"))
@@ -308,14 +219,6 @@ ch_matched_sample_summary <- function(id_sets) {
   )
   list(per_modality = per_modality, n_matched = n_matched, n_union = n_union, pct_overlap = pct_overlap, sentence = sentence, status = status)
 }
-
-## ---------------------------------------------------------------------------
-## 5. Analysis cells - every feasible modality combination (spec sections
-## 9-10): never forces complete-case-only integration, never hard-coded to
-## a fixed set of modalities. Capped at all-subsets for <= 4 modalities
-## (2^N-1 stops being compact beyond that) - singles + pairs + the full
-## overlap otherwise, with the omission explicitly stated.
-## ---------------------------------------------------------------------------
 
 ch_analysis_cells <- function(id_sets, pheno_available = FALSE, max_full_subsets = 4,
                                min_integration = 3, min_prediction = 6) {
@@ -354,11 +257,6 @@ ch_analysis_cells <- function(id_sets, pheno_available = FALSE, max_full_subsets
   list(cells = cells, omitted_note = omitted_note)
 }
 
-## ---------------------------------------------------------------------------
-## 6. Integration readiness - Ready / Limited / Not suitable (spec section
-## 8), applied per analysis cell.
-## ---------------------------------------------------------------------------
-
 ch_integration_readiness <- function(cell, min_ready = 10, min_limited = 3) {
   if (length(cell$modalities) < 2) {
     return(list(level = "single", label = "Single modality", reason = "Integration requires at least two modalities."))
@@ -375,18 +273,6 @@ ch_integration_readiness <- function(cell, min_ready = 10, min_limited = 3) {
   list(level = "ready", label = "Ready", reason = sprintf("%d matched samples across %s.", n, cell$label))
 }
 
-## ---------------------------------------------------------------------------
-## 7. Held-out binary-outcome evaluation (spec sections 16-18) - stratified
-## k-fold CV, elastic-net logistic regression (glmnet), feature selection
-## and scaling fit inside the training fold only. Per-omics models plus one
-## early-fusion (concatenated top-variance features) model; majority-class
-## baseline reported alongside. Refuses outright (never silently
-## downgrades) when guardrails aren't met.
-## ---------------------------------------------------------------------------
-
-## One fold's train/test AUC contribution for a single feature matrix -
-## variance-ranked feature selection and z-scoring computed from the
-## training rows only, never touching the held-out rows.
 ch_fold_predict_view <- function(X, y, train_idx, test_idx, max_features) {
   Xtr <- X[train_idx, , drop = FALSE]; Xte <- X[test_idx, , drop = FALSE]
   ytr <- y[train_idx]
@@ -409,12 +295,6 @@ ch_evaluate_binary_outcome <- function(mat_list, y, k_folds = 5, seed = 1, max_f
 
   common <- Reduce(intersect, lapply(mat_list, rownames))
   common <- intersect(common, names(y))
-  ## base::intersect() always de-duplicates its own output, so checking
-  ## duplicated(common) here can never fire regardless of how many
-  ## duplicate IDs the real inputs have - confirmed directly. The actual
-  ## question is whether any matrix (or `y`) has more than one row/entry
-  ## for an ID that IS part of the matched set - checked against each
-  ## input's own raw names, restricted to `common`, instead.
   has_dup <- any(vapply(mat_list, function(m) anyDuplicated(rownames(m)[rownames(m) %in% common]) > 0, logical(1))) ||
     anyDuplicated(names(y)[names(y) %in% common]) > 0
   if (has_dup) return(list(ok = FALSE, error = "Duplicate sample IDs detected across the matched samples - resolve before evaluation."))

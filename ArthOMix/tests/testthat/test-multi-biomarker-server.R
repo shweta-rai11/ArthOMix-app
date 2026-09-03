@@ -1,15 +1,6 @@
 ## Module 3 (Multiomics) - Biomarker Discovery sub-module, via testServer():
 ## data-source dispatch, real block-role guessing (from layer_meta$omics_type),
 ## sample matching/outcome-class selection restricted to the matched set,
-## the unsupervised variance prefilter, final eligibility, and the
-## synchronous `validate(need(mb_elig()$ok, ...))` gate on "Run analysis".
-##
-## KNOWN LIMITATION (disclosed - see test-multi-integration-server.R's
-## header): the actual DIABLO fit dispatches through a real
-## `future::multisession` ExtendedTask, not awaited here. `mi_diablo_run()`/
-## `mb_cv_roc()` already have real, end-to-end coverage in
-## test-multi-integration-live-functions.R / test-multi-biomarker-helpers-
-## functions.R.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -21,7 +12,7 @@ source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomi
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_plots.R"))
-source_from_app_root(file.path("R", "multiomics", "03_DIABLO_SNF_Integration", "mod_multi_integration.R"))  ## shared mi_warn()/mi_ok()/mi_stop()
+source_from_app_root(file.path("R", "multiomics", "03_DIABLO_SNF_Integration", "mod_multi_integration.R"))
 source_from_app_root(file.path("R", "multiomics", "05_Biomarker_Discovery", "multiomics_biomarker_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "05_Biomarker_Discovery", "multiomics_biomarker_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_sexstratified_engine.R"))
@@ -80,7 +71,7 @@ test_that("mb_eligible_ids() restricts to the classes_selected subset, and mb_fi
   )
   shiny::testServer(mod_multi_biomarker_server, args = list(id = "mb", multi_dataset = multi_dataset), {
     session$setInputs(data_source = "active", transcript_block = "Transcriptomics", methyl_block = "Methylomics", outcome_col = "outcome")
-    session$setInputs(classes_selected = "RA")  ## HC-only samples excluded
+    session$setInputs(classes_selected = "RA")
     ids <- mb_eligible_ids()
     expect_equal(length(ids), 10L)
     expect_true(all(fx$meta[ids, "outcome"] == "RA"))
@@ -94,8 +85,6 @@ test_that("mb_eligible_ids() restricts to the classes_selected subset, and mb_fi
 
 test_that("mb_elig() correctly refuses when the smallest selected outcome class has fewer than 3 samples", {
   fx <- mb_live_fixture(n = 20)
-  ## Recode so RA has only 2 members among the matched set (original: rows
-  ## 1-10 HC, 11-20 RA - collapse all but 2 of the RA rows down to HC).
   fx$meta$outcome[13:20] <- "HC"
   multi_dataset <- shiny::reactiveValues(
     active = TRUE, source = "upload", layers = list(Transcriptomics = fx$expr, Methylomics = fx$meth),
@@ -113,7 +102,7 @@ test_that("mb_elig() correctly refuses when the smallest selected outcome class 
 
 test_that("clicking 'Run analysis' while ineligible is blocked by validate() before dispatch - mb_state$submitted stays FALSE", {
   fx <- mb_live_fixture(n = 20)
-  fx$meta$outcome[3:20] <- "HC"  ## RA left with only 2 -> ineligible
+  fx$meta$outcome[3:20] <- "HC"
   multi_dataset <- shiny::reactiveValues(
     active = TRUE, source = "upload", layers = list(Transcriptomics = fx$expr, Methylomics = fx$meth),
     layer_meta = list(Transcriptomics = list(omics_type = "rnaseq"), Methylomics = list(omics_type = "methylation")),

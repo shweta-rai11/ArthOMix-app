@@ -1,11 +1,6 @@
 ## Regression guard for a mislabeling bug found in the transcriptomics audit
 ## (2026-08-26): mod_preprocessing.R's "Use this as the active dataset" button
 ## used to hardcode dataset$source to start with "Uploaded dataset", even when
-## every input to the run was a bundled/preloaded cohort. mod_wgcna.R,
-## mod_candidates.R, and mod_overview.R all key real behavior off a
-## `grepl("^Uploaded dataset", dataset$source)` check, so that mislabeling
-## silently flipped WGCNA's default methodology profile (and revealed an
-## upload-only UI panel in Candidates) for data nobody actually uploaded.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

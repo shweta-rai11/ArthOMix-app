@@ -1,13 +1,6 @@
 ## R/multiomics/07_Pathways/multiomics_pathway_plots.R
 ## The 6 required Pathways-tab plots. Same split/conventions as
 ## multiomics_plots.R: every plot reuses ARTHOMIX_COLORS/theme_arthomix() and
-## is built once as a plot object (or, for the two live pathway-map fetches,
-## a saved PNG path) reused for both on-screen rendering and download.
-
-## ---------------------------------------------------------------------------
-## Plot 1 - Enrichment dot plot. x = GeneRatio (ORA) or NES (GSEA), y =
-## pathway (wrapped label), size = gene count, color = adjusted P/FDR.
-## ---------------------------------------------------------------------------
 
 mp_dot_plot <- function(df, method = c("ORA", "GSEA"), top_n = 20) {
   method <- match.arg(method)
@@ -24,10 +17,6 @@ mp_dot_plot <- function(df, method = c("ORA", "GSEA"), top_n = 20) {
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Plot 2 - Enrichment bar plot, top pathways, sortable.
-## ---------------------------------------------------------------------------
-
 mp_bar_plot <- function(df, top_n = 20, sort_by = c("FDR", "p.adjust", "NES", "Count")) {
   sort_by <- match.arg(sort_by)
   if (is.null(df) || nrow(df) == 0) return(NULL)
@@ -42,12 +31,6 @@ mp_bar_plot <- function(df, top_n = 20, sort_by = c("FDR", "p.adjust", "NES", "C
   p <- if (!is.null(fill_col)) p + ggplot2::geom_col(ggplot2::aes(fill = .data[[fill_col]])) else p + ggplot2::geom_col(fill = ARTHOMIX_COLORS$blue)
   p + ggplot2::coord_flip() + ggplot2::labs(x = NULL, y = "-log10(adjusted P)", fill = "Database") + theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Plot 3 - Pathway x Omics heatmap. Cell = -log10(FDR) computed for that
-## omics layer's own evidence track; genuinely-not-calculated cells are an
-## explicit grey tile (NA-aware fill scale), never a fabricated 0.
-## ---------------------------------------------------------------------------
 
 mp_omics_heatmap <- function(evidence_df, top_n = 25) {
   if (is.null(evidence_df) || nrow(evidence_df) == 0) return(NULL)
@@ -68,13 +51,6 @@ mp_omics_heatmap <- function(evidence_df, top_n = 25) {
     theme_arthomix() +
     ggplot2::theme(axis.text.y = ggplot2::element_text(size = 8))
 }
-
-## ---------------------------------------------------------------------------
-## Plot 4 - Gene-Pathway network. Plain igraph::layout_with_fr() + manual
-## geom_segment/geom_point (matches cx_gene_cpg_network_plot's own precedent
-## in crossomics_integration_plots.R - ggraph is installed but not used
-## anywhere real in this app), node color = Transcriptomic/Methylomic/Both.
-## ---------------------------------------------------------------------------
 
 mp_gene_pathway_network <- function(enrichment_df, input_df, selected_pathway_ids = NULL, max_genes = 40) {
   if (is.null(enrichment_df) || nrow(enrichment_df) == 0) return(NULL)
@@ -121,20 +97,8 @@ mp_gene_pathway_network <- function(enrichment_df, input_df, selected_pathway_id
     ggplot2::theme_void() + ggplot2::theme(legend.position = "bottom")
 }
 
-## ---------------------------------------------------------------------------
-## Plot 5 - KEGG pathway map. Real pathview render, real KEGG pathway
-## structure + gene-level overlay; NULL + reason on failure, never an
-## invented diagram.
-## ---------------------------------------------------------------------------
-
 mp_kegg_pathway_map <- function(pathway_id, gene_entrez_effect_vec, out_dir = tempdir()) {
   if (!MP_PATHVIEW_AVAILABLE) return(list(ok = FALSE, path = NULL, error = "The pathview package is not installed in this deployment."))
-  ## pathview's own internal species.info()/data(bods) lookup only resolves
-  ## when the package is on the search path, not merely namespace-loaded via
-  ## `::` - confirmed by testing (pathview::pathview() alone throws "object
-  ## 'bods' not found"; attaching the namespace first fixes it). This is the
-  ## one function in this app that needs its dependency attached rather than
-  ## called by `::` throughout, and only for the duration of this call.
   if (!"package:pathview" %in% search()) suppressPackageStartupMessages(attachNamespace("pathview"))
   kegg_id <- sub("^path:", "", pathway_id)
   kegg_id <- sub("^hsa", "", kegg_id)
@@ -149,21 +113,12 @@ mp_kegg_pathway_map <- function(pathway_id, gene_entrez_effect_vec, out_dir = te
   list(ok = TRUE, path = png_path, error = NULL)
 }
 
-## pathview::pathview() always writes into the current working directory, so
-## this switches into `out_dir` for the call only, restoring the original
-## wd even on error - never leaves the Shiny process's cwd changed.
 withr_wd_pathview <- function(out_dir, kegg_id, gene_data, suffix) {
   old_wd <- getwd()
   on.exit(setwd(old_wd), add = TRUE)
   setwd(out_dir)
   pathview::pathview(gene.data = gene_data, pathway.id = kegg_id, species = "hsa", kegg.native = TRUE, out.suffix = suffix)
 }
-
-## ---------------------------------------------------------------------------
-## Plot 6 - Reactome pathway visualization. Live diagram image from the
-## official Reactome ContentService exporter; NULL + reason on a pathway
-## that has no diagram, never a placeholder image.
-## ---------------------------------------------------------------------------
 
 mp_fetch_reactome_diagram_png <- function(stable_id, out_dir = tempdir()) {
   if (!requireNamespace("httr", quietly = TRUE)) return(list(ok = FALSE, path = NULL, error = "The httr package is not installed in this deployment."))

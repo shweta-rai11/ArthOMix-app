@@ -1,22 +1,6 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_mofa.R
 ## "Integrated Analysis (MOFA2)" - the one part of the Multi-Omics module
 ## that computes on data the user supplies, rather than browsing the
-## precomputed cohort's results. Mounted directly inside the Dataset
-## Workspace tab (mod_multi_dataset.R), not as its own top-level sub-module -
-## upload/validation/sample matching/preprocessing/batch diagnostics all
-## happen there too, and publish one validated Active Multi-Omics Dataset
-## into the shared `multi_dataset` reactiveValues; this file just adapts
-## that shared dataset into the shape the nested MOFA2 sub-module
-## (mod_multi_mofa_engine.R, unchanged) already expects and mounts it.
-## (This module and its data structures still use the historical "live"
-## prefix internally - e.g. multiomics_dataset_helpers.R, live_state,
-## multi_results$live_qc/live_mofa - only the file/exported-function names
-## and user-facing text were renamed.)
-##
-## Per spec section 34's "preloaded vs. uploaded must never contaminate each
-## other": this only trains on `multi_dataset$layers` when
-## `multi_dataset$active` is TRUE, whatever its source - it never reads the
-## precomputed-cohort tables directly.
 
 mod_multi_mofa_config <- list(
   id = "mofa", title = "Integrated Analysis (MOFA2)", icon = "chart-line",
@@ -38,11 +22,6 @@ mod_multi_mofa_server <- function(id, multi_dataset = NULL, multi_results = NULL
 
     live_state <- reactiveValues(mats = NULL, meta = NULL)
 
-    ## Dataset Summary table - relocated here from the Dataset Workspace tab's
-    ## own box (mod_multi_dataset.R); still built from the same
-    ## `multi_dataset$layer_meta` set by that tab's "Use Selected Datasets for
-    ## Multi-Omics Analysis" (activate_btn) handler, via the shared
-    ## `mo_summary_table()` helper (mod_multi_dataset.R).
     output$summary_table <- DT::renderDataTable({
       df <- mo_summary_table(multi_dataset$layer_meta %||% list())
       if (is.null(df)) df <- data.frame(Dataset = character(0), `Omics Type` = character(0), Samples = integer(0),

@@ -1,21 +1,6 @@
 ## R/multiomics/04_SNF_Clustering/snf_clustering_plots.R
 ## Plot functions for the live "SNF Clustering" submodule
 ## (snf_clustering_helpers.R / mod_multi_stratification.R). Reuses
-## mi_snf_fused_heatmap()/mi_snf_cluster_estimate_plot()
-## (multiomics_integration_plots.R) directly wherever the data shape
-## already matches - the fused-affinity heatmap and the eigengap/candidate-k
-## diagnostic are identical needs to the Integration module's own SNF tab.
-## Only genuinely new chart types (a real feature-value heatmap, a spectral
-## embedding of the fused network, stability/sensitivity/clinical plots) are
-## defined here.
-
-## ---------------------------------------------------------------------------
-## Patient cluster plot (spec section 16) - a real spectral embedding (top
-## eigenvectors of the row-normalized fused affinity network), the same
-## mathematical object spectral clustering itself partitions - not a PCA over
-## raw feature space, and not claimed as a measure of cluster quality on its
-## own (the eigengap/silhouette diagnostics are that evidence).
-## ---------------------------------------------------------------------------
 
 sfc_spectral_embedding <- function(W, clusters) {
   if (is.null(W) || is.null(clusters) || nrow(W) < 3) return(NULL)
@@ -38,13 +23,6 @@ sfc_spectral_embedding_plot <- function(W, clusters) {
                   title = "Projection of the fused patient similarity network") +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Cluster heatmap over real feature values (spec section 16) - distinct from
-## mi_snf_fused_heatmap(), which draws the fused AFFINITY matrix, not feature
-## values. Top-variance features per selected block, capped so this never
-## tries to render an unbounded number of rows.
-## ---------------------------------------------------------------------------
 
 sfc_feature_heatmap <- function(layers, clusters, top_n_per_block = 25) {
   if (is.null(layers) || length(layers) == 0 || is.null(clusters)) return(NULL)
@@ -70,12 +48,6 @@ sfc_feature_heatmap <- function(layers, clusters, top_n_per_block = 25) {
     ggplot2::theme(axis.text.x = ggplot2::element_blank(), axis.ticks.x = ggplot2::element_blank(), axis.text.y = ggplot2::element_text(size = 7))
 }
 
-## ---------------------------------------------------------------------------
-## Modality contribution (spec section 17) - direct plot of
-## mi_snf_concordance()'s own concordanceNetworkNMI() output; never an
-## invented percentage.
-## ---------------------------------------------------------------------------
-
 sfc_concordance_bar_plot <- function(conc_df) {
   need <- c("block", "concordance_with_fused")
   if (is.null(conc_df) || nrow(conc_df) == 0 || !all(need %in% colnames(conc_df))) return(NULL)
@@ -85,12 +57,6 @@ sfc_concordance_bar_plot <- function(conc_df) {
     ggplot2::labs(x = NULL, y = "Concordance with fused network (NMI)", title = "Modality contribution (SNFtool::concordanceNetworkNMI)") +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Stability / sensitivity (spec sections 18-19) - thresholds drawn as
-## reference lines are the exact SFC_STABILITY_THRESHOLDS constants the
-## verdict text uses, never a different number.
-## ---------------------------------------------------------------------------
 
 sfc_stability_plot <- function(stability) {
   if (is.null(stability) || !isTRUE(stability$ok)) return(NULL)
@@ -117,10 +83,6 @@ sfc_sensitivity_plot <- function(sens) {
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Features subtab (spec section 24).
-## ---------------------------------------------------------------------------
-
 sfc_feature_rank_plot <- function(df, top_n = 20) {
   need <- c("feature", "p_value", "block")
   if (is.null(df) || nrow(df) == 0 || !all(need %in% colnames(df))) return(NULL)
@@ -134,17 +96,6 @@ sfc_feature_rank_plot <- function(df, top_n = 20) {
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Clinical subtab (spec sections 21-23).
-## ---------------------------------------------------------------------------
-
-## One faceted plot per kind (categorical/continuous), rather than a plot per
-## selected variable - avoids registering a dynamically-named renderPlot per
-## checkbox (a real gap found in Multi-omics Integration's own SNF tab, where
-## several plotOutput() placeholders were never bound to a renderPlot() at
-## all - see mod_multi_integration.R's s_heatmap/s_pca_plot/s_estimate_plot;
-## not repeated here). A fixed set of output ids, one per subtab, is used
-## instead; see mod_multi_stratification.R's clin_cat_plot/clin_cont_plot.
 sfc_continuous_multi_plot <- function(clusters, sample_meta, vars) {
   if (is.null(sample_meta) || length(vars) == 0) return(NULL)
   rows <- do.call(rbind, lapply(vars, function(v) {
@@ -180,10 +131,6 @@ sfc_categorical_multi_plot <- function(clusters, sample_meta, vars) {
     theme_arthomix()
 }
 
-## survminer::ggsurvplot()'s $plot component only (not the separate risk-table
-## grob - sfc_km_risk_table(), snf_clustering_helpers.R, covers "number at
-## risk" as a plain table instead of combining grobs, matching this module's
-## existing DT-table convention rather than adding a new layout primitive).
 sfc_km_plot <- function(surv) {
   if (is.null(surv) || !isTRUE(surv$ok) || !requireNamespace("survminer", quietly = TRUE)) return(NULL)
   tryCatch(

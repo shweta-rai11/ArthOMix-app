@@ -1,9 +1,6 @@
 ## Module 1 (Transcriptomics) - Sex Interaction Analysis: a live limma
 ## group*sex interaction model, via testServer(). This submodule is
 ## inherently a "both sexes present" analysis (Case 1 of the sex-
-## stratification test matrix); Cases 2-4 (male-only/female-only/no-sex-
-## metadata) are covered here as the "controls UI correctly blocks running
-## at all" behavior this module is designed to have in those situations.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -25,8 +22,6 @@ interaction_fixture <- function(n_per_cell = 4, sex_col = TRUE, sexes = c("F", "
                           is_bundled_reference = FALSE, geo_ids = character(0))
 }
 
-## Prime helper for the ignoreInit=TRUE bare-actionButton gotcha (see
-## feedback_shiny_testserver_ignoreinit_actionbutton_priming memory).
 run_click <- function(session) {
   session$setInputs(run_btn = 0)
   session$setInputs(run_btn = 1)
@@ -38,7 +33,7 @@ test_that("Case 1 (M+F present): the interaction model fits and reports a coeffi
     session$setInputs(ref_group = "HC", comp_group = "RA", ref_sex = "F", comp_sex = "M", padj_cut = 0.05)
     run_click(session)
     res <- fit_result()
-    expect_true(grepl(":", res$coef_name))  ## interaction term name contains the ':' between grp/sx
+    expect_true(grepl(":", res$coef_name))
     df <- sig_table()
     expect_true(all(c("gene", "logFC", "adj.P.Val", "significant") %in% colnames(df)))
     expect_equal(nrow(df), 25L)
@@ -94,7 +89,7 @@ test_that("identical reference/comparison group or sex is rejected", {
 })
 
 test_that("fewer than 12 total matching samples across both sexes/groups is rejected", {
-  dataset <- interaction_fixture(n_per_cell = 2)  ## 2*2*2 = 8 total, below 12
+  dataset <- interaction_fixture(n_per_cell = 2)
   shiny::testServer(mod_interaction_server, args = list(id = "int", dataset = dataset), {
     session$setInputs(ref_group = "HC", comp_group = "RA", ref_sex = "F", comp_sex = "M", padj_cut = 0.05)
     run_click(session)
@@ -106,7 +101,6 @@ test_that("fewer than 12 total matching samples across both sexes/groups is reje
 
 test_that("a group-by-sex cell with fewer than 2 samples is rejected even when the total sample count is high enough", {
   dataset <- interaction_fixture(n_per_cell = 4)
-  ## Collapse one cell (HC/F) down to a single sample by reassigning the rest to RA/F.
   shiny::isolate({
     idx <- which(dataset$meta$group == "HC" & dataset$meta$sex == "F")
     dataset$meta$group[idx[-1]] <- "RA"

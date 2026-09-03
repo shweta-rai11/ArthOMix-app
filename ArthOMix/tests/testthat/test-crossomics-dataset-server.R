@@ -1,7 +1,6 @@
 ## Module 4 (Cross-omics) - Dataset tab, via testServer(): loading real
 ## example DEG/DMP/DMR data, uploading + auto-standardizing real CSV files,
 ## the "Use this data" hand-off into the shared cross_dataset store, source-
-## mode switching clearing stale data, and "Clear".
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -68,9 +67,9 @@ test_that("switching source_mode clears whatever the other mode had staged, and 
     expect_false(is.null(expr_data()))
 
     session$setInputs(source_mode = "upload")
-    expect_null(expr_data())  ## staged example data cleared on source-mode switch
+    expect_null(expr_data())
 
-    session$setInputs(load_example_btn = 2)  ## second click while in "upload" mode's inputs - re-populates via observeEvent(expr_file)/(load_example_btn) regardless of visible panel
+    session$setInputs(load_example_btn = 2)
     session$setInputs(use_data_btn = 0)
     session$setInputs(use_data_btn = 1)
     expect_false(is.null(cross_dataset$user_expr_df))

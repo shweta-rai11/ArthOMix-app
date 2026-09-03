@@ -1,7 +1,6 @@
 ## Fast, no-package-load tests: every path constant data_paths.R defines
 ## must resolve to something that actually exists under ArthOMix/data/.
 ## This is the fastest possible check that the app is fully self-contained -
-## no external "../<folder>" dependency should ever appear here again.
 
 test_that("DATA_DIR resolves under the app root, not an external folder", {
   expect_true(dir.exists(DATA_DIR))

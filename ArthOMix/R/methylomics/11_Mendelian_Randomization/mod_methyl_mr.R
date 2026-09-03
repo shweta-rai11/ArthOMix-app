@@ -1,30 +1,11 @@
 ## R/methylomics/11_Mendelian_Randomization/mod_methyl_mr.R
 ## Two-sample MR for methylation exposures: cis/trans mQTL instruments for
 ## a CpG -> GWAS outcome. Separate from R/transcriptomics/07_Mendelian_Randomization/mod_mr.R (eQTL MR).
-##
-## Two data routes: Preloaded reproduces script08_mendelian_randomization's
-## completed run (GoDMC cis-mQTL, already clumped/harmonised against the
-## Ishigaki et al. 2022 RA GWAS) - MR estimation/sensitivity/plots run live
-## from the cached harmonised table. Upload Dataset runs the full live
-## pipeline (instrument selection, ld_clump() via OpenGWAS API,
-## harmonisation, MR, sensitivity) on user-supplied summary stats.
-##
-## Stage-gated UI: Data -> Filters & Instruments -> LD Clumping ->
-## Harmonisation -> MR Analysis -> Sensitivity -> Results -> Plots; changing
-## a stage's inputs invalidates everything downstream (has-run reactiveVal
-## pattern, same as mod_methyl_dmp.R/mod_methyl_normalization.R).
-
-## ---------------------------------------------------------------------------
-## Small local helpers (not shared with R/transcriptomics/07_Mendelian_Randomization/mod_mr.R)
-## ---------------------------------------------------------------------------
 
 .mmr_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
 .mmr_stage_order <- c("data", "instruments", "clump", "harmonise", "mr", "sensitivity")
 
-## GoDMC/script08's cis-mQTL definition (METHODS_mendelian_randomization.md
-## Section 3); pre-filled default for the Upload route's cis window,
-## echoed read-only for the Preloaded route.
 MMR_DEFAULT_CIS_WINDOW_BP <- 1e6
 MMR_DEFAULT_CIS_PVAL <- 5e-8
 MMR_DEFAULT_MIN_F <- 10
@@ -35,10 +16,6 @@ mod_methyl_mr_config <- list(
   id = "mr", title = "Mendelian Randomization", icon = "route", group = "Genetics",
   description = "Two-sample Mendelian randomisation of mQTL instruments against a GWAS outcome."
 )
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_methyl_mr_ui <- function(id) {
   ns <- NS(id)
@@ -57,8 +34,6 @@ mod_methyl_mr_ui <- function(id) {
     )
   )
 }
-
-## ---- Tab 1: Data -----------------------------------------------------------
 
 mmr_data_ui <- function(ns) {
   fluidRow(
@@ -116,8 +91,6 @@ mmr_data_ui <- function(ns) {
   )
 }
 
-## ---- Tab 2: Filters & Instruments ------------------------------------------
-
 mmr_filters_ui <- function(ns) {
   uiOutput(ns("filters_tab_body"))
 }
@@ -151,8 +124,6 @@ mmr_filters_controls <- function(ns) {
   )
 }
 
-## ---- Tab 3: LD Clumping -----------------------------------------------------
-
 mmr_clump_ui <- function(ns) {
   uiOutput(ns("clump_tab_body"))
 }
@@ -174,8 +145,6 @@ mmr_clump_controls <- function(ns) {
         actionButton(ns("clump_btn"), "Run Clumping", icon = icon("scissors"), class = "btn-primary btn-sm"))
   )
 }
-
-## ---- Tab 4: Harmonisation ----------------------------------------------------
 
 mmr_harmonise_ui <- function(ns) {
   uiOutput(ns("harmonise_tab_body"))
@@ -199,16 +168,10 @@ mmr_harmonise_controls <- function(ns, editable = TRUE) {
   )
 }
 
-## ---- Tab 5: MR Analysis ------------------------------------------------------
-
 mmr_analysis_ui <- function(ns) {
   uiOutput(ns("analysis_tab_body"))
 }
 
-## MR-RAPS / penalised weighted median are offered only when exists()
-## confirms the installed TwoSampleMR version provides them. Contamination
-## mixture isn't provided by this version, and Radial MR (RadialMR) uses
-## its own API rather than mr()'s method_list - neither is offered here.
 mmr_robust_method_choices <- function() {
   extra <- list()
   if (exists("mr_raps", where = asNamespace("TwoSampleMR"), inherits = FALSE)) extra[["MR-RAPS (robust)"]] <- "mr_raps"
@@ -216,16 +179,6 @@ mmr_robust_method_choices <- function() {
   extra
 }
 
-## Picks exactly one, pre-specified row per CpG from a multi-method mr() results data
-## frame - IVW for CpGs with >=2 instruments, Wald ratio for single-instrument CpGs -
-## matching the tiering rule already documented in the UI ("1 instrument -> Wald ratio
-## only, 2 -> IVW only, >=3 -> your selection above"). This selection never looks at
-## p-values: choosing the row with the smallest p-value across several methods run for
-## the same CpG, then correcting only across CpGs, understates the true number of tests
-## performed (a method is silently "selected" by its own p-value) and inflates the
-## apparent number of significant CpGs. Every other method run for a CpG stays visible
-## in the full Results table as a disclosed sensitivity check; it just isn't the one
-## used for headline significance or for the Manhattan plot.
 mmr_primary_row_per_cpg <- function(results_df) {
   ivw_name <- {
     ml <- tryCatch(TwoSampleMR::mr_method_list(), error = function(e) NULL)
@@ -264,43 +217,28 @@ mmr_analysis_controls <- function(ns) {
   )
 }
 
-## ---- Tab 6: Sensitivity -------------------------------------------------------
-
 mmr_sensitivity_ui <- function(ns) {
   uiOutput(ns("sensitivity_tab_body"))
 }
-
-## ---- Tab 7: Results ------------------------------------------------------------
 
 mmr_results_ui <- function(ns) {
   uiOutput(ns("results_tab_body"))
 }
 
-## ---- Tab 8: Plots ---------------------------------------------------------------
-
 mmr_plots_ui <- function(ns) {
   uiOutput(ns("plots_tab_body"))
 }
-
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
 
 mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ------------------------------------------------------------------
-    ## Stage has-run flags + generic downstream invalidation
-    ## ------------------------------------------------------------------
     stage_flags <- reactiveValues(data = FALSE, instruments = FALSE, clump = FALSE, harmonise = FALSE, mr = FALSE, sensitivity = FALSE)
     invalidate_from <- function(stage) {
       idx <- match(stage, .mmr_stage_order)
       for (s in .mmr_stage_order[idx:length(.mmr_stage_order)]) stage_flags[[s]] <- FALSE
     }
 
-    ## CpG panel picker for the Preloaded route, from the cached
-    ## mr_estimates_{sex}.csv CpG list (script08's majority-vote panel).
     pre_panel_cpgs <- reactive({
       switch(input$pre_sex %||% "female",
         female = { d <- load_default_mr_estimates("female"); if (is.null(d)) character(0) else sort(unique(d$exposure)) },
@@ -323,23 +261,16 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       )
     })
 
-    ## Any Data-tab defining input change invalidates everything downstream.
     observeEvent(list(input$data_source, input$pre_sex, input$pre_cpgs, input$pre_binary_outcome,
                        input$exp_file, input$out_file, input$outcome_label, input$up_binary_outcome),
                  invalidate_from("instruments"), ignoreInit = TRUE, ignoreNULL = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Upload route: shared column-mapping utilities (global.R; also used
-    ## by mod_mr.R and mod_coloc.R's upload modes)
-    ## ------------------------------------------------------------------
     exp_df_r <- reactive({ req(input$exp_file); read_uploaded_table(input$exp_file$datapath) })
     out_df_r <- reactive({ req(input$out_file); read_uploaded_table(input$out_file$datapath) })
 
     output$exp_map_ui <- gwas_col_map_ui(ns, reactive(input$exp_file), exp_df_r, "exp", "Exposure file", extra_fields = "n")
     output$out_map_ui <- gwas_col_map_ui(ns, reactive(input$out_file), out_df_r, "out", "Outcome file", extra_fields = "n")
 
-    ## CpG ID + optional chr/pos/gene columns - mQTL-specific, outside the
-    ## shared gwas_col_map_ui (generic GWAS fields only).
     output$exp_extra_map_ui <- renderUI({
       req(input$exp_file)
       df <- exp_df_r()
@@ -360,9 +291,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       )
     })
 
-    ## ------------------------------------------------------------------
-    ## Stage 1: Data -> validated raw inputs + Data Validation panel
-    ## ------------------------------------------------------------------
     data_state <- reactiveVal(NULL)
 
     build_data_state <- function() {
@@ -461,9 +389,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "data_validation_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage 2: Filters & Instruments
-    ## ------------------------------------------------------------------
     instruments_state <- reactiveVal(NULL)
 
     build_instruments_state <- function() {
@@ -484,8 +409,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
         maf_val <- pmin(d$eaf.exposure, 1 - d$eaf.exposure)
         excl_maf <- excl_maf | (!is.na(maf_val) & maf_val < maf_cut)
         weak <- d$F_stat_recomputed < min_f
-        ## Preloaded pipeline already restricted to cis (+/-1Mb) at build
-        ## time - this control is informational only for this route.
         excl_region <- rep(FALSE, nrow(d))
 
         d$excluded_pval <- excl_pval
@@ -527,7 +450,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
           if (has_region_cols) {
             cpg_chr <- as.character(exp_raw[[input$exp_cpg_chr]])
             cpg_pos <- suppressWarnings(as.numeric(exp_raw[[input$exp_cpg_pos]]))
-            ## Rejoin by SNP+phenotype since format_data() may reorder rows.
             key <- match(paste(exp_fmt$SNP, exp_fmt$exposure), paste(exp_raw[[input$exp_snp]], exp_raw[[cpg_col]]))
             row_cpg_chr <- cpg_chr[key]; row_cpg_pos <- cpg_pos[key]
             same_chr <- as.character(exp_fmt$chr.exposure) == row_cpg_chr
@@ -552,9 +474,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     observeEvent(input$instruments_btn, {
       ist <- tryCatch(build_instruments_state(), error = function(e) e)
       if (inherits(ist, "error") || inherits(ist, "shiny.silent.error")) return()
-      ## Enforce min/max instruments per CpG (retained set), keeping the
-      ## strongest by p-value; excluded rows are flagged (excluded_maxcap),
-      ## not dropped.
       d <- ist$d
       d$excluded_maxcap <- FALSE
       max_n <- input$f_max_instruments
@@ -612,9 +531,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "instruments_summary_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage 3: LD Clumping
-    ## ------------------------------------------------------------------
     clump_state <- reactiveVal(NULL)
 
     observeEvent(input$clump_btn, {
@@ -685,9 +601,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "clump_summary_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage 4: Harmonisation
-    ## ------------------------------------------------------------------
     harmonise_state <- reactiveVal(NULL)
 
     observeEvent(input$harmonise_btn, {
@@ -765,9 +678,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "harmonise_summary_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage 5: MR Analysis
-    ## ------------------------------------------------------------------
     mr_state <- reactiveVal(NULL)
 
     tier_methods <- function(n_snp, selected) {
@@ -847,9 +757,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "mr_summary_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage 6: Sensitivity
-    ## ------------------------------------------------------------------
     sensitivity_state <- reactiveVal(NULL)
 
     observeEvent(input$sensitivity_run_btn, {
@@ -954,9 +861,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
     })
     outputOptions(output, "directionality_table", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## CpG annotation (chr/pos/gene) via 450K manifest lookup (annotation.R).
-    ## ------------------------------------------------------------------
     cpg_annotation <- function(cpgs) {
       anno <- tryCatch(methyl_get_annotation("450K"), error = function(e) list(ok = FALSE))
       if (isTRUE(anno$ok)) {
@@ -968,9 +872,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       }
     }
 
-    ## ------------------------------------------------------------------
-    ## Stage 7: Results
-    ## ------------------------------------------------------------------
     output$results_tab_body <- renderUI({
       req(stage_flags$mr)
       ms <- mr_state()
@@ -1092,9 +993,6 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       }
     )
 
-    ## ------------------------------------------------------------------
-    ## Stage 8: Plots
-    ## ------------------------------------------------------------------
     output$plots_tab_body <- renderUI({
       req(stage_flags$mr)
       ms <- mr_state()

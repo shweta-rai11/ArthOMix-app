@@ -1,51 +1,12 @@
 ## R/methylomics/06_Differential_Methylation_Region/mod_methyl_dmr.R
 ## Methylomics sub-module: Differentially Methylated Regions (DMRs).
 ##
-## Two tabs, mirroring mod_methyl_dmp.R's own "SVA"/"DMP" split one-for-one:
-##
-##   "SVA" tab -
-##     1a. "Default analysis (GSE42861)" - shown when methyl_dataset$preloaded
-##         is TRUE. Reproduces the published sex-stratified DMRcate region
-##         calling (script04_dmr_sexstratified/04_dmr_sexstratified.R:
-##         lambda=1000, C=2, on the SVA-adjusted, bacon-corrected per-CpG
-##         statistics from the DMP tab's default analysis) at its documented
-##         region-level FDR (BH on the Stouffer statistic, <0.05, adjustable).
-##         Filters/plots existing tables; nothing is recomputed. Gated behind
-##         "Run DMR Analysis" via an eventReactive (mirrors mod_methyl_dmp.R's
-##         sva_run).
-##     1b. Live SVA-adjusted engine - shown instead of 1a whenever a real
-##         beta/M-value matrix is loaded via Upload or GEO (i.e.
-##         methyl_dataset$preloaded is not TRUE). Same statistical method as
-##         1a: mod_methyl_sva_fit() (shared with mod_methyl_dmp.R's own live
-##         SVA-adjusted DMP engine) estimates surrogate variables and appends
-##         them to the design, bacon::bacon() bias/inflation-corrects the
-##         resulting per-CpG statistics, and DMRcate::dmrcate() calls regions
-##         from those corrected statistics - run live here against whatever
-##         dataset is loaded, not just the preloaded reference cohort. Always
-##         applies the correction (no plain/adjusted toggle), exactly as the
-##         DMP tab's own SVA tab always does.
-##
-##   "DMR" tab -
-##     2. "DMR Analysis" - shown whenever a real beta/M-value matrix is
-##        loaded, whether uploaded or (if this deployment has the raw matrix
-##        bundled) the preloaded dataset's own live matrix. A full,
-##        configurable region-level engine: the DMP tab's live sex/group/
-##        covariate/QC-filter machinery feeds a per-CpG limma fit into
-##        DMRcate::dmrcate() (same algorithm the preloaded pipeline uses,
-##        with lambda/C/min.cpgs/seeding-p exposed as controls), including an
-##        All-Samples option alongside Female-only/Male-only. Deliberately
-##        does not apply SVA/bacon correction - it's the fast, unadjusted
-##        counterpart to the SVA tab's live engine above.
 
 mod_methyl_dmr_config <- list(
   id = "dmr", title = "Differentially Methylated Regions (DMRs)", icon = "map-location-dot", group = "Data",
   description = "Performs differentially methylated region analysis."
 )
 
-## "SVA" and "DMR" subtabs wrap the same two uiOutputs (default_ui/live_ui).
-## Shiny's tabsetPanel only suspends the hidden tab's rendering, not the
-## underlying eventReactive results, so switching subtabs never forces the
-## default or live DMR analysis to recompute.
 mod_methyl_dmr_ui <- function(id) {
   ns <- NS(id)
   div(
@@ -58,11 +19,6 @@ mod_methyl_dmr_ui <- function(id) {
   )
 }
 
-## ---- Shared helpers --------------------------------------------------------
-
-## Region-table filter: FDR/Δβ/direction via mod_methyl_dmp_filter()
-## (reused unchanged from the DMP tab), plus region-specific dimensions
-## (CpG count, width) DMPs don't have.
 mod_methyl_dmr_filter <- function(df, fdr_col, effect_col, fdr_max, effect_min, direction,
                                    min_cpgs = 0, min_width = 0, max_width = Inf) {
   df <- mod_methyl_dmp_filter(df, fdr_col, effect_col, fdr_max, effect_min, direction)
@@ -71,8 +27,6 @@ mod_methyl_dmr_filter <- function(df, fdr_col, effect_col, fdr_max, effect_min, 
   df
 }
 
-## Region-level counterpart to mod_methyl_dmp_manhattan() - reads
-## seqnames/start/dmr_fdr instead of chr/pos/fdr.
 mod_methyl_dmr_manhattan <- function(dt, fdr_max = 0.05) {
   d <- dt[!is.na(dt$seqnames) & !is.na(dt$start) & !is.na(dt$dmr_fdr), , drop = FALSE]
   d$chr_num <- suppressWarnings(as.integer(gsub("^chr", "", as.character(d$seqnames), ignore.case = TRUE)))
@@ -93,8 +47,6 @@ mod_methyl_dmr_manhattan <- function(dt, fdr_max = 0.05) {
     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 7))
 }
 
-## Top-N regions by region-level FDR, as a Δβ bar chart labeled by
-## coordinates (+ overlapping gene when annotated).
 mod_methyl_dmr_topplot <- function(dt, n = 20) {
   d <- dt[!is.na(dt$dmr_fdr) & !is.na(dt$meandiff), , drop = FALSE]
   validate(need(nrow(d) > 0, "No candidate region has both a region-level FDR and a mean Δβ value to rank."))
@@ -111,11 +63,6 @@ mod_methyl_dmr_topplot <- function(dt, n = 20) {
     theme_arthomix()
 }
 
-## Region x sample mean-methylation heatmap for significant DMRs (capped at
-## `max_regions` by region-level FDR - a rendering cap only, table/exports
-## still carry the full set). Each region's per-sample value is the mean β
-## across probes falling inside its coordinates, via GenomicRanges::
-## findOverlaps() (same idiom script04_dmr_sexstratified.R uses).
 mod_methyl_dmr_heatmap <- function(sig_dt, beta_scale, probe_chr, probe_pos, grp, max_regions = 50) {
   validate(need(nrow(sig_dt) > 0, "No DMR passes the current FDR/Δβ thresholds - there is nothing to show in the heatmap."))
   sig_dt <- sig_dt[order(sig_dt$dmr_fdr), , drop = FALSE]
@@ -150,8 +97,6 @@ mod_methyl_dmr_heatmap <- function(sig_dt, beta_scale, probe_chr, probe_pos, grp
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 }
 
-## Human-readable sex label matching mod_methyl_dmp_sex_choices()'s choice
-## names, so the DMR tab's banners say the same thing the DMP tab would.
 mod_methyl_dmr_sex_label <- function(sheet, sex_col, value) {
   ch <- mod_methyl_dmp_sex_choices(sheet, sex_col)
   nm <- names(ch)[ch == value]
@@ -159,10 +104,6 @@ mod_methyl_dmr_sex_label <- function(sheet, sex_col, value) {
   nm[1]
 }
 
-## ChAMPdata::probe.features chromosome/position lookup, used by the
-## default section's region-level CpG inspection to resolve which CpGs
-## from the DMP tab's per-CpG table fall inside a selected DMR's
-## coordinates. Cached for the life of the R process.
 .methyl_dmr_probe_pos_cache <- new.env(parent = emptyenv())
 methyl_champ_probe_positions <- function() {
   if (!is.null(.methyl_dmr_probe_pos_cache$pos)) return(.methyl_dmr_probe_pos_cache$pos)
@@ -176,9 +117,6 @@ methyl_champ_probe_positions <- function() {
   pos
 }
 
-## Extra packages the live region-calling engine needs beyond limma -
-## checked once so live_ui can degrade to a clear message instead of an
-## opaque error if a deployment is missing one.
 methyl_dmr_engine_pkgs_ok <- function() {
   requireNamespace("DMRcate", quietly = TRUE) &&
     requireNamespace("GenomicRanges", quietly = TRUE) &&
@@ -186,13 +124,6 @@ methyl_dmr_engine_pkgs_ok <- function() {
     requireNamespace("S4Vectors", quietly = TRUE)
 }
 
-## UI for the SVA tab's live engine (Upload/GEO-fetched data). Deliberately
-## mirrors mod_methyl_dmp.R's own mod_methyl_svalive_panel_ui() (same
-## fluidRow(4,8) split, same control types, same svalive_* input naming) so
-## the SVA tab reads as one consistent pattern across both modules, with the
-## DMR-specific controls (seeding p-value, region-definition thresholds,
-## advanced lambda/C) added the same way the "DMR" tab's own live_ui
-## exposes them.
 mod_methyl_dmr_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
   sheet <- methyl_dataset$sample_sheet
   cols <- colnames(sheet)
@@ -258,8 +189,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ================= 1. Default analysis (GSE42861) =====================
-
     default_data <- reactive({
       if (!METH_DATA_AVAILABLE) return(NULL)
       list(
@@ -269,10 +198,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$default_ui <- renderUI({
-      ## Three data sources this tab has to cover, mirroring mod_methyl_dmp.R's
-      ## own SVA tab exactly: preloaded (reproduced, precomputed - below),
-      ## Upload/GEO with no data yet, and Upload/GEO with data loaded (live
-      ## SVA-adjusted DMR engine, further down this file).
       if (!isTRUE(methyl_dataset$preloaded)) {
         if (is.null(methyl_dataset$beta)) {
           return(div(class = "card",
@@ -336,7 +261,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## Gated behind "Run DMR Analysis" (same idea as mod_methyl_dmp.R's sva_run).
     d_run <- eventReactive(input$d_run_btn, {
       d <- default_data(); req(d)
       df <- if (identical(input$d_sex, "male")) d$dmr_m else d$dmr_f
@@ -423,11 +347,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = intersect(c("meandiff", "maxdiff", "Stouffer", "dmr_fdr"), show_cols), digits = 4)
     })
-    ## Workaround: DT tables nested inside two levels of dynamic renderUI
-    ## never get sent to the browser under Shiny's default suspendWhenHidden
-    ## visibility tracking in this layout (confirmed server-side via
-    ## testServer - the data/columns are correct). Forcing this and every
-    ## other DT output here to always compute/send fixes it.
     outputOptions(output, "d_table", suspendWhenHidden = FALSE)
 
     output$d_download_full <- downloadHandler(
@@ -465,11 +384,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## ---- Region-level CpG inspection (default section) --------------------
-    ## Per-sample β values aren't available for the preloaded pipeline's
-    ## reproduced results (only completed result tables are bundled), so
-    ## this shows constituent CpGs' per-CpG Δβ/FDR from the DMP tab's
-    ## default analysis instead.
     d_region_selected <- reactive({
       sel <- input$d_table_rows_selected
       req(length(sel) == 1)
@@ -515,20 +429,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = c("dbeta", "p_bacon", "fdr_bacon"), digits = 4)
     })
-    outputOptions(output, "d_region_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
-
-    ## ================= 1b. Live SVA-adjusted engine (Upload / GEO) ========
-    ## Same "SVA" tab, shown instead of the block above whenever the active
-    ## dataset isn't the preloaded reference cohort - see
-    ## mod_methyl_dmr_svalive_panel_ui() for the panel this drives, and
-    ## mod_methyl_dmp.R's own live SVA engine for the method being mirrored.
-    ## Reuses mod_methyl_sva_fit() to estimate surrogate variables and
-    ## bacon::bacon() to bias/inflation-correct the resulting per-CpG
-    ## statistics before they seed and rank DMRcate's regions - the same
-    ## method the precomputed panel above reproduces, run live here against
-    ## whatever dataset is actually loaded. Always applies the correction
-    ## (no plain/adjusted toggle - see the separate "DMR" tab below for the
-    ## fast, unadjusted counterpart).
+    outputOptions(output, "d_region_table", suspendWhenHidden = FALSE)
 
     output$svalive_level_ui <- renderUI({
       req(input$svalive_group_col)
@@ -585,7 +486,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       beta0 <- methyl_dataset$beta[, common, drop = FALSE]
       ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
 
-      ## ---- sex subset --------------------------------------------------
       sex_choice <- input$svalive_sex %||% "__all__"
       sc <- sex_col()
       sex_label <- "All samples"
@@ -598,15 +498,13 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         sex_label <- mod_methyl_dmr_sex_label(sheet, sc, sex_choice)
       }
 
-      ## ---- group subset --------------------------------------------------
       grp_raw <- as.character(ph0[[input$svalive_group_col]])
       keep_grp <- !is.na(grp_raw) & grp_raw %in% c(input$svalive_ref, input$svalive_comp)
       beta1 <- beta0[, keep_grp, drop = FALSE]
       ph1 <- ph0[keep_grp, , drop = FALSE]
       grp <- factor(grp_raw[keep_grp], levels = c(input$svalive_ref, input$svalive_comp))
-      rm(beta0)  ## no further use once beta1 exists; frees a full-size copy
+      rm(beta0)
 
-      ## ---- optional covariates (complete cases only) ----------------------
       covariate_cols <- input$svalive_covariates %||% character(0)
       cov_df <- NULL
       if (length(covariate_cols) > 0) {
@@ -626,8 +524,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         sprintf("Each group needs at least 3 samples to fit a model (Group 1 \"%s\": %d, Group 2 \"%s\": %d).",
                 input$svalive_ref, n_ref, input$svalive_comp, n_comp)))
 
-      ## ---- probe filters (missingness / variance / SNP / position), BEFORE
-      ## the M-value transform -------------------------------------------------
       is_m_scale <- identical(methyl_dataset$input_scale, "m")
       beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
 
@@ -642,8 +538,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         keep_probe <- keep_probe & f_snp$keep
         snp_note <- f_snp$note
       }
-      ## Region calling needs a chromosome + position for every tested probe;
-      ## probes absent from the manifest can't be placed.
       a <- ar$anno
       hit <- match(rownames(beta_scale_full), rownames(a))
       has_pos <- !is.na(hit) & !is.na(a$chr[hit]) & !is.na(a$pos[hit])
@@ -652,14 +546,12 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         "Fewer than 20 CpGs remain after the missingness/variance/SNP/position filters. Relax the filters and try again."))
 
       beta1 <- beta1[keep_probe, , drop = FALSE]
-      if (is_m_scale) rm(beta_scale_full)  ## extra copy only in this branch
-      gc(FALSE)  ## reclaim before the memory-heavy limma fit below
+      if (is_m_scale) rm(beta_scale_full)
+      gc(FALSE)
 
-      ## ---- beta/M-value matrices (filtered subset only) ---------------------
       m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
       beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
 
-      ## ---- SVA-adjusted design + limma fit + bacon correction --------------
       incProgress(0.3, detail = "Estimating surrogate variables (sva::sva)")
       sv_fit <- mod_methyl_sva_fit(m, grp, cov_df)
       design <- sv_fit$design
@@ -686,13 +578,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       hit2 <- match(rownames(tt), rownames(a))
       chr <- a$chr[hit2]; pos <- a$pos[hit2]
 
-      ## ---- CpGannotated + DMRcate region calling ----------------------------
-      ## Same construction as the precomputed pipeline's build_annot()
-      ## (script04_dmr_sexstratified.R): a GRanges of per-CpG stat/rawpval/
-      ## diff/ind.fdr/is.sig, seeded and ranked on the bacon-corrected
-      ## p-value rather than the raw limma p-value - matching the precomputed
-      ## panel above, which seeds on the same SVA-adjusted, bacon-corrected
-      ## statistics.
       seed_p <- input$svalive_seed_p %||% 0.05
       ind_fdr <- stats::p.adjust(p_bacon, "BH")
       requireNamespace("DMRcate", quietly = TRUE)
@@ -731,9 +616,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       dt <- dt[order(dt$dmr_fdr), , drop = FALSE]
       dt$dmr_id <- sprintf("DMR%03d", seq_len(nrow(dt)))
 
-      ## Region-level per-group mean methylation, computed from the filtered
-      ## beta matrix and reported alongside DMRcate's meandiff/maxdiff, via
-      ## a vectorized region-CpG join (GenomicRanges::findOverlaps()).
       region_gr <- GenomicRanges::GRanges(dt$seqnames, IRanges::IRanges(dt$start, dt$end))
       probe_gr <- GenomicRanges::GRanges(chr, IRanges::IRanges(pos, pos))
       hits <- GenomicRanges::findOverlaps(probe_gr, region_gr)
@@ -775,11 +657,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         n_regions = nrow(r$dt),
         n_sig = sum(!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr < 0.05, na.rm = TRUE)
       )
-      ## Publishes the full live SVA-adjusted region table for Candidate CpGs
-      ## (Module-DMR Overlap) to pick up automatically - the more
-      ## scientifically appropriate table to feed downstream, mirroring
-      ## METHODS_dmr_sexstratified.md's own framing that the SVA-adjusted
-      ## panel "is the panel actually used downstream".
       methyl_results$dmr_table <- r$dt
       methyl_results$dmr_meta <- list(comp = r$comp, ref = r$ref, sex_label = r$sex_label)
       svalive_has_run(TRUE)
@@ -920,7 +797,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = intersect(c("ref_mean_beta", "comp_mean_beta", "meandiff", "maxdiff", "Stouffer", "dmr_fdr"), show_cols), digits = 4)
     })
-    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
+    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)
 
     output$download_svalive_full <- downloadHandler(
       filename = function() { r <- svalive_result(); sprintf("dmr_sva_%s_vs_%s_%s_complete.csv", r$comp, r$ref, gsub(" ", "_", r$sex_label)) },
@@ -988,10 +865,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## ---- Region-level CpG inspection (SVA-adjusted live section) ----------
-    ## Verifies a selected region is a coordinated, multi-CpG change rather
-    ## than a single isolated CpG - identical in spirit to the "DMR" tab's
-    ## own region-level inspection below.
     svalive_region_selected <- reactive({
       sel <- input$svalive_table_rows_selected
       req(length(sel) == 1)
@@ -1042,12 +915,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       DT::datatable(long, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = d$cpg, digits = 4)
     })
-    outputOptions(output, "svalive_region_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
-
-    ## ================= 2. DMR Analysis (configurable live engine) =========
-    ## Sex/group/covariate/QC-filter machinery reused directly from
-    ## mod_methyl_dmp.R's live engine; the per-CpG limma fit below is the
-    ## same step, extended with DMRcate region calling on top.
+    outputOptions(output, "svalive_region_table", suspendWhenHidden = FALSE)
 
     sex_col <- reactive({ mod_methyl_dmp_sex_col(methyl_dataset$sample_sheet) })
 
@@ -1068,11 +936,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$live_ui <- renderUI({
-      ## Available whenever a real matrix is loaded (upload, or the
-      ## preloaded dataset's own live matrix if bundled). Offers an
-      ## All-Samples live region call plus single-sex live reruns, in
-      ## addition to the Female/Male panels above which only reproduce the
-      ## published pipeline's precomputed DMRcate tables.
       if (!methyl_dmr_engine_pkgs_ok()) {
         return(div(class = "card",
           div(class = "card-title", icon("triangle-exclamation"), "DMR Analysis"),
@@ -1215,7 +1078,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       beta0 <- methyl_dataset$beta[, common, drop = FALSE]
       ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
 
-      ## ---- sex subset --------------------------------------------------
       sex_choice <- input$live_sex %||% "__all__"
       sc <- sex_col()
       sex_label <- "All samples"
@@ -1228,15 +1090,13 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         sex_label <- mod_methyl_dmr_sex_label(sheet, sc, sex_choice)
       }
 
-      ## ---- group subset --------------------------------------------------
       grp_raw <- as.character(ph0[[input$live_group_col]])
       keep_grp <- !is.na(grp_raw) & grp_raw %in% c(input$live_ref, input$live_comp)
       beta1 <- beta0[, keep_grp, drop = FALSE]
       ph1 <- ph0[keep_grp, , drop = FALSE]
       grp <- factor(grp_raw[keep_grp], levels = c(input$live_ref, input$live_comp))
-      rm(beta0)  ## no further use once beta1 exists; frees a full-size copy
+      rm(beta0)
 
-      ## ---- optional covariates (complete cases only) ----------------------
       covariate_cols <- input$live_covariates %||% character(0)
       cov_df <- NULL
       if (length(covariate_cols) > 0) {
@@ -1256,14 +1116,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         sprintf("Each group needs at least 3 samples to fit a model (Group 1 \"%s\": %d, Group 2 \"%s\": %d).",
                 input$live_ref, n_ref, input$live_comp, n_comp)))
 
-      ## ---- probe filters (missingness / variance / SNP / position), BEFORE
-      ## the M-value transform -------------------------------------------------
-      ## Filtering runs on beta1 itself (no extra copy needed when
-      ## input_scale=="beta", the common case; only the M-value-upload path
-      ## needs one temporary beta-scale conversion first). `m`/`beta_scale`
-      ## are then derived only from the already-filtered subset - keeps at
-      ## most one full-size matrix alive at a time on the ~400k-probe array,
-      ## instead of 3+ copies from converting before filtering.
       is_m_scale <- identical(methyl_dataset$input_scale, "m")
       beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
 
@@ -1278,8 +1130,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         keep_probe <- keep_probe & f_snp$keep
         snp_note <- f_snp$note
       }
-      ## Region calling needs a chromosome + position for every tested probe;
-      ## probes absent from the manifest can't be placed.
       a <- ar$anno
       hit <- match(rownames(beta_scale_full), rownames(a))
       has_pos <- !is.na(hit) & !is.na(a$chr[hit]) & !is.na(a$pos[hit])
@@ -1288,14 +1138,12 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         "Fewer than 20 CpGs remain after the missingness/variance/SNP/position filters. Relax the filters and try again."))
 
       beta1 <- beta1[keep_probe, , drop = FALSE]
-      if (is_m_scale) rm(beta_scale_full)  ## extra copy only in this branch
-      gc(FALSE)  ## reclaim before the memory-heavy limma fit below
+      if (is_m_scale) rm(beta_scale_full)
+      gc(FALSE)
 
-      ## ---- beta/M-value matrices (filtered subset only) ---------------------
       m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
       beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
 
-      ## ---- design + limma fit (per-CpG statistics feeding DMRcate) ---------
       design_grp <- stats::model.matrix(~0 + grp)
       colnames(design_grp) <- levels(grp)
       cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
@@ -1326,16 +1174,8 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       hit2 <- match(rownames(tt), rownames(a))
       chr <- a$chr[hit2]; pos <- a$pos[hit2]
 
-      ## ---- CpGannotated + DMRcate region calling ----------------------------
-      ## Same construction as script04_dmr_sexstratified.R's build_annot():
-      ## a GRanges of per-CpG stat/rawpval/diff/ind.fdr/is.sig, built
-      ## directly (not via cpg.annotate()'s internal refit) so DMRcate
-      ## operates on exactly the limma fit above. `is.sig` seeds candidate
-      ## regions from the raw CpG-level p-value (a DMRcate tuning parameter,
-      ## see ?dmrcate "pcutoff"), separate from `ind.fdr`.
       seed_p <- input$live_seed_p %||% 0.05
       ind_fdr <- stats::p.adjust(tt$P.Value, "BH")
-      ## CpGannotated S4 class needs DMRcate's namespace loaded before methods::new() below.
       requireNamespace("DMRcate", quietly = TRUE)
       gr <- GenomicRanges::GRanges(
         seqnames = chr, ranges = IRanges::IRanges(pos, pos),
@@ -1372,9 +1212,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       dt <- dt[order(dt$dmr_fdr), , drop = FALSE]
       dt$dmr_id <- sprintf("DMR%03d", seq_len(nrow(dt)))
 
-      ## Region-level per-group mean methylation, computed from the filtered
-      ## beta matrix and reported alongside DMRcate's meandiff/maxdiff, via
-      ## a vectorized region-CpG join (GenomicRanges::findOverlaps()).
       region_gr <- GenomicRanges::GRanges(dt$seqnames, IRanges::IRanges(dt$start, dt$end))
       probe_gr <- GenomicRanges::GRanges(chr, IRanges::IRanges(pos, pos))
       hits <- GenomicRanges::findOverlaps(probe_gr, region_gr)
@@ -1414,11 +1251,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         n_regions = nrow(r$dt),
         n_sig = sum(!is.na(r$dt$dmr_fdr) & r$dt$dmr_fdr < 0.05, na.rm = TRUE)
       )
-      ## Publishes the full live region table for Candidate CpGs (Module-DMR
-      ## Overlap) to pick up automatically, without a re-upload, once this ran
-      ## against an uploaded/GEO dataset - skipped for preloaded since
-      ## Candidate CpGs' own "Use Preloaded Data" path reproduces the
-      ## published DMR results from static files instead.
       if (!isTRUE(methyl_dataset$preloaded)) {
         methyl_results$dmr_table <- r$dt
         methyl_results$dmr_meta <- list(comp = r$comp, ref = r$ref, sex_label = r$sex_label)
@@ -1426,9 +1258,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       live_has_run(TRUE)
     })
 
-    ## FDR/Δβ/direction/CpG-count/width stay live-adjustable after a run;
-    ## only sex/group/covariate/seeding/lambda/C/probe-filter changes (which
-    ## change what was actually called) require clicking Run again.
     live_filtered <- reactive({
       r <- live_result()
       max_w <- if (isTRUE((input$live_maxwidth %||% 0) > 0)) input$live_maxwidth else Inf
@@ -1564,7 +1393,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = intersect(c("ref_mean_beta", "comp_mean_beta", "meandiff", "maxdiff", "Stouffer", "dmr_fdr"), show_cols), digits = 4)
     })
-    outputOptions(output, "live_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
+    outputOptions(output, "live_table", suspendWhenHidden = FALSE)
 
     output$download_live_full <- downloadHandler(
       filename = function() { r <- live_result(); sprintf("dmr_%s_vs_%s_%s_complete.csv", r$comp, r$ref, gsub(" ", "_", r$sex_label)) },
@@ -1630,11 +1459,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## ---- Region-level CpG inspection (live section) ------------------------
-    ## Verifies a selected region is a coordinated, multi-CpG change rather
-    ## than a single isolated CpG. Unlike the default section, real
-    ## per-sample β values are available, so mod_methyl_dmp_betadist() can
-    ## be reused directly for the per-CpG-by-group plot.
     live_region_selected <- reactive({
       sel <- input$live_table_rows_selected
       req(length(sel) == 1)
@@ -1685,6 +1509,6 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       DT::datatable(long, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = d$cpg, digits = 4)
     })
-    outputOptions(output, "live_region_table", suspendWhenHidden = FALSE)  ## see d_table's own comment above
+    outputOptions(output, "live_region_table", suspendWhenHidden = FALSE)
   })
 }

@@ -1,14 +1,6 @@
 ## Module 3 (Multiomics) - UI/E2E: opens every one of the 7 MULTI_MODULES
 ## submodule cards (via their "Add" toggle - Sub-modules tab mechanism,
 ## "mo_" id_prefix) and confirms each renders with no shiny-output-error,
-## then verifies one real cross-module data-flow handoff (Dataset Workspace
-## -> Overview's real Cohort Harmonization run) end to end through the
-## actual browser, not just testServer(). Mirrors test-transcriptomics-
-## submodules-ui.R's / test-methylomics-submodules-ui.R's approach.
-##
-## Like every other AppDriver-based E2E test in this project, this requires
-## a confirmed Supabase test account (ARTHOMIX_TEST_EMAIL/
-## ARTHOMIX_TEST_PASSWORD) - skips cleanly without one rather than failing.
 
 skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
@@ -28,7 +20,6 @@ test_that("every Multiomics sub-module tab opens and renders with no output erro
   app$set_inputs(sidebar_tabs = "multiomics")
   app$wait_for_idle(timeout = 20 * 1000)
 
-  ## Every MULTI_MODULES config id, in registry order (see R/submodules_registry.R).
   mo_ids <- c("overview", "integration", "stratification", "biomarker", "concordance", "pathway", "biomarkercard")
 
   app$set_inputs(mo_menu = "Sub-modules")
@@ -61,7 +52,7 @@ test_that("Dataset Workspace -> Overview data flow: loading the preloaded RA ant
   app$set_inputs(`mo_dataset-preloaded_pick` = "ra_antitnf")
   app$set_inputs(`mo_dataset-preloaded_cell` = "female_Etanercept")
   app$click("mo_dataset-load_preloaded_btn")
-  app$wait_for_idle(timeout = 60 * 1000)  ## real DIABLO-fit-derived load, even cached can take a moment
+  app$wait_for_idle(timeout = 60 * 1000)
 
   app$set_inputs(mo_menu = "Sub-modules")
   app$wait_for_idle(timeout = 20 * 1000)
@@ -70,7 +61,5 @@ test_that("Dataset Workspace -> Overview data flow: loading the preloaded RA ant
 
   html <- app$get_html("body")
   expect_false(grepl("shiny-output-error", html, fixed = TRUE))
-  ## The active-dataset banner (multi_active_dataset_banner()) should now say
-  ## "preloaded" rather than "No active Multi-Omics dataset yet".
   expect_true(grepl("Preloaded Dataset", html, fixed = TRUE))
 })

@@ -1,10 +1,7 @@
 ## R/methylomics/functions/idat_metrics.R
 ## QC metrics derivable only from raw IDAT (RGChannelSet): detection p-values,
 ## bead counts, bisulfite conversion, median meth/unmeth intensity. Each function
-## returns list(ok = FALSE, reason = ...) instead of throwing.
 
-## Raw beta matrix (minfi::preprocessRaw(), unnormalized) plus per-probe
-## detection p-value and bead-count matrices, used by qc.R's probe filters.
 methyl_idat_derive <- function(rg_set) {
   if (is.null(rg_set) || !requireNamespace("minfi", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "minfi is required to process raw IDAT input."))
@@ -22,8 +19,6 @@ methyl_idat_derive <- function(rg_set) {
   list(ok = TRUE, mset = mset, beta = beta, detp = detp, beadcount = beadcount)
 }
 
-## Per-sample bisulfite conversion efficiency (%) via wateRmelon::bscon() on
-## the array's built-in conversion control probes.
 methyl_bisulfite_conversion <- function(rg_set) {
   if (is.null(rg_set) || !requireNamespace("wateRmelon", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "Bisulfite conversion efficiency requires raw IDAT input and the wateRmelon package."))
@@ -33,8 +28,6 @@ methyl_bisulfite_conversion <- function(rg_set) {
   list(ok = TRUE, pct = pct)
 }
 
-## Per-sample median methylated/unmethylated intensity via minfi::getQC() -
-## the standard low-intensity-sample screen.
 methyl_median_intensity <- function(mset) {
   if (is.null(mset) || !requireNamespace("minfi", quietly = TRUE)) {
     return(list(ok = FALSE, reason = "Median intensity requires raw IDAT input."))

@@ -1,9 +1,7 @@
 ## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing_explore.R
 ## Data Exploration tab: standalone EDA/QC module (own raw-data upload, own
 ## namespace "eda") - independent of the shared `dataset` reactiveValues,
-## never reads, writes, or transforms them.
 
-## Tunable performance caps for large omics-scale uploads.
 EDA_MAX_POOLED_VALUES   <- 200000  # pooled histogram/density/Q-Q sampling cap
 EDA_MAX_SHAPIRO_N       <- 5000    # stats::shapiro.test()'s own hard cap is 5000
 EDA_MAX_VARIANCE_FEATURES <- 2000  # top-variance features used for PCA/correlation/clustering
@@ -11,8 +9,6 @@ EDA_MAX_MEANVAR_POINTS  <- 5000    # points drawn on the mean-variance scatter
 EDA_MAX_VIOLIN_FEATURES <- 3000    # features sampled per violin plot
 EDA_MAX_DENSITY_SAMPLES <- 200     # per-sample density overlay / violin sample cap
 
-## Parse an uploaded feature x sample matrix (rows = features, first column =
-## ID); never throws, returns list(ok = FALSE, error = <message>) instead.
 eda_parse_upload <- function(datapath, filename) {
   df <- tryCatch(
     as.data.frame(data.table::fread(datapath, showProgress = FALSE,
@@ -55,17 +51,6 @@ eda_parse_upload <- function(datapath, filename) {
 
   numeric_part <- rest[, is_num_col, drop = FALSE]
   expr <- vapply(numeric_part, function(col) suppressWarnings(as.numeric(as.character(col))), numeric(nrow(numeric_part)))
-  ## vapply() only ever collapses its result to a plain (named) vector - never
-  ## a matrix - when its FUN.VALUE template has length 1, i.e. when
-  ## nrow(numeric_part) == 1 (a single-feature-row upload): a single-
-  ## sample-column upload with many feature rows already returns a proper
-  ## matrix on its own (FUN.VALUE length > 1), confirmed directly, so this
-  ## branch is reached ONLY for the single-row case. Reshape into ONE row
-  ## (the single feature) by however many sample columns there actually
-  ## are, using vapply's own names(expr) (every sample's name) - the
-  ## previous `ncol = 1, colnames(numeric_part)[1]` reshape instead treated
-  ## the vector as one column of many rows and kept only the FIRST sample's
-  ## name, corrupting the matrix for every upload with >1 sample column here.
   if (is.null(dim(expr))) expr <- matrix(expr, nrow = 1, dimnames = list(NULL, names(expr)))
   rownames(expr) <- ids
   colnames(expr) <- colnames(numeric_part)
@@ -80,8 +65,6 @@ eda_parse_upload <- function(datapath, filename) {
     n_rows_orig = nrow(df), n_cols_orig = ncol(df), filename = filename
   )
 }
-
-## Pure statistics helpers (no Shiny/reactive dependency).
 
 eda_skewness <- function(x) {
   x <- x[is.finite(x)]; n <- length(x)
@@ -99,7 +82,6 @@ eda_kurtosis <- function(x) {
   (sum((x - m)^4) / n) / s^4 - 3
 }
 
-## Iglewicz-Hoaglin modified z-score - robust to outliers, unlike mean/sd z.
 eda_robust_z <- function(x) {
   med <- stats::median(x, na.rm = TRUE)
   mad <- stats::mad(x, na.rm = TRUE)
@@ -115,15 +97,12 @@ eda_skew_label <- function(skew) {
   else "Strongly skewed"
 }
 
-## Dataset Overview section: missingness, duplicates, constant/near-zero-
-## variance features, and pooled summary stats.
 eda_overview <- function(parsed) {
   m <- parsed$expr
   vals <- as.numeric(m)
   finite_vals <- vals[is.finite(vals)]
   ids <- rownames(m)
 
-  ## Per-column distribution fingerprint to flag duplicate sample columns cheaply.
   fp <- apply(m, 2, function(col) {
     col <- col[is.finite(col)]
     if (length(col) == 0) return("empty")
@@ -154,7 +133,6 @@ eda_overview <- function(parsed) {
   )
 }
 
-## Feature-level (margin = 1) or sample-level (margin = 2) descriptive stats, finite values only.
 eda_descriptive_stats <- function(m, margin) {
   agg <- function(v) {
     v <- v[is.finite(v)]
@@ -177,8 +155,6 @@ eda_descriptive_stats <- function(m, margin) {
   df
 }
 
-## Pooled skewness/kurtosis/Shapiro-Wilk on a capped sample (Shapiro caps at
-## n = 5000 and gets oversensitive on real omics data well before that).
 eda_normality_summary <- function(m) {
   vals <- as.numeric(m); vals <- vals[is.finite(vals)]
   skew <- eda_skewness(vals); kurt <- eda_kurtosis(vals)
@@ -197,9 +173,6 @@ eda_normality_summary <- function(m) {
   )
 }
 
-## Normalization-status verdict + evidence narrative, built on the shared
-## detection primitives (detect_expr_data_type()/summarize_norm_diagnostics()/
-## needs_quantile_norm() in global.R, also used by Batch Correction/Overview).
 eda_normalization_assessment <- function(expr) {
   m <- as.matrix(expr)
   finite_vals <- m[is.finite(m)]
@@ -243,7 +216,6 @@ eda_normalization_assessment <- function(expr) {
        between_sample_differs = differs, frac_integer = frac_integer, has_negative = has_negative, diag = diag)
 }
 
-## Median-impute for diagnostic use only - never overwrites the uploaded data.
 eda_impute_median <- function(m) {
   mm <- m
   mm[!is.finite(mm)] <- NA
@@ -252,7 +224,6 @@ eda_impute_median <- function(m) {
     na_idx <- which(is.na(mm), arr.ind = TRUE)
     if (nrow(na_idx) > 0) mm[na_idx] <- row_med[na_idx[, 1]]
   }
-  ## Fall back to the matrix-wide median for features missing in every sample.
   if (anyNA(mm)) mm[is.na(mm)] <- stats::median(mm, na.rm = TRUE)
   mm
 }
@@ -285,10 +256,7 @@ eda_sample_correlation <- function(m) {
 
 eda_hclust <- function(cor_mat) stats::hclust(stats::as.dist(1 - cor_mat), method = "average")
 
-## Sample outlier flags: robust MAD-based QC (compute_sample_qc(), global.R)
-## plus a PCA-distance-from-centroid flag; flags only, never removes anything.
 eda_sample_outliers <- function(m, pca) {
-  ## Median-impute first - compute_sample_qc() has no NA handling of its own.
   qc <- tryCatch(compute_sample_qc(eda_impute_median(m)), error = function(e) NULL)
   if (is.null(qc)) {
     qc <- data.frame(sample = colnames(m), signal = NA_real_, detected = NA_real_, mean_cor = NA_real_,
@@ -308,7 +276,6 @@ eda_sample_outliers <- function(m, pca) {
   qc
 }
 
-## Feature outlier flags: extreme (robust-z) variance/skewness, high missingness.
 eda_feature_outliers <- function(m, desc_df) {
   miss_pct <- rowMeans(is.na(m)) * 100
   var_z <- eda_robust_z(desc_df$var)
@@ -337,7 +304,6 @@ eda_mean_variance_df <- function(m) {
   data.frame(mean = rowMeans(m, na.rm = TRUE), variance = apply(m, 1, stats::var, na.rm = TRUE))
 }
 
-## Diagnostic-only raw-vs-log2 comparison; never written back to the uploaded matrix.
 eda_transform_diagnostic <- function(m) {
   vals <- as.numeric(m); vals <- vals[is.finite(vals)]
   can_log <- mean(vals <= 0) < 0.01
@@ -354,7 +320,6 @@ eda_transform_diagnostic <- function(m) {
        skew_raw = eda_skewness(vals), skew_log = if (!is.null(log_vals)) eda_skewness(log_vals) else NA_real_)
 }
 
-## Plain-language EDA summary, derived entirely from the sections computed above.
 eda_final_summary <- function(overview, norm_assess, normality, samp_outliers, feat_outliers) {
   n_bad_samples <- sum(samp_outliers$n_flags >= 2)
   pct_nzv <- 100 * (overview$n_constant_features + overview$n_near_zero_var_features) / max(1, overview$n_features)
@@ -397,8 +362,6 @@ eda_final_summary <- function(overview, norm_assess, normality, samp_outliers, f
   list(quality = quality, normalization = norm_assess$label, distribution = normality$label,
        outliers = outlier_state, missing = missing_state, variance = variance_state, next_steps = next_steps)
 }
-
-## Plot builders (pure functions: data in, ggplot/plotly object out).
 
 eda_value_axis_label <- function(m) {
   v <- m[is.finite(m)]
@@ -569,9 +532,6 @@ eda_scree_plot <- function(pca, max_pcs = 10) {
     labs(x = NULL, y = "Variance explained (%)") + theme_arthomix()
 }
 
-## Small UI-composition helpers.
-
-## Headline normalization-assessment card (uses the .explore-status-* styles from custom.css).
 eda_status_panel_ui <- function(norm_assess, overview) {
   state_class <- switch(norm_assess$verdict, normalized = "explore-status-good",
                           not_normalized = "explore-status-info", "explore-status-unknown")
@@ -614,8 +574,6 @@ eda_summary_card_ui <- function(summ) {
   )
 }
 
-## Cheap structural summary shown right after upload (dims, column types,
-## preview table); heavier analysis stays gated behind the Run button.
 eda_upload_info_ui <- function(ns, parsed) {
   h <- expr_raw_health(parsed$expr)
   div(class = "card",
@@ -640,8 +598,6 @@ eda_upload_info_ui <- function(ns, parsed) {
   )
 }
 
-## Module UI.
-
 mod_data_exploration_ui <- function(id) {
   ns <- NS(id)
   div(
@@ -651,16 +607,11 @@ mod_data_exploration_ui <- function(id) {
   )
 }
 
-## Module server.
-
 mod_data_exploration_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
     raw_data <- reactiveVal(NULL)
-    ## Bumped on every upload; lets results_ui tell a stale eda_result() (still
-    ## cached from a PRIOR file - eda_result only recomputes on run_btn, not on
-    ## raw_data) apart from one that actually matches the currently uploaded file.
     raw_version <- reactiveVal(0L)
 
     observeEvent(input$raw_file, {
@@ -702,7 +653,6 @@ mod_data_exploration_server <- function(id) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## Run: full pipeline, computed once per click, cached until re-run or new upload.
     eda_result <- eventReactive(input$run_btn, {
       parsed <- raw_data()
       validate(need(isTRUE(parsed$ok), "Upload a valid raw data file first."))
@@ -750,7 +700,6 @@ mod_data_exploration_server <- function(id) {
            run_version = raw_version())
     })
 
-    ## ---- A. Dataset overview ----------------------------------------------
     output$overview_ui <- renderUI({
       res <- eda_result(); o <- res$overview
       tagList(
@@ -777,7 +726,6 @@ mod_data_exploration_server <- function(id) {
         DT::formatRound(columns = "value", digits = 3)
     })
 
-    ## ---- B. Descriptive statistics ----------------------------------------
     output$feat_stats_table <- DT::renderDataTable({
       df <- eda_result()$feat_stats
       DT::datatable(df, rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
@@ -789,14 +737,12 @@ mod_data_exploration_server <- function(id) {
         DT::formatRound(columns = setdiff(colnames(df), c("sample", "n")), digits = 3)
     })
 
-    ## ---- C. Distribution analysis -----------------------------------------
     output$hist_plot <- renderPlot(eda_hist_plot(eda_result()$pooled_sample, eda_result()$x_label))
     output$density_plot <- renderPlot(eda_density_plot(eda_result()$pooled_sample, eda_result()$x_label))
     output$box_plot <- renderPlot(eda_box_plot(eda_result()$m))
     output$violin_plot <- renderPlot(eda_violin_plot(eda_result()$m))
     output$sample_density_plot <- renderPlot(eda_sample_density_plot(eda_result()$m, x_label = eda_result()$x_label))
 
-    ## ---- D. Normality / distribution assessment ---------------------------
     output$normality_ui <- renderUI({
       n <- eda_result()$normality
       tagList(
@@ -824,7 +770,6 @@ mod_data_exploration_server <- function(id) {
     })
     output$qq_plot <- renderPlot(eda_qq_plot(eda_result()$normality$qq_values))
 
-    ## ---- E/F. Normalization status + outliers ------------------------------
     output$normalization_ui <- renderUI(eda_status_panel_ui(eda_result()$norm_assess, eda_result()$overview))
 
     output$outliers_ui <- renderUI({
@@ -852,7 +797,6 @@ mod_data_exploration_server <- function(id) {
         DT::formatRound(columns = c("variance", "skewness", "pct_missing"), digits = 3)
     })
 
-    ## ---- G. PCA / sample structure ------------------------------------------
     output$pca_ui <- renderUI({
       res <- eda_result()
       if (is.null(res$pca)) {
@@ -871,7 +815,6 @@ mod_data_exploration_server <- function(id) {
     output$pca_plot <- plotly::renderPlotly(eda_pca_plot(eda_result()$pca, eda_result()$samp_outliers))
     output$scree_plot <- renderPlot(eda_scree_plot(eda_result()$pca))
 
-    ## ---- H. Sample correlation / distance ------------------------------------
     output$correlation_ui <- renderUI({
       res <- eda_result()
       if (is.null(res$corr)) {
@@ -890,7 +833,6 @@ mod_data_exploration_server <- function(id) {
     output$corr_heatmap <- renderPlot(eda_corr_heatmap_plot(eda_result()$corr$cor))
     output$dendro_plot <- renderPlot(eda_dendro_plot(eda_result()$corr$cor))
 
-    ## ---- I. Missing data -------------------------------------------------------
     output$missing_ui <- renderUI({
       res <- eda_result()
       tagList(
@@ -907,10 +849,8 @@ mod_data_exploration_server <- function(id) {
                     options = list(dom = "t"), class = "stripe hover compact")
     })
 
-    ## ---- K. Mean-variance relationship -------------------------------------
     output$meanvar_plot <- renderPlot(eda_meanvar_plot(eda_result()$meanvar_df))
 
-    ## ---- L. Before/after transformation diagnostic -------------------------
     output$transform_ui <- renderUI({
       d <- eda_result()$transform_diag
       tagList(
@@ -927,7 +867,6 @@ mod_data_exploration_server <- function(id) {
     })
     output$transform_plot <- renderPlot(eda_transform_diag_plot(eda_result()$transform_diag))
 
-    ## ---- M. Final summary ----------------------------------------------------
     output$summary_ui <- renderUI(eda_summary_card_ui(eda_result()$summary))
 
     output$download_summary <- downloadHandler(
@@ -949,7 +888,6 @@ mod_data_exploration_server <- function(id) {
       }
     )
 
-    ## Assembles every section above into the results UI, only after a successful run.
     output$results_ui <- renderUI({
       cur_version <- raw_version()
       res <- tryCatch(eda_result(), error = function(e) NULL)

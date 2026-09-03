@@ -17,7 +17,7 @@ test_that("dge_clean_expr_matrix() collapses duplicate feature IDs to their mean
 
 test_that("dge_clean_expr_matrix() drops all-missing rows and all-missing columns", {
   m <- matrix(c(NA, NA, 1, 2, 3, 4), nrow = 2, byrow = TRUE, dimnames = list(c("ALLNA", "G2"), c("S1", "S2", "S3")))
-  m["G2", "S1"] <- NA  ## S1 not fully missing overall (ALLNA row is NA too, but G2 has real values elsewhere)
+  m["G2", "S1"] <- NA
   out <- dge_clean_expr_matrix(m)
   expect_false("ALLNA" %in% rownames(out$mat))
   expect_true(any(grepl("no data \\(all missing\\) removed", out$notes)))

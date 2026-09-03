@@ -1,17 +1,11 @@
 ## Module 1 (Transcriptomics) - Cross-Tissue Validation's pure functions
 ## specific to this submodule (ct_cv_eval/ct_fit_sex reuse the same CV/model-
 ## fitting pattern already thoroughly tested in test-diagnostic-functions.R
-## for mod_diagnostic.R's diag_cv_auc/diag_fit_sex, so are not re-verified
-## here in the same depth - covering ct_biomarker_flag/ct_gene_auc/
-## ct_discovery_table/ct_voom_de_table/ct_build_uploaded_val instead, the
-## logic genuinely unique to cross-tissue validation).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
-
-## ---- ct_biomarker_flag() ---------------------------------------------------
 
 test_that("ct_biomarker_flag() requires concordant direction, significant synovium DE, and AUC >= 0.70 all at once", {
   d <- data.frame(
@@ -20,9 +14,6 @@ test_that("ct_biomarker_flag() requires concordant direction, significant synovi
     auc_bestdir = c(0.75, 0.75, 0.75, 0.75, 0.65)
   )
   flags <- ct_biomarker_flag(d, sig_cut = 0.05)
-  ## row1: all three pass -> TRUE. row2: discordant -> FALSE. row3: syn_adjP
-  ## not significant -> FALSE. row4: identical to row1 (all pass) -> TRUE.
-  ## row5: AUC below 0.70 -> FALSE.
   expect_equal(flags, c(TRUE, FALSE, FALSE, TRUE, FALSE))
 })
 
@@ -33,22 +24,17 @@ test_that("ct_biomarker_flag() treats any NA input as not-a-biomarker rather tha
   expect_false(ct_biomarker_flag(d2, sig_cut = 0.05))
 })
 
-## ---- ct_gene_auc() ----------------------------------------------------------
-
 test_that("ct_gene_auc() returns the best-direction AUC (always >= 0.5) regardless of the sign of separation", {
   set.seed(140)
   y <- factor(rep(c("HC", "RA"), each = 20), levels = c("HC", "RA"))
-  up <- rnorm(40) + ifelse(y == "RA", 3, 0)     ## RA higher
-  down <- rnorm(40) - ifelse(y == "RA", 3, 0)   ## RA lower
+  up <- rnorm(40) + ifelse(y == "RA", 3, 0)
+  down <- rnorm(40) - ifelse(y == "RA", 3, 0)
   auc_up <- ct_gene_auc(up, y)
   auc_down <- ct_gene_auc(down, y)
   expect_true(auc_up >= 0.5 && auc_up <= 1)
   expect_true(auc_down >= 0.5 && auc_down <= 1)
-  ## Both should recover the same strong separation, just oriented differently.
   expect_equal(auc_up, auc_down, tolerance = 0.15)
 })
-
-## ---- ct_discovery_table() ---------------------------------------------------
 
 test_that("ct_discovery_table() flags a requested gene absent from the synovium data as present=FALSE with all-NA stats", {
   val <- list(
@@ -71,16 +57,13 @@ test_that("ct_discovery_table() correctly flags direction concordance between bl
     tt = data.frame(gene = c("GENE1", "GENE2"), logFC = c(1.2, -0.8), adj.P.Val = c(0.01, 0.01)),
     logcpm = matrix(rnorm(2 * 20, mean = 8), 2, 20, dimnames = list(c("GENE1", "GENE2"), NULL))
   )
-  ## GENE1: blood up, synovium up -> concordant. GENE2: blood up, synovium down -> discordant.
   blood_dir <- list(logfc = c(GENE1 = 1.0, GENE2 = 0.5))
   out <- ct_discovery_table(c("GENE1", "GENE2"), sex_code = NULL, val = val, blood_dir = blood_dir)
   expect_equal(out$concordant, c(TRUE, FALSE))
 })
 
-## ---- ct_voom_de_table() ------------------------------------------------------
-
 test_that("ct_voom_de_table() rejects non-count (negative or fractional) input before attempting any fit", {
-  counts <- matrix(rnorm(100 * 10), 100, 10)  ## negative + fractional values
+  counts <- matrix(rnorm(100 * 10), 100, 10)
   grp <- factor(rep(c("HC", "RA"), each = 5), levels = c("HC", "RA"))
   sex <- rep(c("F", "M"), 5)
   expect_error(ct_voom_de_table(counts, grp, sex), class = "validation")
@@ -98,11 +81,9 @@ test_that("ct_voom_de_table() fits successfully on real raw counts and returns a
   expect_equal(nrow(out$logcpm), nrow(out$tt))
 })
 
-## ---- ct_build_uploaded_val() --------------------------------------------------
-
 ct_val_fixture <- function(n_per_cell = 4, seed = 142) {
   set.seed(seed)
-  n <- n_per_cell * 4  ## 2 sexes x 2 groups
+  n <- n_per_cell * 4
   genes <- paste0("G", 1:200)
   samples <- paste0("S", 1:n)
   grp <- rep(rep(c("HC", "RA"), each = n_per_cell), 2)
@@ -123,7 +104,6 @@ test_that("ct_build_uploaded_val() assembles a val_synovium.rds-shaped object fr
 
 test_that("ct_build_uploaded_val() rejects a cohort where one sex has fewer than 4 samples after group filtering", {
   fx <- ct_val_fixture(n_per_cell = 4)
-  ## Recode all but one male sample to female, leaving only 1 male.
   male_idx <- which(fx$meta$sex == "M")
   fx$meta$sex[male_idx[-1]] <- "F"
   err <- tryCatch(

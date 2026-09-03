@@ -1,12 +1,6 @@
 ## Regression guard for a gap found in the transcriptomics audit (2026-08-26):
 ## neither CIBERSORT (LM22, via IOBR) nor MCP-counter validate that
 ## rownames(expr) are actually HUGO gene symbols - both silently intersect
-## their own marker gene lists against whatever names they're given. An
-## upload keyed by Ensembl IDs, probe IDs, or an unrecognised casing
-## previously produced a low-confidence or degenerate result with no signal
-## to the user short of a hard failure in the rare case IOBR returned zero
-## fraction columns. mod_deconvolution.R's result() now blocks below 10%
-## overlap and warns below 70%, via the standalone deconv_gene_id_overlap_pct().
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -32,7 +26,7 @@ test_that("deconv_gene_id_overlap_pct() sits right at the 10% block threshold fo
   real_genes <- rownames(load_default_dataset()$expr)[1:10]
   fake_genes <- sprintf("ENSG%011d", sample.int(9e8, 90))
   pct <- deconv_gene_id_overlap_pct(c(real_genes, fake_genes))
-  expect_equal(pct, 10)  ## exactly 10/100 = 10% real symbols
+  expect_equal(pct, 10)
 })
 
 test_that("result() blocks a mismatched-gene-ID matrix before running CIBERSORT/MCP-counter", {

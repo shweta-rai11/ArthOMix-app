@@ -1,12 +1,6 @@
 ## Regression guard for a gap found in the transcriptomics audit (2026-08-26):
 ## mod_pp_source_ui()/mod_pp_source_server() - a fully-written per-dataset
 ## upload panel (fileInput + column mapping + filters), instantiated
-## MAX_PP_SOURCES times as `pp_sources` - was never mounted by any renderUI(),
-## so genuine multi-file upload through the Preprocessing tab itself was
-## unreachable; the only way a user's own data reached Preprocessing was
-## indirectly, via the single upload staged once on the Dataset tab. It is
-## now mounted as an "Upload Your Own Data" box, and its results feed into
-## merge_inputs() alongside the bundled-cohort picker.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

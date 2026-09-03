@@ -127,16 +127,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ---- Datasets tab -----------------------------------------------------
-    ## Always visible; content follows whichever pipeline is currently active
-    ## (dataset$geo_ids, set alongside source_type wherever the Dataset tab's
-    ## three pipelines write dataset$source - see mod_dataset.R). Shows the
-    ## real NCBI GEO accession(s) behind the current dataset when there are
-    ## any (every preloaded pick, any successful GEO fetch), or a clear
-    ## "no GEO ID" message otherwise (the common case for an upload, which
-    ## has no known GEO provenance) - never the old fixed 4-source catalog
-    ## regardless of what's actually loaded.
-
     output$sources_ui <- renderUI({
       ids <- dataset$geo_ids %||% character(0)
       if (length(ids) == 0) {
@@ -175,13 +165,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       div(class = "module-grid", cards)
     })
 
-    ## QC tab source picker: raw individual datasets only (no merge/ComBat),
-    ## plus the user's own upload if present.
-
-    ## Isolation: once an upload or GEO fetch is the active pipeline, these
-    ## pickers collapse to that one active dataset only - no preloaded/GEO
-    ## catalog choices at all. The preloaded pipeline keeps today's behavior
-    ## (browse any of the 4 fixed reference sources) unchanged.
     qc_source_choices <- reactive({
       if (identical(dataset$source_type, "uploaded") || identical(dataset$source_type, "geo")) {
         label <- if (identical(dataset$source_type, "geo")) {
@@ -209,8 +192,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       d
     }
 
-    ## Each tab gets its own picker instead of sharing one, since a shared
-    ## conditionalPanel picker doesn't reliably bind once inserted via insertTab.
     output$qc_source_ui_meta <- renderUI({
       selectInput(ns("qc_source_meta"), "Dataset to inspect", choices = qc_source_choices(),
                   selected = qc_source_default(), width = "100%")
@@ -241,24 +222,9 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
     qc_target <- reactive({ req(input$qc_source); resolve_qc_source(input$qc_source) })
 
-    ## The three on-demand panels below cache an eventReactive keyed to a click
-    ## count, which can't be reset server-side - so a stale flag per panel marks
-    ## their cached results as belonging to a previous dataset until re-run.
     qc_stale <- reactiveVal(FALSE)
     norm_stale <- reactiveVal(FALSE)
     filter_stale <- reactiveVal(FALSE)
-    ## Confirmation banner for "Adopt" (below) - kept as its own reactiveVal
-    ## and its own uiOutput, deliberately NOT nested inside norm_apply_ui,
-    ## because adopting writes dataset$expr, which immediately invalidates
-    ## qc_target() and flips norm_stale() TRUE in the SAME reactive flush -
-    ## if the confirmation lived inside norm_apply_ui (gated on
-    ## !norm_stale()), it would be hidden before the user ever saw it
-    ## (verified via testServer: norm_apply_ui's rendered HTML is empty
-    ## immediately after adopt_norm_btn). Cleared on input$qc_source itself
-    ## (the user picking a different dataset to inspect), not on qc_target()
-    ## - qc_target() also changes as a side effect of the adopt write below,
-    ## and clearing on that would wipe the banner in the very same flush
-    ## that sets it.
     adopted_note <- reactiveVal(NULL)
     observeEvent(qc_target(), {
       qc_stale(TRUE); norm_stale(TRUE); filter_stale(TRUE)
@@ -274,8 +240,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           format(nrow(t$meta), big.mark = ","), " samples, ",
           format(nrow(t$expr), big.mark = ","), " features.")
     })
-
-    ## ---- Metadata tab: overview of the selected dataset, unfiltered -------
 
     output$understand_ui <- renderUI({
       t <- qc_target_meta()
@@ -302,8 +266,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       filename = function() paste0(qc_target_meta()$meta$dataset[1] %||% "metadata", "_metadata.csv"),
       content = function(file) write.csv(qc_target_meta()$meta, file, row.names = FALSE)
     )
-
-    ## ---- QC tab: missing-value audit, whole dataset, always on -----------
 
     missing_audit <- reactive({
       df <- qc_target()$meta
@@ -332,8 +294,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       DT::datatable(missing_audit()[, c("field", "n_missing", "pct_missing", "status")],
                      rownames = FALSE, options = list(pageLength = 8, dom = "tp", scrollX = TRUE), class = "stripe hover compact")
     })
-
-    ## ---- QC tab: sample-level outlier detection, run on demand -----------
 
     sample_qc <- eventReactive(input$run_qc_btn, {
       t <- qc_target()
@@ -400,10 +360,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       content = function(file) write.csv(qc_table_display(), file, row.names = FALSE)
     )
 
-    ## ---- QC tab: normalisation check, run on demand -----------------------
-
-    ## Rendered (not updateSelectInput) so choices populate once the tab is
-    ## actually visible, since the server starts before the tab exists in the DOM.
     output$norm_color_by_ui <- renderUI({
       cols <- setdiff(colnames(qc_target()$meta), "sample")
       selectInput(ns("norm_color_by"), "Color by", choices = cols,
@@ -495,9 +451,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                      options = list(pageLength = 8, scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## Live quantile normalisation preview; only adoptable app-wide for the
-    ## user's own upload, since the fixed GEO sources are read-only reference data.
-
     norm_apply_result <- eventReactive(input$apply_norm_btn, {
       expr <- as.matrix(qc_target()$expr)
       normalized <- limma::normalizeBetweenArrays(expr, method = "quantile")
@@ -566,10 +519,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     observeEvent(input$adopt_norm_btn, {
       req(norm_apply_result(), identical(input$qc_source, "active"))
       dataset$expr <- norm_apply_result()$expr_after
-      ## Idempotent: without this guard, adopting a second time in the same
-      ## session (e.g. after uploading fresh data into the same slot) kept
-      ## appending the suffix - "... (quantile-normalised) (quantile-
-      ## normalised)" - instead of just re-stating the already-true fact.
       if (!grepl("(quantile-normalised)", dataset$source, fixed = TRUE)) {
         dataset$source <- paste0(dataset$source, " (quantile-normalised)")
       }
@@ -580,9 +529,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       req(adopted_note())
       div(class = "empty-note", icon("check"), adopted_note())
     })
-
-    ## Server-side DT paging (server = TRUE below) since these matrices run to
-    ## tens of thousands of rows.
 
     expr_table_data <- reactive({
       m <- qc_target_expr()$expr
@@ -602,9 +548,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       filename = function() "expression_matrix.csv",
       content = function(file) data.table::fwrite(expr_table_data(), file)
     )
-
-    ## Builds filter widgets from whatever metadata columns exist: numeric ->
-    ## range slider, low-cardinality categorical -> multi-select, high-cardinality skipped.
 
     filter_spec <- reactive({
       meta <- qc_target()$meta
@@ -627,17 +570,6 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       specs
     })
 
-    ## Filter widget input ids are built from each metadata column's position,
-    ## never the raw column name - GEO's own raw pData column names routinely
-    ## contain spaces and colons (e.g. "disease state:ch1", confirmed live off
-    ## a real GSE93272 fetch), and Shiny's client dispatches messages keyed as
-    ## "inputType:inputId" - a colon (or a space, which breaks the jQuery
-    ## selector/DOM id) inside the id corrupts that routing and throws an
-    ## uncaught "No handler registered for type ..." error that kills the
-    ## whole session (confirmed live: the entire page goes grey/unresponsive -
-    ## a Shiny disconnection, not a rendering glitch). names(specs) has a
-    ## stable order across recomputation for a fixed active dataset, so the
-    ## same column always maps back to the same positional id.
     filter_id <- function(specs, cl) paste0("f_", match(cl, names(specs)))
 
     output$filters <- renderUI({

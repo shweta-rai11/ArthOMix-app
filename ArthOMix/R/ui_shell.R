@@ -1,21 +1,6 @@
 ## R/ui_shell.R
 ## Shared app-shell UI components for the SaaS-dashboard redesign: header,
 ## per-module left sidebar, and the right-column pipeline-summary timeline.
-## These are presentational only - they call into existing inputs/outputs
-## (arthochat_shortcut_ui() from global.R, the "header_search_submit" and
-## "sidebar_nav_*" inputs wired up as new, additive observers in server.R)
-## rather than defining any new reactive/analysis logic. Written so
-## omics_sidebar() can be reused for Methylomics/Cross-Omics/Multi-Omics
-## once those modules exist, not just Transcriptomics.
-
-## ---------------------------------------------------------------------------
-## Header: brand, search (jumps to a module/sub-module on Enter via the
-## "header_search_submit" input, handled in server.R), Ask ArthOChat
-## (same client-side tab-show trick arthochat_shortcut_ui() already uses),
-## a light/dark theme toggle (server.R's theme_toggle_btn observer), and the
-## signed-in user's account menu (email + Log Out - see R/auth/mod_auth_*.R
-## for the auth gate that renders this whole app only once logged in).
-## ---------------------------------------------------------------------------
 
 app_header <- function(user_email = NULL) {
   tagList(
@@ -63,32 +48,6 @@ app_header <- function(user_email = NULL) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Left sidebar: nav items are plain <a class="action-button"> elements (the
-## same minimal pattern shiny::actionLink() itself renders down to), each
-## with an id server.R can observeEvent() on, and a data-match attribute
-## used only client-side (see the JS above) to highlight whichever item's
-## destination tab is currently showing. `nav_items` is a list of
-## list(id=, label=, icon=, match=) - `match` is the exact visible tab title
-## the item navigates to. `extra_sidebar_content` is an optional tag/tagList
-## rendered after the Quick Links block - NULL (the default) renders exactly
-## as before for any caller that omits it. Both Methylomics and
-## Transcriptomics pass arthochat_shortcut_ui(..., compact = TRUE) (global.R)
-## here - the same compact "Open ArthOChat" card already used throughout the
-## transcriptomics sub-modules (e.g. mod_dge.R) - rather than either
-## duplicating a full chat widget per module or leaving the sidebar-level
-## slot empty.
-## ---------------------------------------------------------------------------
-
-## `dynamic_nav_output_id` (optional - only Transcriptomics passes it, see
-## transcriptomicsUI()) names a server-side renderUI() that appends one more
-## shortcut per already-added sub-module, so picking a sub-module from the
-## Sub-modules grid also gives it a permanent sidebar link, not just the
-## fixed nav_items every module already has. Rendered as its own
-## <ul class="sidebar-nav"> (via uiOutput's `container`) immediately after
-## the static one rather than nested inside it - a <div> (uiOutput's normal
-## wrapper) isn't valid directly inside a <ul>, and two adjacent same-class
-## lists still read as one continuous list, so nothing looks different.
 omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_content = NULL, dynamic_nav_output_id = NULL) {
   tags$div(
     class = "omics-sidebar",
@@ -120,15 +79,6 @@ omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_cont
     extra_sidebar_content
   )
 }
-
-## ---------------------------------------------------------------------------
-## Right-column "Pipeline summary" vertical timeline. `steps` is a plain list
-## of list(number=, label=, sublabel=, state=) with state one of
-## "done"/"current"/"future" - computed by the caller from reactive signals
-## that already exist (e.g. mod_preprocessing.R's own n_ready/merged_ok/
-## batch_ok logic and the shared `results` reactiveValues), not by this
-## function.
-## ---------------------------------------------------------------------------
 
 pipeline_summary_ui <- function(steps) {
   tags$div(

@@ -1,8 +1,6 @@
 ## R/transcriptomics/10_Diagnostic_Model/mod_diagnostic.R
 ## Diagnostic Model submodule: fits logistic regression, elastic net, random
 ## forest and SVM classifiers on a user-chosen gene panel, sex-stratified.
-## Model Training splits each sex into Train/Test once and tunes on Train
-## only; Model Testing scores that same fit once on the held-out Test split.
 
 mod_diagnostic_config <- list(
   id = "diagnostic", group = "Biomarker modeling",
@@ -11,11 +9,6 @@ mod_diagnostic_config <- list(
   icon = "stethoscope"
 )
 
-## ---------------------------------------------------------------------------
-## Shared fitting helpers
-## ---------------------------------------------------------------------------
-
-## Per-gene (row) z-score, independent of any other dataset's mean/SD.
 diag_zrows <- function(M) {
   t(apply(M, 1, function(v) {
     s <- stats::sd(v, na.rm = TRUE)
@@ -27,8 +20,6 @@ DIAG_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 
 DIAG_DEFAULT_PARAMS <- list(
   test_frac = 0.3,
-  ## Class weighting shared across all four models: "equal" = unweighted,
-  ## "balanced" = inverse-frequency, "manual" = fixed comparison:reference ratio.
   class_weight_mode = "equal", class_weight_ratio = 1,
   lr_cv_folds = 5,
   enet_cv_folds = 5, enet_alpha_grid = c(0.1, 0.3, 0.5, 0.7, 0.9, 1.0), enet_lambda_choice = "lambda.min",
@@ -39,7 +30,6 @@ DIAG_DEFAULT_PARAMS <- list(
   svm_gamma_mode = "auto", svm_gamma_manual = 1, svm_degree = 3, svm_tolerance = 0.001
 )
 
-## Named (reference, comparison) class weights for randomForest/e1071/glm weights=.
 diag_class_weight_levels <- function(y, mode, ratio) {
   lv <- levels(y)
   if (identical(mode, "balanced")) {
@@ -58,12 +48,6 @@ diag_obs_weights <- function(y, mode, ratio) {
   unname(wl[as.character(y)])
 }
 
-## Stratified train/test split of one sex's pool. When `holdout_ids` (sample
-## IDs reserved by Feature Selection before it ever chose this gene panel)
-## overlap `sample_ids` enough to be usable, those exact samples become the
-## test set - this is what makes the split disjoint from whoever chose the
-## panel, rather than merely disjoint by chance from an independent random
-## draw (fixed single split, seed 1234, when no holdout is supplied/usable).
 diag_split_train_test <- function(y_full, test_frac, seed = 1234, sample_ids = NULL, holdout_ids = NULL) {
   if (!is.null(sample_ids) && length(holdout_ids) > 0) {
     test_idx <- which(sample_ids %in% holdout_ids)
@@ -78,8 +62,6 @@ diag_split_train_test <- function(y_full, test_frac, seed = 1234, sample_ids = N
   list(train = train_idx, test = setdiff(seq_along(y_full), train_idx), leakage_safe = FALSE)
 }
 
-## k-fold CV AUC for an already-tuned classifier; rescales per fold with
-## fold-train mean/SD only (leakage-free), refitting via refit_fn/predict_fn.
 diag_cv_auc <- function(Xraw, y, n_folds, refit_fn, predict_fn, seed = 1234) {
   nf <- max(2, min(n_folds, min(table(y))))
   set.seed(seed)
@@ -101,7 +83,6 @@ diag_cv_auc <- function(Xraw, y, n_folds, refit_fn, predict_fn, seed = 1234) {
   }, numeric(1))
 }
 
-## AUC + CI: DeLong when n >= 20, else stratified bootstrap (seed 1234, 2000 reps).
 diag_auc_ci <- function(r) {
   n <- length(r$cases) + length(r$controls)
   ci <- if (n < 20) {
@@ -113,10 +94,6 @@ diag_auc_ci <- function(r) {
   c(auc = as.numeric(pROC::auc(r)), lo = ci[1], hi = ci[3])
 }
 
-## Publication-style ROC plot (1-specificity vs sensitivity, journal convention
-## per Chen et al. 2021/2022 Fig. 4a). Matches diag_roc_plot_traintest()'s
-## boxed bottom-right legend (color+linetype swatch next to the AUC/CI text,
-## Chance drawn as a labelled series) instead of a floating text annotation.
 diag_roc_plot_pub <- function(roc_obj, color, title = NULL, ci = NULL) {
   co <- pROC::coords(roc_obj, "all", ret = c("specificity", "sensitivity"), transpose = FALSE)
   df <- data.frame(fpr = 1 - co$specificity, tpr = co$sensitivity)
@@ -161,12 +138,6 @@ diag_roc_plot_pub <- function(roc_obj, color, title = NULL, ci = NULL) {
     )
 }
 
-## Train + Test ROC curves overlaid, styled as a journal figure: a single
-## bottom-right legend box combines each series' color/linetype swatch with
-## its AUC (95% CI) text (and, for Test, a DeLong p-value against Train) -
-## rather than a floating color legend plus a separate stack of annotate()
-## text labels. Chance (AUC = 0.50) is drawn as a labelled series in the same
-## legend instead of an unlabelled diagonal.
 diag_roc_plot_traintest <- function(train_roc, test_info, cv_mean = NA_real_, cv_sd = NA_real_, cv_n = NA_integer_,
                                      color_train = ARTHOMIX_COLORS$blue, color_test = ARTHOMIX_COLORS$orange, title = NULL) {
   curve_df <- function(roc_obj, series) {
@@ -195,8 +166,6 @@ diag_roc_plot_traintest <- function(train_roc, test_info, cv_mean = NA_real_, cv
   chance_df <- data.frame(fpr = c(0, 1), tpr = c(0, 1), series = factor(chance_label, levels = series_levels))
 
   colors <- setNames(c(color_train, if (has_test) color_test, "#9CA3AF"), series_levels)
-  ## Train dashed, Test solid (journal convention) so the two curves stay
-  ## visually distinct even when they nearly overlap at perfect separation.
   linetypes <- setNames(c("dashed", if (has_test) "solid", "dotted"), series_levels)
 
   p <- ggplot() +
@@ -227,14 +196,12 @@ diag_roc_plot_traintest <- function(train_roc, test_info, cv_mean = NA_real_, cv
   p
 }
 
-## Flags a CI collapsed against 1.000 at small n as a perfect-separation artefact.
 diag_separation_note <- function(ev) {
   if (isTRUE(ev$available) && !is.na(ev$ci_lo) && ev$ci_lo >= 0.999) {
     sprintf(" [separation, n=%d]", ev$n)
   } else ""
 }
 
-## Human-readable selected hyperparameter for the Training tab's KPI tile.
 diag_hyperparam_value <- function(rr) {
   switch(rr$model_type,
     lr = "none (unpenalized)",
@@ -244,15 +211,12 @@ diag_hyperparam_value <- function(rr) {
   )
 }
 
-## Per-gene univariate ROC/AUC on raw expression, plus a Wilcoxon P (Chen et
-## al. 2021/2022's hub-gene rule: AUC > 0.85 and P < 0.05).
 diag_gene_roc <- function(expr_sub, y) {
   genes <- rownames(expr_sub)
   rocs <- vector("list", length(genes)); names(rocs) <- genes
   aucs <- setNames(numeric(length(genes)), genes)
   pvals <- setNames(numeric(length(genes)), genes)
   for (g in genes) {
-    ## direction = "auto": reports whichever of down/up-regulation gives AUC >= 0.5.
     r <- tryCatch(pROC::roc(y, as.numeric(expr_sub[g, ]), quiet = TRUE, levels = levels(y), direction = "auto"), error = function(e) NULL)
     rocs[[g]] <- r
     aucs[g] <- if (is.null(r)) NA_real_ else as.numeric(pROC::auc(r))
@@ -271,21 +235,7 @@ diag_perf_at_cutoff <- function(prob, y, threshold, positive_level) {
   )
 }
 
-## Fits logistic regression + elastic net + random forest + SVM on one sex's
-## full sample pool, splitting into Train/Test first; Test is scored once at
-## the end. `expr_full` is genes x samples, raw (not yet z-scored).
 diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = character(0)) {
-  ## caret::train(classProbs = TRUE) requires factor levels that are valid R
-  ## variable names - it make.names()s them internally to build its own
-  ## predicted-probability column names, so a raw group label with a space
-  ## (e.g. "multiple sclerosis") desyncs from every levels(y)[2]-style lookup
-  ## below once caret has already renamed its own columns to
-  ## "multiple.sclerosis" - exactly the subscript-out-of-bounds error caret's
-  ## own startup warning predicts. Sanitized once here, up front, so every
-  ## lookup in this function stays consistent with what caret/randomForest/
-  ## e1071 actually produce; callers keep the real group names for their own
-  ## display text (stored separately, e.g. fit$ref_group/$comp_group), so
-  ## nothing user-visible changes.
   levels(y_full) <- make.names(levels(y_full), unique = TRUE)
   params <- utils::modifyList(DIAG_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
@@ -303,7 +253,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
   validate(need(length(unique(ytest)) == 2,
                 "The test split ended up with only one group present - lower the test-set size or provide more samples for this sex."))
 
-  ## Class weights computed once on the full training split (folds recompute their own).
   cw_levels <- diag_class_weight_levels(y, params$class_weight_mode, params$class_weight_ratio)
   obs_w <- diag_obs_weights(y, params$class_weight_mode, params$class_weight_ratio)
 
@@ -314,20 +263,10 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
   Xtr_full <- t(Ztr)                                    # z-scored, sample x gene(safe) - used for tuning + full fit
   Xraw <- t(expr_train_sub); colnames(Xraw) <- safe      # raw, sample x gene(safe) - re-scaled per fold inside diag_cv_auc
 
-  ## Test split standardised with Train's own per-gene mean/SD (leakage-free).
   mu_tr <- colMeans(Xraw); sg_tr <- apply(Xraw, 2, stats::sd); sg_tr[is.na(sg_tr) | sg_tr == 0] <- 1
   Xtest_full <- scale(t(expr_test_sub), center = mu_tr, scale = sg_tr)
   colnames(Xtest_full) <- safe
 
-  ## pROC::coords(..., "best") returns ONE ROW PER TIED THRESHOLD when several
-  ## cutpoints share the same maximal Youden index (common with tree/ensemble
-  ## probabilities, or near-perfect separation on small panels) - verified
-  ## empirically (pROC 1.19.0.1) rather than assumed. Left un-collapsed, every
-  ## downstream `rr$best$threshold` used as a scalar (data.frame row-building,
-  ## and diag_perf_at_cutoff()'s vectorised `prob >= threshold`) would silently
-  ## recycle across a length>1 threshold instead of erroring, corrupting the
-  ## reported sensitivity/specificity/accuracy without any visible failure.
-  ## Deterministically keep the first tie so every caller always sees a scalar.
   youden <- function(roc_obj) {
     b <- pROC::coords(roc_obj, "best", best.method = "youden",
                        ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
@@ -335,8 +274,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
     b
   }
 
-  ## Scores the Test split with the locked model, never re-optimising
-  ## anything on it.
   score_eval <- function(pred_eval, y_eval, avail, reason) {
     if (!avail) return(list(available = FALSE, reason = reason))
     roc_e <- tryCatch(pROC::roc(y_eval, pred_eval, quiet = TRUE, levels = levels(y), direction = "<"), error = function(e) NULL)
@@ -346,13 +283,10 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
          n = length(y_eval), n_pos = sum(y_eval == levels(y)[2]))
   }
 
-  ## (1) Elastic net: alpha tuned by minimising CV deviance/AUC/error over a
-  ## grid, lambda by glmnet's own inner CV.
   nf_a <- max(2, min(params$enet_cv_folds, min(table(y))))
   type_measure <- params$enet_type_measure %||% "deviance"
   bigger_is_better <- identical(type_measure, "auc")
   best <- NULL; bcv <- if (bigger_is_better) -Inf else Inf
-  ## Every alpha tried and its best score, for the hyperparameter search plot.
   alpha_search <- data.frame(alpha = numeric(0), cv_metric = numeric(0))
   set.seed(GLOBAL_SEED)
   for (a in params$enet_alpha_grid) {
@@ -388,7 +322,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
                pred_full = enet_pred_full, roc_full = enet_roc_full, full_auc = as.numeric(pROC::auc(enet_roc_full)),
                best = enet_best, cv_auc = enet_cv_auc, test = enet_test)
 
-  ## (2) Random forest: mtry tuned by CV, ntree fixed, both user-overridable.
   p <- ncol(Xtr_full)
   ntree <- max(100, round(params$rf_ntree))
   rf_nodesize <- max(1, round(params$rf_nodesize %||% 1))
@@ -405,7 +338,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
                                       tuneGrid = expand.grid(mtry = mtry_grid), ntree = ntree,
                                       nodesize = rf_nodesize, maxnodes = rf_maxnodes, classwt = cw_levels), error = function(e) NULL)
     rf_mtry <- if (!is.null(rf_tune)) rf_tune$bestTune$mtry else max(1, floor(sqrt(p)))
-    ## Every mtry tried and its CV ROC, for the hyperparameter search plot.
     if (!is.null(rf_tune)) { mtry_search <- rf_tune$results[, c("mtry", "ROC")]; mtry_search$chosen <- mtry_search$mtry == rf_mtry }
   }
   set.seed(GLOBAL_SEED)
@@ -429,8 +361,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
              pred_full = rf_pred_full, roc_full = rf_roc_full, full_auc = as.numeric(pROC::auc(rf_roc_full)),
              best = rf_best, cv_auc = rf_cv_auc, test = rf_test)
 
-  ## (3) SVM: cost tuned by CV over a grid, kernel user-selectable (linear
-  ## default). scale = FALSE since data is already gene-wise z-scored.
   kernel <- params$svm_kernel %||% "linear"
   svm_degree <- max(1, round(params$svm_degree %||% 3))
   svm_tolerance <- params$svm_tolerance %||% 0.001
@@ -452,7 +382,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
                                       ranges = list(cost = grid),
                                       tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)), error = function(e) NULL)
     svm_cost <- if (!is.null(svm_tune)) svm_tune$best.parameters$cost else 1
-    ## Every cost tried and its CV error, for the hyperparameter search plot.
     if (!is.null(svm_tune)) { cost_search <- svm_tune$performances[, c("cost", "error")]; cost_search$chosen <- cost_search$cost == svm_cost }
   }
   set.seed(GLOBAL_SEED)
@@ -477,8 +406,6 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
                    pred_full = svm_pred_full, roc_full = svm_roc_full, full_auc = as.numeric(pROC::auc(svm_roc_full)),
                    best = svm_best, cv_auc = svm_cv_auc, test = svm_test)
 
-  ## (4) Logistic regression: plain, unpenalized glm on every gene in the
-  ## panel. No hyperparameters, so tuning_search stays NULL.
   lr_predict <- function(m, Znew) as.numeric(predict(m, newdata = data.frame(Znew, check.names = FALSE), type = "response"))
   lr_model <- suppressWarnings(stats::glm(y ~ ., data = data.frame(y, Xtr_full, check.names = FALSE), family = stats::binomial, weights = obs_w))
   lr_pred_full <- as.numeric(predict(lr_model, type = "response"))
@@ -512,39 +439,6 @@ DIAG_TECHNIQUES <- list(
   list(key = "svm", label = "SVM")
 )
 
-## ---------------------------------------------------------------------------
-## Leakage-safe validation (nested CV)
-## ---------------------------------------------------------------------------
-## The Test-split AUC above (diag_fit_sex()'s `test$auc`, shown in Model
-## Testing) scores a gene panel that was already chosen - via Candidate Gene
-## Identification + Feature Selection's LASSO/RF/SVM-RFE consensus - using
-## label information from every sample in the pool, including the ones that
-## later land in that panel's own Test split. That is the classic feature-
-## selection-before-split leakage error (Ambroise & McLachlan 2002, PNAS):
-## even though diag_fit_sex()'s own train/test split and fold-train-only CV
-## rescaling are genuinely leakage-free, the panel handed to it is not.
-##
-## This mirrors the fix already shipped for methylomics
-## (methyl_fs_validate_nested(), R/methylomics/10_ML_Feature_Selection/mod_methyl_featureselection.R):
-## an outer stratified k-fold loop that RESELECTS the panel - a lightweight
-## univariate ranking (limma moderated t-test, without mod_dge.R's array-
-## weighting/contrast-string bookkeeping, which isn't needed for a ranking-
-## only, per-fold re-run) followed by LASSO, exactly fs_fit_sex()'s own LASSO
-## step - inside each training fold only, using only that fold's own labels,
-## then fits a plain logistic regression on the fold-specific panel (fold-
-## train-only z-scoring, the same leakage-free rescaling diag_cv_auc() already
-## uses) and scores the held-out fold. Deliberately scoped to Univariate +
-## LASSO only, exactly like the methylomics precedent: rerunning WGCNA's
-## module detection, Random Forest, or SVM-RFE inside every outer fold would
-## be prohibitively expensive/complex for a live Shiny session.
-##
-## `expr_candidates` should already be the WGCNA-candidate gene set (Candidate
-## Gene Identification's WGCNA-intersect-DEG output, `results$candidates`) -
-## the same, wider candidate pool Feature Selection's LASSO/RF/SVM-RFE started
-## from - not the narrow final consensus panel, over the FULL sample pool
-## Feature Selection used (genes x samples). Held-out predictions from every
-## outer fold are pooled into one ROC/AUC (with diag_auc_ci()'s CI), since
-## every sample gets scored exactly once, out-of-fold.
 diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n = 100,
                                   lasso_alpha = 1, seed = ARTHOMIX_TX_ML_SEED) {
   y_full <- droplevels(factor(as.character(y_full)))
@@ -567,7 +461,6 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
     expr_tr <- expr_candidates[, tr, drop = FALSE]
     expr_te <- expr_candidates[, te, drop = FALSE]
 
-    ## (1) Lightweight univariate ranking, TRAIN FOLD ONLY.
     design <- stats::model.matrix(~y_tr)
     uni_fit <- tryCatch(limma::eBayes(limma::lmFit(expr_tr, design)), error = function(e) NULL)
     if (is.null(uni_fit)) next
@@ -575,7 +468,6 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
     if (is.null(tt) || nrow(tt) < 2) next
     uni_genes <- rownames(tt)[seq_len(min(uni_top_n, nrow(tt)))]
 
-    ## (2) LASSO, TRAIN FOLD ONLY, restricted to the univariate-narrowed set.
     Xtr_raw <- t(expr_tr[uni_genes, , drop = FALSE])
     nf_lasso <- max(2, min(5, min(table(y_tr))))
     cv <- tryCatch(glmnet::cv.glmnet(Xtr_raw, y_tr, family = "binomial", alpha = lasso_alpha, nfolds = nf_lasso),
@@ -587,9 +479,6 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
     }
     if (length(panel) < 1) panel <- utils::head(uni_genes, min(5, length(uni_genes)))
 
-    ## (3) Fit + evaluate: plain logistic regression (diag_fit_sex()'s own
-    ## unpenalized-glm classifier), fold-train-only z-scored, fit on the TRAIN
-    ## fold and scored once on the held-out TEST fold.
     mu <- rowMeans(expr_tr[panel, , drop = FALSE], na.rm = TRUE)
     sg <- apply(expr_tr[panel, , drop = FALSE], 1, stats::sd)
     sg[is.na(sg) | sg == 0] <- 1
@@ -623,14 +512,6 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
-
-## Model Training tab box: KPI tiles plus ROC / CV-by-fold / tuning plots, full width.
-## The ROC plot gets its own full-width row at a large height - coord_equal()
-## needs real room to keep its title, axis labels and in-plot legend box
-## legible instead of being squeezed into a one-third-width column.
 mod_diagnostic_training_panel <- function(ns, prefix, title, roc_height = 440, side_height = 260) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -649,7 +530,6 @@ mod_diagnostic_training_panel <- function(ns, prefix, title, roc_height = 440, s
   )
 }
 
-## Model Testing (Internal) tab box: scores the held-out Test split for this sex.
 mod_diagnostic_testing_panel <- function(ns, prefix, title, roc_height = 300) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -668,8 +548,6 @@ mod_diagnostic_params_box <- function(ns, prefix, method_label, defaults_desc, .
   )
 }
 
-## One sex's single-gene ROC box, with adjustable hub-gene thresholds (AUC/P
-## defaults follow Chen et al. 2021/2022's WGCNA panel rule).
 mod_diagnostic_generoc_box_sex <- function(ns, sex_label, mode, title) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -687,8 +565,6 @@ mod_diagnostic_generoc_box_sex <- function(ns, sex_label, mode, title) {
   )
 }
 
-## One sex's full "Model Training" drill-down: Run button plus model pills,
-## per-gene ROC and comparison table, hidden via conditionalPanel until run.
 mod_diagnostic_training_sex_panel <- function(ns, sex_label) {
   run_id <- paste0("run_", sex_label, "_btn")
   cond <- sprintf("input['%s'] > 0 || input['%s'] > 0", ns(run_id), ns(paste0(run_id, "_test")))
@@ -735,8 +611,6 @@ mod_diagnostic_testing_sex_panel <- function(ns, sex_label) {
   )
 }
 
-## One sex's "Leakage-safe Validation" drill-down: outer-fold count control,
-## Run button, disclosure text, and the pooled AUC + per-fold table once run.
 mod_diagnostic_leakagesafe_sex_panel <- function(ns, sex_label) {
   run_id <- paste0("run_", sex_label, "_leakagesafe_btn")
   sex_title <- tools::toTitleCase(sex_label)
@@ -757,9 +631,6 @@ mod_diagnostic_leakagesafe_sex_panel <- function(ns, sex_label) {
 mod_diagnostic_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    ## Scoped to this module only (.diag-module) - a defensive floor/wrap on
-    ## valueBox() headline numbers so a longer value (e.g. an AUC ± SD) never
-    ## overflows its tile, whatever text ends up in one later.
     tags$style(HTML(".diag-module .small-box h3 { font-size: 22px; white-space: normal; overflow-wrap: break-word; line-height: 1.2; }")),
     div(class = "diag-module",
     fluidRow(
@@ -786,7 +657,6 @@ mod_diagnostic_ui <- function(id) {
             p(class = "submodule-desc", "Same list for Female, Male and Pooled."),
             textAreaInput(ns("gene_list"), NULL, rows = 5, placeholder = "TNF\nIL6\nSTAT3\n...")
           ),
-          ## WGCNA module list, shared across Female/Male/Pooled, from mod_wgcna.R's Step 3.
           conditionalPanel(
             condition = sprintf("input['%s'] == 'wgcna'", ns("panel_source")),
             p(class = "submodule-desc", "Same module for Female, Male and Pooled."),
@@ -804,14 +674,11 @@ mod_diagnostic_ui <- function(id) {
           tabPanel(
             "Model Training", br(),
             p(class = "submodule-desc", "Pick Female or Male, then Run - nothing below renders until then."),
-            ## Params box tracks whichever model pill was most recently clicked
-            ## in either sex's tab, via an "active pill" reactiveVal.
             uiOutput(ns("model_params_ui")),
             tabsetPanel(
               id = ns("train_sex_tabs"), type = "tabs",
               tabPanel("Female", br(), mod_diagnostic_training_sex_panel(ns, "female")),
               tabPanel("Male", br(), mod_diagnostic_training_sex_panel(ns, "male")),
-              ## Pools all samples regardless of sex into one model.
               tabPanel("Pooled (all)", br(), mod_diagnostic_training_sex_panel(ns, "pooled"))
             )
           ),
@@ -825,12 +692,6 @@ mod_diagnostic_ui <- function(id) {
               tabPanel("Pooled (all)", br(), mod_diagnostic_testing_sex_panel(ns, "pooled"))
             )
           ),
-          ## Nested-CV counterpart to Model Testing (Internal): reselects the
-          ## panel per outer fold instead of scoring the already-chosen one -
-          ## see mod_diagnostic_leakagesafe_sex_panel()/diag_validate_nested().
-          ## Only meaningful for panel_source == "project" (a project_source_ui
-          ## live panel), since "own"/"wgcna" panels weren't chosen by this
-          ## session's own supervised feature selection.
           tabPanel(
             "Leakage-safe Validation", br(),
             p(class = "submodule-desc", "Nested cross-validation that reselects the gene panel inside each outer fold instead of scoring the panel already chosen using this same data - see the disclosure under each sex's Run button. Needs a live Candidate Gene Identification run (\"Follow this project's pipeline\" panel source) on this dataset."),
@@ -841,8 +702,6 @@ mod_diagnostic_ui <- function(id) {
               tabPanel("Pooled (all)", br(), mod_diagnostic_leakagesafe_sex_panel(ns, "pooled"))
             )
           ),
-          ## A genuinely separate uploaded cohort (Chen et al. 2021/2022's
-          ## GSE77298 role): per-gene AUC/P validation, not a refit model.
           tabPanel(
             "External Validation", br(),
             mod_diagnostic_external_panel(ns)
@@ -855,8 +714,6 @@ mod_diagnostic_ui <- function(id) {
   )
 }
 
-## External-validation tab: separate file upload, its own group-column mapping,
-## and a panel selector reusing the same gene panel set up in the sidebar.
 mod_diagnostic_external_panel <- function(ns) {
   tagList(
     box(
@@ -884,15 +741,10 @@ mod_diagnostic_external_panel <- function(ns) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_diagnostic_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Detects which value in the loaded sex column means "female"/"male".
     sex_levels <- reactive({
       lv <- unique(stats::na.omit(as.character(dataset$meta$sex)))
       validate(need(length(lv) >= 2, "The loaded metadata needs a \"sex\" column with at least two distinct values."))
@@ -925,11 +777,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     })
 
-    ## Gene panel sources. The bundled/precomputed panel was only ever computed
-    ## from the app's own default merged cohort - only offer it as a fallback
-    ## when that exact dataset is still active (dataset$is_bundled_reference),
-    ## never for an uploaded, GEO-fetched, or individual raw preloaded dataset,
-    ## where it would silently mix results from a different dataset entirely.
     project_panel_genes <- function(sex_label) {
       live <- results$featureselection[[sex_label]]$consensus_genes
       if (!is.null(live) && length(live) >= 2) {
@@ -956,7 +803,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       list(genes = genes, is_live = FALSE, note = sprintf("%d pasted genes.", length(genes)), holdout_sample_ids = character(0))
     }
 
-    ## Same WGCNA module regardless of sex_label (not sex-specific by construction).
     wgcna_panel_genes <- function(sex_label) {
       req(input$wgcna_module_pick)
       mg <- results$wgcna$module_genes
@@ -968,7 +814,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
            holdout_sample_ids = character(0))
     }
 
-    ## Module-color dropdown (grey excluded), mirroring mod_featureselection.R's own picker.
     output$wgcna_module_pick_ui <- renderUI({
       mg <- results$wgcna$module_genes
       if (is.null(mg) || length(mg) == 0) {
@@ -1006,8 +851,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       }
     })
 
-    ## External Validation: a separately uploaded dataset, scored with
-    ## diag_gene_roc()'s per-gene AUC/Wilcoxon-P (no multivariate refit).
     ext_meta_raw <- reactive({
       req(input$ext_meta_file)
       path <- input$ext_meta_file$datapath
@@ -1090,11 +933,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
            ref_group = input$ext_ref_group, comp_group = input$ext_comp_group)
     }, ignoreInit = TRUE)
 
-    ## Same never-run vs. actually-failed distinction as diag_result_error_msg() above,
-    ## for the External Validation upload pipeline - a separate, easy-to-miss failure
-    ## mode here is the chosen gene panel being empty (e.g. no live Feature Selection
-    ## panel yet for an uploaded reference dataset), which used to show the exact same
-    ## "Not run yet" text as never having clicked Run at all.
     ext_result_error_msg <- function() {
       tryCatch({ ext_result(); NULL }, error = function(e) {
         msg <- conditionMessage(e)
@@ -1132,10 +970,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       df
     })
 
-    ## Same shape as ext_gene_df(), with the gene column CSV-formula-injection
-    ## safe (tx_csv_safe(), defined in mod_featureselection.R) - used only for
-    ## the download handler below, never for the on-screen DT table, so the
-    ## rendered UI keeps showing the real, unprefixed gene symbol.
     ext_gene_df_csv_safe <- reactive({
       df <- ext_gene_df()
       df$gene <- tx_csv_safe(df$gene)
@@ -1154,7 +988,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       content = function(file) write.csv(ext_gene_df_csv_safe(), file, row.names = FALSE)
     )
 
-    ## Per-gene expression boxplot (Fig. 3d style), capped to top 24 genes by AUC.
     EXT_BOXPLOT_MAX_GENES <- 24
     output$ext_boxplot <- renderPlot({
       r <- ext_result(); req(r)
@@ -1187,7 +1020,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     })
 
-    ## Reads per-model advanced parameters from the UI, falling back to defaults.
     diag_advanced_params <- function() {
       alpha_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
       alpha_grid <- alpha_grid[!is.na(alpha_grid) & alpha_grid >= 0 & alpha_grid <= 1]
@@ -1226,7 +1058,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       sprintf("Currently %d : %d (train : test)", 100 - t, t)
     })
 
-    ## Builds and fits all four models for one sex; sex_value = NULL means pooled.
     diag_build_sex <- function(sex_label, sex_value) {
       req(input$ref_group, input$comp_group)
       validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
@@ -1246,13 +1077,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
         wgcna = wgcna_panel_genes(sex_label),
         own_panel_genes(sex_label)
       )
-      ## Checked separately from the "present in the matrix" validate() below - an
-      ## empty panel (most commonly: an uploaded/GEO dataset with no live Feature
-      ## Selection run yet, since the bundled panel only applies to the default
-      ## reference cohort) needs its own message. Both used to collapse into the
-      ## same generic "fewer than 2 genes ... present in the matrix" text, which
-      ## reads as a data problem when the real issue is "run Feature Selection
-      ## first" - cand$note already has that exact, specific explanation.
       validate(need(length(cand$genes) >= 1, sprintf("No gene panel available for %s: %s", sex_label, cand$note)))
       genes <- intersect(cand$genes, rownames(dataset$expr))
       validate(need(length(genes) >= 2, sprintf(
@@ -1262,9 +1086,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
 
       expr_sub <- dataset$expr[genes, common, drop = FALSE]
 
-      ## withProgress (same mechanism already used in mod_wgcna.R/mod_featureselection.R)
-      ## - fitting 4 CV-tuned models per sex is genuinely slow, and previously gave no
-      ## visible feedback at all while running.
       fit <- withProgress(
         message = sprintf("Fitting %s diagnostic models (logistic regression, elastic net, random forest, SVM)...", sex_label),
         value = 0.3,
@@ -1276,13 +1097,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       fit
     }
 
-    ## The wider WGCNA-candidate pool Feature Selection's LASSO/RF/SVM-RFE
-    ## started from - Candidate Gene Identification's own output - not the
-    ## narrow final consensus panel diag_build_sex() above uses. This is what
-    ## diag_validate_nested() reselects from inside each outer fold. Mirrors
-    ## mod_featureselection.R's project_candidate_genes("pooled") union/final
-    ## logic exactly, since that's the same pooled candidate set Feature
-    ## Selection itself would have used.
     diag_leakagesafe_candidate_genes <- function(sex_label) {
       if (identical(sex_label, "pooled")) {
         cand_final <- results$candidates$final
@@ -1294,10 +1108,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       unique(as.character(results$candidates[[sex_label]]$genes))
     }
 
-    ## Builds the full (pre-split) sample pool + WGCNA-candidate expression
-    ## matrix for one sex, then runs diag_validate_nested() on it. Uses the
-    ## same meta/contrast filtering as diag_build_sex() above, but over the
-    ## wider candidate pool instead of the already-chosen final panel.
     diag_build_leakagesafe_sex <- function(sex_label, sex_value, outer_k) {
       req(input$ref_group, input$comp_group)
       validate(need(input$ref_group != input$comp_group, "Reference and comparison group must be different."))
@@ -1322,9 +1132,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       validate(need(length(genes) >= 5, sprintf(
         "Fewer than 5 %s WGCNA-candidate genes are present in the currently loaded expression matrix.", sex_label
       )))
-      ## Same top-variance cap Feature Selection itself applies before fitting
-      ## (FS_MAX_CANDIDATE_GENES, mod_featureselection.R) - computed once on
-      ## the full pool, not redone per fold (see the UI disclosure above).
       if (length(genes) > FS_MAX_CANDIDATE_GENES) {
         v <- apply(dataset$expr[genes, common, drop = FALSE], 1, stats::var)
         genes <- names(sort(v, decreasing = TRUE))[seq_len(FS_MAX_CANDIDATE_GENES)]
@@ -1338,11 +1145,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     }
 
-    ## Training and Testing tabs each have their own Run button per sex; both feed
-    ## the same shared trigger below.
-    ## An eventReactive can't be reset to its unfired state, so this tracks whether
-    ## each sex's cached diag_result_*() still belongs to the active dataset; cleared
-    ## when dataset$source changes, set again when that sex's Run button is clicked.
     diag_valid <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
 
     female_run_trigger <- reactiveVal(0)
@@ -1368,9 +1170,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       diag_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
 
-    ## Leakage-safe Validation tab: its own Run button per sex, independent of
-    ## Model Training/Testing's triggers above (no fitted model to keep in
-    ## sync with - this reselects its own panel from the candidate pool).
     diag_leakagesafe_female <- eventReactive(input$run_female_leakagesafe_btn, {
       diag_build_leakagesafe_sex("female", sex_levels()$female, input$female_leakagesafe_k %||% 5)
     }, ignoreInit = TRUE)
@@ -1426,18 +1225,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       outputOptions(output, paste0(sex_label, "_leakagesafe_table"), suspendWhenHidden = FALSE)
     })
 
-    ## Reads one sex's diag_result_*() and returns its real validate()/need() failure
-    ## message, or NULL if it hasn't failed. Distinguishes a genuine failure (e.g. no
-    ## live gene panel for an uploaded dataset, too few samples in a group) from
-    ## "hasn't been run yet": both are eventReactive halts of the same shiny
-    ## "validation" class, but eventReactive's own pre-first-click halt always carries
-    ## an EMPTY message, while a validate(need(...)) failure inside diag_build_sex()
-    ## always carries the real one - so nzchar() on the caught message tells them
-    ## apart. Every existing read of diag_result_*() elsewhere in this file
-    ## (`tryCatch(..., error = function(e) NULL)`) collapsed both cases to NULL,
-    ## which made clicking Run on an uploaded dataset with no live Feature Selection
-    ## panel yet look exactly like the button doing nothing - no error, no result,
-    ## just a generic "not run yet" note with no explanation.
     diag_result_error_msg <- function(sex_label) {
       if (!isTRUE(diag_valid[[sex_label]])) return(NULL)
       fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
@@ -1447,8 +1234,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       })
     }
 
-    ## Single read path for a sex's cached result: NULL both when it never ran and
-    ## when the cached fit belongs to a dataset the user has since switched away from.
     diag_result_value <- function(sex_label) {
       if (!isTRUE(diag_valid[[sex_label]])) return(NULL)
       fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
@@ -1475,8 +1260,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       diag_has_run(FALSE)
     }, ignoreInit = TRUE)
 
-    ## Which model's params box to show: whichever pill was clicked most
-    ## recently, in any sex's own Model Training tab.
     active_model_pill <- reactiveVal("Logistic Regression")
     observeEvent(input$female_train_model_pills, active_model_pill(input$female_train_model_pills), ignoreInit = TRUE)
     observeEvent(input$male_train_model_pills, active_model_pill(input$male_train_model_pills), ignoreInit = TRUE)
@@ -1593,7 +1376,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     })
 
-    ## Saves each sex's fit into results$diagnostic independently as it finishes.
     save_result <- function(sex_label, r) {
       results$diagnostic <- utils::modifyList(
         results$diagnostic %||% list(),
@@ -1627,7 +1409,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
           return(tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s completed: ", sex)),
                           sprintf("best model %s (CV-AUC = %.3f)", best_label, max(cv_aucs, na.rm = TRUE))))
         }
-        ## Real validate() failure vs. genuinely never clicked - see diag_result_error_msg() above.
         err <- diag_result_error_msg(sex_label)
         if (!is.null(err)) {
           tags$li(icon("triangle-exclamation", style = "color: #c0392b;"), strong(sprintf(" %s failed: ", sex)), err)
@@ -1642,7 +1423,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     })
 
-    ## One-line results summary shown inside that sex's own tab.
     diag_result_line <- function(sex_label, r) {
       if (!is.null(r)) {
         return(tagList(
@@ -1663,7 +1443,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
     output$male_result_line <- renderUI({ diag_result_line("male", diag_result_value("male")) })
     output$pooled_result_line <- renderUI({ diag_result_line("pooled", diag_result_value("pooled")) })
 
-    ## Per-technique, per-sex (or pooled) outputs.
     res_sex <- function(sex_label) reactive({ diag_result_value(sex_label) })
 
     build_train_perf_table <- function(rr) {
@@ -1679,7 +1458,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       do.call(rbind, rows)
     }
 
-    ## Test-split eval block as table rows.
     build_eval_rows <- function(ev, label) {
       if (!isTRUE(ev$available)) {
         return(list(data.frame(dataset = label, metric = "Status", value = ev$reason, stringsAsFactors = FALSE)))
@@ -1729,10 +1507,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
     register_sex_model_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
       test_color <- ARTHOMIX_COLORS$orange
-      ## Shows the real validate()/need() failure (e.g. "no live gene panel - run
-      ## Feature Selection first") instead of the generic "not run yet" note when
-      ## this sex's Run button WAS clicked but diag_build_sex() failed - see
-      ## diag_result_error_msg() above for how the two are told apart.
       not_yet_note <- function() {
         err <- diag_result_error_msg(sex_label)
         if (!is.null(err)) {
@@ -1746,7 +1520,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
         key <- tech$key; label <- tech$label
         prefix <- paste0(sex_label, "_", key)
 
-        ## ---- Model Training tab ----
         output[[paste0(prefix, "_train_stats")]] <- renderUI({
           r <- res()
           if (is.null(r)) return(not_yet_note())
@@ -1760,8 +1533,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
                        icon = icon("layer-group"), color = "purple", width = 4),
               valueBox(diag_hyperparam_value(rr), "Hyperparameter", icon = icon("sliders"), color = "yellow", width = 4)
             ),
-            ## Overfitting flag: near-perfect train AUC with a much weaker CV AUC
-            ## suggests the model memorised the training samples.
             if (isTRUE(rr$full_auc >= 0.95) && isTRUE((rr$full_auc - cv_mean) >= 0.25)) {
               div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;",
                   icon("triangle-exclamation"),
@@ -1790,7 +1561,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
             coord_cartesian(ylim = c(0, 1)) +
             labs(x = "Fold", y = "CV AUC (training)") + theme_arthomix(base_size = 12)
         })
-        ## Plots the full hyperparameter search (alpha/mtry/cost vs CV score), chosen value marked.
         output[[paste0(prefix, "_train_tuning_plot")]] <- renderPlot({
           r <- res(); if (is.null(r)) return(NULL)
           rr <- r[[key]]
@@ -1847,7 +1617,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
           content = function(file) saveRDS(build_model_bundle(res(), key, sex_label), file)
         )
 
-        ## ---- Model Testing (Internal) tab ----
         output[[paste0(prefix, "_test_summary")]] <- renderUI({
           r <- res()
           if (is.null(r)) return(not_yet_note())
@@ -1907,7 +1676,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
         DT::datatable(df, rownames = FALSE, width = "100%", options = list(pageLength = 5, dom = "t", scrollX = TRUE, autoWidth = FALSE), class = "stripe hover compact")
       })
 
-      ## Per-gene ROC/AUC: Train and Test curves overlaid per gene panel.
       register_generoc_outputs <- function(mode) {
         plot_id <- paste0(sex_label, "_", mode, "_generoc_plot")
         table_id <- paste0(sex_label, "_", mode, "_generoc_table")
@@ -1916,7 +1684,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
         auc_thr_id <- paste0(sex_label, "_", mode, "_hub_auc_thr")
         p_thr_id <- paste0(sex_label, "_", mode, "_hub_p_thr")
 
-        ## "hub" is decided on training stats only; `gr$p` falls back to NA for older cached runs.
         gene_auc_df <- function(gr_tr, gr_te) {
           p_tr <- if (!is.null(gr_tr$p)) unname(gr_tr$p) else rep(NA_real_, length(gr_tr$genes))
           df <- data.frame(gene = gr_tr$genes, train_auc = round(unname(gr_tr$auc), 3), train_p = signif(p_tr, 3), stringsAsFactors = FALSE)
@@ -1930,7 +1697,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
           df[order(-df$train_auc), ]
         }
 
-        ## One small ROC panel per gene (Train+Test overlaid), capped to top genes by training AUC.
         GENEROC_MAX_FACETS <- 24
         output[[plot_id]] <- renderPlot({
           r <- res(); if (is.null(r)) return(NULL)
@@ -2003,7 +1769,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
             write.csv(df, file, row.names = FALSE)
           }
         )
-        ## Just the rows currently passing the AUC/P thresholds set above.
         output[[hub_download_id]] <- downloadHandler(
           filename = function() sprintf("%s_hub_genes.csv", sex_label),
           content = function(file) {

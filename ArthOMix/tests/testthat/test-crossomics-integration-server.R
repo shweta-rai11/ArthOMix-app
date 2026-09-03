@@ -1,12 +1,6 @@
 ## Module 4 (Cross-omics) - Expression and Methylation Integration
 ## sub-module, via testServer(): fully synchronous (no ExtendedTask), so
 ## this drives a REAL full "Run Integration" click on standardized
-## Transcriptomics/Methylomics data mirroring what the Dataset tab
-## publishes into the shared cross_dataset store - real gene-ID
-## harmonization, real Stouffer's-Z methylation aggregation, real
-## classification, and (when sample columns are present) real per-gene
-## correlation - verifying the published cross_results$integration summary
-## matches genuine computed counts.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -16,9 +10,6 @@ source_from_app_root(file.path("R", "crossomics", "functions", "integration", "c
 source_from_app_root(file.path("R", "crossomics", "02_Expression_Methylation_Integration", "mod_cross_integration.R"))
 
 cx_dataset_fixture <- function() {
-  ## 4 genes: A (Hyper+Down candidate), B (Hypo+Up candidate), C (expression-
-  ## only significant), D (nothing significant) - a small, hand-worked
-  ## fixture whose real classification can be checked by hand.
   expr_df <- data.frame(
     gene = c("A", "B", "C", "D"), log2fc = c(-2, 2, 3, 0.1),
     pvalue = c(0.001, 0.001, 0.001, 0.5), fdr = c(0.001, 0.001, 0.001, 0.5),
@@ -48,12 +39,12 @@ test_that("Run Integration (real, synchronous) correctly classifies a hand-worke
     expect_false(is.null(df))
     expect_equal(as.character(df$category[df$gene == "A"]), "Hyper + Down")
     expect_equal(as.character(df$category[df$gene == "B"]), "Hypo + Up")
-    expect_equal(as.character(df$category[df$gene == "C"]), "Not significant")  ## expr-only, not both layers
+    expect_equal(as.character(df$category[df$gene == "C"]), "Not significant")
     expect_equal(as.character(df$category[df$gene == "D"]), "Not significant")
 
     expect_false(is.null(cross_results$integration))
     expect_equal(cross_results$integration$summary$n_genes, 4L)
-    expect_equal(cross_results$integration$summary$n_integrated, 2L)  ## A and B
+    expect_equal(cross_results$integration$summary$n_integrated, 2L)
     expect_equal(integ$params$sex_stratum, "FEMALE")
   })
 })
@@ -76,7 +67,7 @@ test_that("Run Integration computes a REAL per-gene sample-level correlation whe
   ids <- paste0("S", 1:10)
   expr_wide <- data.frame(gene = c("A", "B"), matrix(rnorm(20), 2, 10, dimnames = list(NULL, ids)), stringsAsFactors = FALSE)
   meth_wide <- expr_wide
-  meth_wide[, ids] <- -expr_wide[, ids] + matrix(rnorm(20, sd = 0.05), 2, 10)  ## strong real negative correlation
+  meth_wide[, ids] <- -expr_wide[, ids] + matrix(rnorm(20, sd = 0.05), 2, 10)
   colnames(meth_wide)[1] <- "gene"
 
   expr_df <- data.frame(gene = c("A", "B"), log2fc = c(-2, 2), pvalue = c(0.001, 0.001), fdr = c(0.001, 0.001), stringsAsFactors = FALSE)
@@ -99,6 +90,6 @@ test_that("Run Integration computes a REAL per-gene sample-level correlation whe
     expect_true(integ$pairing$paired)
     a_row <- integ$df[integ$df$gene == "A", ]
     expect_true(a_row$correlation_r < -0.9)
-    expect_equal(as.character(a_row$evidence_level), "Strong candidate")  ## both sig, inverse, real significant negative correlation
+    expect_equal(as.character(a_row$evidence_level), "Strong candidate")
   })
 })

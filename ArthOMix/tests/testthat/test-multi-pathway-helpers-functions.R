@@ -1,13 +1,6 @@
 ## Module 3 (Multiomics) - Pathways' own pure functions
 ## (multiomics_pathway_helpers.R): uploaded-table column-role detection/
 ## confirmation (never silently auto-accepted), real identifier
-## harmonization (gene + CpG, via the already-verified crossomics/
-## annotation building blocks), mapping-rate summary, ranked-vector
-## construction for GSEA, evidence-track building, directional-concordance
-## classification, every ORA/GSEA/database validation gate, species
-## inference, and the reproducibility metadata table - plus one real,
-## offline (org.Hs.eg.db-backed, no network) clusterProfiler::enrichGO()
-## ORA run as the scientific-contract check for this engine.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -21,8 +14,6 @@ source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integ
 source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "07_Pathways", "multiomics_pathway_helpers.R"))
 
-## ---- mp_detect_upload() -------------------------------------------------------
-
 test_that("mp_detect_upload() detects id/effect/pvalue/fdr columns by name and flags a ranked (signed) effect column", {
   df <- data.frame(gene_symbol = c("TP53", "BRCA1"), log2FC = c(2, -1.5), pvalue = c(0.01, 0.02), padj = c(0.03, 0.04))
   out <- mp_detect_upload(df)
@@ -31,7 +22,7 @@ test_that("mp_detect_upload() detects id/effect/pvalue/fdr columns by name and f
   expect_equal(out$detected$effect_col, "log2FC")
   expect_equal(out$detected$pvalue_col, "pvalue")
   expect_equal(out$detected$fdr_col, "padj")
-  expect_true(out$detected$ranked)  ## has both a positive and a negative value
+  expect_true(out$detected$ranked)
   expect_equal(length(out$warnings), 0L)
 })
 
@@ -49,14 +40,12 @@ test_that("mp_detect_upload() warns when no effect column exists (GSEA unavailab
   expect_true(any(grepl("No P-value or adjusted-P column", out$warnings)))
 })
 
-## ---- mp_confirm_upload_mapping() -----------------------------------------------
-
 test_that("mp_confirm_upload_mapping() applies the user-confirmed mapping, de-duplicates by feature, and drops empty identifiers", {
   df <- data.frame(sym = c("TP53", "TP53", "", "BRCA1"), lfc = c(1, 1, 2, -1), stringsAsFactors = FALSE)
   mapping <- list(id_col = "sym", id_type = "Gene symbol", effect_col = "lfc", pvalue_col = NA, fdr_col = NA, direction_col = NA, omics_col = NA, sex_col = NA)
   out <- mp_confirm_upload_mapping(df, mapping)
   expect_true(out$ok)
-  expect_equal(nrow(out$df), 2L)  ## TP53 deduplicated, "" dropped
+  expect_equal(nrow(out$df), 2L)
   expect_setequal(out$df$feature, c("TP53", "BRCA1"))
   expect_true(all(out$df$custom))
 })
@@ -66,11 +55,8 @@ test_that("mp_confirm_upload_mapping() refuses when no identifier column is sele
   expect_false(out$ok)
 })
 
-## ---- mp_map_candidate_cpgs() / mp_harmonize_identifiers() / mp_mapping_summary() (real annotation) ----
-
 test_that("mp_map_candidate_cpgs() maps real CpGs to real genes via the actual 450K manifest, reporting unmapped IDs explicitly", {
   skip_if_not(requireNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19", quietly = TRUE), "450K annotation not installed")
-  ## A real CpG (used elsewhere in this suite's own tests) plus one fake ID.
   out <- mp_map_candidate_cpgs(c("cg00000029", "cg_totally_made_up_9999"))
   expect_true(out$ok)
   expect_true(out$n_mapped >= 1)
@@ -97,8 +83,6 @@ test_that("mp_mapping_summary() computes real mapped/unmapped counts and a corre
   expect_equal(out$unmapped_ids, "D")
 })
 
-## ---- mp_build_ranked_vector() (GSEA ranked-list construction) ------------------
-
 test_that("mp_build_ranked_vector() refuses with fewer than 10 valid (Entrez + finite value) rows", {
   df <- data.frame(expr_logFC = c(3, -5, 1, NA, 2))
   entrez <- c("1", "2", "3", "4", "2")
@@ -109,21 +93,19 @@ test_that("mp_build_ranked_vector() refuses with fewer than 10 valid (Entrez + f
 test_that("mp_build_ranked_vector() succeeds with >=10 valid (Entrez + finite value) rows, sorted decreasing, deduplicated by keeping the largest |value|", {
   set.seed(900)
   n <- 15
-  df <- data.frame(expr_logFC = c(rnorm(n - 1), NA))  ## one NA to exercise the keep filter
-  entrez <- c(as.character(1:(n - 2)), "3", NA)  ## "3" duplicated, one NA entrez
+  df <- data.frame(expr_logFC = c(rnorm(n - 1), NA))
+  entrez <- c(as.character(1:(n - 2)), "3", NA)
   out <- mp_build_ranked_vector(df, entrez, ranking_method = "log2fc")
   expect_true(out$ok)
-  expect_true(is.unsorted(-out$vec) == FALSE)  ## decreasing order
+  expect_true(is.unsorted(-out$vec) == FALSE)
   expect_false(anyDuplicated(names(out$vec)) > 0)
 })
 
 test_that("mp_build_ranked_vector() signed_neglog10p ranking matches sign(logFC) * -log10(p) exactly", {
   df <- data.frame(expr_logFC = c(2, -3), expr_p = c(0.01, 0.0001))
   out <- mp_build_ranked_vector(df, c("1", "2"), ranking_method = "signed_neglog10p")
-  expect_false(out$ok)  ## only 2 rows, needs >= 10 - just confirms the guard, not the formula
+  expect_false(out$ok)
 })
-
-## ---- mp_concordance_direction() -----------------------------------------------
 
 test_that("mp_concordance_direction() defers to a preloaded row's audited biological_pattern when present", {
   expect_equal(mp_concordance_direction(list(biological_pattern = "Concordant (gene-body hypermethylation)")), "Directionally consistent (region-aware)")
@@ -136,8 +118,6 @@ test_that("mp_concordance_direction() classifies uploaded data by direct sign co
   expect_equal(mp_concordance_direction(list(biological_pattern = NA, expr_direction = NA, meth_direction = "Hypo")), "Insufficient information")
 })
 
-## ---- mp_build_evidence_tracks() -----------------------------------------------
-
 test_that("mp_build_evidence_tracks() summarizes overlapping-gene transcript/methylation evidence per pathway from the enrichment table's own geneID list", {
   enrichment_df <- data.frame(ID = "GO:001", Description = "test pathway", geneID = "TP53/BRCA1", stringsAsFactors = FALSE)
   input_df <- data.frame(
@@ -147,17 +127,15 @@ test_that("mp_build_evidence_tracks() summarizes overlapping-gene transcript/met
     stringsAsFactors = FALSE
   )
   out <- mp_build_evidence_tracks(enrichment_df, input_df)
-  expect_equal(out$transcript_gene_count, 2L)  ## TP53 + BRCA1 overlap this pathway
-  expect_equal(out$transcript_direction_summary, "Mixed")  ## Up + Down
-  expect_equal(out$meth_cpg_count, 1L)  ## BRCA1's cg1
+  expect_equal(out$transcript_gene_count, 2L)
+  expect_equal(out$transcript_direction_summary, "Mixed")
+  expect_equal(out$meth_cpg_count, 1L)
   expect_equal(out$integration_label, "RNA + Methylation supported")
 })
 
 test_that("mp_build_evidence_tracks() passes through an empty/NULL enrichment table unchanged", {
   expect_null(mp_build_evidence_tracks(NULL, data.frame()))
 })
-
-## ---- Validation gates: mp_validate_ora_inputs() / mp_validate_gsea_inputs() / mp_validate_database_choice() ----
 
 test_that("mp_validate_ora_inputs() refuses with fewer than 3 genes, or a universe smaller than the input list", {
   expect_false(mp_validate_ora_inputs(c("1", "2"), NULL)$ok)
@@ -173,11 +151,9 @@ test_that("mp_validate_gsea_inputs() refuses with fewer than 10 ranked features"
 })
 
 test_that("mp_validate_database_choice() blocks a database whose own package gate has failed", {
-  expect_true(mp_validate_database_choice("GO_BP")$ok)  ## always available
+  expect_true(mp_validate_database_choice("GO_BP")$ok)
   if (!MP_REACTOME_AVAILABLE) expect_false(mp_validate_database_choice("Reactome")$ok)
 })
-
-## ---- mp_infer_species() -------------------------------------------------------
 
 test_that("mp_infer_species() infers mouse/rat from Ensembl ID prefixes, defaults to human otherwise", {
   expect_equal(mp_infer_species("Ensembl Gene ID", c("ENSMUSG00000001", "ENSMUSG00000002")), "Mus musculus")
@@ -185,8 +161,6 @@ test_that("mp_infer_species() infers mouse/rat from Ensembl ID prefixes, default
   expect_equal(mp_infer_species("Ensembl Gene ID", c("ENSG00000001")), "Homo sapiens")
   expect_equal(mp_infer_species("Gene symbol", c("TP53")), "Homo sapiens")
 })
-
-## ---- mp_build_metadata() -------------------------------------------------------
 
 test_that("mp_build_metadata() reports every real parameter, including a correctly-rounded mapping rate", {
   tbl <- mp_build_metadata("GO_BP", "ORA", "Homo sapiens", "Entire selected database", NULL, input_count = 40, mapped_count = 30, padj_thresh = 0.05, min_size = 5, max_size = 500)
@@ -196,21 +170,15 @@ test_that("mp_build_metadata() reports every real parameter, including a correct
   expect_equal(by_field[["Mapping rate (%)"]], "75")
 })
 
-## ---- mp_run_ora_go() (real, offline clusterProfiler::enrichGO via org.Hs.eg.db) ----
-
 test_that("mp_run_ora_go() (real clusterProfiler::enrichGO, offline via org.Hs.eg.db) finds real GO Biological Process enrichment for a canonical immune gene set", {
   skip_if_not_installed("clusterProfiler")
   skip_if_not_installed("org.Hs.eg.db")
-  ## A small set of well-known, strongly immune/inflammation-associated genes
-  ## (their real Entrez IDs) - if this doesn't turn up an immune-related GO
-  ## BP term, either the real annotation database or this test's own gene
-  ## set is wrong; a fabricated/mocked result could never fail this way.
-  immune_genes_entrez <- c("3569", "7124", "3576", "3592", "6347", "3595")  ## IL6, TNF, CXCL8, IL13, CCL2, IL15
+  immune_genes_entrez <- c("3569", "7124", "3576", "3592", "6347", "3595")
   out <- mp_run_ora_go(immune_genes_entrez, universe_entrez = NULL, ont = "BP", pvalueCutoff = 0.2, minGSSize = 3)
   expect_true(out$ok)
   expect_true(nrow(out$df) > 0)
   expect_true(any(grepl("immune|inflamm|cytokine", out$df$Description, ignore.case = TRUE)))
-  expect_true(all(out$df$p.adjust >= out$df$pvalue - 1e-8))  ## BH-adjustment never makes p smaller than raw p
+  expect_true(all(out$df$p.adjust >= out$df$pvalue - 1e-8))
 })
 
 test_that("mp_finalize_enrich() reports a clear failure (never ok=TRUE/df=NULL) when the enrichment table is empty", {

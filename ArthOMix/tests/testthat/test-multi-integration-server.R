@@ -1,25 +1,6 @@
 ## Module 3 (Multiomics) - Multi-omics Integration (DIABLO & SNF) sub-module,
 ## via testServer(): data-source dispatch (preloaded vs. Active Multi-Omics
 ## Dataset), real validation/outcome-summary/eligibility reactive wiring,
-## and the synchronous portion of the Run DIABLO/SNF click handlers (the
-## `validate(need(eligibility$ok, ...))` gate, which fires and can block the
-## run BEFORE any async dispatch happens).
-##
-## KNOWN LIMITATION (disclosed, not silently skipped): DIABLO/SNF/Sex-
-## Stratified all dispatch their actual computation through
-## `shiny::ExtendedTask` + `promises::future_promise()` against a REAL
-## `future::plan(future::multisession, workers = 2)` (global.R) - genuine
-## separate OS worker processes, deferred one flush cycle via
-## `session$onFlushed(..., once = TRUE)`. There is no cache to pre-warm
-## here (unlike mod_methyl_dataset.R's async preloaded-matrix load) since
-## every run is freshly parameterized - driving a real cross-process
-## future_promise to resolution through testServer() was judged
-## impractical/flaky to do reliably, so the actual RESULT of a successful
-## DIABLO/SNF run through the Shiny module is not verified here. The
-## underlying computation itself (`mi_diablo_run()`/`mi_snf_run()`) already
-## has thorough, real, end-to-end coverage in
-## test-multi-integration-live-functions.R - this file verifies the
-## reactive wiring AROUND that computation instead.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -86,15 +67,12 @@ test_that("diablo_elig()/snf_elig() correctly refuse a single-block dataset (bot
 
 test_that("clicking 'Run DIABLO' on an ineligible dataset is blocked by validate() BEFORE any async dispatch - diablo_state$submitted stays FALSE", {
   fx <- mi_live_fixture()
-  ## Single block -> ineligible for DIABLO (needs >=2).
   multi_dataset <- shiny::reactiveValues(active = TRUE, source = "upload", layers = list(Transcriptomics = fx$expr), sample_meta = fx$meta)
   shiny::testServer(mod_multi_integration_server, args = list(id = "mi", multi_dataset = multi_dataset), {
     session$setInputs(data_source = "active", outcome_col = "outcome")
     expect_false(diablo_elig()$ok)
     session$setInputs(d_run_btn = 0)
     session$setInputs(d_run_btn = 1)
-    ## validate(need(...)) throws inside the observer before diablo_state$submitted
-    ## is ever set - it must still read its initial FALSE.
     expect_false(isTRUE(diablo_state$submitted))
     expect_null(diablo_state$result)
   })
@@ -125,9 +103,6 @@ test_that("clicking 'Run DIABLO' on an ELIGIBLE dataset synchronously flips diab
     session$setInputs(d_blocks = c("Transcriptomics", "Methylomics"), d_ncomp = 1, d_folds = 3, d_nrepeat = 1)
     session$setInputs(d_run_btn = 0)
     session$setInputs(d_run_btn = 1)
-    ## The observer's own body sets submitted <- TRUE synchronously; the
-    ## actual mixOmics fit is deferred via session$onFlushed() to a real
-    ## multisession worker and is not awaited here (see file header).
     expect_true(isTRUE(diablo_state$submitted))
   })
 })

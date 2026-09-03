@@ -1,18 +1,6 @@
 ## R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_plots.R
 ## Plots 1-6 for the "Gene-CpG Concordance" submodule (spec section 20).
 ## Every function returns NULL (never a placeholder/fake plot) when its
-## required columns/rows aren't present, so multi_plot_or_empty() renders
-## the standard empty-state note instead. Styling matches the rest of the
-## Multi-Omics module (theme_arthomix(), ARTHOMIX_COLORS, arthomix_pair()).
-## The network plot deliberately reuses the exact technique already proven
-## in R/crossomics/functions/integration/crossomics_integration_plots.R::cx_gene_cpg_network_plot()
-## (igraph::layout_with_fr() + plain geom_segment()/geom_point(), not
-## ggraph::geom_edge_link() - see that file's comment for the documented
-## ggraph/grid version incompatibility on this deployment).
-
-## ---------------------------------------------------------------------------
-## Plot 1 - Gene-CpG Concordance Scatter
-## ---------------------------------------------------------------------------
 
 mcc_plot_scatter <- function(df, color_by = "region_fine", meth_value = c("dbeta", "delta_beta")) {
   meth_value <- match.arg(meth_value)
@@ -31,10 +19,6 @@ mcc_plot_scatter <- function(df, color_by = "region_fine", meth_value = c("dbeta
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Plot 2 - Gene-CpG Correlation (one selected pair)
-## ---------------------------------------------------------------------------
-
 mcc_plot_pair_correlation <- function(x, y, gene, cpg, r, p, fdr, n, xlab = "Methylation", ylab = "Expression") {
   if (length(x) == 0 || length(y) == 0 || length(x) != length(y) || n < 3) return(NULL)
   d <- data.frame(x = x, y = y)
@@ -45,10 +29,6 @@ mcc_plot_pair_correlation <- function(x, y, gene, cpg, r, p, fdr, n, xlab = "Met
                   title = sprintf("%s x %s: r = %.2f, p = %.3g, FDR = %.3g, n = %d", gene, cpg, r, p, fdr, n)) +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Plot 3 - Direction Quadrant (labels only top candidates by priority score)
-## ---------------------------------------------------------------------------
 
 mcc_plot_quadrant <- function(df, meth_value = c("dbeta", "delta_beta"), top_label_n = 15) {
   meth_value <- match.arg(meth_value)
@@ -72,10 +52,6 @@ mcc_plot_quadrant <- function(df, meth_value = c("dbeta", "delta_beta"), top_lab
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Plot 4 - Genomic Location (only when chr/pos are available)
-## ---------------------------------------------------------------------------
-
 mcc_plot_location <- function(df) {
   need <- c("chr", "pos", "gene_symbol", "cpg")
   if (is.null(df) || nrow(df) == 0 || !all(need %in% colnames(df))) return(NULL)
@@ -90,10 +66,6 @@ mcc_plot_location <- function(df) {
     theme_arthomix() +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
 }
-
-## ---------------------------------------------------------------------------
-## Plot 5 - Multi-Omics Evidence Heatmap
-## ---------------------------------------------------------------------------
 
 mcc_plot_evidence_heatmap <- function(df, top_n = 30) {
   need <- c("gene_symbol", "cpg", "log2fc", "dbeta")
@@ -120,15 +92,11 @@ mcc_plot_evidence_heatmap <- function(df, top_n = 30) {
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
 }
 
-## ---------------------------------------------------------------------------
-## Plot 6 - Gene-CpG Network
-## ---------------------------------------------------------------------------
-
 mcc_plot_network <- function(df, max_edges = 150) {
   need <- c("gene_symbol", "cpg")
   if (is.null(df) || nrow(df) == 0 || !all(need %in% colnames(df))) return(NULL)
   d <- df[!is.na(df$gene_symbol) & !is.na(df$cpg), , drop = FALSE]
-  if (nrow(d) == 0 || nrow(d) > max_edges) return(NULL)  ## spec 20: never build an unreadable/invalid network
+  if (nrow(d) == 0 || nrow(d) > max_edges) return(NULL)
   edges <- data.frame(from = d$gene_symbol, to = d$cpg, stringsAsFactors = FALSE)
   edges <- unique(edges)
   if (nrow(edges) < 2) return(NULL)

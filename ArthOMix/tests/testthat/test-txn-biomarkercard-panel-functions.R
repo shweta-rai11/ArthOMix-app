@@ -1,10 +1,6 @@
 ## Regression guard for the Gene Panel mode added to the Biomarker Card
 ## (2026-08-26): identifier resolution must never silently drop a submitted
 ## gene, the per-database evidence-summary status must reflect real
-## retrieval outcomes (not just "the database exists"), and the disease/drug
-## convergence aggregator must group by the shared item (disease/drug) and
-## list every gene that hit it - all pure logic, tested here without any
-## live network call.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -28,7 +24,6 @@ test_that("tbc_panel_identity never silently drops an unrecognized identifier", 
   expect_equal(res$n_submitted, 2L)
   expect_equal(res$n_resolved, 1L)
   expect_equal(res$n_unresolved, 1L)
-  ## Both inputs must still appear in the resolution table, in original form.
   expect_setequal(res$df$input_id, c("TNF", "NOTAREALGENEXYZ123"))
   bad_row <- res$df[res$df$input_id == "NOTAREALGENEXYZ123", ]
   expect_false(bad_row$resolved)
@@ -39,7 +34,6 @@ test_that("tbc_panel_identity never silently drops an unrecognized identifier", 
 test_that("tbc_panel_identity resolves duplicate and blank input safely", {
   res <- tbc_panel_identity(c("TNF", "tnf", "  ", "", "TNF"))
   expect_true(res$ok)
-  ## Blanks dropped before harmonization; case-insensitive dup collapses to one row.
   expect_equal(res$n_submitted, 2L)
   expect_equal(res$n_resolved, 2L)
 })
@@ -77,7 +71,6 @@ test_that("tbc_aggregate_convergence groups by the shared item and lists all gen
   expect_equal(ra_row$Genes, "IL6, STAT3, TNF")
   sepsis_row <- agg[agg$Disease == "Sepsis", ]
   expect_equal(sepsis_row$`Gene count`, 1L)
-  ## Sorted by descending gene count - the most-convergent item comes first.
   expect_equal(agg$Disease[1], "Rheumatoid arthritis")
 })
 
@@ -90,10 +83,6 @@ test_that("tbc_split_gene_text tokenizes on comma/newline/tab/space and dedupes"
   toks <- tbc_split_gene_text("TNF, IL6\nSTAT3\tTNF  FOXP3")
   expect_equal(toks, c("TNF", "IL6", "STAT3", "FOXP3"))
 })
-
-## ---- Single-gene diagnostic performance (2026-08-27 evidence-dossier -------
-## refactor): pure local computation on synthetic expression vectors, no
-## network call, no dependency on mod_diagnostic.R's private reactives.
 
 test_that("tbc_single_gene_roc reports near-perfect performance for a clearly separable gene", {
   set.seed(1)
@@ -148,8 +137,6 @@ test_that("tbc_parse_geo_source extracts accession/platform only when the exact 
   expect_true(is.na(res2$accession))
   expect_true(is.na(res2$platform))
 })
-
-## ---- Evidence tier classification (spec: DE alone is never "validated") ----
 
 test_that("tbc_evidence_classification never calls a gene with no significant DE anything but Insufficient evidence", {
   d <- list(live = list(ok = FALSE), dge_hits = NULL, diagnostic_match = list())

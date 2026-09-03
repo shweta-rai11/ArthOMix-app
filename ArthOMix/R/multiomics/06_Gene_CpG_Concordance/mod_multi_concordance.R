@@ -1,27 +1,6 @@
 ## R/multiomics/06_Gene_CpG_Concordance/mod_multi_concordance.R
 ## Submodule: Gene–CpG Concordance - connects transcriptomics gene-level
 ## changes to methylation CpG-level changes for the candidate multi-omics
-## biomarkers this app has already identified (DIABLO / Joint Biomarker
-## Discovery via mod_multi_biomarker.R, SNF via mod_multi_stratification.R),
-## or a user-supplied custom gene/CpG list. Two data sources:
-##   - "Preloaded (Table42/45)": the pipeline's own precomputed gene<->CpG
-##     concordance tables, unchanged from before this rewrite (spec section
-##     23 - "must continue to work", "do not redesign the preloaded
-##     pipeline"). DIABLO/Joint candidate flags on this path are cross-
-##     referenced against the pipeline's own precomputed, per-sex DIABLO
-##     panel (Table40/44b, via MCC_PRELOADED_DIABLO_PANEL) - no live run
-##     needed.
-##   - "Active Multi-Omics Dataset": a live, data-adaptive engine over
-##     whatever is actually loaded on the Dataset Workspace tab
-##     (multi_dataset$layers/sample_meta) - never assumes matched samples,
-##     a platform, an annotation, or a sex variable exist; every analysis
-##     that needs something the data doesn't have is disabled with an exact
-##     reason, never silently skipped or approximated.
-## Nothing below renders a result table, plot, or score until the blue
-## "Run Gene<->CpG Analysis" button is clicked (spec section 3) - filters,
-## thresholds, and the data status panel are the only things visible before
-## that. All heavy lifting is in multiomics_concordance_helpers.R /
-## multiomics_concordance_plots.R; this file is UI wiring only.
 
 mod_multi_concordance_config <- list(
   id = "concordance", title = "Gene–CpG Concordance", icon = "arrows-left-right", group = "Biomarker modeling",
@@ -33,12 +12,6 @@ MULTI_CONCORDANCE_COHORTS <- c(
   "Response (drug-pooled)" = "Gene <-> CpG concordance - response (drug-pooled)"
 )
 
-## Precomputed, per-sex DIABLO candidate-biomarker panels (Table40/44b) for
-## the SAME two cohorts above - gene/CpG feature, sex, loading, and
-## biomarker_status ("statistically_supported"/"exploratory_not_significant"),
-## already on disk (Research_05_multiomics_sexstratified's own pipeline
-## output), never requiring a live same-session DIABLO run to populate the
-## Preloaded path's diablo/joint biomarker flags.
 MCC_PRELOADED_DIABLO_PANEL <- c(
   "Gene <-> CpG concordance - drug x sex (Etanercept panel)" = "Candidate multi-omics biomarkers - drug x sex (Etanercept panel)",
   "Gene <-> CpG concordance - response (drug-pooled)" = "Candidate multi-omics biomarkers - response (drug-pooled)"
@@ -51,10 +24,6 @@ MCC_BIOMARKER_SOURCES <- c(
 )
 
 MCC_SEX_CHOICES <- c("All (pooled)" = "all", "Female" = "female", "Male" = "male", "Sex-specific (Female and Male separately)" = "sex_specific")
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_multi_concordance_ui <- function(id) {
   ns <- NS(id)
@@ -127,20 +96,11 @@ mod_multi_concordance_ui <- function(id) {
   ))
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
     state <- reactiveValues(result = NULL)
-
-    ## =========================================================================
-    ## Layer / design / covariate pickers (Active dataset only) - populated
-    ## only from what multi_dataset actually contains.
-    ## =========================================================================
 
     output$layer_pick_ui <- renderUI({
       layers <- multi_dataset$layers %||% list()
@@ -167,10 +127,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       selectizeInput(ns("covariates"), "Regression covariates (optional)", choices = colnames(meta), multiple = TRUE, options = list(placeholder = "None"))
     })
 
-    ## =========================================================================
-    ## Data status (spec section 4) - visible pre-run, no analysis triggered.
-    ## =========================================================================
-
     output$status_ui <- renderUI({
       if (identical(input$data_source, "preloaded")) {
         return(div(class = "empty-note", icon("circle-check"),
@@ -187,20 +143,12 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       )
     })
 
-    ## =========================================================================
-    ## RUN - the only place that triggers computation (spec section 3).
-    ## =========================================================================
-
     observeEvent(input$run_btn, {
       state$result <- tryCatch({
         if (identical(input$data_source, "preloaded")) mcc_build_preloaded(input, multi_results)
         else mcc_build_live(input, multi_dataset, multi_results)
       }, error = function(e) list(ok = FALSE, error = sprintf("Analysis failed: %s", conditionMessage(e))))
     })
-
-    ## =========================================================================
-    ## Overview (pre- and post-run)
-    ## =========================================================================
 
     output$overview_ui <- renderUI({
       tagList(
@@ -210,25 +158,12 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
         else if (!isTRUE(state$result$ok)) div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), state$result$error)
         else tagList(
           div(class = "empty-note", icon("circle-check"), state$result$overview_note),
-          ## Circularity disclosure (Active Multi-Omics Dataset path only) -
-          ## mcc_build_live_one() -> mcc_candidate_pool() draws candidate
-          ## genes/CpGs from mcc_diablo_candidates(multi_results), i.e. this
-          ## SAME dataset's own DIABLO feature selection - so the
-          ## correlation/significance re-test below is not an independent
-          ## check, unlike the Preloaded cohort path (a separately-run
-          ## pipeline's own Table42/45). Phrasing follows this app's existing
-          ## circularity callouts (e.g. mod_nomogram.R's
-          ## nom_circularity_note(), mod_diagnostic.R's Test-split AUC note).
           if (identical(input$data_source, "active")) div(
             class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
             "Circularity warning: for the Active Multi-Omics Dataset, the candidate genes/CpGs analyzed above were already selected using this SAME data (DIABLO's own feature selection, run on this dataset) - the correlation/significance results below therefore re-test features on the data that picked them, and are not independent corroborating evidence. Only the Preloaded cohort path cross-references a separately-run pipeline.")
         )
       )
     })
-
-    ## =========================================================================
-    ## Gene<->CpG mapping table (spec section 9)
-    ## =========================================================================
 
     output$genecpg_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -253,10 +188,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       cols <- intersect(c("gene_symbol", "gene_id", "transcript_id", "chr", "pos", "strand", "cpg", "region_raw", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
       utils::write.csv(r$pairs_df[, cols, drop = FALSE], file, row.names = FALSE)
     })
-
-    ## =========================================================================
-    ## Direction (spec section 10-11)
-    ## =========================================================================
 
     output$direction_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -319,10 +250,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       function(file) utils::write.csv(direction_significant_df(), file, row.names = FALSE)
     )
 
-    ## =========================================================================
-    ## Location (spec section 21, Plot 4)
-    ## =========================================================================
-
     output$location_ui <- renderUI({
       r <- req(mcc_ok(state$result))
       if (!"chr" %in% colnames(r$pairs_df) || all(is.na(r$pairs_df$chr))) return(multi_empty_state("Genomic coordinates are not available for this data source/annotation."))
@@ -337,10 +264,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       cols <- intersect(c("gene_symbol", "chr", "pos", "gene_id", "cpg", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
       DT::datatable(r$pairs_df[, cols, drop = FALSE], rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
     })
-
-    ## =========================================================================
-    ## Biomarkers table (spec section 15-19)
-    ## =========================================================================
 
     output$biomarkers_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -359,10 +282,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       r <- req(mcc_ok(state$result))
       utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker"), , drop = FALSE], file, row.names = FALSE)
     })
-
-    ## =========================================================================
-    ## Plots (spec section 20)
-    ## =========================================================================
 
     output$plots_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -408,10 +327,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       mcc_plot_pair_correlation(x, y, row$gene_symbol, row$cpg, row$correlation_r, row$correlation_p, row$correlation_fdr, row$correlation_n)
     })
 
-    ## =========================================================================
-    ## Results (spec section 26-28)
-    ## =========================================================================
-
     output$results_ui <- renderUI({
       r <- req(mcc_ok(state$result))
       sc <- mcc_summary_counts(r$pairs_df, sex_col_present = "sex" %in% colnames(r$pairs_df))
@@ -448,12 +363,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       utils::write.csv(r$pairs_df[, cols, drop = FALSE], file, row.names = FALSE)
     })
 
-    ## =========================================================================
-    ## Publish (kept in the same list(df=, cohort=) shape other Multi-Omics
-    ## submodules already publish, for consistency - nothing currently reads
-    ## multi_results$concordance).
-    ## =========================================================================
-
     observe({
       r <- mcc_ok(state$result)
       if (is.null(r) || is.null(multi_results)) return()
@@ -461,12 +370,6 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
     })
   })
 }
-
-## ---------------------------------------------------------------------------
-## Result builders - one canonical shape for both data sources:
-## list(ok, error, pairs_df, expr_mat, meth_mat, common_samples, label,
-##      overview_note, settings_snapshot)
-## ---------------------------------------------------------------------------
 
 mcc_ok <- function(result) if (!is.null(result) && isTRUE(result$ok)) result else NULL
 
@@ -480,10 +383,6 @@ mcc_build_preloaded <- function(input, multi_results) {
   df$dbeta <- df$delta_M
   df$region_fine <- cx_region_fine(df$region)
   df$island_context <- df$island
-  ## Real chr/pos for the Location tab - same annotation lookup already used
-  ## for the preloaded methylation path elsewhere (cx_load_default_methylation()),
-  ## keyed by this table's own CpG IDs. Fail-soft: NA (and the Location tab's
-  ## existing empty-state) if the annotation package isn't installed.
   df$chr <- NA_character_; df$pos <- NA_real_
   anno <- cx_get_region_annotation("450K")
   if (isTRUE(anno$ok)) {
@@ -501,12 +400,6 @@ mcc_build_preloaded <- function(input, multi_results) {
 
   df <- mcc_classify_direction(df, input$expr_thresh, input$expr_fdr_thresh, input$meth_thresh, input$meth_fdr_thresh)
 
-  ## Cross-reference (a) the precomputed, per-sex DIABLO candidate-biomarker
-  ## panel for this same cohort (Table40/44b - always available, no live run
-  ## needed) and (b) the same-session live DIABLO/Joint panel, when present.
-  ## SNF stays FALSE on this path: no precomputed per-gene/per-CpG SNF
-  ## feature-selection table exists in this deployment (only patient-cluster
-  ## assignments do) - never fabricated.
   panel_label <- MCC_PRELOADED_DIABLO_PANEL[[input$cohort]]
   panel <- if (!is.null(panel_label)) { r <- multi_read_registry_table(panel_label); if (isTRUE(r$ok)) r$df else NULL } else NULL
   df <- mcc_join_preloaded_diablo_panel(df, panel)
@@ -519,11 +412,6 @@ mcc_build_preloaded <- function(input, multi_results) {
   }
   df$custom <- FALSE
 
-  ## Real genome-wide response-driven significance (Table3/4, script 05 -
-  ## the actual end-to-end DEG/DMP discovery step), for every candidate gene/
-  ## CpG this cohort's DIABLO panel or concordance table ever mentions - never
-  ## the small-panel-recomputed FDR above, which BH-corrects over only this
-  ## cohort's own few hundred/thousand candidate rows.
   deg <- multi_read_registry_table("Genome-wide DEG lookup - response-driven, by sex (candidates only)")
   dmp <- multi_read_registry_table("Genome-wide DMP lookup - response-driven, by sex (candidates only)")
   df <- mcc_join_genome_wide_significance(df, if (isTRUE(deg$ok)) deg$df else NULL, if (isTRUE(dmp$ok)) dmp$df else NULL)
@@ -567,7 +455,7 @@ mcc_build_live <- function(input, multi_dataset, multi_results) {
   results <- list()
   for (sex_label in names(sex_runs)) {
     ids <- intersect(common, sex_runs[[sex_label]])
-    if (length(ids) < 6) next  ## too few for a stable per-sex comparison; silently excluded stratum is reported via note below
+    if (length(ids) < 6) next
     r1 <- mcc_build_live_one(input, expr_mat, meth_mat, ids, multi_dataset, multi_results)
     if (isTRUE(r1$ok)) { r1$pairs_df$sex <- sex_label; results[[sex_label]] <- r1 }
   }
@@ -576,10 +464,6 @@ mcc_build_live <- function(input, multi_dataset, multi_results) {
   pairs_df <- do.call(rbind, lapply(results, `[[`, "pairs_df"))
   settings <- results[[1]]$settings_snapshot
   settings <- rbind(settings, data.frame(Parameter = "Strata analyzed", Value = paste(names(results), collapse = ", "), stringsAsFactors = FALSE))
-  ## Kept per-stratum (not just the first) so the single-pair correlation
-  ## plot can look up the right sample subset/matrix for a pair from ANY
-  ## stratum in sex-specific mode - each stratum has its own matched-sample
-  ## set, never mixed with another stratum's.
   strata <- lapply(results, function(x) list(expr_mat = x$expr_mat, meth_mat = x$meth_mat, common_samples = x$common_samples))
 
   list(ok = TRUE, error = NULL, pairs_df = pairs_df, strata = strata,
@@ -603,10 +487,6 @@ mcc_build_live_one <- function(input, expr_mat, meth_mat, sample_ids, multi_data
   if (!isTRUE(map$ok)) return(list(ok = FALSE, error = map$error))
   df <- map$df
 
-  ## Bridge candidate gene symbols back to this dataset's own expression
-  ## column IDs (which may be Ensembl, Entrez, or symbol) via the same
-  ## harmonizer used to build the map, so expression stats join correctly
-  ## regardless of the uploaded matrix's ID convention.
   harm <- cx_harmonize_gene_ids(colnames(expr_sub))
   expr_id_by_symbol <- if (isTRUE(harm$ok)) stats::setNames(harm$df$input_id, toupper(harm$df$canonical_symbol)) else stats::setNames(colnames(expr_sub), toupper(colnames(expr_sub)))
   df$expr_feature <- unname(expr_id_by_symbol[toupper(df$gene_symbol)])
@@ -628,18 +508,6 @@ mcc_build_live_one <- function(input, expr_mat, meth_mat, sample_ids, multi_data
   df$log2fc <- es$df$log2fc[ei]; df$expr_p <- es$df$p[ei]; df$expr_fdr <- es$df$fdr[ei]
   df$dbeta <- ms$df$dbeta[mi]; df$delta_beta <- ms$df$delta_beta[mi]; df$meth_p <- ms$df$p[mi]; df$meth_fdr <- ms$df$fdr[mi]
 
-  ## Genome-wide equivalent of the preloaded path's Table3/4 DEG/DMP lookup
-  ## (mcc_join_genome_wide_significance()) - the "Significant" section on the
-  ## Direction tab needs the SAME genome_expr_p/genome_meth_p/*_fdr columns
-  ## on this path too, so it isn't preloaded-only. Nominal p per feature is
-  ## identical whether computed on the candidate subset above or the full
-  ## uploaded layer (each column's own t-test doesn't depend on which other
-  ## columns were tested alongside it) - what differs, and is worth getting
-  ## right, is the FDR: BH-correcting only over this cohort's own handful of
-  ## candidate genes/CpGs (the *_fdr columns above) inflates significance the
-  ## same way the preloaded path's small-panel FDR did, so this reruns the
-  ## same generic stats functions across every feature actually present in
-  ## the uploaded layer for a properly-scaled genome-wide FDR.
   genome_es <- mcc_expression_stats(expr_sub, grp)
   genome_ms <- mcc_methylation_stats(meth_sub, grp, if (meth_val_type %in% c("beta", "M-value")) meth_val_type else "beta")
   df$genome_expr_p <- NA_real_; df$genome_expr_fdr <- NA_real_; df$genome_expr_logfc <- NA_real_
@@ -654,17 +522,9 @@ mcc_build_live_one <- function(input, expr_mat, meth_mat, sample_ids, multi_data
   }
 
   if (length(input$region) > 0) df <- df[df$region_fine %in% input$region, , drop = FALSE]
-  ## "Custom CpGs" restricts to the exact user-entered CpG IDs (the gene
-  ## candidate pool above is gene-driven per spec section 9's mapping
-  ## direction, so this is applied as a final row filter rather than by
-  ## restricting candidate gene selection).
   if (identical(input$source, "Custom CpGs") && length(input$custom_cpgs %||% character(0)) > 0) df <- df[df$cpg %in% input$custom_cpgs, , drop = FALSE]
   if (nrow(df) == 0) return(list(ok = FALSE, error = "No gene–CpG pairs remain after the region/CpG filters."))
 
-  ## mcc_pair_correlation() (and the single-pair plot picker) index the
-  ## expression matrix by `gene_symbol`, not by this dataset's own raw
-  ## expr_feature ID - re-key a small symbol-labeled copy here rather than
-  ## inside that shared helper, since only this caller knows the mapping.
   expr_by_symbol <- expr_sub[, unique(df$expr_feature), drop = FALSE]
   colnames(expr_by_symbol) <- df$gene_symbol[match(colnames(expr_by_symbol), df$expr_feature)]
 

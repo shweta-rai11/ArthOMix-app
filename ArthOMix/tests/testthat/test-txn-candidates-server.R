@@ -1,16 +1,12 @@
 ## Module 1 (Transcriptomics) - Candidate Gene Identification: WGCNA module
 ## background intersected with DEG lists (sex-stratified when supported),
 ## optional MR/Colocalization causal-evidence refinement, and the
-## results$candidates hand-off other tabs read from - via testServer().
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "06_Candidate_Gene_Identification", "mod_candidates.R"))
 
-## Prime helper for the ignoreInit=TRUE bare-actionButton gotcha (see
-## feedback_shiny_testserver_ignoreinit_actionbutton_priming memory) -
-## sex_candidates()'s eventReactive uses this exact pattern.
 click <- function(session, input_id) {
   do.call(session$setInputs, setNames(list(0), input_id))
   do.call(session$setInputs, setNames(list(1), input_id))
@@ -24,7 +20,6 @@ cand_wgcna_fixture <- function() {
        significant_trait_modules = "turquoise")
 }
 
-## A DGE run's saved table shape (matches results$dge_runs[[id]]$table from mod_dge.R).
 cand_dge_run <- function(contrast, sig_genes, all_genes) {
   n <- length(all_genes)
   df <- data.frame(gene = all_genes, logFC = rnorm(n), adj.P.Val = runif(n, 0.1, 0.9),
@@ -84,7 +79,7 @@ test_that("Case 1 (M+F): sex_available() is TRUE with both sexes represented", {
 
 test_that("Case 2/3 (single-sex-only data): sex_available() is FALSE, falling back to the pooled panel", {
   dataset <- cand_dataset(with_sex = TRUE)
-  shiny::isolate(dataset$meta$sex <- "F")  ## collapse to a single represented sex
+  shiny::isolate(dataset$meta$sex <- "F")
   shiny::testServer(mod_candidates_server, args = list(id = "cand", dataset = dataset, results = shiny::reactiveValues()), {
     expect_false(sex_available())
   })
@@ -100,7 +95,6 @@ test_that("Case 4 (no sex metadata column at all): sex_available() is FALSE (the
 test_that("the female panel computes the correct module-background ∩ significant-DEG overlap with a valid hypergeometric p-value", {
   dataset <- cand_dataset()
   wg <- cand_wgcna_fixture()
-  ## 5 significant DEGs, all inside the turquoise module (GENE1-30) - a clean, known overlap.
   sig <- c("GENE1", "GENE2", "GENE3", "GENE4", "GENE5")
   results <- shiny::reactiveValues(wgcna = wg, dge_runs = list(f1 = cand_dge_run("RA vs HC (female)", sig, paste0("GENE", 1:60))))
   shiny::testServer(mod_candidates_server, args = list(id = "cand", dataset = dataset, results = results), {
@@ -122,7 +116,6 @@ test_that("the female panel computes the correct module-background ∩ significa
 test_that("no overlap between the module background and the DEG list is rejected with a clear validation error", {
   dataset <- cand_dataset()
   wg <- cand_wgcna_fixture()
-  ## Significant genes entirely outside turquoise/blue (in the "grey"/excluded pool).
   sig <- c("GENE51", "GENE52")
   results <- shiny::reactiveValues(wgcna = wg, dge_runs = list(f1 = cand_dge_run("RA vs HC (female)", sig, paste0("GENE", 1:60))))
   shiny::testServer(mod_candidates_server, args = list(id = "cand", dataset = dataset, results = results), {
@@ -220,7 +213,6 @@ test_that("requiring MR support filters the final candidate set down to only MR-
   results <- shiny::reactiveValues(
     wgcna = wg,
     dge_runs = list(f1 = cand_dge_run("RA vs HC (female)", sig, paste0("GENE", 1:60))),
-    ## mr_supported_genes() keeps genes with p < 0.05 from results$mr$genes_tested.
     mr = list(genes_tested = list(GENE1 = list(p = 0.01), GENE2 = list(p = 0.5), GENE3 = list(p = 0.02)))
   )
   shiny::testServer(mod_candidates_server, args = list(id = "cand", dataset = dataset, results = results), {
@@ -228,7 +220,7 @@ test_that("requiring MR support filters the final candidate set down to only MR-
     session$setInputs(gene_panel_choice = "")
     session$setInputs(female_deg_run = "f1")
     click(session, "female_run_btn")
-    session$setInputs(final_candidate_set = "female")  ## only the female panel was run
+    session$setInputs(final_candidate_set = "female")
 
     expect_setequal(mr_supported_genes(), c("GENE1", "GENE3"))
 

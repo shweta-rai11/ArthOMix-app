@@ -1,9 +1,6 @@
 ## Module 3 (Multiomics) - Overview / Cohort Harmonization sub-module,
 ## via testServer(): the "no active dataset" gate, and the real
 ## "Analyze Cohort" pipeline (real modality overlap/matching computed on a
-## live 2-layer dataset) publishing correct n_total/n_matched into the
-## shared multi_results$overview every other sub-module's QC scorecard/
-## summary table reads.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -30,7 +27,7 @@ test_that("body_ui shows the 'no active dataset' empty state when multi_dataset 
 test_that("clicking 'Analyze Cohort' on a real 2-layer live dataset computes real matched-sample counts and publishes them to multi_results$overview", {
   set.seed(1000)
   ids_a <- paste0("S", 1:20)
-  ids_b <- paste0("S", 11:25)  ## 10 shared (S11-S20) out of 20/15
+  ids_b <- paste0("S", 11:25)
   expr <- matrix(rnorm(200), 20, 10, dimnames = list(ids_a, paste0("g", 1:10)))
   meth <- matrix(rnorm(150), 15, 10, dimnames = list(ids_b, paste0("cg", 1:10)))
 
@@ -49,15 +46,15 @@ test_that("clicking 'Analyze Cohort' on a real 2-layer live dataset computes rea
 
     h <- harmonization_result()
     expect_true(h$ok)
-    expect_equal(h$n_matched, 10L)   ## real intersection: S11-S20
-    expect_equal(h$n_total, 25L)     ## real union: S1-S25
+    expect_equal(h$n_matched, 10L)
+    expect_equal(h$n_total, 25L)
     expect_equal(h$matched_summary$status, "Partially matched")
 
     expect_false(is.null(multi_results$overview))
     expect_true(multi_results$overview$harmonization$ok)
     expect_equal(multi_results$overview$harmonization$n_matched, 10L)
     expect_equal(multi_results$overview$harmonization$n_total, 25L)
-    expect_null(multi_results$overview$summary36)  ## only populated for the preloaded source
+    expect_null(multi_results$overview$summary36)
   })
 })
 
@@ -75,8 +72,6 @@ test_that("harmonization_result() restricts to only the modalities selected in s
   multi_results <- shiny::reactiveValues()
 
   shiny::testServer(mod_multi_overview_server, args = list(id = "ov", multi_dataset = multi_dataset, multi_results = multi_results), {
-    ## Only Transcriptomics selected -> n_matched should equal ITS OWN full
-    ## sample count (10), not the 5-sample cross-modality intersection.
     session$setInputs(sel_modalities = "Transcriptomics", min_overlap = 3)
     session$setInputs(analyze_btn = 0)
     session$setInputs(analyze_btn = 1)

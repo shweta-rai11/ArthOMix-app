@@ -57,8 +57,6 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     int_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, int_has_run(TRUE), ignoreInit = TRUE)
 
-    ## fit_result() is an eventReactive, so it keeps the previous dataset's fit
-    ## until Run is clicked again; clear the gate so nothing stale stays on screen.
     observeEvent(dataset$source, {
       int_has_run(FALSE)
     }, ignoreInit = TRUE)
@@ -96,10 +94,6 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
       res$table %>% mutate(significant = adj.P.Val < input$padj_cut)
     })
 
-    ## Publishes the fitted interaction model into shared results$interaction so
-    ## ArthOChat and the biomarker card can see it, mirroring mod_dge.R's
-    ## results$dge contract (contrast label, n tested/significant, top hits) -
-    ## silently skipped if the fit failed validation, same as mod_dge.R.
     observeEvent(input$run_btn, {
       df <- tryCatch(sig_table(), error = function(e) NULL)
       req(df)
@@ -130,13 +124,6 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     })
 
     output$int_table <- DT::renderDataTable({
-      ## req(), not `if (!int_has_run()) return(NULL)`: an explicit NULL still
-      ## gets sent to the client as a real value, and DT's own JS binding
-      ## throws "Cannot read properties of null (reading 'lazyRender')" the
-      ## first time it's asked to render one - which happens as soon as this
-      ## tab is added (insertTab(..., select = TRUE) in server.R makes it
-      ## visible immediately, before Run is ever clicked). Same fix as
-      ## mod_dge.R's dge_table.
       req(int_has_run())
       DT::datatable(sig_table(), rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")

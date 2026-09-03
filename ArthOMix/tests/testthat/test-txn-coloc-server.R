@@ -1,8 +1,6 @@
 ## Module 1 (Transcriptomics) - Colocalization: runs coloc.abf on the real
 ## bundled eQTL cis-window instrument against the bundled RA GWAS (the
 ## "project" data source), via testServer(), verifying the scientific
-## contract (5 posterior-probability hypotheses summing to ~1, valid ranges,
-## SNP-level table structure) and the <10-shared-SNP validation gate.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -50,9 +48,6 @@ test_that("switching genes and re-running updates results$coloc$genes_tested for
   })
 })
 
-## Builds a synthetic uploaded-GWAS file from the bundled eQTL region itself
-## (guarantees rsID/allele overlap without depending on network access), for
-## exercising the "upload your own GWAS" arm end to end.
 make_synthetic_gwas_upload <- function(eqtl, beta_scale = 1.05, extra_dup_rows = 0) {
   df <- data.frame(
     SNP = eqtl$rsid, beta = eqtl$beta * beta_scale, se = eqtl$se, pval = eqtl$p,

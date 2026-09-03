@@ -1,11 +1,6 @@
 ## R/transcriptomics/05_WGCNA/mod_wgcna.R
 ## WGCNA co-expression network submodule (Section 2.4): a 6-step wizard
 ## (Filter & QC, Soft Power, Modules, Module-Trait, Hub Genes, Enrichment)
-## following the standard WGCNA workflow (Langfelder & Horvath 2008;
-## Zhang & Horvath 2005), parameterized similarly to xOmicsShiny's WGCNA
-## module but reimplemented against this app's own data/UI plumbing and
-## extended with outlier QC, a custom gene panel, scale-free topology check,
-## module enrichment, Cytoscape export and STRING-DB lookup.
 
 mod_wgcna_config <- list(
   id = "wgcna", group = "Network",
@@ -14,9 +9,6 @@ mod_wgcna_config <- list(
   icon = "circle-nodes"
 )
 
-## Recodes a non-numeric trait column to numeric (factor levels sorted
-## alphabetically); levels_keep optionally restricts to specific levels,
-## setting the rest to NA so downstream cor(..., use = "p") ignores them.
 wgcna_encode_trait <- function(meta, col, levels_keep = NULL) {
   v <- meta[[col]]
   if (is.numeric(v)) return(as.numeric(v))
@@ -25,47 +17,28 @@ wgcna_encode_trait <- function(meta, col, levels_keep = NULL) {
   as.numeric(factor(v, levels = sort(unique(stats::na.omit(v)))))
 }
 
-## Widget-id suffix for a trait column's "which levels?" checkbox group, built
-## from the column's position among eligible_cols (this module's own
-## eligible_traits(), the same full/stable list every time for a fixed active
-## dataset) rather than the raw column name - GEO's own raw pData column
-## names routinely contain spaces/colons (e.g. "disease state:ch1", confirmed
-## live off a real GSE93272 fetch), and Shiny's client dispatches messages
-## keyed as "inputType:inputId" - a colon (or a space, which breaks the
-## jQuery selector/DOM id) inside the id corrupts that routing and throws an
-## uncaught "No handler registered for type ..." error that kills the whole
-## session (confirmed live: the entire page goes grey/unresponsive - a Shiny
-## disconnection, not a rendering glitch). Same fix as mod_overview.R's
-## filter_id() for the identical risk there.
 wgcna_trait_widget_id <- function(col, eligible_cols) paste0("trait_levels_", match(col, eligible_cols))
 
-## Reads the Step 4 per-trait level-filter checkbox; NULL for numeric traits.
 wgcna_trait_levels <- function(input, meta, col, eligible_cols) {
   if (is.numeric(meta[[col]])) return(NULL)
   input[[wgcna_trait_widget_id(col, eligible_cols)]]
 }
 
-## Picks the correlation function (bicor vs Pearson) matching Step 2's choice.
 wgcna_cor_fnc <- function(cor_method) {
   if (identical(cor_method, "bicor")) WGCNA::bicor else WGCNA::cor
 }
 wgcna_cor_fnc_name <- function(cor_method) if (identical(cor_method, "bicor")) "bicor" else "cor"
 
-## Builds a STRING-DB multi-gene network lookup URL (species fixed to human).
 wgcna_string_url <- function(genes, species = 9606) {
   ids <- paste(vapply(genes, utils::URLencode, character(1), reserved = TRUE), collapse = "%0d")
   sprintf("https://string-db.org/cgi/network?identifiers=%s&species=%d", ids, species)
 }
 
-## Builds the STRING-DB REST image URL that renders a PNG network for a gene list.
 wgcna_string_image_url <- function(genes, species = 9606) {
   ids <- paste(vapply(genes, utils::URLencode, character(1), reserved = TRUE), collapse = "%0d")
   sprintf("https://string-db.org/api/image/network?identifiers=%s&species=%d", ids, species)
 }
 
-## Loads the precomputed WGCNA result (scripts/00_shared/06_WGCNA.R output)
-## from data/processed/wgcna_results.rds, plus the raw blockwiseModules
-## object for the dendrogram if a wgcna_net_*.rds file is present.
 load_precomputed_wgcna_result <- function() {
   proc_dir <- PROCESSED_DIR
   results_path <- file.path(proc_dir, "wgcna_results.rds")
@@ -78,9 +51,6 @@ load_precomputed_wgcna_result <- function() {
   gene_module <- data.frame(gene = colnames(texpr), module = module_colors, stringsAsFactors = FALSE)
   gene_module <- gene_module[order(gene_module$module), ]
 
-  ## Filenames are content-hash based (e.g. "wgcna_net_00048f2e.rds"), not
-  ## timestamps - sorting them as strings has no relationship to recency, so
-  ## rank by actual file modification time instead if more than one exists.
   net_files <- list.files(proc_dir, pattern = "^wgcna_net_.*\\.rds$", full.names = TRUE)
   if (length(net_files) > 1) net_files <- net_files[order(file.info(net_files)$mtime, decreasing = TRUE)]
   dendro <- NULL
@@ -104,20 +74,10 @@ load_precomputed_wgcna_result <- function() {
     module_sizes = as.data.frame(table(module = module_colors)),
     n_genes = ncol(texpr), n_samples = nrow(texpr),
     n_modules = length(unique(module_colors[module_colors != "grey"])),
-    ## Precomputed hub-gene table (disease modules, group trait); Step 5
-    ## falls back to live computation for any other module/trait selection.
     hub_table_precomputed = res$hub_table
   )
 }
 
-## Step 2's counterpart to load_precomputed_wgcna_result() above: reads the same
-## data/processed/wgcna_results.rds for just the soft-power diagnostics (the
-## pickSoftThreshold fit table and the power actually used), so the app's own
-## bundled default dataset doesn't have to re-run pickSoftThreshold/softConnectivity
-## over its full ~15.7k-gene matrix live (a multi-minute computation - see the
-## comment on get_or_compute_wgcna_blocks() in global.R). connectivity is left NULL
-## since softConnectivity()'s raw per-gene output isn't saved by the offline script;
-## the scale-free check panel shows an explanatory message instead of that one plot.
 load_precomputed_wgcna_sft <- function() {
   proc_dir <- PROCESSED_DIR
   results_path <- file.path(proc_dir, "wgcna_results.rds")
@@ -127,7 +87,6 @@ load_precomputed_wgcna_sft <- function() {
   list(sft_df = res$sft_fit, power = res$soft_power, connectivity = NULL)
 }
 
-## Icon+label+sublabel markup for a workflow-stepper tab (no step number, unlike mod_preprocessing.R's pp_step_title()).
 wgcna_step_title <- function(ic, label, sublabel) {
   tagList(
     icon(ic),
@@ -137,7 +96,6 @@ wgcna_step_title <- function(ic, label, sublabel) {
   )
 }
 
-## Boxless results section: heading + divider instead of a bordered box() card (settings panels keep box()).
 wgcna_result <- function(icon_name, title, ..., desc = NULL) {
   tagList(
     div(class = "wgcna-result-heading", icon(icon_name), title),
@@ -146,18 +104,10 @@ wgcna_result <- function(icon_name, title, ..., desc = NULL) {
   )
 }
 
-## Wraps a fluidRow of result columns with a divider class instead of per-column box borders.
 wgcna_result_row <- function(...) {
   div(class = "wgcna-result-row", fluidRow(...))
 }
 
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
-
-## Scoped CSS: equal-height boxes per row, flex-based nav-tabs (Bootstrap 3's
-## default float layout reflows unpredictably for 6 icon+label tabs), and the
-## boxless results-section styling above. Scoped to .wgcna-wrap only.
 wgcna_layout_css <- function() {
   tags$style(HTML("
     .wgcna-wrap .row { display: flex; flex-wrap: wrap; }
@@ -228,7 +178,6 @@ wgcna_layout_css <- function() {
   "))
 }
 
-## Left rail (ArthOChat shortcut) in column(3) beside the 6-step wizard in column(9).
 mod_wgcna_ui <- function(id) {
   ns <- NS(id)
   fluidRow(
@@ -281,35 +230,13 @@ mod_wgcna_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_wgcna_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## True whenever the active dataset is NOT the exact default merged training
-    ## cohort - i.e. uploaded, GEO-fetched, or an individual raw preloaded GSE
-    ## picked on its own; drives paper-methodology defaults in steps 1-3.
-    ## Despite the name (kept to avoid touching every call site below),
-    ## this is NOT "uploaded specifically" - it's dataset$is_bundled_reference
-    ## inverted, the same flag the rest of the app uses to gate the project's
-    ## own bundled/precomputed results. Originally checked only
-    ## source_type=="uploaded"/a "^Uploaded dataset" source-string prefix,
-    ## which meant a GEO-fetched dataset (e.g. a completely unrelated disease
-    ## fetched live from NCBI) still got shown "12, this project's own
-    ## choice" - a soft-power value calibrated specifically for the default
-    ## merged whole-blood RA cohort - instead of the generic "uploaded data"
-    ## defaults meant for exactly this situation. Confirmed live off a real
-    ## GSE21942 (multiple sclerosis) fetch.
     dataset_is_uploaded <- reactive({
       !isTRUE(dataset$is_bundled_reference)
     })
-
-    ## =====================================================================
-    ## Step 1: Filter & QC
-    ## =====================================================================
 
     qc <- reactive({
       expr <- dataset$expr
@@ -322,8 +249,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       list(expr = expr, meta = meta)
     })
 
-    ## Applies the chosen gene-selection strategy (top-N variance, top-median,
-    ## variance/MAD percentile, mean floor, custom gene list, or none), then a regex exclude filter.
     gene_selection <- reactive({
       d <- qc()
       expr <- d$expr
@@ -334,7 +259,6 @@ mod_wgcna_server <- function(id, dataset, results) {
           n <- min(input$n_genes %||% 2000, nrow(expr))
           order(v, decreasing = TRUE)[seq_len(n)]
         },
-        ## Top-N by median expression, per the paper-methodology default (see note below).
         topmedian = {
           m <- apply(expr, 1, stats::median)
           n <- min(input$n_genes_median %||% 5000, nrow(expr))
@@ -372,7 +296,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       list(expr = expr[keep, , drop = FALSE], meta = d$meta, n_kept = length(keep), n_total = nrow(expr))
     })
 
-    ## Sample clustering on the gene-filtered matrix, for outlier detection.
     sample_tree <- reactive({
       gs <- gene_selection()
       stats::hclust(stats::dist(t(gs$expr)), method = "average")
@@ -395,7 +318,6 @@ mod_wgcna_server <- function(id, dataset, results) {
                   step = max(round(rng[2] / 100, 2), 0.01))
     })
 
-    ## Cuts the sample tree at the chosen height and keeps only the largest cluster (Zhang & Horvath 2005 outlier rule).
     final_input <- reactive({
       gs <- gene_selection()
       texpr_full <- t(gs$expr)
@@ -404,10 +326,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         tree <- sample_tree()
         clust <- WGCNA::cutreeStatic(tree, cutHeight = input$outlier_height, minSize = 2)
         tab <- table(clust)
-        ## cutreeStatic labels every sample outside a big-enough branch "0" (its
-        ## unassigned bin) - excluded here so a very low cut height (where most/
-        ## all samples fail to form a >=2-member branch) can't have that bin
-        ## mistaken for "the largest real cluster" and silently keep everyone.
         tab <- tab[names(tab) != "0"]
         validate(need(length(tab) > 0,
                       "No cluster of at least 2 samples was found at this cut height; raise it a little."))
@@ -419,14 +337,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       validate(need(nrow(texpr_full) >= 15,
                     "Fewer than 15 samples remain after outlier removal; raise the cut height or uncheck \"Remove outlier samples\"."))
 
-      ## WGCNA's own recommended QC gate (Langfelder & Horvath tutorial), run
-      ## unconditionally before soft-thresholding/module detection - flags and
-      ## drops zero-variance/excess-missing-data genes and samples. Every
-      ## gene_filter_method other than variance/MAD-percentile filters
-      ## (including "all genes", the default for this project's own dataset)
-      ## has no incidental variance floor of its own, so constant genes could
-      ## otherwise reach pickSoftThreshold()/blockwiseModules(), which the
-      ## WGCNA documentation warns produces undefined correlations.
       removed_genes <- character(0)
       gsg <- WGCNA::goodSamplesGenes(texpr_full, verbose = 0)
       if (!isTRUE(gsg$allOK)) {
@@ -482,7 +392,6 @@ mod_wgcna_server <- function(id, dataset, results) {
             class = "empty-note", style = "margin-bottom: 10px;", icon("book"),
             "This isn't the app's default reference cohort, so the settings below (and in Soft Power / Modules) are pre-filled to match the published methodology's own general-purpose defaults: top 5,000 genes by highest median expression, power β = 7, minimum module size 66, merge cut height 0.3. Adjust any of them before you run."
           ),
-          ## Defaults to "all genes" for this project's own dataset (matches Section 2.4.1's no-prefilter choice); uploaded data defaults to the paper's median top-N instead.
           radioButtons(
             ns("gene_filter_method"), "Gene selection method",
             choiceNames = list(
@@ -534,48 +443,20 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## =====================================================================
-    ## Step 2: Soft Power
-    ## =====================================================================
-
-    ## reactiveValues + observeEvent (matching Step 3's run_btn/net_store below) rather
-    ## than eventReactive: the compute here (pickSoftThreshold + softConnectivity, "the
-    ## single slowest step in this app" per global.R) previously ran lazily inside
-    ## step2_ui's own renderUI the first time something pulled sft_result() - which
-    ## meant clicking "Compute power" invalidated and re-executed that ENTIRE renderUI
-    ## (box, radio/slider inputs, the button itself) synchronously around the multi-
-    ## minute blocking call, so every click looked like nothing happened (no spinner
-    ## reachable until the whole box had already re-rendered) and any real error from
-    ## pickSoftThreshold/softConnectivity was swallowed by the `tryCatch(..., error =
-    ## function(e) NULL)` guards used everywhere sft_result() was read, indistinguishable
-    ## from "button not clicked yet". Running the compute in an observer instead keeps
-    ## it out of the render path entirely, and errors are captured into sft_store$error
-    ## instead of vanishing.
     sft_store <- reactiveValues(result = NULL, error = NULL)
 
     observeEvent(input$compute_power_btn, {
       sft_store$error <- NULL
       result <- tryCatch({
-        ## Loads the offline script's own soft-power fit instead of re-running
-        ## pickSoftThreshold/softConnectivity live over the full ~15.7k-gene default
-        ## matrix - mirrors net_store's identical short-circuit for Step 3 below.
-        ## Assigns sft_store$result directly (rather than through the `result <-`/
-        ## error-handling path below) since return() here exits this whole observer.
         if (isTRUE(dataset$is_bundled_reference)) {
           sft_store$result <- load_precomputed_wgcna_sft()
           return(invisible(NULL))
         }
-        ## withProgress gives the user immediate visible feedback (a progress bar,
-        ## Shiny's own existing mechanism - already used the same way for the
-        ## identical live-compute step in mod_methyl_wgcna.R) the instant this
-        ## click is received, instead of the UI looking frozen for however long
-        ## pickSoftThreshold/softConnectivity take on the uploaded matrix.
         withProgress(message = "Computing soft-threshold power - testing candidate powers can take a while on large uploaded datasets...", value = 0.15, {
           texpr <- final_input()$texpr
           powers <- c(1:10, seq(12, 20, 2))
           corName <- wgcna_cor_fnc_name(input$cor_method)
           incProgress(0.15, detail = "Preparing expression matrix")
-          ## Cached like net_result() below - pickSoftThreshold tests 12 power values, expensive to repeat.
           out <- get_or_compute_wgcna_blocks(
             list(texpr = texpr, powers = powers, network_type = input$network_type,
                  cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
@@ -587,7 +468,6 @@ mod_wgcna_server <- function(id, dataset, results) {
               )
               power <- sft$powerEstimate
               if (is.na(power)) power <- sft$fitIndices$Power[which.max(sft$fitIndices$SFT.R.sq)]
-              ## Degree-distribution check at the chosen power (the WGCNA paper's own scale-free diagnostic).
               k <- WGCNA::softConnectivity(
                 texpr, corFnc = corName, corOptions = "use = 'p'",
                 type = input$network_type, power = power, verbose = 0
@@ -637,7 +517,6 @@ mod_wgcna_server <- function(id, dataset, results) {
                   if (identical(input$power_mode, "manual")) "manual override" else "automatic"))
     })
 
-    ## Scale-free fit (R^2) vs power; expression(R^2) for a proper superscript.
     output$sft_r2_plot <- renderPlot({
       res <- tryCatch(sft_result(), error = function(e) NULL)
       req(res)
@@ -663,7 +542,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         theme_minimal(base_size = 12)
     })
 
-    ## Truncated-exponential fit R^2 vs power (pickSoftThreshold's alternative goodness-of-fit).
     output$sft_trunc_plot <- renderPlot({
       res <- tryCatch(sft_result(), error = function(e) NULL)
       req(res)
@@ -676,8 +554,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         theme_minimal(base_size = 12)
     })
 
-    ## Reimplements WGCNA::scaleFreePlot()'s fit (same binning/models) manually
-    ## since scaleFreePlot always forces its own title text with no way to suppress it.
     scale_free_check_stats <- reactive({
       res <- tryCatch(sft_result(), error = function(e) NULL)
       req(res)
@@ -720,7 +596,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       if (!is.null(st$fit_exp)) graphics::lines(st$log_dk, st$fit_exp, col = "red")
     }
 
-    ## Catches draw-time errors and turns them into a validate() message instead of a raw error.
     output$scale_free_check_plot <- renderPlot({
       ok <- tryCatch({ draw_scale_free_check(); TRUE },
                       error = function(e) { message("WGCNA scale_free_check_plot failed: ", conditionMessage(e)); FALSE })
@@ -744,20 +619,11 @@ mod_wgcna_server <- function(id, dataset, results) {
       }
     )
 
-    ## Controls only - deliberately NOT dependent on sft_result()/sft_store, so this box
-    ## (and the compute_power_btn inside it) doesn't get torn down and rebuilt - resetting
-    ## every input back to its hardcoded default - each time a computation finishes. See
-    ## the sft_store observer above for why the compute itself was pulled out of the render path.
     output$step2_controls_ui <- renderUI({
       uploaded <- dataset_is_uploaded()
       box(
         width = 12, title = tagList(icon("wave-square"), " Network settings"), status = "primary", solidHeader = FALSE,
         p(class = "submodule-desc", "WGCNA raises gene-gene correlations to a power so the network is approximately scale-free. Pick the lowest power that reaches a good fit below."),
-        ## This dataset's power/network-type/etc. are never actually read - "Compute power"
-        ## short-circuits straight to load_precomputed_wgcna_sft() for it - so without this
-        ## notice a user could change these, see a "Using power = X (manual override)" status
-        ## line below that looks like it took effect, and never learn Step 3 still used the
-        ## fixed precomputed power (12) regardless.
         if (!uploaded) div(
           class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
           "This is the app's own default reference cohort: its network was precomputed offline at power = 12, so the settings below don't change the results shown after \"Compute power\" or Step 3's \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
@@ -765,9 +631,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         fluidRow(
           column(
             6,
-            ## Defaults to signed for this project's own data (Section 2.4.7:
-            ## avoids merging anti-correlated genes); unsigned (the WGCNA
-            ## package default) for uploaded data, since networkType is unstated in the paper.
             radioButtons(ns("network_type"), "Network type",
                          choiceNames = list(
                            if (uploaded) "Signed" else "Signed (recommended)",
@@ -782,9 +645,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           ),
           column(
             6,
-            ## R^2 >= 0.9 cutoff, per this project's own joint fit/connectivity criterion (Section 2.4.8).
             sliderInput(ns("r_sq_cutoff"), HTML("Target scale-free fit (R<sup>2</sup>)"), min = 0.7, max = 0.95, value = 0.9, step = 0.01),
-            ## Defaults to manual power 12 for this project's data (Section 2.4.5, rejecting the auto-estimate's runaway connectivity); manual 7 (the paper's value) for uploaded data.
             radioButtons(ns("power_mode"), "Power",
                          choiceNames = list(
                            "Automatic",
@@ -795,11 +656,6 @@ mod_wgcna_server <- function(id, dataset, results) {
               condition = sprintf("input['%s'] == 'manual'", ns("power_mode")),
               numericInput(ns("manual_power"), "Power value", value = if (uploaded) 7 else 12, min = 1, max = 30, step = 1)
             ),
-            ## Only shown for uploaded/GEO-fetched/individual-preloaded-GSE data. The exact
-            ## default bundled cohort never reaches blockwiseModules() live (its result is
-            ## loaded from the precomputed RDS below), so there's no "match the published
-            ## pipeline's module colors" reason to fix this seed there - and none exists for
-            ## these other datasets either, unlike every other stochastic step in this file.
             if (uploaded) numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1)
           )
         ),
@@ -810,10 +666,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Gate + results only - re-renders when sft_result()/sft_store changes, but the
-    ## controls box above (with the button itself) is a separate output and stays put.
     output$step2_ui <- renderUI({
-      ## Gate: no result boxes until "Compute power" has been clicked.
       if (!is.null(sft_store$error) || is.null(tryCatch(sft_result(), error = function(e) NULL))) {
         div(class = "empty-note", icon("circle-info"),
             "Not computed yet. Set your options above, then click \"Compute power\" to see the diagnostics below.")
@@ -837,14 +690,8 @@ mod_wgcna_server <- function(id, dataset, results) {
         )
     })
 
-    ## =====================================================================
-    ## Step 3: Modules
-    ## =====================================================================
-
-    ## "Run" loads the precomputed result for the default dataset, or computes live for uploaded/preprocessed data.
     net_store <- reactiveValues(result = NULL, source = NULL, error = NULL)
 
-    ## Runs blockwiseModules() (or loads the precomputed result for the example dataset); errors are caught and stored since this isn't a render context.
     observeEvent(input$run_btn, {
       net_store$error <- NULL
       result <- tryCatch({
@@ -854,11 +701,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         return(invisible(NULL))
       }
 
-      ## withProgress (Shiny's own progress-bar mechanism, already used the same way for
-      ## the identical blockwiseModules() step in mod_methyl_wgcna.R) shows visible,
-      ## staged feedback the instant Run is clicked, so this doesn't look frozen while
-      ## the network is built - especially important on a larger uploaded dataset,
-      ## where blockwiseModules() can take minutes.
       withProgress(message = "WGCNA analysis started...", value = 0.05, {
         incProgress(0.1, detail = "Validating expression data")
         fi <- final_input()
@@ -868,16 +710,9 @@ mod_wgcna_server <- function(id, dataset, results) {
                       "Compute the network power in Step 2 first, or switch to a manual power there."))
 
         incProgress(0.15, detail = "Preparing expression matrix")
-        ## Cached by digest of matrix + settings (get_or_compute_wgcna_blocks in global.R).
-        ## reassignThreshold: 0 for this project's data (Table 2.x, membership by topological overlap alone); package default 1e-06 for uploaded data, since the paper doesn't mention it.
         reassign_threshold <- if (dataset_is_uploaded()) 1e-06 else 0
 
         incProgress(0.15, detail = "Constructing the network and detecting modules")
-        ## Fixed at 1234 for the default bundled cohort - moot in practice since that
-        ## path returns above via load_precomputed_wgcna_result() and never reaches
-        ## blockwiseModules() live. For every other dataset (uploaded/GEO-fetched/an
-        ## individual preloaded GSE) there's no published pipeline to match, so the
-        ## seed is user-adjustable there, same as every other stochastic step in this file.
         net_seed <- if (dataset_is_uploaded()) (input$net_seed %||% 1234) else 1234
         net <- get_or_compute_wgcna_blocks(
           list(texpr = texpr, power = power, network_type = input$network_type,
@@ -893,8 +728,6 @@ mod_wgcna_server <- function(id, dataset, results) {
             deepSplit = input$deep_split, minModuleSize = input$min_module_size,
             reassignThreshold = reassign_threshold, mergeCutHeight = input$merge_cut_height,
             pamRespectsDendro = isTRUE(input$pam_respects_dendro),
-            ## PAM-stage reassignment is stochastic, and module colors are size-rank
-            ## based, so an unpinned seed could relabel modules between runs.
             randomSeed = net_seed,
             numericLabels = FALSE, maxBlockSize = ncol(texpr) + 1, verbose = 0
           )
@@ -927,16 +760,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       } else {
         showNotification("WGCNA analysis completed successfully. Results are now available.", type = "message", duration = 5)
       }
-    ## ignoreInit = TRUE (matching the compute_power_btn/run_enrich_btn observers above/below,
-    ## which already had it) - without it, this observer also fires once automatically the
-    ## instant the module mounts, using whatever input values happen to exist at that exact
-    ## moment. Step 2's power_mode/manual_power inputs are sent from client to server
-    ## asynchronously after their own initial render, so this phantom mount-time run almost
-    ## always executes before that round-trip completes, fails validation ("Compute the
-    ## network power in Step 2 first..."), and silently sets net_store$error (now also
-    ## surfaced as an error toast) before the user has clicked anything. The user's genuine
-    ## first click could then race the same round-trip and occasionally fail too, requiring a
-    ## second click to actually see results - this is the fix for that.
     }, ignoreInit = TRUE)
 
     net_result <- reactive({
@@ -944,7 +767,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       net_store$result
     })
 
-    ## Publishes module results into shared results$wgcna, preserving prior Step 4 fields (accumulate pattern), for the Candidate Gene tab's module-genes picker.
     observeEvent(net_result(), {
       res <- net_result()
       base <- results$wgcna %||% list()
@@ -990,9 +812,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       }
     )
 
-    ## Gene-network heatmap (TOM, per Langfelder & Horvath tutorial's TOMplot()):
-    ## computes the full TOM once, then subsamples genes for a renderable plot.
-    ## Gated behind its own button since TOMsimilarityFromExpr is as expensive as blockwiseModules.
     tom_result <- eventReactive(input$compute_tom_btn, {
       net <- net_result()
       full_tom <- get_or_compute_wgcna_blocks(
@@ -1005,10 +824,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
       n_genes <- ncol(net$texpr)
       n_select <- min(input$tom_n_select %||% 400, n_genes)
-      ## Fixed subsample (doesn't reshuffle on every re-render) without leaking a
-      ## deterministic seed into the rest of this R session's RNG stream - restores
-      ## whatever .Random.seed existed before this draw (e.g. so ggraph's later
-      ## force-directed layout in network_plot_obj() isn't silently reseeded too).
       old_seed <- if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) get(".Random.seed", envir = .GlobalEnv) else NULL
       on.exit({
         if (!is.null(old_seed)) assign(".Random.seed", old_seed, envir = .GlobalEnv)
@@ -1020,7 +835,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       select_tom <- diss_tom[select, select]
       select_tree <- stats::hclust(stats::as.dist(select_tom), method = "average")
       select_colors <- net$module_colors[select]
-      ## ^7 and NA diagonal match TOMplot()'s recipe: raises contrast, blanks the self-similar diagonal.
       plot_diss <- select_tom^7
       diag(plot_diss) <- NA
       list(plot_diss = plot_diss, select_tree = select_tree, select_colors = select_colors,
@@ -1057,8 +871,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       }
     )
 
-    ## Module size, colored by the module's own WGCNA color - module names
-    ## in this app ARE valid R color names, so fill can map directly to them.
     output$module_size_plot <- renderPlot({
       net <- tryCatch(net_result(), error = function(e) NULL)
       req(net)
@@ -1070,18 +882,13 @@ mod_wgcna_server <- function(id, dataset, results) {
         theme_minimal(base_size = 12)
     })
 
-    ## Eigengene network: how correlated modules are with each other -
-    ## highly correlated modules describe overlapping biology.
     output$eigengene_network_plot <- renderPlot({
       net <- tryCatch(net_result(), error = function(e) NULL)
       req(net)
-      ## Drop grey (WGCNA's unassigned-gene bin) here too - not a real co-expression
-      ## module, same reasoning already applied to Step 4's module-trait heatmap.
       MEs_use <- net$MEs[, colnames(net$MEs) != "MEgrey", drop = FALSE]
       me_cor <- wgcna_cor_fnc(net$cor_method)(as.matrix(MEs_use), use = "p")
       rownames(me_cor) <- colnames(me_cor) <- sub("^ME", "", colnames(MEs_use))
       df <- as.data.frame(as.table(me_cor)); colnames(df) <- c("module1", "module2", "cor")
-      ## Cell/axis text scales down as module count grows, to avoid label overlap.
       n_mod <- length(unique(df$module1))
       cell_text_size <- max(1.6, min(2.7, 30 / n_mod))
       axis_text_size <- max(6, min(9, 90 / n_mod))
@@ -1108,26 +915,17 @@ mod_wgcna_server <- function(id, dataset, results) {
       content = function(file) write.csv(net_result()$gene_module, file, row.names = FALSE)
     )
 
-    ## Exports the full net_result() list (colors, MEs, dendrogram, settings) as .rds, for downstream use in R.
     output$download_wgcna_rds <- downloadHandler(
       filename = function() "wgcna_module_detection_result.rds",
       content = function(file) saveRDS(net_result(), file)
     )
 
     output$step3_ui <- renderUI({
-      ## minModuleSize/mergeCutHeight default to the paper's values (66/0.3) for
-      ## uploaded data vs this project's own choices (30/0.25); pamRespectsDendro
-      ## defaults to the package default (TRUE) for uploaded data since the paper doesn't state it.
       uploaded <- dataset_is_uploaded()
       tagList(
         box(
           width = 12, title = tagList(icon("diagram-project"), " Module detection settings"), status = "primary", solidHeader = FALSE,
           p(class = "submodule-desc", "Genes are clustered by co-expression and cut into modules; similar modules are then merged into one."),
-          ## Same reasoning as the identical notice on Step 2: "Run" loads this dataset's
-          ## precomputed module-detection result unconditionally, so changing minimum module
-          ## size / deep split / merge height / TOM type / PAM below has no effect on it -
-          ## without this, a user could set them and see the exact same result every time
-          ## with no indication their choice was ignored.
           if (!uploaded) div(
             class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
             "This is the app's own default reference cohort: its modules were detected offline, so the settings below don't change the results shown after \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
@@ -1146,13 +944,11 @@ mod_wgcna_server <- function(id, dataset, results) {
               checkboxInput(ns("pam_respects_dendro"), "PAM stage respects dendrogram", value = uploaded)
             )
           ),
-          ## Instant for the default dataset (loads precomputed result); live compute for uploaded data.
           actionButton(ns("run_btn"), "Run", icon = icon("play"), class = "btn-primary btn-sm"),
           if (!isTRUE(dataset$is_bundled_reference)) p(class = "submodule-desc", style = "margin-top:6px;",
             "Can take several minutes to tens of minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster for quick exploration."),
           div(style = "margin-top:8px;", uiOutput(ns("module_run_status_ui")))
         ),
-        ## Gate: no result boxes until "Run" has been clicked.
         if (is.null(tryCatch(net_result(), error = function(e) NULL))) {
           div(class = "empty-note", icon("circle-info"),
               "Not run yet. Set your module-detection options above, then click \"Run\" to see the results below.")
@@ -1161,7 +957,6 @@ mod_wgcna_server <- function(id, dataset, results) {
             withSpinner(plotOutput(ns("dendro_plot"), height = 400), color = "#2c6fbb", type = 6),
             div(class = "table-toolbar", downloadButton(ns("download_dendro_png"), "Download dendrogram (PNG)", class = "btn-sm"))
           ),
-          ## Uploaded dataset only; opt-in button since recomputing the full TOM is expensive.
           if (uploaded) wgcna_result("table-cells", "Gene network heatmap (TOM)",
             desc = "Topological overlap between genes, on a random subsample (full topological overlap at thousands of genes can't be rendered directly). Darker = higher shared connectivity; the color strip along each edge marks module membership.",
             fluidRow(
@@ -1189,10 +984,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## =====================================================================
-    ## Step 4: Module-Trait
-    ## =====================================================================
-
     eligible_traits <- reactive({
       meta <- qc()$meta
       cols <- setdiff(colnames(meta), "sample")
@@ -1210,7 +1001,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       checkboxGroupInput(ns("trait_cols"), NULL, choices = cols, selected = default_sel, inline = TRUE)
     })
 
-    ## Per-categorical-trait "which levels?" checkboxes, so e.g. a 3-level group column can be narrowed to just RA vs HC.
     output$trait_level_filters_ui <- renderUI({
       req(input$trait_cols)
       meta <- qc()$meta
@@ -1226,17 +1016,10 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Builds the trait matrix: each selected level of a categorical trait becomes its own binary column
-    ## (samples outside the chosen levels are NA, not 0); numeric traits pass through as-is.
     module_trait <- eventReactive(input$run_traits_btn, {
       net <- net_result()
       validate(need(length(input$trait_cols) > 0, "Select at least one trait above."))
 
-      ## Resolved in two passes so a name shared by two different traits (e.g. a
-      ## "group" trait and a "smoker" trait that both happen to have a "yes"
-      ## level) gets disambiguated with "(colname)" on EVERY occurrence, not just
-      ## the second one seen - the previous single-pass uniquify() left whichever
-      ## column was processed first with the bare, now-ambiguous label.
       col_plan <- lapply(input$trait_cols, function(cl) {
         v <- net$meta[[cl]]
         if (is.numeric(v)) {
@@ -1268,12 +1051,9 @@ mod_wgcna_server <- function(id, dataset, results) {
         }
       }
 
-      ## Drop grey (WGCNA's unassigned-gene bin) - not a real co-expression module.
       MEs_use <- net$MEs[, colnames(net$MEs) != "MEgrey", drop = FALSE]
-      ## Uploaded data: cluster-order eigengenes (WGCNA::orderMEs) so correlated modules sit together.
       if (dataset_is_uploaded()) MEs_use <- WGCNA::orderMEs(MEs_use)
       cor_mat <- wgcna_cor_fnc(net$cor_method)(MEs_use, traits, use = "p")
-      ## Per-column sample size, since a filtered categorical trait excludes some samples via NA.
       n_per_trait <- vapply(traits, function(x) sum(!is.na(x)), numeric(1))
       n_mat <- matrix(rep(n_per_trait, each = nrow(cor_mat)), nrow = nrow(cor_mat), dimnames = dimnames(cor_mat))
       p_mat <- WGCNA::corPvalueStudent(cor_mat, n_mat)
@@ -1287,7 +1067,6 @@ mod_wgcna_server <- function(id, dataset, results) {
 
     observeEvent(module_trait(), {
       mt <- module_trait()
-      ## Disease-module cutoff: |r| >= 0.5 AND p < 1e-8 (Section 2.4.9), not just p < 0.05.
       hit <- (abs(mt$cor) >= 0.5) & (mt$p < 1e-8)
       sig <- rownames(mt$p)[apply(hit, 1, any, na.rm = TRUE)]
       base <- results$wgcna %||% list()
@@ -1301,10 +1080,8 @@ mod_wgcna_server <- function(id, dataset, results) {
       cor_long <- as.data.frame(as.table(mt$cor)); colnames(cor_long) <- c("module", "trait", "cor")
       p_long <- as.data.frame(as.table(mt$p)); colnames(p_long) <- c("module", "trait", "p")
       df <- merge(cor_long, p_long, by = c("module", "trait"))
-      ## Uploaded data: restore eigengene-clustered row order (merge() alphabetises it) so the heatmap reads top-to-bottom in clustered order.
       uploaded <- dataset_is_uploaded()
       if (uploaded) df$module <- factor(df$module, levels = rev(rownames(mt$cor)))
-      ## Uploaded data: two-line "r / (P)" cell label matching the published figure's style.
       df$cell_label <- if (uploaded) {
         sprintf("%.2f\n(%s)", df$cor, formatC(df$p, format = "e", digits = 0))
       } else {
@@ -1359,11 +1136,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## =====================================================================
-    ## Step 5: Hub Genes
-    ## =====================================================================
-
-    ## Intramodular connectivity (kWithin), computed once per module-detection run and reused across module/trait picks.
     intramod_conn <- reactive({
       net <- net_result()
       ik <- WGCNA::intramodularConnectivity.fromExpr(
@@ -1387,12 +1159,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Same "which levels?" idea as Step 4, for the single trait picked here; hidden for numeric
-    ## traits. Uses the same eligible_traits()-position widget id as Step 4 (rather than one fixed
-    ## id reused for every trait) so switching hub_trait can't read a stale selection left over from
-    ## the previously picked trait during the brief round-trip before this checkbox group re-renders
-    ## with its new choices - a real, reproducible race otherwise, since me_trait_plot below is a
-    ## plain renderPlot with no button gate and reacts the instant hub_trait changes.
     output$hub_trait_levels_ui <- renderUI({
       req(input$hub_trait)
       meta <- net_result()$meta
@@ -1409,8 +1175,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       me_col <- paste0("ME", input$hub_module)
       validate(need(me_col %in% colnames(net$MEs), "Selected module not found - re-run Step 3."))
 
-      ## Use the precomputed hub table only when module+trait matches exactly what it was built for
-      ## (disease module, trait = "group", no level filter); otherwise fall through to live computation.
       pre <- net$hub_table_precomputed
       lv <- wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits())
       use_precomputed <- !is.null(pre) && identical(input$hub_trait, "group") &&
@@ -1419,7 +1183,6 @@ mod_wgcna_server <- function(id, dataset, results) {
 
       if (use_precomputed) {
         sub <- pre[pre$module == input$hub_module, , drop = FALSE]
-        ## is_hub kept as-is from the pipeline (kME/GS_RA here are rounded for display, not full precision).
         df <- data.frame(gene = sub$gene, kME = sub$kME, GS = sub$GS_RA, kWithin = sub$connectivity,
                           is_hub = sub$is_hub, stringsAsFactors = FALSE)
       } else {
@@ -1431,14 +1194,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         if (is.numeric(net$meta[[input$hub_trait]])) {
           validate(need(n_levels_used >= 2, "This trait has fewer than two distinct values in the current samples."))
         } else {
-          ## Gene significance is a correlation against a single numeric variable. wgcna_encode_trait()
-          ## recodes an unordered categorical trait to its alphabetical level RANK (1, 2, 3, ...) - valid
-          ## as a stand-in for a 0/1 indicator only when there are exactly two levels (correlation is
-          ## invariant to that affine 1/2-vs-0/1 relabeling). For 3+ levels the rank has no real order,
-          ## so correlating expression against it would be a statistically meaningless "gene
-          ## significance" that depends only on how the levels happen to sort alphabetically - reject
-          ## it here instead of silently reporting a number, and point the user at Step 4's per-level
-          ## binary-column heatmap instead, which handles any number of levels correctly.
           validate(need(n_levels_used == 2,
                         sprintf("\"%s\" has %d levels selected. Gene significance needs exactly two levels for a categorical trait - narrow the level checkboxes above to two, or use Step 4's module-trait heatmap for a multi-level comparison.",
                                 input$hub_trait, n_levels_used)))
@@ -1459,11 +1214,8 @@ mod_wgcna_server <- function(id, dataset, results) {
     wgcna_hubs_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_hubs_btn, wgcna_hubs_has_run(TRUE), ignoreInit = TRUE)
 
-    ## Filters hub_data() by the kME/GS thresholds; explicit !is.na(...) guards
-    ## avoid NA rows surviving subsetting and breaking the network plot downstream.
     hub_filtered <- reactive({
       df <- hub_data()
-      ## At the documented default threshold, use the pipeline's own is_hub flag (exact match) rather than re-deriving from rounded display columns.
       at_default <- isTRUE(all.equal(input$kme_thr, 0.8)) && isTRUE(all.equal(input$gs_thr, 0.2))
       if (at_default && !is.null(df$is_hub) && !any(is.na(df$is_hub))) {
         keep <- df$is_hub
@@ -1495,7 +1247,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       content = function(file) write.csv(hub_filtered(), file, row.names = FALSE)
     )
 
-    ## Module membership vs intramodular connectivity - genes high on both are the most defensible hub calls.
     output$connectivity_plot <- renderPlot({
       df <- hub_data()
       ggplot(df, aes(x = kME, y = kWithin)) +
@@ -1505,7 +1256,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         theme_minimal(base_size = 12)
     })
 
-    ## Module eigengene vs trait at sample level (Step 4's heatmap shown as a single r).
     output$me_trait_plot <- renderPlot({
       net <- net_result()
       req(input$hub_module, input$hub_trait)
@@ -1532,7 +1282,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       }
     })
 
-    ## Hub genes if >= 3 pass the thresholds, else the top 30 by |kME| in the module (so tight sliders don't leave the network blank).
     network_genes <- reactive({
       hf <- hub_filtered()$gene
       if (length(hf) >= 3) return(hf)
@@ -1561,7 +1310,6 @@ mod_wgcna_server <- function(id, dataset, results) {
              class = "btn btn-default btn-sm", icon("diagram-project"), " Open in STRING-DB")
     })
 
-    ## Live STRING-DB network image for these genes (capped at 60; hidden via onerror if the request fails).
     output$string_image_ui <- renderUI({
       genes <- network_genes()
       if (length(genes) < 2) {
@@ -1578,7 +1326,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Builds Cytoscape edge/node tables for network_genes() via exportNetworkToCytoscape (in-memory, no file write).
     cyto_export <- reactive({
       net <- net_result()
       hub_genes <- network_genes()
@@ -1608,8 +1355,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       content = function(file) write.csv(cyto_export()$nodeData, file, row.names = FALSE)
     )
 
-    ## In-app network figure from the same edge/node data as the Cytoscape export (nodes colored by
-    ## module, edge width = TOM weight, force-directed layout); failures become a validate() message.
     network_plot_obj <- reactive({
       cyto <- cyto_export()
       edges <- cyto$edgeData
@@ -1626,8 +1371,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
       validate(need(!is.null(g), "Could not build a graph from the current edges - try a different module or threshold."))
 
-      ## geom_edge_link0() (not geom_edge_link()): avoids a namespace collision
-      ## with Bioconductor packages loaded elsewhere in the app (IRanges/S4Vectors/BiocGenerics).
       p <- tryCatch(
         ggraph::ggraph(g, layout = "fr") +
           ggraph::geom_edge_link0(aes(width = weight), alpha = 0.3, colour = "#9aa2ac") +
@@ -1643,7 +1386,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       p
     })
 
-    ## Explicit print() catches draw-time failures too (ggraph's layout only runs when printed, not when built).
     output$network_plot <- renderPlot({
       p <- network_plot_obj()
       ok <- tryCatch({ print(p); TRUE },
@@ -1672,7 +1414,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       tagList(
         box(
           width = 12, title = tagList(icon("star"), " Module membership & gene significance"), status = "primary", solidHeader = FALSE,
-          ## Defaults |kME|>0.8 AND |GS|>0.2 (Section 2.4.12): a hub must be both central to its module and disease-associated.
           p(class = "submodule-desc", "Hub genes are central to their module (high kME) and associated with your trait (high GS)."),
           uiOutput(ns("hub_picker_ui")),
           uiOutput(ns("hub_trait_levels_ui")),
@@ -1720,10 +1461,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## =====================================================================
-    ## Step 6: Enrichment (GO/KEGG via clusterProfiler + org.Hs.eg.db, same as mod_enrichment.R, on a module's genes)
-    ## =====================================================================
-
     output$enrich_hub_note <- renderUI({
       hf <- tryCatch(hub_filtered(), error = function(e) NULL)
       if (is.null(hf) || nrow(hf) == 0) {
@@ -1751,23 +1488,8 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## reactiveValues + observeEvent (matching net_store/sft_store above) rather than
-    ## eventReactive - enrichKEGG() in particular hits the live KEGG REST API, so a slow
-    ## or unreachable network makes this run for a while; running it in an observer
-    ## keeps that off the render path (so the controls box below isn't torn down/reset
-    ## on every click) and lets any real error - network failure, a term-mapping issue -
-    ## reach the UI instead of being swallowed by the `tryCatch(..., error = function(e)
-    ## NULL)` guards used everywhere module_enrich() is read.
     enrich_store <- reactiveValues(result = NULL, error = NULL)
 
-    ## Local caches (sft_store/net_store/enrich_store and the Step 4/5 has-run
-    ## flags), unlike results$wgcna, aren't covered by server.R's own
-    ## `observeEvent(dataset$source, {results reset})` - without this, switching
-    ## the active dataset (e.g. one preloaded GSE to another, or Preloaded ->
-    ## Upload -> Preloaded) would leave Step 2-6's plots and tables showing the
-    ## previous dataset's soft-power/network/module-trait/hub/enrichment results
-    ## until the user re-clicks each step's Compute/Run button, with no visual
-    ## indication they're stale.
     observeEvent(dataset$source, {
       sft_store$result <- NULL; sft_store$error <- NULL
       net_store$result <- NULL; net_store$source <- NULL; net_store$error <- NULL
@@ -1790,12 +1512,7 @@ mod_wgcna_server <- function(id, dataset, results) {
         }
         validate(need(length(gene_pool) >= 5, "Need at least 5 genes to test enrichment. Pick a larger module or lower the Step 5 thresholds."))
 
-        ## withProgress (same mechanism used for Steps 2/3 above) - enrichGO/enrichKEGG
-        ## routinely take 15-30+ seconds (org.Hs.eg.db/GO.db lookups, or a live KEGG REST
-        ## call), and previously gave no visible feedback at all while running, which read
-        ## as "the button doesn't do anything" even though it was working correctly.
         withProgress(message = "Running enrichment...", value = 0.1, {
-          ## Background is the network's own gene universe (Step 1 output), not the whole dataset.
           incProgress(0.2, detail = "Mapping gene symbols to Entrez IDs")
           universe_symbols <- colnames(net$texpr)
           map <- suppressMessages(AnnotationDbi::select(
@@ -1840,8 +1557,6 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$enrich_summary_ui <- renderUI({
-      ## step6_ui above only renders this once module_enrich() has a result (its own
-      ## gate handles the error/not-run-yet states), so no need to re-check those here.
       res <- module_enrich()
       df <- res$table %>% dplyr::filter(qvalue < input$enrich_qcut)
       tagList(
@@ -1874,10 +1589,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       content = function(file) write.csv(module_enrich()$table, file, row.names = FALSE)
     )
 
-    ## Controls only - not dependent on module_enrich()/enrich_store, so this box
-    ## (including run_enrich_btn) doesn't get torn down and reset every time a run
-    ## finishes. See the enrich_store observer above for why the actual enrichment
-    ## call was pulled out of the render path.
     output$step6_controls_ui <- renderUI({
       box(
         width = 12, title = tagList(icon("flask"), " Module enrichment"), status = "primary", solidHeader = FALSE,
@@ -1886,12 +1597,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       )
     })
 
-    ## Gate + results only - re-renders when module_enrich()/enrich_store changes, but
-    ## the controls box above (with the button itself) is a separate output and stays put.
     output$step6_ui <- renderUI({
-      ## Gate: no result boxes until "Run enrichment" has been clicked - and a real
-      ## failure (e.g. enrichKEGG's live KEGG API call failing) shows its own message
-      ## rather than falling back to the same "Not run yet" text a fresh tab would show.
       if (!is.null(enrich_store$error)) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
                     paste("Could not run enrichment:", enrich_store$error)))
@@ -1911,10 +1617,6 @@ mod_wgcna_server <- function(id, dataset, results) {
         )
       )
     })
-
-    ## =====================================================================
-    ## Pipeline summary (shared vertical-timeline component, R/ui_shell.R)
-    ## =====================================================================
 
     wgcna_progress <- reactive({
       power_ok <- !is.null(tryCatch(sft_result(), error = function(e) NULL))
@@ -1939,18 +1641,6 @@ mod_wgcna_server <- function(id, dataset, results) {
       pipeline_summary_ui(steps)
     })
 
-    ## Forces every step's UI to render on mount instead of only when its tab is first viewed
-    ## (Shiny's default suspendWhenHidden = TRUE would leave later steps' inputs NULL until
-    ## visited). Includes step2_controls_ui/step6_controls_ui - the boxes holding the actual
-    ## power_mode/manual_power/network_type/... inputs, split out from step2_ui/step6_ui so
-    ## they don't get torn down on every compute (see the comments above those outputs) - not
-    ## just "step1_ui".."step6_ui" themselves. Without this, a user who clicks "Run" on the
-    ## Modules tab without ever visiting the Soft Power tab first hits
-    ## input$power_mode/input$manual_power being NULL server-side (never instantiated), which
-    ## makes effective_power() silently fall through to sft_result() and fail validate()'s
-    ## "Compute the network power in Step 2 first" check even though Step 2 is pre-filled with
-    ## a usable manual power - i.e. Run looks broken for any dataset that isn't the bundled
-    ## reference (which short-circuits Steps 2/3 entirely via load_precomputed_wgcna_result()).
     for (step in c(paste0("step", 1:6, "_ui"), "step2_controls_ui", "step6_controls_ui")) {
       outputOptions(output, step, suspendWhenHidden = FALSE)
     }

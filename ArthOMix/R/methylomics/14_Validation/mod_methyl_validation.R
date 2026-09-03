@@ -1,19 +1,12 @@
 ## R/methylomics/14_Validation/mod_methyl_validation.R
 ## Applies the Diagnostic Classifier's already-trained models (results$diagnostic_models) to an
 ## independent EXTERNAL cohort - never retrains. Mirrors mod_methyl_diagnostic.R's per-model tab
-## layout (one tab per algorithm, Model Comparison, Test External Data, Export) but every "test"
-## evaluation here is scored on the external validation cohort loaded on the Datasets tab, not the
-## internal train/test split. Reuses mod_methyl_diagnostic.R's dxm_* helpers and DXM_MODEL_SPECS registry.
 
 mod_methyl_validation_config <- list(
   id = "validation", title = "Validation", icon = "flask-vial", group = "Biomarker modeling",
   description = "External validation of the Diagnostic Classifier's trained models on an independent cohort"
 )
 
-## vld_* helpers - new to this module only
-
-## Required-vs-available CpG overlap; `ok` gates every downstream step since
-## predict() requires the exact trained column set (100% match).
 vld_feature_alignment <- function(required_ids, available_ids) {
   matched <- intersect(required_ids, available_ids)
   missing <- setdiff(required_ids, available_ids)
@@ -25,8 +18,6 @@ vld_feature_alignment <- function(required_ids, available_ids) {
        ok = n_req > 0 && length(missing) == 0, matched_ids = matched)
 }
 
-## Duplicate-sample-ID check when real IDs exist; otherwise reports
-## independence as unverified rather than assuming it.
 vld_sample_overlap <- function(train_ids, val_ids) {
   if (length(train_ids) == 0 || length(val_ids) == 0) {
     return(list(status = "unknown", message = "Sample independence could not be verified.", n_overlap = NA_integer_))
@@ -41,7 +32,6 @@ vld_sample_overlap <- function(train_ids, val_ids) {
   }
 }
 
-## Component / Training Pipeline / Validation Requirement / Status audit table.
 vld_compat_table <- function(model, cohort, align) {
   row <- function(component, training, requirement, status) {
     data.frame(Component = component, `Training Pipeline` = training,
@@ -80,7 +70,6 @@ vld_compat_table <- function(model, cohort, align) {
   ))
 }
 
-## Bootstrap CI for sensitivity/specificity/accuracy (AUC already gets a DeLong CI).
 vld_bootstrap_ci <- function(y, prob, threshold, stat_fn, n_boot = 1000, seed = 42) {
   set.seed(seed)
   n <- length(y)
@@ -96,23 +85,14 @@ vld_bootstrap_ci <- function(y, prob, threshold, stat_fn, n_boot = 1000, seed = 
 
 vld_ci_label <- function(ci) if (is.null(ci) || any(is.na(ci))) "NA" else sprintf("%.3f-%.3f", ci[1], ci[2])
 
-## which.max() coerces character input to numeric (silently producing all-NA and an empty
-## index), so it can't be used on "%Y-%m-%d %H:%M:%S" ran_at timestamps - use ordinary
-## character comparison instead, which sorts those timestamps correctly.
 vld_which_latest <- function(timestamps) which(timestamps == max(timestamps))[1]
 
-## validate()/need() only display when caught by a render/output context - inside an
-## observeEvent (button click) there's no output to catch it, so a failed check is otherwise
-## completely silent. Use `if (vld_notify_fail(cond, msg)) return()` in observers instead.
 vld_notify_fail <- function(cond, msg) {
   if (isTRUE(cond)) return(FALSE)
   showNotification(msg, type = "error", duration = 10)
   TRUE
 }
 
-## Scores one trained model (a results$diagnostic_models entry) against the loaded external
-## cohort, exactly as trained: no refitting, re-tuning, or threshold re-optimization. Returns
-## invisible(FALSE) (after a user-facing notification) on any incompatibility or data problem.
 vld_do_run_external <- function(mid, spec, m, cohort, vms, vruns) {
   if (vld_notify_fail(isTRUE(cohort$loaded), "Load an external validation cohort first (Datasets tab).")) return(invisible(FALSE))
   if (vld_notify_fail(identical(m$ref_level, cohort$ref_lab) && identical(m$comp_level, cohort$comp_lab),
@@ -159,9 +139,6 @@ vld_do_run_external <- function(mid, spec, m, cohort, vms, vruns) {
   invisible(TRUE)
 }
 
-## Per-model tab: same generic pattern as mod_methyl_diagnostic.R's dxm_render_model_panel(), but
-## "test" is always the loaded external cohort, and "Results: Training" reuses the metrics already
-## published by Diagnostic Classifier rather than recomputing them.
 vld_render_model_panel <- function(mid, spec, ns, entries, cohort, vms, m) {
   if (length(entries) == 0) {
     return(p(class = "text-muted", sprintf(
@@ -229,7 +206,6 @@ vld_render_model_panel <- function(mid, spec, ns, entries, cohort, vms, m) {
   tagList(out)
 }
 
-## Registers one model tab's server logic - mirrors dxm_register_model_server()'s shape.
 vld_register_model_server <- function(mid, spec, input, output, session, ns, avail_models, cohort, vms, vruns) {
 
   entries_r <- reactive({ Filter(function(m) identical(m$model_id, mid), avail_models()) })
@@ -298,8 +274,6 @@ vld_register_model_server <- function(mid, spec, input, output, session, ns, ava
   invisible(NULL)
 }
 
-## UI
-
 mod_methyl_validation_ui <- function(id) {
   ns <- NS(id)
   model_tabs <- lapply(DXM_MODEL_SPECS, function(spec) {
@@ -366,8 +340,6 @@ mod_methyl_validation_ui <- function(id) {
   ))
 }
 
-## Server
-
 mod_methyl_validation_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -383,13 +355,8 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
     vruns <- reactiveValues()
     compare_state <- reactiveValues(generated = FALSE, bundles = NULL)
 
-    ## All models published by the Diagnostic Classifier (one per model/feature-panel
-    ## combination that was run and test-evaluated there).
     avail_models <- reactive({ results$diagnostic_models %||% list() })
 
-    ## Reference model used only to seed the validation cohort's class labels at load
-    ## time (the most recently tested model, across all algorithms) - each model is still
-    ## checked individually for label/feature compatibility before being scored.
     ref_model <- reactive({
       models <- avail_models(); req(length(models) > 0)
       models[[vld_which_latest(vapply(models, function(m) m$ran_at %||% "", character(1)))]]
@@ -401,8 +368,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
         vapply(models, function(m) sprintf("%s - %s (%d feat., tested %s)", m$label, m$analysis_type, length(m$feature_ids), m$ran_at %||% "unknown"), character(1)))
       updateSelectInput(session, "compat_model_select", choices = ch)
     })
-
-    ## ---- Cohort --------------------------------------------------------
 
     output$model_summary_ui <- renderUI({
       models <- avail_models()
@@ -582,8 +547,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Compatibility ---------------------------------------------------
-
     compat_overview <- reactive({
       models <- avail_models(); req(cohort$loaded, length(models) > 0)
       do.call(rbind, lapply(models, function(m) {
@@ -636,8 +599,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       DT::datatable(vld_compat_table(m, cohort, vld_feature_alignment(m$feature_ids, rownames(cohort$m))), rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Per-model tabs ----------------------------------------------
-
     model_states <- lapply(DXM_MODEL_SPECS, function(spec) {
       vms <- reactiveValues(ran = FALSE, ran_at = NULL,
                              ext_prob = NULL, ext_roc = NULL, ext_metrics = NULL, ext_confusion = NULL, ext_calib = NULL, ext_y = NULL,
@@ -647,8 +608,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       vms
     })
     names(model_states) <- names(DXM_MODEL_SPECS)
-
-    ## ---- Model Comparison --------------------------------------------
 
     output$compare_ui <- renderUI({
       keys <- names(shiny::reactiveValuesToList(vruns))
@@ -710,8 +669,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
         switch(input$compare_curve, ext = "External Test", train = "Training", cv = "Cross-Validated")))
     })
 
-    ## ---- Test External Data (external cohort snapshot) ------------------------
-
     output$testdata_ui <- renderUI({
       if (!isTRUE(cohort$loaded)) return(p(class = "text-muted", "Load an external validation cohort on the Datasets tab first."))
       box(width = 12, status = "primary", solidHeader = TRUE, title = "Test External Data",
@@ -737,8 +694,6 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       }))
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
-
-    ## ---- Export ------------------------------------------------------
 
     output$export_ui <- renderUI({
       keys <- names(shiny::reactiveValuesToList(vruns))

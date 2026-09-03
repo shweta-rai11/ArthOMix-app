@@ -1,8 +1,6 @@
 ## Module 2 (Methylomics) - SVA tab's live engine (sva::sva() + bacon::bacon()
 ## on top of the shared live-model plumbing), via testServer(). Verifies this
 ## now works for Upload and GEO-fetched data (methyl_dataset$preloaded ==
-## FALSE), not just the precomputed GSE42861 reproduction, and that its
-## result table is scientifically well-formed.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -13,20 +11,12 @@ source_from_app_root(file.path("R", "methylomics", "functions", "normalization.R
 source_from_app_root(file.path("R", "provenance.R"))
 source_from_app_root(file.path("R", "methylomics", "05_Differential_Methylation_Position", "mod_methyl_dmp.R"))
 
-## Larger than the plain-DMP fixture (300 probes, 40 samples): SVA needs
-## enough probes/samples to estimate anything meaningful, and a batch
-## confound spread across many probes gives it real structure to find.
 sva_fixture_dataset <- function(n_per_group = 20, n_probes = 300, seed = 411, source_type = "uploaded") {
   set.seed(seed)
   n <- n_per_group * 2
   m <- matrix(runif(n_probes * n, 0.2, 0.8), n_probes, n,
               dimnames = list(paste0("cg", 20000000 + seq_len(n_probes)), paste0("S", seq_len(n))))
-  ## Real methylation signal on the first 5 CpGs for the RA group.
   m[1:5, (n_per_group + 1):n] <- pmin(m[1:5, (n_per_group + 1):n] + 0.35, 0.99)
-  ## A batch confound, correlated with neither group nor sex, spread across
-  ## a large block of probes - the kind of residual technical structure SVA
-  ## is meant to soak up (mirrors METHODS_dmp_sva_sexstratified.md's own
-  ## rationale: array batch/plate effects not otherwise recoverable).
   batch <- rep(c("plate1", "plate2"), length.out = n)[sample.int(n)]
   batch_shift <- ifelse(batch == "plate2", 0.15, 0)
   m[6:150, ] <- pmin(pmax(sweep(m[6:150, ], 2, batch_shift, `+`), 0.01), 0.99)
@@ -58,9 +48,6 @@ test_that("the live SVA-adjusted engine runs on uploaded data and produces a wel
     expect_true(is.finite(r$lambda_bacon) && r$lambda_bacon > 0)
     expect_true(is.finite(r$bias_bacon))
 
-    ## The 5 CpGs with injected real RA signal should still be prominent
-    ## among the most significant after bacon correction (bacon recalibrates
-    ## the null but shouldn't erase a strong true effect).
     top10 <- r$df$cpg[order(r$df$fdr)][1:10]
     expect_true(sum(top10 %in% paste0("cg", 20000001:20000005)) >= 2)
   })
@@ -113,12 +100,12 @@ test_that("mod_methyl_sva_fit() estimates surrogate variables and returns a full
   grp <- factor(rep(c("HC", "RA"), each = 20), levels = c("HC", "RA"))
   m <- matrix(rnorm(500 * n), 500, n)
   batch <- rep(c(0, 1), length.out = n)[sample.int(n)]
-  m[1:100, ] <- sweep(m[1:100, ], 2, batch * 2, `+`)  ## strong confound on a probe block
+  m[1:100, ] <- sweep(m[1:100, ], 2, batch * 2, `+`)
 
   out <- mod_methyl_sva_fit(m, grp, cov_df = NULL, sv_topn = 500)
   expect_true(is.matrix(out$design))
   expect_equal(nrow(out$design), n)
   expect_equal(qr(out$design)$rank, ncol(out$design))
   expect_true(out$n_sv >= 0)
-  expect_equal(ncol(out$design), 2 + out$n_sv)  ## HC + RA cell-means columns, plus any SVs
+  expect_equal(ncol(out$design), 2 + out$n_sv)
 })

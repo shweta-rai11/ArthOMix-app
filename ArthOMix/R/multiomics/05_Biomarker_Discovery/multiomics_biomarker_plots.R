@@ -1,24 +1,6 @@
 ## R/multiomics/05_Biomarker_Discovery/multiomics_biomarker_plots.R
 ## Plot functions specific to Biomarker Discovery
 ## (multiomics_biomarker_helpers.R / mod_multi_biomarker.R). Reuses the
-## shared theme_arthomix()/ARTHOMIX_COLORS/arthomix_pair() (global.R),
-## multi_empty_state()/multi_plot_or_empty()/multi_png_download()
-## (multiomics_plots.R), and - where the data shape already matches -
-## multi_diablo_score_plot()/multi_diablo_panel_plot()/
-## multi_diablo_variance_plot()/multi_live_correlation_heatmap_plot()
-## directly (spec section 13.E's sample/loading/variance/cross-omics-
-## relationship plots). Only genuinely new chart types for this submodule
-## live here: feature-selection stability, the selected-feature x sample
-## heatmap, the between-block component-correlation scatter, and the
-## pooled cross-validated ROC curve.
-
-## ---------------------------------------------------------------------------
-## Feature-selection stability (spec section 13.C) - one bar per selected
-## feature, colored by its evidence-based stability category
-## (mb_stability_category(), multiomics_biomarker_helpers.R), faceted by
-## omics block so transcriptomic and methylomic stability are never
-## conflated on one axis.
-## ---------------------------------------------------------------------------
 
 mb_stability_plot <- function(sig_df, top_n = 40) {
   need <- c("feature", "omics", "selection_frequency", "stability_category")
@@ -38,15 +20,6 @@ mb_stability_plot <- function(sig_df, top_n = 40) {
     ggplot2::labs(x = NULL, y = "Selection frequency across CV repetitions", fill = "Stability") +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Selected-feature x sample heatmap, annotated by outcome (spec section
-## 13.E.7) - real per-sample values for the top selected features (by
-## |loading|), z-scored per feature for a comparable color scale. "Annotated
-## by outcome" via facet_grid(. ~ outcome) - samples are grouped by outcome
-## class rather than layering a separate annotation track, using only
-## ggplot2 (no new plotting dependency).
-## ---------------------------------------------------------------------------
 
 mb_heatmap_plot <- function(layers, sig_df, outcome, sample_ids, top_n = 40) {
   need <- c("omics", "feature", "loading")
@@ -79,14 +52,6 @@ mb_heatmap_plot <- function(layers, sig_df, outcome, sample_ids, top_n = 40) {
     ggplot2::theme(axis.text.x = ggplot2::element_blank(), axis.ticks.x = ggplot2::element_blank(), panel.spacing = grid::unit(0.4, "lines"))
 }
 
-## ---------------------------------------------------------------------------
-## Between-block component-correlation scatter (spec section 13.D
-## "Component correlations", and the DIABLO component-plot recommended in
-## section 13.E.2) - real fit$variates component-1 scores for the two
-## blocks, colored by outcome. Restricted to exactly two blocks, this
-## submodule's own scope (Transcriptomics + Methylomics).
-## ---------------------------------------------------------------------------
-
 mb_component_correlation_plot <- function(fit, outcome) {
   cc <- mb_component_correlation(fit)
   if (is.null(cc)) return(NULL)
@@ -105,16 +70,6 @@ mb_component_correlation_plot <- function(fit, outcome) {
     ) +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Pooled cross-validated ROC curve (spec sections 13.B, 13.E.8) - built
-## from mb_cv_roc()'s real out-of-fold pooled predictions
-## (multiomics_biomarker_helpers.R), never a resubstitution/training-set
-## curve. Orientation matches the app's other ROC plots
-## (mod_diagnostic.R::diag_roc_plot_pub) - FPR increasing left to right,
-## TPR increasing bottom to top - restyled with theme_arthomix() to match
-## this module.
-## ---------------------------------------------------------------------------
 
 mb_roc_plot <- function(cv_roc) {
   if (is.null(cv_roc)) return(NULL)

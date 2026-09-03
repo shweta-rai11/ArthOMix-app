@@ -1,38 +1,13 @@
 ## Feature Selection module: fits LASSO, random forest, and SVM-RFE
 ## independently per sex on a candidate gene panel, then reports the
 ## consensus overlap. Female/male are always modeled separately, never
-## pooled with sex as a covariate. Candidate genes come from live Candidate
-## Gene Identification output, an uploaded expression matrix, or an
-## uploaded DEG/gene list (radioButtons "data_source": project/expr/deg).
 
-## SVM-RFE: recursive elimination by smallest squared linear-SVM weight,
-## one feature per round, then a CV error curve over the ranking to pick
-## panel size objectively.
-
-## CSV formula-injection guard: gene/feature identifiers written into
-## downloadHandler CSVs can come from a user upload or GEO metadata, not
-## just this app's own curated panels. A symbol starting with =, +, -, or @
-## is interpreted as a formula by Excel/Sheets on open; prefixing a single
-## quote neutralizes the leading character while leaving the value's own
-## text intact everywhere else (including when re-read by read.csv()).
 tx_csv_safe <- function(x) {
   x <- as.character(x)
   ifelse(grepl("^[=+\\-@]", x), paste0("'", x), x)
 }
 
-## Linear kernel only - the per-round elimination weight (squared SVM
-## coefficient) is only meaningful for a linear decision boundary.
 fs_svm_rfe_rank <- function(X, y, cost = 1, tolerance = 0.001, class_weights = NULL) {
-  ## Zero-variance-column guard (mirrors mod_diagnostic.R's diag_zrows()
-  ## convention): e1071::svm(..., scale = TRUE) internally z-scores each
-  ## column via scale(), which divides by the column SD - a constant
-  ## candidate column (SD 0 or NA, e.g. a gene with identical expression
-  ## across every sample after upstream filtering) turns into NaN for every
-  ## row, silently corrupting the fit and the resulting elimination weights.
-  ## Such columns carry no discriminative signal for a linear SVM anyway, so
-  ## they're dropped before ranking starts, then appended back at the end of
-  ## the ranking (least-informative first) so every input feature is still
-  ## accounted for in the returned order.
   zero_var <- vapply(as.data.frame(X), function(col) {
     s <- stats::sd(col, na.rm = TRUE)
     is.na(s) || s == 0
@@ -58,10 +33,6 @@ fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tole
   err <- vapply(ks, function(k) {
     set.seed(seed)
     Xk <- X[, rank[seq_len(k)], drop = FALSE]
-    ## Same zero-variance-column guard as fs_svm_rfe_rank() above: rank's
-    ## own zero-variance columns are appended at its tail, so a k large
-    ## enough to reach them would otherwise feed a constant column straight
-    ## into e1071::svm(..., scale = TRUE) here too, producing NaN.
     keep <- vapply(as.data.frame(Xk), function(col) {
       s <- stats::sd(col, na.rm = TRUE)
       !(is.na(s) || s == 0)
@@ -72,13 +43,6 @@ fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tole
                        tolerance = tolerance, class.weights = class_weights)$tot.accuracy
     1 - acc / 100
   }, numeric(1))
-  ## which.min() already skips NA entries (a k whose only new gene is zero-variance for this
-  ## sex/contrast - not rare with modest candidate panels), so `best` lands on the real optimum;
-  ## min(err) WITHOUT na.rm does NOT skip them, so besterr previously came back NA any time a
-  ## single k was skipped, even though a well-defined optimum existed elsewhere in the curve -
-  ## silently printing "CV error = NA" in the SVM-RFE summary. best_idx of length 0 (every k
-  ## skipped) falls back to the full ranking instead of the seq_len(integer(0)) crash that
-  ## which.min() returning integer(0) would otherwise cause downstream.
   best_idx <- which.min(err)
   if (length(best_idx) == 0) return(list(k = ks, err = err, best = length(ks), besterr = NA_real_))
   list(k = ks, err = err, best = ks[best_idx], besterr = min(err, na.rm = TRUE))
@@ -86,28 +50,12 @@ fs_svm_rfe_curve <- function(X, y, rank, cost = 1, seed = 1234, folds = 10, tole
 
 FS_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 
-## SVM-RFE refits once per eliminated feature (~2p fits for p genes) - fine
-## for a 25-40 gene MR panel but hours-long on a raw WGCNA module (1000s of
-## genes). Candidate sets above this cap get reduced to their most variable
-## genes first, in fs_build_sex() below, with a note shown on-screen.
 FS_MAX_CANDIDATE_GENES <- 200
 
-## Minimum samples required in EACH group (e.g. HC and RA, within one sex) for
-## LASSO/RF/SVM-RFE to fit at all - checked in fs_build_sex() below. fs_fit_sex()
-## already scales its own CV fold count down to whatever's actually available
-## (`nf <- max(2, min(cv_folds, min_class))`), so this floor exists only to stop
-## a fit degenerating to a near-meaningless 2-fold split (1 sample per class per
-## fold) - at 4, every method still gets at least a real 4-fold CV.
 FS_MIN_GROUP_SAMPLES <- 4
 
-## A second, higher bar purely for the UI caveat below FS_MIN_GROUP_SAMPLES - a
-## fit between the two thresholds runs (and its CV fold count is still valid),
-## but with fewer than this many samples in its smallest group, results should
-## be read as exploratory rather than a fit anyone should treat as final.
 FS_RELIABLE_GROUP_SAMPLES <- 6
 
-## Default hyperparameters, matching this project's own analysis script;
-## overridable per-method from the UI (see fs_fit_sex()'s `params`).
 FS_DEFAULT_PARAMS <- list(
   # equal = unweighted (default); balanced = inverse-frequency; manual = fixed ratio
   class_weight_mode = "equal", class_weight_ratio = 1,
@@ -122,8 +70,6 @@ FS_DEFAULT_PARAMS <- list(
   consensus_methods = c("LASSO", "RandomForest", "SVM_RFE")
 )
 
-## Class weights by level for imbalanced groups; feeds randomForest's classwt
-## and e1071's class.weights directly, and glmnet's weights= via fs_obs_weights().
 fs_class_weight_levels <- function(y, mode, ratio) {
   lv <- levels(y)
   if (identical(mode, "balanced")) {
@@ -142,18 +88,7 @@ fs_obs_weights <- function(y, mode, ratio) {
   unname(wl[as.character(y)])
 }
 
-## Fits LASSO + tuned random forest + tuned SVM-RFE on one sex's data.
-## Gene symbols are made syntactically safe (e.g. HLA-A) for the fits and
-## translated back on the way out.
 fs_fit_sex <- function(X, y, params = list()) {
-  ## caret::train(classProbs = TRUE) below requires factor levels that are
-  ## valid R variable names - it make.names()s them internally to build its
-  ## own predicted-probability column names, so a raw group label with a
-  ## space (e.g. "multiple sclerosis") desyncs from any levels(y)-based
-  ## lookup once caret has already renamed its own columns to
-  ## "multiple.sclerosis". Sanitized once here, up front, matching
-  ## mod_diagnostic.R::diag_fit_sex()'s identical fix; callers keep the real
-  ## group names for their own display text, so nothing user-visible changes.
   levels(y) <- make.names(levels(y), unique = TRUE)
   params <- utils::modifyList(FS_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
@@ -263,16 +198,10 @@ mod_featureselection_config <- list(
   icon = "sliders"
 )
 
-## Reveals a sex's technique box only after that sex's own Run button has been clicked.
 fs_sex_panel <- function(ns, run_btn_id, ...) {
   conditionalPanel(condition = sprintf("input['%s'] > 0", ns(run_btn_id)), ...)
 }
 
-## One technique's result box (summary/plot/table/download); instantiated per method x sex.
-## clickable = TRUE (used only for the Overlap/consensus panel, which draws a Venn
-## diagram whose regions correspond to real gene sets) wires the plot's click event
-## through to the server, so clicking a region can filter the table below to just
-## that region's genes - see the "_plot_click" observer in register_sex_technique_outputs().
 mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height = 300, clickable = FALSE) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -289,7 +218,6 @@ mod_featureselection_technique_panel <- function(ns, prefix, title, plot_height 
   )
 }
 
-## One method's parameter box; always visible/live-editable, one independent instance per method.
 mod_featureselection_params_box <- function(ns, prefix, method_label, defaults_desc, ...) {
   box(
     width = 12, title = sprintf("%s parameters", method_label), status = "primary", solidHeader = FALSE,
@@ -499,9 +427,6 @@ mod_featureselection_server <- function(id, dataset, results) {
         meta$sample <- as.character(meta[[input$map_id]])
         meta$group  <- as.character(meta[[input$map_group]])
         meta$sex    <- as.character(meta[[input$map_sex]])
-        ## match() below silently keeps only the FIRST metadata row for a repeated sample ID,
-        ## which would mis-pair that sample's expression column with the wrong group/sex if the
-        ## chosen ID column turns out not to be unique - reject rather than silently mismatch.
         dup <- unique(meta$sample[duplicated(meta$sample) & !is.na(meta$sample)])
         validate(need(length(dup) == 0, sprintf(
           "The sample ID column has %d duplicated value(s) (e.g. \"%s\") - pick a column with one row per sample.",
@@ -565,15 +490,6 @@ mod_featureselection_server <- function(id, dataset, results) {
     # (dataset$is_bundled_reference), never for an uploaded/GEO/individual-preloaded dataset.
     project_candidate_genes <- function(sex_label) {
       if (identical(sex_label, "pooled")) {
-        ## Candidate Gene Identification writes a genuinely non-sex-stratified
-        ## panel to results$candidates$final (selection == "pooled") when the
-        ## loaded dataset has no usable male/female metadata (see
-        ## mod_candidates.R's sex_available()) - a live GEO fetch mapped to
-        ## "(none)" for sex, most commonly. That IS the pooled candidate set
-        ## for this dataset, so it's checked first, ahead of the
-        ## union(female, male) derivation below (which only applies when the
-        ## dataset *does* support sex-stratified discovery and both panels
-        ## have been run).
         cand_final <- results$candidates$final
         if (!is.null(cand_final) && identical(cand_final$selection, "pooled") && length(cand_final$genes) >= 2) {
           return(list(genes = cand_final$genes, is_live = TRUE,
@@ -675,9 +591,6 @@ mod_featureselection_server <- function(id, dataset, results) {
       list(genes = genes, note = sprintf("%d genes from your uploaded %s file (%s).", length(genes), sex_label, fi$name))
     }
 
-    ## "expr": most-variable-in-this-sex-subset, a pasted list, or a WGCNA
-    ## module's gene list, computed/intersected against the uploaded
-    ## expression matrix.
     expr_candidate_genes <- function(sex_label, expr_sub) {
       if (identical(input$gene_source, "wgcna_module")) {
         req(input$wgcna_module_pick_expr)
@@ -695,10 +608,6 @@ mod_featureselection_server <- function(id, dataset, results) {
         list(genes = genes, note = sprintf("%d pasted genes present in the %s expression matrix.", length(genes), sex_label))
       } else {
         v <- apply(expr_sub, 1, stats::var)
-        ## sort() drops NA entries (e.g. a gene row with an NA expression value) but n was being
-        ## computed from the pre-drop length, so seq_len(n) could run past the sorted vector and
-        ## silently pad `genes` with NA - filtered out downstream by intersect(), but it made this
-        ## note's gene count overstate what was actually used.
         v <- v[!is.na(v)]
         n <- min(input$n_genes %||% 50, length(v))
         genes <- names(sort(v, decreasing = TRUE))[seq_len(n)]
@@ -734,9 +643,6 @@ mod_featureselection_server <- function(id, dataset, results) {
       f_live <- results$candidates$female$genes
       m_live <- results$candidates$male$genes
       has_sex_live <- length(f_live) >= 2 && length(m_live) >= 2
-      ## Pooled (no sex-stratified metadata) live panel from Candidate Gene
-      ## Identification - see project_candidate_genes("pooled") above for why
-      ## this is checked separately from the female/male panels.
       cand_final <- results$candidates$final
       has_pooled_live <- is.null(results$candidates$female) && is.null(results$candidates$male) &&
         !is.null(cand_final) && identical(cand_final$selection, "pooled") && length(cand_final$genes) >= 2
@@ -859,13 +765,6 @@ mod_featureselection_server <- function(id, dataset, results) {
 
       # fast path only when: default pipeline, unmodified bundled candidates, no customized params,
       # standard HC-vs-RA contrast, and the project's own example dataset still loaded
-      ## ml_features(.rds)/ml_features_noMHC.rds only ever contain $female/$male (LASSO/RF/
-      ## SVM-RFE were never precomputed pooled - sexes are "always modeled separately, never
-      ## pooled", per this file's own top-of-file note). Without this guard, every "Run All
-      ## (pooled)" click would read + deserialize that multi-MB RDS file only for
-      ## load_precomputed_fs() to return NULL and fall through to the live fit anyway - wasted
-      ## work, and it would silently contradict speed_hint_ui's "instant" reasoning for that
-      ## button.
       use_fast_path <- !identical(sex_label, "pooled") &&
         identical(input$data_source, "project") &&
         !isTRUE(cand_project$is_live) && !any_customized &&
@@ -877,10 +776,6 @@ mod_featureselection_server <- function(id, dataset, results) {
         if (!is.null(fit)) {
           fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
           fit$mhc_mode <- if (isTRUE(input$mhc_exclude)) "exclude" else "include"
-          ## This is an offline-precomputed panel, not a live per-run
-          ## selection, so there is no per-run held-out sample list to
-          ## enforce - it's marked not leakage-safe rather than silently
-          ## implying one exists.
           fit$holdout_sample_ids <- character(0)
           return(fit)
         }
@@ -894,12 +789,6 @@ mod_featureselection_server <- function(id, dataset, results) {
       meta <- meta[match(common, meta$sample), , drop = FALSE]
       expr_sub <- sem$expr[, common, drop = FALSE]
 
-      ## Train/holdout split - closes the review's information-leakage
-      ## finding. Everything below (candidate variance cap, LASSO/RF/SVM-RFE,
-      ## Consensus) only ever sees the training partition; held-out sample
-      ## IDs are published in results$featureselection so mod_diagnostic.R
-      ## can use them directly as its test set instead of an independent
-      ## re-split that could re-include a selection-time sample.
       holdout_sample_ids <- character(0)
       if (isTRUE(input$fs_holdout_enabled %||% TRUE)) {
         frac <- min(max(input$fs_holdout_frac %||% 0.3, 0.1), 0.5)
@@ -909,11 +798,6 @@ mod_featureselection_server <- function(id, dataset, results) {
           as.integer(caret::createDataPartition(y_split, p = 1 - frac, list = FALSE)[, 1]),
           error = function(e) NULL
         )
-        ## A failed partition must NOT silently fall back to "use every sample as training" -
-        ## that would quietly defeat the leakage-safety guarantee this checkbox promises (the
-        ## panel would then be selected from samples the Diagnostic module is told are held out).
-        ## Surfacing it as a validate() failure instead keeps that guarantee true whenever the
-        ## split is reported as enabled.
         validate(need(!is.null(train_idx) && length(train_idx) >= 6 && all(table(y_split[train_idx]) >= 2),
           sprintf("Could not create a held-out split for %s with these settings (too few samples per group) - lower the held-out fraction, disable the split, or add more samples.", sex_label)))
         holdout_sample_ids <- setdiff(common, common[train_idx])
@@ -1215,16 +1099,11 @@ mod_featureselection_server <- function(id, dataset, results) {
       res_p <- fs_result_or_null("pooled")
       status_row <- function(sex, sex_label, r) {
         if (!is.null(r)) {
-          ## Ran (cleared FS_MIN_GROUP_SAMPLES), but still below FS_RELIABLE_GROUP_SAMPLES -
-          ## flagged, not blocked, so a genuinely small group (e.g. 4-5 patients) still
-          ## produces a result, just clearly marked as exploratory.
           low_n <- !isTRUE(r$fast_path) && !is.null(r$min_group_n) && r$min_group_n < FS_RELIABLE_GROUP_SAMPLES
           return(tags$li(icon("check", style = "color: #1a9c5f;"), strong(sprintf(" %s feature selection completed: ", sex)),
                           sprintf("%d consensus genes%s", length(r$consensus), if (isTRUE(r$fast_path)) " (instant)" else " (live)"),
                           if (low_n) span(style = "color: #b8860b;", sprintf(" - smallest group has only %d samples, treat as exploratory", r$min_group_n)) else NULL))
         }
-        ## Real validate() failure (e.g. too few female samples) vs. genuinely never clicked -
-        ## see fs_result_error_msg() above; both used to render as this same "not run yet" row.
         err <- fs_result_error_msg(sex_label)
         if (!is.null(err)) {
           tags$li(icon("triangle-exclamation", style = "color: #c0392b;"), strong(sprintf(" %s feature selection failed: ", sex)), err)
@@ -1260,7 +1139,6 @@ mod_featureselection_server <- function(id, dataset, results) {
               sprintf(" Smallest group has only %d samples (below the recommended %d) - treat this fit as exploratory, not a reliable panel.",
                       r$min_group_n, FS_RELIABLE_GROUP_SAMPLES)) else NULL))
         }
-        ## Same never-run vs. actually-failed distinction as status_row() above.
         err <- fs_result_error_msg(sex_label)
         if (!is.null(err)) return(p(strong(sprintf("%s: ", sex)), span(style = "color: #c0392b;", sprintf("failed - %s", err))))
         p(strong(sprintf("%s: ", sex)), "not run yet.")
@@ -1421,11 +1299,6 @@ mod_featureselection_server <- function(id, dataset, results) {
         genes <- consensus_used_genes(r, used)
         draw_overlap_venn(r$sets[used], title = sprintf("%s: %d-gene consensus", tools::toTitleCase(sex_label), length(genes)), fill_high = sex_color)
       })
-      ## Which Venn region (if any) the user's last click on this plot landed in -
-      ## a pure reactive (not a stored reactiveVal), so it's always consistent with
-      ## whatever's currently drawn: it re-resolves automatically if the "Methods to
-      ## intersect" checkboxes change the diagram, and reading input$..._plot_click
-      ## before any click throws (caught below) rather than resolving to a stale value.
       consensus_clicked_region <- reactive({
         click <- input[[paste0(sex_label, "_consensus_plot_click")]]
         req(click)

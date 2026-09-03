@@ -1,8 +1,6 @@
 ## Regression guard for a gap found in the transcriptomics audit (2026-08-26):
 ## compute_sample_qc()'s cohort-correlation check called cor() with the
 ## default use="everything", so a single NA anywhere in the top-variance
-## subset made every pairwise correlation - and so the whole flag_cor QC
-## check for the entire cohort - silently NA, with no warning to the user.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

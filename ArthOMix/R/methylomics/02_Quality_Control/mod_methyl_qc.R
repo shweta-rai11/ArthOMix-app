@@ -9,23 +9,18 @@ mod_methyl_qc_config <- list(
 mod_methyl_qc_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    ## Live dashboard first; historical reference below it.
     withSpinner(uiOutput(ns("body_ui")), color = "#2563EB", type = 6),
     tags$hr(),
     uiOutput(ns("default_ui_wrap"))
   )
 }
 
-## Icon + label helper for tab titles.
 qc_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
-
-## ---- Historical pipeline reference (GSE42861, reproduced, not recomputed) --
 
 mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## SVG-download link for a plotly output (camera icon already covers PNG).
     svg_download_link <- function(plot_id) {
       actionLink(ns(paste0(plot_id, "_svgdl")),
                  label = tagList(icon("file-image"), " Download SVG"),
@@ -39,8 +34,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         ))
       }, ignoreInit = TRUE)
     }
-
-    ## Isolates has-run/plot-shown state so a Run/Generate click never re-renders sibling UI/plots.
 
     register_has_run_gate <- function(gate_id, has_run_flag_fn, result_output_id, not_run_message) {
       output[[gate_id]] <- renderUI({
@@ -60,7 +53,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         plot_shown[[pid]] <- TRUE
         shinyjs::hide(id = paste0(pid, "_gen_wrap"))
         shinyjs::show(id = paste0(pid, "_out_wrap"))
-        ## Nudge plotly to re-measure now that its container is visible.
         shinyjs::delay(200, shinyjs::runjs(sprintf(
           "if (window.Plotly) { var gd = document.getElementById('%s'); if (gd && gd.data) Plotly.Plots.resize(gd); }",
           ns(pid)
@@ -68,7 +60,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       }, ignoreInit = TRUE)
     })
 
-    ## Builds a plot's Generate button + hidden output container, once.
     lazy_plot_ui <- function(plot_id, height, label = "Generate plot", with_svg = TRUE, kind = c("plotly", "plot")) {
       kind <- match.arg(kind)
       out_widget <- if (kind == "plotly") plotly::plotlyOutput(ns(plot_id), height = height)
@@ -83,13 +74,11 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     }
 
-    ## "Run at <time>" line shown atop each tab's results.
     run_info_line <- function(run_at, extra = NULL) {
       p(class = "empty-note", icon("clock"),
         sprintf("Run at %s.%s", format(run_at, "%Y-%m-%d %H:%M:%S"), if (!is.null(extra)) paste0(" ", extra) else ""))
     }
 
-    ## Historical reference section, collapsed by default under a toggle.
     output$default_ui_wrap <- renderUI({
       if (!isTRUE(methyl_dataset$preloaded)) return(NULL)
       tagList(
@@ -163,8 +152,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         DT::formatCurrency(columns = c("retained", "removed"), currency = "", interval = 3, mark = ",", digits = 0)
     })
 
-    ## ---- Live QC dashboard: button-driven, runs on upload or preloaded ----
-
     anno_result <- reactive({
       req(methyl_dataset$array_type)
       methyl_get_annotation(methyl_dataset$array_type)
@@ -174,8 +161,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       req(methyl_dataset$array_type)
       methyl_dataset$array_type %in% METHYL_ARRAY_TYPES_ILLUMINA
     })
-
-    ## Stratum + manual exclusion: shared state every tab reads; reset (not recomputed) on new dataset load.
 
     manual_exclude <- reactiveVal(character(0))
     overview_has_run <- reactiveVal(FALSE)
@@ -191,7 +176,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       sex_qc_has_run(FALSE); batch_qc_has_run(FALSE); outlier_qc_has_run(FALSE)
     }, ignoreNULL = TRUE)
 
-    ## Each tab's controls UI only ever reads its own "*_gate" output below.
     register_has_run_gate("overview_gate", overview_has_run, "overview_result_ui",
       "Not run yet - click \"Run Overview QC\" above to see it.")
     register_has_run_gate("sample_qc_gate", sample_qc_has_run, "sample_qc_result_ui",
@@ -204,8 +188,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       "Not run yet - choose a method above and click \"Run Batch QC\".")
     register_has_run_gate("outlier_qc_gate", outlier_qc_has_run, "outlier_result_ui",
       "Not run yet - choose method(s) above and click \"Run Outlier Detection\".")
-
-    ## No tab auto-runs for the preloaded dataset either - button-driven only.
 
     output$live_stratum_ui <- renderUI({
       req(methyl_dataset$beta, methyl_dataset$sample_sheet)
@@ -220,18 +202,12 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       sample_ids <- if (length(id_col) > 0) as.character(sheet[[id_col[1]]]) else rownames(sheet)
       grp <- stats::setNames(as.character(sheet[[input$live_group_col]]), sample_ids)[all_ids]
       counts <- table(grp, useNA = "no")
-      ## table(<all-NA>, useNA="no") returns a 0-extent table whose names()
-      ## is NULL (not character(0)) - setNames(NULL, ...) errors ("attempt
-      ## to set an attribute on NULL"), which is exactly what happens when
-      ## the chosen subgroup column (e.g. "sex") has no usable values, as on
-      ## an uploaded/GEO dataset with no sex mapped.
       lvl_names <- names(counts) %||% character(0)
       lvl_choices <- stats::setNames(lvl_names, sprintf("%s (n=%d)", lvl_names, as.integer(counts)))
       choices <- c(stats::setNames("__all__", sprintf("All (n=%d)", length(all_ids))), lvl_choices)
       radioButtons(ns("live_stratum"), "Stratum", choices = choices, selected = "__all__", inline = TRUE)
     })
 
-    ## Stratum-filtered, exclusion-applied sample set every method reads.
     current_subgroup <- reactive({
       req(methyl_dataset$beta)
       sg <- methyl_qc_subgroup_filter(methyl_dataset$beta, methyl_dataset$sample_sheet, input$live_group_col, input$live_stratum)
@@ -248,7 +224,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       tryCatch(methyl_dataset$mset[, sg$included], error = function(e) NULL)
     })
 
-    ## All samples in the stratum before manual exclusion, so excluded rows stay visible for re-inclusion.
     stratum_all_samples <- reactive({
       req(methyl_dataset$beta)
       sg <- methyl_qc_subgroup_filter(methyl_dataset$beta, methyl_dataset$sample_sheet, input$live_group_col, input$live_stratum)
@@ -284,8 +259,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       !is.null(methyl_dataset$rg_set) && requireNamespace("missMethyl", quietly = TRUE)
     })
 
-    ## Stratum pickers live in the Overview tab's UI but stay live for every tab (tabsetPanel renders all tabs up front).
-
     output$body_ui <- renderUI({
       if (is.null(methyl_dataset$beta)) {
         return(div(class = "card",
@@ -316,16 +289,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## ==== TAB: Overview =========================================================
-    ## Static dataset facts + a self-contained pass/warning/fail QC check; not an aggregate of the other tabs.
-
-    ## Split from the summary below (which reads current_subgroup()) so that
-    ## the "Subgroup column" selectInput never sits in a renderUI that also
-    ## depends on a reactive derived from that very input - co-locating them
-    ## caused every live_group_col change to regenerate this exact selectInput,
-    ## which briefly re-reports its own (unchanged) value on rebind, adding an
-    ## extra settle round-trip (visible as the Overview tab flashing back to
-    ## its loading spinner) for no benefit.
     output$overview_controls_ui <- renderUI({
       req(methyl_dataset$beta)
       sheet <- methyl_dataset$sample_sheet
@@ -421,8 +384,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## ==== TAB: Sample QC ========================================================
-
     output$sample_qc_ui <- renderUI({
       req(methyl_dataset$beta)
       has_idat <- !is.null(methyl_dataset$rg_set) && !is.null(methyl_dataset$detp)
@@ -515,7 +476,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         div(class = "card",
             div(class = "card-title", icon("users"), "Sample call-rate QC"),
             DT::dataTableOutput(ns("sample_qc_table")),
-            ## Collapse the "No IDAT input" message when both metrics share it.
             if (!isTRUE(r$bisulfite$ok) && !isTRUE(r$median_int$ok) && identical(r$bisulfite$reason, r$median_int$reason)) {
               p(class = "empty-note", icon("circle-info"),
                 sprintf("Bisulfite conversion efficiency and median intensity: %s", r$bisulfite$reason))
@@ -550,8 +510,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact") %>%
         DT::formatRound(columns = setdiff(colnames(df), "sample"), digits = 2)
     })
-
-    ## ==== TAB: Probe QC =========================================================
 
     output$probe_qc_ui <- renderUI({
       req(methyl_dataset$beta)
@@ -722,8 +680,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## ==== TAB: Sex QC ===========================================================
-
     output$sex_qc_ui <- renderUI({
       req(methyl_dataset$beta)
       tagList(
@@ -825,9 +781,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       sel <- d$sample[input$discordant_table_rows_selected %||% integer(0)]
       if (length(sel) > 0) manual_exclude(union(manual_exclude(), sel))
     })
-
-    ## ==== TAB: Batch QC =========================================================
-    ## Runs on the stratum's raw matrix, independent of Probe QC.
 
     output$batch_ui <- renderUI({
       req(methyl_dataset$beta)
@@ -938,9 +891,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
-
-    ## ==== TAB: Outlier QC =======================================================
-    ## Only flags samples; nothing is excluded until the user applies it.
 
     output$outlier_ui <- renderUI({
       req(methyl_dataset$beta)
@@ -1093,10 +1043,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         theme(axis.text.x = element_blank(), panel.grid.major.x = element_blank())
     })
 
-    ## ==== TAB: Visualizations ===================================================
-    ## Re-plots Probe QC's/raw-IDAT outputs; computes nothing new itself.
-
-    ## Static shell keyed only on dataset-level facts, not on any run state.
     output$viz_ui <- renderUI({
       req(methyl_dataset$beta)
       has_ctrl <- !is.null(current_rg_subset())
@@ -1123,7 +1069,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## Re-renders only when probe_qc_has_run() first flips to TRUE.
     output$viz_probe_qc_gate <- renderUI({
       if (!isTRUE(probe_qc_has_run())) {
         return(div(class = "card",
@@ -1303,9 +1248,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
     })
     wire_svg_download("control_heatmap", "control_probe_heatmap.svg")
 
-    ## ==== TAB: Reports & Export =================================================
-    ## Exports use whichever tabs have actually been run this session.
-
     pdf_report_available <- reactive({
       has_pandoc <- requireNamespace("rmarkdown", quietly = TRUE) &&
         isTRUE(tryCatch(rmarkdown::pandoc_available(), error = function(e) FALSE))
@@ -1314,7 +1256,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       has_pandoc && has_latex
     })
 
-    ## Resolves "which tabs have run" once, shared by every export handler.
     current_qc_pieces <- reactive(list(
       overview = if (isTRUE(overview_has_run())) overview_result() else NULL,
       sample_qc = if (isTRUE(sample_qc_has_run())) sample_qc_result() else NULL,
@@ -1371,12 +1312,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## Both downloads below must branch on methyl_dataset$input_scale ("beta" or "m"):
-    ## probe_qc_result()$filtered is a row-filtered view of whatever scale is currently
-    ## loaded, not necessarily beta. Exporting it unchanged under the "beta" filename, or
-    ## blindly re-applying the beta->M logit transform to an already-M-valued matrix,
-    ## silently produces mislabeled/corrupted numbers (the matrix is clipped into (0,1)
-    ## and re-transformed as if it were beta). Convert explicitly instead.
     output$dl_filtered_beta <- downloadHandler(
       filename = function() "methylomics_qc_filtered_beta.csv",
       content = function(file) {
@@ -1433,7 +1368,6 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## Shared figure-building so HTML/PDF/ZIP exports don't redo the work.
     report_plots <- reactive({
       p <- current_qc_pieces()
       methyl_qc_report_plots(methyl_dataset, probe_qc = p$probe_qc, outlier_qc = p$outlier_qc)

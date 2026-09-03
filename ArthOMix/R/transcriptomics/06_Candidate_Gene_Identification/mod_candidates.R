@@ -1,11 +1,6 @@
 ## R/transcriptomics/06_Candidate_Gene_Identification/mod_candidates.R
 ## Candidate Gene Identification (Section 2.5): intersects a shared disease-associated
 ## WGCNA module background with a DEG list, and visualises/exports the Venn diagram and
-## candidate table. Sex-stratified (separate female/male panels) when the loaded
-## dataset has usable male/female metadata, otherwise one pooled panel (see
-## sex_available() below). Optionally narrows further by Mendelian
-## Randomization/Colocalization support if either was run this session. Reads WGCNA
-## modules and DGE runs live from the shared `results` store.
 
 mod_candidates_config <- list(
   id = "candidates", group = "Network",
@@ -14,9 +9,6 @@ mod_candidates_config <- list(
   icon = "star"
 )
 
-## One sex panel (DEG picker, Venn vs. WGCNA background, candidate table), shared
-## template for "female"/"male" prefixes (and the sex-less "pooled" fallback below),
-## gated behind its own run button.
 mod_candidates_sex_panel_ui <- function(ns, prefix, title, btn_label = sprintf("Compute %s candidates", prefix)) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
@@ -33,7 +25,6 @@ mod_candidates_sex_panel_ui <- function(ns, prefix, title, btn_label = sprintf("
   )
 }
 
-## Body is server-rendered so it can be gated on WGCNA + DGE prereqs (see server below).
 mod_candidates_ui <- function(id) {
   ns <- NS(id)
   uiOutput(ns("body_ui"))
@@ -43,7 +34,6 @@ mod_candidates_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Hard gate: requires both an upstream WGCNA run and at least one DGE run.
     prereqs <- reactive({
       list(
         wgcna_ok = !is.null(results$wgcna) && length(results$wgcna$module_genes) > 0,
@@ -51,13 +41,6 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
-    ## Whether the currently loaded dataset actually carries usable male-vs-female
-    ## metadata. A GEO fetch (or an upload) can leave meta$sex entirely NA when the
-    ## series has no sex column and the user maps it to "(none)" on the Dataset tab
-    ## (see mod_dataset.R) - and even when a sex column exists, it's only usable for
-    ## stratification if both sexes are actually represented. Sex-stratified candidate
-    ## identification (the female/male dual panels below) only makes sense when the
-    ## data supports it; otherwise this falls back to one pooled, non-stratified panel.
     sex_available <- reactive({
       m <- dataset$meta
       !is.null(m) && "sex" %in% names(m) && length(unique(stats::na.omit(m$sex))) >= 2
@@ -121,7 +104,6 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
-    ## ---- Shared WGCNA module background ----
     module_choices <- reactive({
       wg <- results$wgcna
       req(wg, length(wg$module_genes) > 0)
@@ -131,8 +113,6 @@ mod_candidates_server <- function(id, dataset, results) {
            disease = intersect(wg$significant_trait_modules %||% character(0), mods))
     })
 
-    ## Multi-select module picker, pre-selected to the disease-associated modules
-    ## from WGCNA Step 4 (|cor| >= 0.5, p < 1e-8), but any combination is selectable.
     output$module_picker_ui <- renderUI({
       mc <- tryCatch(module_choices(), error = function(e) NULL)
       if (is.null(mc)) {
@@ -160,15 +140,6 @@ mod_candidates_server <- function(id, dataset, results) {
       unique(unlist(wg$module_genes[chosen], use.names = FALSE))
     })
 
-    ## Optional third gene set (bundled panel or pasted custom list); NULL/"(none)" is a
-    ## no-op. Hidden for the exact default bundled reference cohort (its own module/DEG
-    ## overlap is the point of reference there); shown for anything else - uploaded, a
-    ## GEO fetch, or an individual preloaded GSE alike. Previously only checked
-    ## source_type=="uploaded"/a "^Uploaded dataset" source-string prefix, which meant
-    ## this feature silently disappeared for GEO-fetched and individual-preloaded
-    ## datasets even though it applies just as well to them - the same class of gap
-    ## already fixed elsewhere (mod_wgcna.R, mod_diagnostic.R, mod_featureselection.R,
-    ## mod_enrichment.R, mod_nomogram.R) via the shared is_bundled_reference flag.
     output$gene_panel_box_ui <- renderUI({
       req(!isTRUE(dataset$is_bundled_reference))
       box(
@@ -205,8 +176,6 @@ mod_candidates_server <- function(id, dataset, results) {
       load_gene_panel(choice)
     })
 
-    ## DEG contrast pickers, one per sex, listing every DGE run and defaulting to
-    ## whichever contrast label matches that sex (word or "F"/"M" code, word-boundary).
     deg_run_choices <- reactive({
       runs <- results$dge_runs
       req(length(runs) > 0)
@@ -237,8 +206,6 @@ mod_candidates_server <- function(id, dataset, results) {
       selectInput(ns("male_deg_run"), "Male DEG contrast", choices = ch, selected = guess_run(ch, "\\bmale\\b|\\bM\\b"), selectize = FALSE)
     })
 
-    ## Sex-less fallback picker (see sex_available above) - no sex to guess a default
-    ## contrast from, so this just defaults to the most recently run one.
     output$pooled_deg_picker_ui <- renderUI({
       ch <- tryCatch(deg_run_choices(), error = function(e) NULL)
       if (is.null(ch)) {
@@ -248,8 +215,6 @@ mod_candidates_server <- function(id, dataset, results) {
       selectInput(ns("pooled_deg_run"), "DEG contrast", choices = ch, selected = unname(utils::tail(ch, 1)), selectize = FALSE)
     })
 
-    ## Module background ∩ one sex's significant DEGs (+ optional gene panel), gated
-    ## behind that sex's run button so changing inputs doesn't recompute automatically.
     sex_candidates <- function(deg_input_name, run_btn_name) {
       eventReactive(input[[run_btn_name]], {
         req(input[[deg_input_name]])
@@ -285,7 +250,6 @@ mod_candidates_server <- function(id, dataset, results) {
         cand$mean_expr <- NA_real_
         if (any(in_expr)) cand$mean_expr[in_expr] <- rowMeans(expr[overlap[in_expr], , drop = FALSE])
 
-        ## One-sided hypergeometric test: is the overlap bigger than chance predicts.
         N <- length(union(rownames(expr), union(bg, deg_genes)))
         p_value <- stats::phyper(length(overlap) - 1, length(bg), N - length(bg), length(deg_genes), lower.tail = FALSE)
 
@@ -305,21 +269,6 @@ mod_candidates_server <- function(id, dataset, results) {
     male_result <- sex_candidates("male_deg_run", "male_run_btn")
     pooled_result <- sex_candidates("pooled_deg_run", "pooled_run_btn")
 
-    ## Stale-cache guard. female_result/male_result/pooled_result are
-    ## eventReactives, so switching to a different dataset does NOT clear
-    ## them - only re-clicking their own "Compute ... candidates" button
-    ## does. results$wgcna/results$dge_runs DO get wiped on a dataset switch
-    ## (server.R's global `observeEvent(dataset$source, {results reset})`),
-    ## which correctly nulls results$candidates via the prereqs gate in the
-    ## observe() below - but only until the user re-runs WGCNA + DGE on the
-    ## new dataset. The moment prereqs() passes again, fr/mr/pr would resolve
-    ## to the *previous* dataset's cached candidate lists (never invalidated)
-    ## and get silently republished as if computed on the current one -
-    ## corrupting results$candidates$final, and everything downstream
-    ## (Feature Selection, Diagnostic Model) that reads it, with the wrong
-    ## dataset's genes. Same class of bug already found and fixed via
-    ## mod_dge.R's `dge_has_run` flag (reset on cur_source() change); this
-    ## module had no equivalent for its own three run buttons.
     female_has_run <- reactiveVal(FALSE)
     male_has_run <- reactiveVal(FALSE)
     pooled_has_run <- reactiveVal(FALSE)
@@ -330,16 +279,10 @@ mod_candidates_server <- function(id, dataset, results) {
       female_has_run(FALSE); male_has_run(FALSE); pooled_has_run(FALSE)
     }, ignoreInit = TRUE)
 
-    ## Every downstream reader below uses these, never the raw eventReactives
-    ## directly - req() failing here is caught the same way a not-yet-run
-    ## eventReactive already is everywhere it's consumed (tryCatch(..., error
-    ## = function(e) NULL) or a render* function's built-in silent handling).
     female_safe <- function() { req(female_has_run()); female_result() }
     male_safe <- function() { req(male_has_run()); male_result() }
     pooled_safe <- function() { req(pooled_has_run()); pooled_result() }
 
-    ## Registers the summary/Venn/table/download outputs for one panel (a sex panel,
-    ## or the sex-less "pooled" fallback).
     register_panel <- function(prefix, res, btn_label = sprintf("Compute %s candidates", prefix)) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
         r <- tryCatch(res(), error = function(e) NULL)
@@ -355,8 +298,6 @@ mod_candidates_server <- function(id, dataset, results) {
         )
       })
 
-      ## Green for Female, brown for Male, matching this project's reference figures;
-      ## the app's own primary blue for the sex-less "pooled" fallback panel.
       venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26", pooled = "#2c6fbb")[[prefix]]
 
       venn_obj <- reactive({
@@ -390,9 +331,6 @@ mod_candidates_server <- function(id, dataset, results) {
     register_panel("male", male_safe)
     register_panel("pooled", pooled_safe, btn_label = "Compute candidates")
 
-    ## Final candidate gene set: lets the user pick female/male/union/intersection as
-    ## "the" set for downstream tabs. Defaults to Union, matching this project's own
-    ## MR script (00_shared/10_MR.R), which runs MR once on union(fem, mal).
     output$final_set_picker_ui <- renderUI({
       radioButtons(
         ns("final_candidate_set"), NULL,
@@ -432,15 +370,6 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
-    ## ---- Optional refinement by Mendelian Randomization / Colocalization ----
-    ## MR (mod_mr.R) and Colocalization (mod_coloc.R) are independent, optional
-    ## analyses in the Genetics section - a user without GWAS/eQTL summary stats for
-    ## their trait may never run either, and nothing here (or in Feature Selection,
-    ## Diagnostic Model, etc. downstream) requires them to. This only offers a filter
-    ## when there's actual overlap between genes tested this session
-    ## (results$mr$genes_tested / results$coloc$genes_tested) and the current
-    ## candidate set; if neither was run, or neither overlaps, nothing renders and
-    ## refined_final() just passes the base set through unchanged.
     MR_P_CUT <- 0.05
     COLOC_PP4_CUT <- 0.8
 
@@ -458,8 +387,6 @@ mod_candidates_server <- function(id, dataset, results) {
       names(pp)[!is.na(pp) & pp >= COLOC_PP4_CUT]
     })
 
-    ## The candidate set before this optional refinement - whichever branch
-    ## (sex-stratified or pooled) is active per sex_available() above.
     base_final <- reactive({
       if (isTRUE(sex_available())) {
         fc <- final_candidates()
@@ -487,9 +414,6 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     })
 
-    ## The actually-published set - what results$candidates$final holds, and what the
-    ## boxes/downloads below show. Equals base_final() untouched unless the user has
-    ## opted into one of the checkboxes above.
     refined_final <- reactive({
       base <- base_final()
       genes <- base$genes
@@ -520,12 +444,7 @@ mod_candidates_server <- function(id, dataset, results) {
       content = function(file) write.csv(refined_final()$stats, file, row.names = FALSE)
     )
 
-    ## Read by the Assistant sub-module, same as every other analysis tab. Publishes
-    ## from whichever mode is actually active (sex_available()) - the other mode's
-    ## reactives never fire since their buttons were never rendered into the DOM.
     observe({
-      ## Prereq gate: after a dataset switch the run-button eventReactives below still
-      ## hold the previous dataset's cached results, so never republish them.
       pr <- prereqs()
       if (!isTRUE(pr$wgcna_ok) || !isTRUE(pr$dge_ok)) {
         results$candidates <- NULL
@@ -544,13 +463,6 @@ mod_candidates_server <- function(id, dataset, results) {
       } else {
         pr <- tryCatch(pooled_safe(), error = function(e) NULL)
         if (is.null(pr)) return()
-        ## fc NULL here only ever means refined_final()'s causal-evidence
-        ## filter(s) zeroed the set out (validate() throws "No candidate
-        ## genes pass ...") - matching the sex-stratified branch above,
-        ## publish NULL rather than silently falling back to the unfiltered
-        ## pooled overlap, which would contradict the on-screen error and
-        ## hand downstream tabs (Feature Selection, Diagnostic Model) a set
-        ## the user explicitly filtered out.
         results$candidates <- list(
           female = NULL, male = NULL,
           final = if (!is.null(fc)) list(selection = "pooled", n_candidates = length(fc$genes), genes = fc$genes, contrast = pr$contrast) else NULL

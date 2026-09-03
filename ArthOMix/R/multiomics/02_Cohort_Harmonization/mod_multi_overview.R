@@ -1,14 +1,6 @@
 ## R/multiomics/02_Cohort_Harmonization/mod_multi_overview.R
 ## Submodule: Cohort Harmonization - data-adaptive report on the Active
 ## Multi-Omics Dataset (multi_dataset, built on the Dataset Workspace tab):
-## which modalities are present, which samples are actually shared, and
-## whether integration is feasible.
-## Never assumes RNA-seq + methylation specifically - every check inspects
-## whatever modalities the active dataset actually contains, and reports
-## "Not detected"/"Insufficient information" rather than guessing when it
-## can't tell (cohort_harmonization_helpers.R). Nothing renders until the
-## relevant blue button is clicked (mirrors the Dataset Workspace's own
-## button-gated pattern).
 
 mod_multi_overview_config <- list(
   id = "overview", title = "Cohort Harmonization", icon = "users", group = "Data",
@@ -34,16 +26,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     pheno_candidates <- reactive(ch_detect_candidate_columns(multi_dataset$sample_meta, "phenotype"))
     batch_candidates <- reactive(ch_detect_candidate_columns(multi_dataset$sample_meta, "batch"))
 
-    ## Raw per-sample matrix source for PCA/correlation only -
-    ## descriptors()/harmonization_result() above are untouched and keep
-    ## reading multi_dataset directly (real, patient-ID-only for the
-    ## preloaded cohort, per ch_modality_descriptors_preloaded()). The
-    ## preloaded cohort's modality descriptors never carry a raw matrix
-    ## (has_raw_matrix=FALSE for all ~80 patients - no bundled full-cohort
-    ## matrix), so these two panels fall back to one analysis cell's own
-    ## saved-fit matrices (mi_preloaded_cell_dataset(), the same live-recompute
-    ## mechanism mod_multi_integration.R already uses) rather than staying
-    ## permanently inert for the preloaded path.
     ov_raw_dataset <- reactive({
       if (identical(multi_dataset$source, "preloaded")) {
         req(input$preloaded_cell)
@@ -53,9 +35,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       }
     })
 
-    ## ---- Filters + buttons + tabset - only built once an active dataset
-    ## with at least one detectable modality exists (spec section 15: don't
-    ## show filters that don't apply to the actual data). ----
     output$body_ui <- renderUI({
       if (is.null(multi_dataset) || !isTRUE(multi_dataset$active)) {
         return(div(class = "empty-note", icon("circle-info"),
@@ -92,10 +71,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       )
     })
 
-    ## =========================================================================
-    ## Analyze Cohort - Overview + Sample Match, computed once per click
-    ## (spec section 14: never reactively on every input change).
-    ## =========================================================================
     harmonization_result <- eventReactive(input$analyze_btn, {
       d <- descriptors()
       sel <- intersect(input$sel_modalities %||% names(d), names(d))
@@ -219,10 +194,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       rd <- ov_raw_dataset()
       live_names <- if (isTRUE(rd$ok)) names(rd$layers) else character(0)
       if (length(live_names) == 0) return(div(class = "empty-note", icon("circle-info"), if (!isTRUE(rd$ok)) rd$error else "Insufficient information - no per-sample matrix is available."))
-      ## "Color PCA by" offers every classified metadata column for this raw
-      ## dataset (not just batch-name-pattern matches, which was this panel's
-      ## only color option before) - defaults to the same suggested variable
-      ## the Filters box uses, fully overridable.
       meta_cls <- ch_classify_metadata_columns(rd$sample_meta)
       color_choices <- meta_cls$table$column %||% character(0)
       tagList(
@@ -273,11 +244,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     output$corr_plot <- renderPlot(corr_plot_fn(), alt = "Cross-modality feature correlation heatmap")
     output$dl_corr_png <- multi_png_download(corr_plot_fn, function() sprintf("cohort_harmonization_correlation_%s_vs_%s.png", make.names(input$corr_a %||% "A"), make.names(input$corr_b %||% "B")))
 
-    ## =========================================================================
-    ## Sample Explorer - browse/search every sample individually (which
-    ## modalities it's in, its metadata) and see where one selected sample
-    ## sits on a PCA of any modality with a raw matrix.
-    ## =========================================================================
     output$sample_explorer_ui <- renderUI({
       h <- tryCatch(harmonization_result(), error = function(e) NULL)
       if (is.null(h) || !isTRUE(h$ok)) return(multi_empty_state("Click \"Analyze Cohort\" to see results here."))
@@ -336,11 +302,6 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
     output$explore_pca_plot <- renderPlot(explore_pca_fn(), alt = "PCA with the selected sample highlighted")
     output$dl_explore_pca_png <- multi_png_download(explore_pca_fn, function() sprintf("cohort_harmonization_sample_highlight_%s.png", make.names(input$explore_sample %||% "sample")))
 
-    ## Backward-compatible publish: multi_qc_scorecard()/
-    ## multi_analysis_summary_table() (multiomics_helpers.R) read
-    ## overview$harmonization$ok/n_total/n_matched and
-    ## overview$summary36$excludes_chance - field names kept identical so
-    ## those two cross-cutting functions need no changes.
     observe({
       h <- tryCatch(harmonization_result(), error = function(e) NULL)
       if (is.null(h) || !isTRUE(h$ok) || is.null(multi_results)) return()

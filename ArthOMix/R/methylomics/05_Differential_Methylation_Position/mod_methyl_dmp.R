@@ -1,39 +1,12 @@
 ## R/methylomics/05_Differential_Methylation_Position/mod_methyl_dmp.R
 ## Methylomics sub-module: Differential Methylation (DMPs).
 ##
-## Two tabs, each gated on data availability:
-##   "SVA" tab -
-##     1a. "Default analysis (GSE42861)" - reproduces the published
-##         sex-stratified limma + bacon-correction model (plain and
-##         SVA-adjusted) from precomputed tables; nothing recomputes here.
-##         Shown only when methyl_dataset$preloaded is TRUE.
-##     1b. Live SVA-adjusted engine - same statistical method
-##         (sva::sva() surrogate-variable estimation, appended as model
-##         covariates, then bacon::bacon() bias/inflation correction ahead
-##         of Benjamini-Hochberg FDR; see
-##         data/preloaded/methylomics/tables/script03_dmp_sva_sexstratified/
-##         METHODS_dmp_sva_sexstratified.md for the method this reproduces)
-##         run live against whatever beta/M-value matrix is loaded via
-##         Upload or a live GEO fetch (i.e. methyl_dataset$beta is set and
-##         methyl_dataset$preloaded is not TRUE). Shares its sample/probe
-##         subsetting logic (mod_methyl_dmp_prepare_subset()) with the DMP
-##         tab below so selection can't silently diverge between the two.
-##   "DMP" tab -
-##     2. "DMP Analysis" - full configurable live EWAS engine (sex/group/
-##        covariate selection, filters, limma model, plots, export) that
-##        runs against whatever beta/M-value matrix is currently loaded,
-##        upload or preloaded. Shown whenever methyl_dataset$beta is set.
-##        Deliberately does not apply SVA/bacon correction - it's the
-##        fast, unadjusted counterpart to the SVA tab's live engine above.
 
 mod_methyl_dmp_config <- list(
   id = "dmp", title = "Differential Methylation (DMPs)", icon = "chart-scatter", group = "Data",
   description = "Performs differentially methylated positions analysis."
 )
 
-## "SVA" and "DMP" subtabs just wrap the existing default_ui/live_ui
-## outputs; switching tabs doesn't force sva_run()/live_result() to
-## recompute since Shiny only suspends rendering of the hidden tab.
 mod_methyl_dmp_ui <- function(id) {
   ns <- NS(id)
   div(
@@ -45,8 +18,6 @@ mod_methyl_dmp_ui <- function(id) {
     )
   )
 }
-
-## ---- Shared: filter + summarize + volcano, parameterized by which table --
 
 mod_methyl_dmp_filter <- function(df, fdr_col, effect_col, fdr_max, effect_min, direction) {
   keep <- !is.na(df[[fdr_col]]) & df[[fdr_col]] <= fdr_max & abs(df[[effect_col]]) >= effect_min
@@ -66,16 +37,12 @@ mod_methyl_dmp_volcano <- function(df, effect_col, p_col, effect_label, fdr_max,
   gg
 }
 
-## Genomic inflation factor (lambda_gc), standard median-chi-square formula.
-## Must be fed the full raw per-CpG p-value vector (before FDR/effect-size
-## filtering). Shared with mod_methyl_dmr.R's live engine.
 mod_methyl_lambda_gc <- function(p) {
   p <- p[is.finite(p) & p > 0 & p <= 1]
   if (length(p) == 0) return(NA_real_)
   stats::median(stats::qchisq(1 - p, df = 1), na.rm = TRUE) / stats::qchisq(0.5, df = 1)
 }
 
-## Observed-vs-expected -log10(p) QQ plot; companion to lambda_gc.
 mod_methyl_qq_plot <- function(p) {
   p <- sort(p[is.finite(p) & p > 0 & p <= 1])
   n <- length(p)
@@ -88,14 +55,6 @@ mod_methyl_qq_plot <- function(p) {
     theme_arthomix()
 }
 
-## ---- Live-engine helpers ---------------------------------------------------
-
-## Row-chunked limma::lmFit(), reused by mod_methyl_dmr.R's live engine too.
-## A full genome-wide fit (400k+ probes) can exceed R's vector memory limit,
-## so rows are fit in chunks and the per-row fit summaries (coefficients,
-## stdev.unscaled, sigma, df.residual, Amean) are concatenated back into one
-## MArrayLM object. Verified bit-for-bit identical topTable() output vs. a
-## whole-matrix fit on synthetic data.
 methyl_chunked_lmfit <- function(m, design, chunk_size = 20000) {
   n <- nrow(m)
   if (n <= chunk_size) return(limma::lmFit(m, design))
@@ -112,13 +71,6 @@ methyl_chunked_lmfit <- function(m, design, chunk_size = 20000) {
   out
 }
 
-## Sample + probe subsetting shared by the DMP tab's plain live engine and
-## the SVA tab's live SVA-adjusted engine, so the two can't silently diverge
-## in which samples/probes they analyze - only the model fit itself differs
-## downstream. Mirrors the validation/subsetting steps previously inlined
-## in the DMP tab's own live_result() one-for-one (sex subset -> group/ref/
-## comp subset -> covariate complete-cases -> missingness/variance/SNP probe
-## filters -> beta/M-value matrix construction).
 mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_name,
                                             group_col, ref, comp, covariate_cols,
                                             min_valid_pct, min_variance, snp_filter, anno) {
@@ -133,11 +85,8 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   common <- intersect(colnames(methyl_dataset$beta), sample_ids)
   validate(need(length(common) >= 6, "Fewer than 6 samples match between the matrix and the sample sheet."))
   beta0 <- methyl_dataset$beta[, common, drop = FALSE]
-  ## Preloaded sample sheet is a data.table - coerce to data.frame so
-  ## single-bracket column selection by name behaves consistently below.
   ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
 
-  ## ---- sex subset --------------------------------------------------
   sex_label <- "All samples"
   if (!identical(sex_choice, "__all__")) {
     validate(need(!is.null(sex_col_name), "No sex column available to subset on."))
@@ -149,15 +98,13 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   }
   n_after_sex <- ncol(beta0)
 
-  ## ---- group/reference/comparison subset ----------------------------
   grp_raw <- as.character(ph0[[group_col]])
   keep_grp <- !is.na(grp_raw) & grp_raw %in% c(ref, comp)
   beta1 <- beta0[, keep_grp, drop = FALSE]
   ph1 <- ph0[keep_grp, , drop = FALSE]
   grp <- factor(grp_raw[keep_grp], levels = c(ref, comp))
-  rm(beta0)  ## free the full-size matrix now that beta1 exists (memory pressure on full arrays)
+  rm(beta0)
 
-  ## ---- optional covariates (complete cases only) --------------------
   cov_df <- NULL
   if (length(covariate_cols) > 0) {
     cc <- ph1[, covariate_cols, drop = FALSE]
@@ -176,7 +123,6 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
     sprintf("Each group needs at least 3 samples to fit a model (reference \"%s\": %d, comparison \"%s\": %d).",
             ref, n_ref, comp, n_comp)))
 
-  ## ---- probe filters (missingness / variance / SNP), before the M-value transform ----
   is_m_scale <- identical(methyl_dataset$input_scale, "m")
   beta_scale_full <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
 
@@ -200,7 +146,6 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   if (is_m_scale) rm(beta_scale_full)
   gc(FALSE)
 
-  ## ---- beta/M-value matrices (filtered subset only) ---------------------
   m <- if (is_m_scale) beta1 else log2(pmin(pmax(beta1, 1e-6), 1 - 1e-6) / (1 - pmin(pmax(beta1, 1e-6), 1 - 1e-6)))
   beta_scale <- if (is_m_scale) 2^m / (1 + 2^m) else beta1
 
@@ -212,20 +157,6 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   )
 }
 
-## Live SVA + bacon-corrected model, mirroring the precomputed GSE42861
-## pipeline (script03_dmp_sva_sexstratified/METHODS_dmp_sva_sexstratified.md)
-## so the same statistical method is available live for Upload/GEO-fetched
-## data, not just the preloaded reference cohort.
-##
-## Surrogate variables are estimated with sva::sva(), contrasting a full
-## model (~ group [+ covariates]) against the same model with `group`
-## removed - exactly the full-vs-null contrast the precomputed pipeline
-## uses, so that variation attributable to the group comparison itself
-## isn't absorbed into the surrogate variables. Estimation is restricted to
-## the `sv_topn` most variable probes (same top-variable-probe convention
-## as the precomputed pipeline) since sva::sva() is expensive at
-## genome-wide scale; the final limma fit still uses the full filtered
-## probe set, with the estimated SVs appended as ordinary covariates.
 mod_methyl_sva_fit <- function(m, grp, cov_df, sv_topn = 20000) {
   cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
   safe_cov <- if (length(cov_names) > 0) sprintf("`%s`", cov_names) else character(0)
@@ -263,10 +194,6 @@ mod_methyl_sva_fit <- function(m, grp, cov_df, sv_topn = 20000) {
   if (!is.null(design_cov)) design <- cbind(design, design_cov)
   if (!is.null(sv_mat)) design <- cbind(design, sv_mat)
 
-  ## SVA's own component count is a heuristic (Buja-Eyuboglu "be" method) and
-  ## can occasionally overshoot on a small live cohort; drop trailing SVs
-  ## (the last-added columns) rather than failing the model outright if that
-  ## makes the design matrix rank-deficient.
   n_sv <- if (!is.null(sv_mat)) ncol(sv_mat) else 0L
   while (n_sv > 0 && qr(design)$rank < ncol(design)) {
     n_sv <- n_sv - 1L
@@ -276,8 +203,6 @@ mod_methyl_sva_fit <- function(m, grp, cov_df, sv_topn = 20000) {
   list(design = design, n_sv = n_sv)
 }
 
-## Auto-detects a sex/gender column by name; same candidates as
-## mod_methyl_qc.R's sex-check panel.
 mod_methyl_dmp_sex_col <- function(sheet) {
   if (is.null(sheet)) return(NULL)
   cols <- intersect(c("sex", "Sex", "SEX", "gender", "Gender"), colnames(sheet))
@@ -285,9 +210,6 @@ mod_methyl_dmp_sex_col <- function(sheet) {
   cols[1]
 }
 
-## Builds "All samples / Female / Male" radio choices from the sex column's
-## actual values - maps to Female/Male labels only when exactly one level
-## matches each pattern (F/Female, M/Male), else falls back to raw values.
 mod_methyl_dmp_sex_choices <- function(sheet, sex_col) {
   base <- c("All samples" = "__all__")
   if (is.null(sex_col) || !sex_col %in% colnames(sheet)) return(base)
@@ -301,9 +223,6 @@ mod_methyl_dmp_sex_choices <- function(sheet, sex_col) {
   c(base, stats::setNames(lvls, lvls))
 }
 
-## Candidate covariate columns: >=2 distinct non-missing values, excluding
-## free-text/ID-like character columns (every value unique); numeric columns
-## are kept regardless since continuous covariates can be all-unique too.
 mod_methyl_dmp_covariate_cols <- function(sheet, exclude) {
   cols <- setdiff(colnames(sheet), exclude)
   keep <- vapply(cols, function(cl) {
@@ -374,11 +293,6 @@ mod_methyl_dmp_betadist <- function(beta_mat, cpgs, grp) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
-## UI for the SVA tab's live engine (Upload/GEO-fetched data). Deliberately
-## mirrors the DMP tab's own live_ui card/control layout (same fluidRow(4,8)
-## split, same control types) so the two tabs read as one consistent
-## module, differing only in which inputs/outputs it targets (svalive_*
-## instead of live_*) and that it also runs SVA + bacon correction.
 mod_methyl_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
   sheet <- methyl_dataset$sample_sheet
   cols <- colnames(sheet)
@@ -426,8 +340,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ================= 1. Default analysis (GSE42861) =====================
-
     default_data <- reactive({
       if (!METH_DATA_AVAILABLE) return(NULL)
       list(
@@ -438,9 +350,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$default_ui <- renderUI({
-      ## Three data sources this tab has to cover: preloaded (reproduced,
-      ## precomputed - below), Upload/GEO with no data yet, and Upload/GEO
-      ## with data loaded (live SVA engine, further down this file).
       if (!isTRUE(methyl_dataset$preloaded)) {
         if (is.null(methyl_dataset$beta)) {
           return(div(class = "card",
@@ -494,7 +403,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
-    ## eventReactive on the button click - controls don't update results until "View results" is clicked again.
     sva_run <- eventReactive(input$sva_run_btn, {
       d <- default_data(); req(d)
       df <- if (identical(input$sva_sex, "male")) d$sva_m else d$sva_f
@@ -552,23 +460,12 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       DT::datatable(default_filtered(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = c("logFC_M", "dbeta", "t", "p_raw", "p_bacon", "fdr_bacon"), digits = 4)
     })
-    ## Nested two levels deep in dynamic renderUI; Shiny's suspendWhenHidden
-    ## visibility tracking misdetects it, so the table never reaches the
-    ## browser unless forced to always compute/send.
     outputOptions(output, "default_table", suspendWhenHidden = FALSE)
 
     output$download_default <- downloadHandler(
       filename = function() { r <- sva_run(); sprintf("gse42861_dmp_sva_%s_fdr%s.csv", r$sex, r$fdr) },
       content = function(file) utils::write.csv(default_filtered(), file, row.names = FALSE)
     )
-
-    ## ================= 1b. Live SVA-adjusted engine (Upload / GEO) ========
-    ## Same "SVA" tab, shown instead of the block above whenever the active
-    ## dataset isn't the preloaded reference cohort. Reuses
-    ## mod_methyl_dmp_prepare_subset() (shared with the DMP tab's plain live
-    ## engine, section 2 below) for sample/probe selection, then estimates
-    ## surrogate variables and applies bacon correction - see
-    ## mod_methyl_sva_fit() above for the method itself.
 
     output$svalive_level_ui <- renderUI({
       req(input$svalive_group_col)
@@ -797,7 +694,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = c("ref_mean_beta", "comp_mean_beta", "dbeta", "p_raw", "p_bacon", "fdr"), digits = 4)
     })
-    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)  ## see default_table's own comment above
+    outputOptions(output, "svalive_table", suspendWhenHidden = FALSE)
 
     output$download_svalive <- downloadHandler(
       filename = function() { r <- svalive_result(); sprintf("sva_dmp_%s_vs_%s_%s.csv", r$comp, r$ref, r$sex_label) },
@@ -826,11 +723,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## ================= 2. DMP Analysis (configurable live engine) =========
-    ## Runs against whatever methyl_dataset$beta currently holds (upload or
-    ## preloaded). Controls appear once a matrix + sample sheet are loaded,
-    ## but the model only fits on "Run DMP Analysis".
-
     sex_col <- reactive({ mod_methyl_dmp_sex_col(methyl_dataset$sample_sheet) })
 
     id_cols <- reactive({
@@ -850,7 +742,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     })
 
     output$live_ui <- renderUI({
-      ## Available whenever a real matrix is loaded (upload or preloaded's live matrix).
       if (is.null(methyl_dataset$beta)) {
         msg <- if (isTRUE(methyl_dataset$preloaded))
           "The preloaded dataset's live beta matrix isn't available in this deployment, so only the sex-stratified reproduced analysis above is available (no live All-Samples/Female-only/Male-only option)."
@@ -928,7 +819,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       sheet <- methyl_dataset$sample_sheet
       req(sheet, input$live_group_col)
       exclude <- c(id_cols(), input$live_group_col)
-      ## Sex is constant within a single-sex run, so only offer it as a covariate for "All samples".
       if (!identical(input$live_sex %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
       cand <- mod_methyl_dmp_covariate_cols(sheet, exclude)
       if (length(cand) == 0) {
@@ -937,7 +827,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       checkboxGroupInput(ns("live_covariates"), NULL, choices = cand, selected = character(0))
     })
 
-    ## Reset when the underlying dataset changes so a stale result isn't left showing.
     live_has_run <- reactiveVal(FALSE)
     observeEvent(methyl_dataset$beta, live_has_run(FALSE), ignoreNULL = TRUE)
 
@@ -951,7 +840,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       )
       m <- sub$m; beta_scale <- sub$beta_scale; grp <- sub$grp; cov_df <- sub$cov_df
 
-      ## ---- design + limma fit ---------------------------------------------
       design_grp <- stats::model.matrix(~0 + grp)
       colnames(design_grp) <- levels(grp)
       cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
@@ -1023,7 +911,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       live_has_run(TRUE)
     })
 
-    ## FDR/Δβ/direction filters apply without refitting; only sex/group/covariate/probe-filter changes need Run again.
     live_filtered <- reactive({
       r <- live_result()
       direction <- if (identical(input$live_direction, "any")) NULL else input$live_direction
@@ -1154,7 +1041,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
                     options = list(scrollX = TRUE, pageLength = 10), class = "stripe hover compact") %>%
         DT::formatSignif(columns = c("ref_mean_beta", "comp_mean_beta", "dbeta", "p_raw", "fdr"), digits = 4)
     })
-    outputOptions(output, "live_table", suspendWhenHidden = FALSE)  ## see default_table's own comment above
+    outputOptions(output, "live_table", suspendWhenHidden = FALSE)
 
     output$download_live <- downloadHandler(
       filename = function() { r <- live_result(); sprintf("dmp_%s_vs_%s_%s.csv", r$comp, r$ref, r$sex_label) },
@@ -1182,12 +1069,6 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       }
     )
 
-    ## Provenance manifest (R/provenance.R): checksum of the exact filtered
-    ## beta/M-value matrix + group assignment that went into the limma fit
-    ## (m/grp, captured inside live_result() above), plus the group/
-    ## covariate/threshold choices already surfaced in download_live_config's
-    ## own CSV above. No seed - this live DMP engine's only statistical
-    ## step is limma::eBayes(), which is deterministic (no internal RNG).
     dmp_provenance_record <- reactive({
       r <- live_result()
       arthomix_provenance_record(

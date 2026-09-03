@@ -1,23 +1,12 @@
 ## R/methylomics/01_Data/mod_methyl_dataset.R
 ## Methylomics Dataset tab: loads the shared `methyl_dataset` reactiveValues every
 ## Methylomics sub-module reads from. Mirrors the Transcriptomics Dataset tab's
-## layout/interaction pattern (R/transcriptomics/01_Data/mod_dataset.R) exactly - preloaded
-## card + GEO-fetch card on the left, upload card (Step 1/2/3) on the right - but
-## every source and validation is methylation-specific: beta/M-value matrices,
-## probe (CpG) IDs, Illumina array platforms, IDAT raw files.
 
 mod_methyl_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
   description = "Pick a preloaded methylation dataset, upload your own, or fetch from NCBI GEO - either way it's what every sub-module below reads from."
 )
 
-## ---- Preloaded catalog -----------------------------------------------------
-## Only one full, sub-module-ready preloaded matrix ships today (the live
-## GSE42861 beta matrix load_default_meth_matrix() reads) - the GSE111942
-## "external panel" bundled elsewhere is a curated 21-CpG diagnostic-classifier
-## panel, not a full raw matrix, so it isn't offered here as a swappable pick.
-## Structured as a list (like transcriptomics' PRELOADED_DATASETS) so a second
-## full preloaded methylation cohort can be added later without a UI change.
 MX_PRELOADED_DATASETS <- list(
   list(id = "gse42861_wholeblood", label = "Whole-blood sex-stratified RA cohort", gse = "GSE42861")
 )
@@ -27,12 +16,6 @@ mx_preloaded_choices <- function() {
            vapply(MX_PRELOADED_DATASETS, `[[`, character(1), "label"))
 }
 
-## ---- GEO platform recognition ----------------------------------------------
-## GEO Platform (GPL) accession -> this app's array_type label, for every
-## Illumina methylation array with any real GEO usage. A fetched series on an
-## unrecognized platform falls back to a value-range heuristic (see
-## mx_geo_expr_meta below) rather than being rejected outright, since custom/
-## unlisted array platforms still submit ordinary beta-value matrices.
 MX_METHYLATION_GPL <- c(
   "GPL8490"  = "27K",
   "GPL13534" = "450K",
@@ -63,11 +46,6 @@ mod_methyl_dataset_ui <- function(id) {
             column(4, textInput(ns("geo_accession"), NULL, placeholder = "GSE12345", width = "100%")),
             column(3, actionButton(ns("geo_fetch_btn"), "Fetch", icon = icon("download"), class = "btn-primary btn-sm", width = "100%"))
           ),
-          ## Same synchronous-fetch spinner workaround as the Transcriptomics
-          ## Dataset tab's GEO card (see its own comment) - GEOquery::getGEO()
-          ## blocks this app's single R process for the length of the fetch,
-          ## so only a client-side script can show a spinner before that block
-          ## starts.
           tags$script(HTML(sprintf(
             "document.addEventListener('click', function(e) {
                var btn = e.target.closest('#%s');
@@ -136,10 +114,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Guesses a mapping dropdown's default column by name, not position - same
-    ## term-tier logic as the Transcriptomics Dataset tab's own guess_col()
-    ## (see its comment for why exact-match and contains-match must each be
-    ## tried term-by-term, not as one combined regex).
     guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
       for (term in exact) {
         hit <- cols[tolower(cols) == tolower(term)]
@@ -157,34 +131,17 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       if (input$array_type %in% c("450K", "EPIC")) {
         p(class = "empty-note", icon("circle-check"), "Manifest annotation available for this array type.")
       } else if (identical(input$array_type, "EPICv2")) {
-        ## EPICv2 is offered as a choice, but this deployment has no
-        ## EPICv2 entry in METHYL_ANNOTATION_PACKAGES (annotation.R) - its
-        ## real Bioconductor manifest package uses hg38 coordinates and
-        ## suffixed probe IDs (e.g. "cgXXXXXXXX_BC11"), while every other
-        ## array type here is hg19 with plain "cgXXXXXXXX" IDs, so wiring it
-        ## in isn't a safe drop-in without a build-aware branch through
-        ## DMRcate/downstream logic - see this file's own code comment.
         p(class = "empty-note", icon("triangle-exclamation"), "No manifest annotation is wired up for EPICv2 in this deployment - SNP filtering, sex-chromosome filtering, the raw-intensity sex check, and manifest-dependent normalization methods are unavailable for this array type. Sample-level QC that doesn't need a manifest still works.")
       } else {
         p(class = "empty-note", icon("circle-info"), "No manifest annotation for this array type - sample-level QC still works.")
       }
     })
 
-    ## ---- Preloaded path: loads the ~2.1GB matrix in the background and caches it per session.
-
-    ## Tracks which preloaded choice has actually finished loading (via "Load
-    ## this dataset"), as opposed to merely being picked in the dropdown - the
-    ## GSE42861 info-card/note below must only appear once loading completes,
-    ## not the instant a choice is selected.
     preloaded_loaded_choice <- reactiveVal(NULL, label = "preloaded_loaded_choice")
 
     finish_preloaded_load <- function(live) {
       pheno <- load_default_meth_pheno()
       if (is.null(pheno)) {
-        ## finish_preloaded_load() is only ever called from observeEvent/observe
-        ## contexts (never from a render/output binding), where shiny::validate()
-        ## is silently swallowed instead of shown - so report this failure the
-        ## same way the Upload/GEO load handlers below do: showNotification().
         output$preloaded_load_message <- renderUI(
           span(style = "color: var(--color-danger); font-size: 13px;", icon("triangle-exclamation"),
                " Could not load the preloaded dataset: its sample metadata is missing or unavailable in this deployment.")
@@ -229,13 +186,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         "689-sample whole-blood cohort (Liu et al. 2013), sex-stratified in every downstream sub-module's default analysis. The live beta matrix (2.1GB) loads in the background so the rest of the app stays usable.")
     })
 
-    ## GEO info-card, matching the one the Transcriptomics Dataset tab shows for
-    ## its own individual raw sources - static, verified facts (no live
-    ## ExpressionSet is cached for this preloaded source, unlike transcriptomics'
-    ## get_raw_eset()), except sample count, which reads the real bundled pheno
-    ## table rather than being hardcoded. Only shown once "Load this dataset"
-    ## has actually finished for the currently-selected choice, not merely once
-    ## it's picked in the dropdown.
     output$preloaded_geo_card_ui <- renderUI({
       req(input$preloaded_choice)
       req(identical(preloaded_loaded_choice(), input$preloaded_choice))
@@ -314,11 +264,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       })
     }
 
-    ## ---- Upload path: shared Step 1 (files) / Step 2 (column mapping) / Step 3 (confirm),
-    ## branching on input$upload_format ("matrix" vs "idat") only where the two formats
-    ## genuinely differ (parsing) - sample-sheet mapping and sample-ID matching are identical
-    ## either way, matching the Transcriptomics Dataset tab's own upload pipeline.
-
     sheet_raw <- reactive({
       req(input$sheet_file)
       path <- input$sheet_file$datapath
@@ -335,11 +280,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       }
     })
 
-    ## Cheap preview only - the CSV/TSV/RDS matrix parse itself is fast even for a
-    ## full 450K/EPIC matrix, but IDAT reading (minfi::read.metharray.exp) is not,
-    ## so that stays deferred to the "Upload Data" click below, exactly like the
-    ## previous implementation's own comment on this ("Reading is deferred until
-    ## \"Load dataset\" is clicked").
     matrix_preview <- reactive({
       req(input$upload_format == "matrix", input$matrix_file)
       path <- input$matrix_file$datapath
@@ -348,16 +288,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         if (!isTRUE(loaded$ok)) return(list(ok = FALSE, error = loaded$error))
         m <- loaded$value
         if (!is.matrix(m) || !is.numeric(m)) return(list(ok = FALSE, error = "The uploaded matrix RDS file must contain a numeric matrix."))
-        ## Unlike the CSV/TSV path (methyl_parse_matrix() always sets rownames from
-        ## the file's own first column), an RDS matrix can carry NULL or numeric
-        ## dimnames straight through - which would otherwise sail past
-        ## methyl_validate_matrix_upload()'s orientation heuristic (NaN/NA hit
-        ## rates fire neither its transpose nor its rejection branch) and get
-        ## stored with unidentifiable probe IDs. Reuses the same probe-ID pattern
-        ## and 0.5 hit-rate threshold methyl_detect_orientation() (parse_upload.R)
-        ## already uses, checking colnames too so a legitimately transposed
-        ## (samples x probes) RDS upload still passes through to that same
-        ## auto-transpose logic rather than being rejected here.
         probe_pattern <- "^(cg|ch\\.|rs)[0-9]"
         has_probe_rownames <- !is.null(rownames(m)) && mean(grepl(probe_pattern, rownames(m), ignore.case = TRUE)) > 0.5
         has_probe_colnames <- !is.null(colnames(m)) && mean(grepl(probe_pattern, colnames(m), ignore.case = TRUE)) > 0.5
@@ -431,25 +361,12 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       )
     })
 
-    ## Keeps "Upload Data" disabled until files are chosen and, if a sample sheet
-    ## was provided, its required column mappings are set - a sheet is optional
-    ## for methylomics (unlike the Transcriptomics Dataset tab, which requires
-    ## metadata), so mapping is only required when there's a sheet to map.
     observe({
       files_ready <- if (identical(input$upload_format, "idat")) !is.null(input$idat_files) else !is.null(input$matrix_file)
       mapping_ready <- is.null(input$sheet_file) || (!is.null(input$map_id) && !is.null(input$map_group))
       if (isTRUE(files_ready) && isTRUE(mapping_ready)) shinyjs::enable("load_btn") else shinyjs::disable("load_btn")
     })
 
-    ## Shared by both upload_format branches below: maps the sample sheet's
-    ## chosen columns onto canonical sample/group/sex/batch columns (added
-    ## alongside the original columns, never replacing them - every other
-    ## sub-module's own column pickers, e.g. mod_methyl_qc.R's live_group_col,
-    ## read the raw sheet as-is and would otherwise lose access to it), then
-    ## intersects sample IDs against the matrix's column names via
-    ## methyl_sheet_sample_ids() - the same ID-resolution convention already
-    ## used throughout qc.R - so every downstream tool sees a consistently
-    ## matched matrix + sheet.
     map_and_match_sheet <- function(mat) {
       if (is.null(input$sheet_file)) return(list(mat = mat, sheet = NULL))
       sheet <- sheet_raw()
@@ -528,11 +445,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         return()
       }
 
-      ## Actually dedup duplicated probe IDs (keep first occurrence) rather
-      ## than just claiming to in the message below - the CSV/TSV path
-      ## already dedups upstream in methyl_parse_matrix(), but the RDS-matrix
-      ## path (matrix_preview() above) and the raw-IDAT path do not, so this
-      ## is the one place both funnel through before being stored.
       mat_final <- result$mat
       n_dup <- if (!is.null(rownames(mat_final))) sum(duplicated(rownames(mat_final))) else 0
       if (n_dup > 0) {
@@ -559,8 +471,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         )
       )
       showNotification("Uploaded dataset loaded - Quality Control, Normalization, Differential Methylation and every other sub-module now run against it.", type = "message", duration = 5)
-      ## A corner toast is easy to miss on a long page - a modal forces an
-      ## explicit acknowledgement that the upload actually succeeded.
       showModal(modalDialog(
         title = tagList(icon("circle-check", style = "color: var(--color-success);"), " Data loaded"),
         p(result$n_probes_msg),
@@ -573,8 +483,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       ))
     })
 
-    ## ---- GEO fetch path ---------------------------------------------------
-
     geo_fetch_result <- eventReactive(input$geo_fetch_btn, {
       if (!requireNamespace("GEOquery", quietly = TRUE)) {
         return(simpleError("The GEOquery package is not installed in this deployment. Install it with BiocManager::install(\"GEOquery\") to enable fetching by GEO accession, or use \"Upload your own data\" instead."))
@@ -584,12 +492,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         return(simpleError("Enter a valid GEO Series accession, e.g. GSE12345."))
       }
       tryCatch({
-        ## GEOquery's default getGPL=TRUE also downloads the platform annotation file;
-        ## when NCBI rate-limits/captchas that request, it hands back an HTML challenge
-        ## page that GEOquery's SOFT parser chokes on with this same generic message even
-        ## though the series matrix itself downloaded fine - retry once without it. This
-        ## module never reads featureData/fData() from the platform annotation anyway
-        ## (only the GPL accession string via Biobase::annotation()), so nothing is lost.
         gset <- tryCatch(
           suppressMessages(GEOquery::getGEO(acc, GSEMatrix = TRUE)),
           error = function(e) {
@@ -623,12 +525,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       }
     })
 
-    ## Extracts beta/meta from the fetched series and confirms it's actually
-    ## methylation data - either a recognized Illumina methylation GPL, or
-    ## (for an unlisted/custom platform) values that mostly fall in the [0,1]
-    ## beta-value range. Neither test passing means this is very likely a
-    ## gene-expression or other non-methylation series, so it's rejected with
-    ## a pointer to the Transcriptomics module instead.
     geo_expr_meta <- reactive({
       tryCatch({
         eset <- geo_eset()
@@ -640,10 +536,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         array_type <- unname(MX_METHYLATION_GPL[gpl])
         recognized <- !(is.na(array_type) || is.null(array_type))
 
-        ## Value-range sanity check now runs unconditionally (not just for an
-        ## unrecognized platform) - a recognized-platform series can still be
-        ## on the M-value (or another non-beta) scale, and this app assumes
-        ## beta values for every GEO-fetched series regardless of platform.
         vals <- ex[is.finite(ex)]
         frac_in_unit <- if (length(vals) > 0) mean(vals >= -0.05 & vals <= 1.05) else 0
 
@@ -655,12 +547,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
           array_type <- "Custom array"
           platform_note <- sprintf("Platform %s was not recognized as a standard Illumina methylation array, but its values fall within the expected 0-1 beta-value range, so this was accepted as methylation data - verify the platform manually before relying on downstream results.", gpl)
         } else if (frac_in_unit < 0.95) {
-          ## Recognized platform, but the values themselves don't look like
-          ## beta values - most likely an M-value-scale series. Surface this
-          ## clearly rather than silently labeling it "beta values" below;
-          ## input_scale is deliberately NOT overridden here, since forcing
-          ## it either way could be wrong (verified against the user's own
-          ## judgment instead, via "Upload your own data" if needed).
           platform_note <- sprintf(
             "Platform %s is a recognized methylation array (%s), but only %d%% of its values fall within the expected 0-1 beta-value range - this looks like it may be M-values (or another non-beta scale), not beta values. This app assumes GEO methylation series matrices are beta values; verify before relying on downstream results, or re-upload via \"Upload your own data\" with the correct input scale selected.",
             gpl, array_type, round(100 * frac_in_unit))
@@ -688,9 +574,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       )
     })
 
-    ## No sample-ID mapping needed here - pData() rownames are already the same
-    ## GSM accessions exprs() is indexed by (same as the Transcriptomics Dataset
-    ## tab's own GEO path).
     output$geo_column_mapping <- renderUI({
       em <- geo_expr_meta()
       req(em); req(!inherits(em, "error"))
@@ -739,8 +622,6 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         expr <- expr[, common, drop = FALSE]
         meta <- meta[match(common, meta$sample), , drop = FALSE]
 
-        ## Same actual dedup (keep first occurrence) as the upload path above -
-        ## a fetched GEO series matrix can itself carry duplicated probe IDs.
         n_dup <- if (!is.null(rownames(expr))) sum(duplicated(rownames(expr))) else 0
         if (n_dup > 0) {
           expr <- expr[!duplicated(rownames(expr)), , drop = FALSE]

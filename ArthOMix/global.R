@@ -2,60 +2,14 @@
 ## ArthOMix Explorer
 ## Shared setup: packages, data paths, and the module/submodule registry.
 
-## All data-path constants/registries (DATA_ROOT, METH_DATA_ROOT, CX_DATA_ROOT,
-## MULTI_DATA_ROOT, and everything derived from them) live in data_paths.R,
-## sourced explicitly here (by path, not via Shiny's loadSupport() R/ auto-
-## source, which would source it a second time) so they're available before
-## anything below uses them.
 source("data_paths.R")
 
-## Local Supabase credentials (SUPABASE_URL/SUPABASE_ANON_KEY - see
-## R/auth/auth_api.R and .Renviron.example), git-ignored. R already reads
-## .Renviron automatically at startup when launched via RStudio "Run App"/
-## shiny::runApp() from this directory; this line is only a defensive
-## fallback for launching via Rscript from elsewhere.
 if (file.exists(".Renviron")) readRenviron(".Renviron")
 
-## Shiny's own default (5MB) is too small for a real expression matrix
-## upload (e.g. a genome-wide RNA-seq counts CSV) - raise it for every
-## fileInput in the app (Dataset tab, Preprocessing, Feature Selection's
-## own upload path, etc.), not just one. 200MB was too tight for a full
-## raw methylation beta-value matrix (a genome-wide 450K/EPIC CSV commonly
-## runs several hundred MB to low GBs - the app's own bundled preloaded
-## reference matrix is ~2.1GB, see the ExtendedTask comment below), so this
-## is raised to comfortably clear that scale for every vertical's upload.
 options(shiny.maxRequestSize = 3072 * 1024^2)
 
-## Shared reproducibility seed for transcriptomics ML fitting (Diagnostic
-## Model, Feature Selection, Cross-Tissue Validation). Each of those three
-## submodules previously defined its own local `GLOBAL_SEED <- 1234`
-## independently; unified into a single constant here so a future edit to
-## one can no longer silently diverge from the others with no signal. Value
-## intentionally unchanged (still 1234). Distinct from - and deliberately
-## not unified with - the seed = 2024 used by MRPRESSO::mr_presso() inside
-## estimate_mr_set() below, which is its own separate reproducibility domain
-## (MR sensitivity analysis, not ML model fitting).
 ARTHOMIX_TX_ML_SEED <- 1234
 
-## Safer replacement for readRDS() wherever the file being read may have been supplied by
-## a user (any fileInput upload path), rather than shipped with the app. R's serialization
-## format is a general encoding of arbitrary R objects, and a crafted .rds payload can run
-## code during unserialize() itself (closures/active bindings/S4 methods reified while the
-## object graph is being reconstructed) - this is a real, documented deserialization-attack
-## surface, not a theoretical one. This helper does not claim to make loading an untrusted
-## .rds file fully safe (no readRDS()-based control can promise that), but it substantially
-## reduces the blast radius with two independent layers:
-##   1. The actual readRDS() call runs inside a disposable callr::r() subprocess with a
-##      timeout, so code that runs *during* deserialization executes in a short-lived child
-##      process rather than the persistent Shiny server session that every other user's
-##      session also runs in.
-##   2. The deserialized object's class is checked against an allowlist before it is
-##      returned, so even a payload that survives step 1 without triggering anything can't
-##      be handed to the caller as (e.g.) a closure, environment, or R6/S4 object that might
-##      execute attacker logic later simply by being printed, coerced, or called.
-## Callers still need their own shape/content validation on top of this (a technically
-## well-formed data.frame or matrix can still contain nonsense) - this only guards the
-## deserialization step itself.
 safe_read_rds <- function(path, max_size_mb = 1024,
                            allowed_classes = c("matrix", "array", "data.frame", "numeric",
                                                 "integer", "character", "list", "factor")) {
@@ -68,9 +22,6 @@ safe_read_rds <- function(path, max_size_mb = 1024,
                 error = sprintf("This .rds file is larger than the %sMB limit for uploads.", max_size_mb)))
   }
   if (!requireNamespace("callr", quietly = TRUE)) {
-    ## callr is an existing transitive dependency of this app (already used directly by
-    ## mod_methyl_normalization.R); if it's ever unavailable, fail closed rather than
-    ## silently falling back to an unsandboxed readRDS().
     return(list(ok = FALSE, value = NULL, error = "The .rds upload path requires the 'callr' package, which is not installed."))
   }
   obj <- tryCatch(
@@ -89,35 +40,9 @@ safe_read_rds <- function(path, max_size_mb = 1024,
   list(ok = TRUE, value = obj, error = NULL)
 }
 
-## Background execution for genuinely slow, blocking operations - currently
-## only the Methylomics Dataset tab's preloaded ~2.1GB live beta matrix read
-## (mod_methyl_dataset.R). Shiny is single-threaded per R process by
-## default, so without this, that one readRDS() call froze the *entire*
-## app - every tab, every open browser session - for however long the read
-## took (often 30s-2min+). shiny::ExtendedTask (>=1.8) is the supported way
-## to run such a call in the background while keeping even the session that
-## triggered it fully responsive; it needs a `future` plan set once,
-## process-wide. Guarded by requireNamespace() since `future`/`promises`
-## aren't otherwise required by this app - if either is missing, the
-## affected loads simply fall back to blocking (see mod_methyl_dataset.R).
 ARTHOMIX_ASYNC_AVAILABLE <- requireNamespace("future", quietly = TRUE) && requireNamespace("promises", quietly = TRUE)
 if (ARTHOMIX_ASYNC_AVAILABLE) {
   future::plan(future::multisession, workers = 2)
-  ## multisession's own worker PROCESSES, and every package they need to
-  ## load, are otherwise created/loaded lazily on the very first real
-  ## future()/future_promise() call anywhere in the app - confirmed
-  ## directly (bare process spin-up ~0.05s, but spin-up PLUS loading
-  ## mixOmics/SNFtool fresh in a new worker ~1.3s here alone, and this
-  ## app's actual worker processes have far more competing for memory/CPU
-  ## than that isolated test did) that this cold start blocks the main
-  ## session's own output flush to the browser for multiple seconds,
-  ## during which none of the "Running..." spinners this app's
-  ## ExtendedTask-driven Run buttons (DIABLO/SNF/SNF Clustering/MOFA2)
-  ## show anything at all - not a briefly slow spinner, an apparently
-  ## unresponsive button. Warming both workers here, once, at app startup
-  ## (blocks startup briefly - never a user's click) with the actual heavy
-  ## packages those buttons need avoids paying that cost on whichever
-  ## user happens to click Run first.
   invisible(future::value(lapply(seq_len(2), function(i) {
     future::future({
       requireNamespace("mixOmics", quietly = TRUE)
@@ -142,8 +67,6 @@ library(dplyr)
 library(tidyr)
 library(data.table)
 
-## Analysis packages, loaded once here so every submodule can use them
-## without repeating library() calls.
 suppressPackageStartupMessages({
   library(limma)
   library(edgeR)
@@ -157,71 +80,25 @@ suppressPackageStartupMessages({
   library(VennDiagram)
   library(ggVennDiagram)
   library(MCPcounter)
-  ## IOBR: needed for CIBERSORT (LM22) deconvolution in mod_deconvolution.R -
-  ## must be library()-attached, not just called via IOBR:: - deconvo_cibersort()
-  ## looks up the bundled lm22 reference by bare name, which only resolves once
-  ## the package's lazy data is attached, not merely namespace-loaded.
   library(IOBR)
   library(rms)
   library(MendelianRandomization)
   library(coloc)
   library(clusterProfiler)
   library(org.Hs.eg.db)
-  ## igraph/ggraph: render the WGCNA hub-gene network as an in-app figure
-  ## (mod_wgcna.R's Step 5). igraph::union()/groups()/simplify()/etc. mask
-  ## same-named base/dplyr functions once attached, but checked directly:
-  ## igraph's union() falls back to base::union() behavior on plain vectors
-  ## (confirmed against mod_featureselection.R's own union(lasso_genes,
-  ## rf_genes) call), and none of the others are called unqualified anywhere
-  ## in this app.
   library(igraph)
   library(ggraph)
 })
 
-## WGCNA's correlation/TOM computation (mod_wgcna.R's blockwiseModules and
-## pickSoftThreshold calls) is single-threaded by default - on a full,
-## unfiltered gene set (this project's own default, all 15,763 network
-## genes rather than a variance-filtered subset) that's a large, slow
-## computation on one core even though the machine typically has several
-## idle. Enabled once per R session, not per-call, since that's what
-## WGCNA::enableWGCNAThreads() is designed for. Leaves 2 cores free for the
-## Shiny process itself and the OS rather than claiming every core.
 suppressMessages(
   WGCNA::enableWGCNAThreads(nThreads = max(1, parallel::detectCores() - 2))
 )
 
-## AI research assistant: chat client + Shiny chat UI. Kept separate from
-## the analysis packages above since they're not statistical tooling.
 library(ellmer)
 library(shinychat)
 
-## Two of the above packages define functions that mask ones other
-## submodules depend on, once every submodule file is sourced into the
-## global environment (an unqualified call in that code follows the normal
-## search() path, not a package namespace):
-##  - rms defines its own validate(), masking shiny::validate(), which every
-##    submodule relies on for validate(need(...)) input checks.
-##  - org.Hs.eg.db/clusterProfiler pull in Bioconductor's IRanges/S4Vectors,
-##    which define their own cor(), masking WGCNA::cor() (needed internally
-##    by WGCNA::blockwiseModules) since they attach after WGCNA.
-## Restore both as the versions found by unqualified calls.
 validate <- shiny::validate
 cor <- WGCNA::cor
-
-## ---------------------------------------------------------------------------
-## Data location
-## ---------------------------------------------------------------------------
-## DATA_ROOT, TABLES_DIR, FIGURES_DIR, PROCESSED_DIR, PROCESSED_NEW_DIR, and
-## GENE_PANELS_DIR are all defined in data_paths.R (sourced above), pointing
-## into ArthOMix/data/preloaded/transcriptomics/ and data/annotations/.
-##
-## Bundled reference gene panels (one gene symbol per line, .txt) that any
-## submodule can offer as an optional third set to intersect against - e.g.
-## Candidate Gene Identification narrowing a WGCNA-module/DEG overlap down
-## to a disease-process-specific panel, the way a published study's own
-## curated gene list (ferroptosis, autophagy, whatever) would. Not
-## hardcoded to any one panel: drop any "<label>.txt" file into this folder
-## and it's picked up automatically, one gene symbol per line.
 
 list_gene_panels <- function() {
   files <- list.files(GENE_PANELS_DIR, pattern = "\\.txt$", full.names = TRUE)
@@ -235,21 +112,7 @@ load_gene_panel <- function(path) {
   unique(genes[nzchar(genes)])
 }
 
-## Serve the precomputed figures as static files at /figures/<name>.png
 addResourcePath("figures", FIGURES_DIR)
-
-## ---------------------------------------------------------------------------
-## Default dataset and saved objects
-## ---------------------------------------------------------------------------
-## The app opens with the user's own cohort loaded. Any submodule that needs
-## it reads from the shared `dataset` reactiveValues (set up in server.R),
-## not from these paths directly, so a user upload on the Dataset tab
-## transparently replaces it everywhere.
-
-## DEFAULT_EXPR_RDS/DEFAULT_META_CSV, the genetics-submodule default objects
-## (MR_INSTRUMENTS_RDS, MR_PRIMARY_OBJECTS_RDS, COLOC_REGIONS_RDS,
-## VAL_SYNOVIUM_RDS, DGE_RESULTS_RDS), and MR35_CROSSANCESTRY_{FEMALE,MALE}_CSV
-## are all defined in data_paths.R (sourced above).
 
 load_default_dataset <- function() {
   expr <- readRDS(DEFAULT_EXPR_RDS)
@@ -259,16 +122,6 @@ load_default_dataset <- function() {
   meta <- meta[match(common, meta$sample), , drop = FALSE]
   list(expr = expr, meta = meta, source = "Example dataset: sex-stratified RA blood cohort (GSE93272 + GSE110169)")
 }
-
-## ---------------------------------------------------------------------------
-## Raw GEO sources
-## ---------------------------------------------------------------------------
-## The example cohort's two training datasets, and two more held out for
-## validation, all as raw ExpressionSets - read once per session and
-## cached, since these matrices are large and read-only. The Preprocessing
-## submodule builds live, interactive views from these (and from your own
-## uploads), rather than reading any precomputed pipeline output.
-## RAW_DIR is defined in data_paths.R (sourced above).
 
 .arthomix_cache <- new.env(parent = emptyenv())
 
@@ -284,31 +137,6 @@ get_raw_eset <- function(gse_id) {
   .arthomix_cache[[key]]
 }
 
-## Two-tier cache, same key (GSE ID) either way: an in-memory tier
-## (.arthomix_cache, same as get_raw_eset() above) for repeat calls within
-## one running process, and an on-disk RDS tier under data/cache/ so the
-## expensive step - WGCNA::collapseRows over the full probe-level matrix,
-## tens of thousands of rows - is only ever paid ONCE per dataset, ever,
-## rather than once per fresh R session/app restart. mod_preprocessing.R
-## calls this for the same two training GSEs from three different places
-## (per-source preprocessing, the merge overlap Venn, the live example
-## merge); without caching, a single click through that tab could pay this
-## cost 3-4 times in a row, and since Shiny runs single-threaded, the whole
-## app is unresponsive to every user for the entire time.
-
-## Same two-tier cache, generalised for mod_wgcna.R's blockwiseModules
-## result (the single slowest step in this app, especially at the
-## project's own default of "all genes", not a variance-filtered subset -
-## see mod_wgcna.R Step 1/2/3). Keyed on a digest of the exact expression
-## matrix plus every setting that changes the result, so ANY combination a
-## user picks - a quick exploratory top-2000-gene run just as much as the
-## full 15,763-gene default - is computed at most once per machine ever,
-## no matter how many times "Detect modules" is clicked or the app is
-## restarted. Nothing about which filters/settings are choosable changes;
-## this only short-circuits recomputing a combination already paid for.
-## COLLAPSED_CACHE_DIR/WGCNA_CACHE_DIR are defined (and created) in
-## data_paths.R (sourced above), under data/.cache/.
-
 get_or_compute_wgcna_blocks <- function(key_parts, compute_fn) {
   cache_key <- paste0("wgcna_", digest::digest(key_parts, algo = "xxhash64"))
   if (!is.null(.arthomix_cache[[cache_key]])) return(.arthomix_cache[[cache_key]])
@@ -317,8 +145,6 @@ get_or_compute_wgcna_blocks <- function(key_parts, compute_fn) {
     readRDS(disk_path)
   } else {
     result <- compute_fn()
-    ## Best-effort: a read-only data folder shouldn't break the
-    ## already-computed in-memory result for this session.
     tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
     result
   }
@@ -337,53 +163,18 @@ get_collapsed_genes <- function(gse_id) {
       if (is.null(eset)) return(NULL)
       collapsed <- collapse_probes_to_genes(eset)
       .arthomix_cache[[key]] <- collapsed
-      ## Best-effort: a read-only data folder shouldn't break the
-      ## already-computed in-memory result for this session.
       tryCatch(saveRDS(collapsed, disk_path), error = function(e) NULL)
     }
   }
   .arthomix_cache[[key]]
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics: preloaded default analysis (GSE42861, Liu et al. 2013)
-## ---------------------------------------------------------------------------
-## The methylomics counterpart to DATA_ROOT/load_default_dataset() above -
-## data/preloaded/methylomics/tables/, bundled inside this app, with one
-## script0N_*/ stage per analysis step, each with its own tables/ and a
-## METHODS_*.md documenting exactly what was run. Unlike the transcriptomics
-## DATA_ROOT, this one is optional - the app must still run (Methylomics
-## upload-only) if this folder is somehow missing, so nothing here
-## calls stop() the way DATA_ROOT's missing-folder check does.
-##
-## Only the already-computed result tables are read here, not the ~2.1GB
-## QC'd beta matrix those tables were derived from (data/processed/, on the
-## source machine only, excluded when this folder was copied in - see its
-## own .gitignore comment) - every table below already carries genome-wide
-## results for all 412,492 retained probes, so interactive FDR/delta-beta
-## filtering works directly off them with no need to hold the full matrix
-## in memory.
-## METH_DATA_ROOT/METH_DATA_AVAILABLE and METH_QC_PHENO_CSV/
-## METH_QC_PCA_SEXCHECK_CSV/METH_DMP_PLAIN_DIR/METH_DMP_SVA_DIR/METH_DMR_DIR
-## are all defined in data_paths.R (sourced above).
-
-## Sequential probe-filtering cascade (METHODS_load_qc.md Table 2.X.3) -
-## the actual logged counts from the completed run, not recomputed here
-## (recomputing it needs the ~2.1GB QC'd beta matrix, excluded when this
-## folder was copied in - see METH_DATA_ROOT's own comment above).
 METH_QC_PROBE_CASCADE <- data.frame(
   step = c("Raw (post-parse)", "cg-prefix only", "MASK_general removal", "Multi-hit removal", "Sex-chromosome removal", "Missingness > 5% removal"),
   retained = c(485577L, 482421L, 422520L, 422520L, 412492L, 412492L),
   removed  = c(NA_integer_, 3156L, 59901L, 0L, 10028L, 0L)
 )
 
-## Reads one sex-stratum's DMP results for one pipeline stage ("plain" - the
-## unadjusted model, which found zero genome-wide-significant CpGs due to
-## residual inflation - or "sva", the surrogate-variable-adjusted follow-up
-## that resolves it; see METHODS_dmp_sexstratified.md /
-## METHODS_dmp_sva_sexstratified.md). Returns NULL rather than erroring if
-## METH_DATA_AVAILABLE is FALSE, so mod_methyl_dmp.R can show an empty
-## state instead of crashing when this folder hasn't been copied in.
 load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male", "all")) {
   stage <- match.arg(stage); sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -393,13 +184,6 @@ load_default_dmp <- function(stage = c("plain", "sva"), sex = c("female", "male"
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Reads one sex-stratum's precomputed DMR (region-level) results
-## (script04_dmr_sexstratified/tables/dmr_{sex}_full.csv) - DMRcate region
-## calls (lambda=1000, C=2) on the SVA-adjusted, bacon-corrected per-CpG
-## statistics from load_default_dmp("sva", sex), with an explicit
-## Benjamini-Hochberg region-level FDR (dmr_fdr, on the Stouffer statistic)
-## already computed; see METHODS_dmr_sexstratified.md. Returns NULL rather
-## than erroring if METH_DATA_AVAILABLE is FALSE, mirroring load_default_dmp().
 load_default_dmr <- function(sex = c("female", "male", "all")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -408,54 +192,16 @@ load_default_dmr <- function(sex = c("female", "male", "all")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## The QC-derived sample metadata (690 rows incl. header - 689 GSE42861
-## samples) - group counts, sex, PCA outlier flags, chrY sex-check - for
-## the dataset-context panel above the DMP results, not full QC replication.
 load_default_meth_pheno <- function() {
   if (!METH_DATA_AVAILABLE || !file.exists(METH_QC_PHENO_CSV)) return(NULL)
   as.data.frame(data.table::fread(METH_QC_PHENO_CSV, showProgress = FALSE))
 }
 
-## Per-sample PCA coordinates, MAD-outlier flag, and chrY-based sex-check
-## result (script01_dataload_QC/tables/qc_pca_sexcheck.csv) - the QC
-## module's default-analysis view reads this directly rather than the
-## summary already merged into load_default_meth_pheno(), since this one
-## additionally retains the k-means cluster assignment and predicted sex.
 load_default_meth_qc_sexcheck <- function() {
   if (!METH_DATA_AVAILABLE || !file.exists(METH_QC_PCA_SEXCHECK_CSV)) return(NULL)
   as.data.frame(data.table::fread(METH_QC_PCA_SEXCHECK_CSV, showProgress = FALSE))
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics: the actual preloaded beta matrix (live QC, not just reproduced
-## tables)
-## ---------------------------------------------------------------------------
-## METH_DATA_ROOT above only carries the completed pipeline's OUTPUT tables -
-## the ~2.1GB QC'd beta matrix that produced them was deliberately excluded
-## when that folder was copied in. It still exists at its original location
-## on the source machine (outside this repo's directory tree entirely, not
-## just excluded via .gitignore within it - unlike METH_DATA_ROOT/DATA_ROOT,
-## which are both a sibling of ArthOMix/ and so reachable by a single "..",
-## this one has no such relative relationship to ArthOMix/'s location).
-## Read directly from where it already lives instead of duplicating a
-## multi-gigabyte file into this repo, same idea as RAW_DIR above. Optional,
-## like METH_DATA_ROOT - the app must still run (upload-only Methylomics QC)
-## on a machine that only has the METH_DATA_ROOT results copy; set the
-## METH_RAW_DATA_ROOT environment variable to point at this folder on any
-## other machine.
-## METH_RAW_DATA_ROOT, METH_BETA_RAW_RDS, METH_PHENO_RDS, and
-## METH_RAW_DATA_AVAILABLE are all defined in data_paths.R (sourced above),
-## pointing at data/preloaded/methylomics/matrix/ by default (still
-## overridable via the METH_RAW_DATA_ROOT env var).
-
-## Reads the real preloaded beta matrix + its phenotype table, once per
-## running process (cached in .arthomix_cache, same two-tier idea as
-## get_raw_eset() above - this file is large enough that re-reading it on
-## every "Load preloaded dataset" click would make the Dataset tab feel
-## broken). Adds a `sample` column (= pheno$gsm) to the phenotype table so
-## methyl_sheet_sample_ids() in qc.R resolves samples by ID rather than by
-## row-order coincidence, and orders the matrix's columns to match the
-## phenotype table exactly (both are keyed on GSM accession).
 load_default_meth_matrix <- function() {
   key <- "meth_default_matrix"
   if (!is.null(.arthomix_cache[[key]])) return(.arthomix_cache[[key]])
@@ -474,79 +220,16 @@ load_default_meth_matrix <- function() {
   result
 }
 
-## ---------------------------------------------------------------------------
-## Cross-Omics: precomputed biomarker-convergence tables
-## ---------------------------------------------------------------------------
-## data/preloaded/cross_omics/tables/, bundled inside this app, holding
-## already-joined results that combine the completed Transcriptomics
-## eQTL-MR/DEG results with the
-## completed Methylomics mQTL-MR/DMP results (scripts/01_cross_omics_eqtl_
-## mqtl_biomarkers.R) and runs a follow-up cross-omics MR stage (scripts/
-## 02_mr_stage_cross_omics.R). Only the already-computed result tables are
-## read here - same graceful-degradation contract as METH_DATA_ROOT above
-## (returns NULL rather than erroring when CX_DATA_AVAILABLE is FALSE),
-## since Cross-Omics is meant to work even on a deployment that hasn't
-## copied this folder in.
-## CX_DATA_ROOT/CX_DATA_AVAILABLE/CX_RESULTS_DIR and CX_TABLE_REGISTRY (the
-## named label -> path registry every table on the Dataset tab is browsed
-## by) are all defined in data_paths.R (sourced above).
-
-## Reads one of the tables above by its display label. Returns NULL rather
-## than erroring if CX_DATA_AVAILABLE is FALSE or the specific file isn't
-## present, mirroring load_default_dmp()/load_default_dmr() above.
 load_default_cx_table <- function(label) {
   path <- CX_TABLE_REGISTRY[[label]]
   if (is.null(path) || !CX_DATA_AVAILABLE || !file.exists(path)) return(NULL)
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## ---------------------------------------------------------------------------
-## Multi-Omics: paths into data/preloaded/multiomics/ (bundled inside this
-## app) - a fully executed, independently audited (see its own AUDIT.md) DIABLO/SNF
-## multi-omics pipeline over an independent RA anti-TNF cohort (Tao et al.
-## 2021), producing real per-cell integration performance, patient
-## clustering, gene<->CpG concordance, and pathway enrichment tables. Same
-## fail-soft, "returns NULL/nothing to browse rather than erroring" contract
-## as CX_DATA_ROOT/CX_DATA_AVAILABLE above, since this module must work even
-## on a deployment that hasn't copied this folder in.
-## ---------------------------------------------------------------------------
-## MULTI_DATA_ROOT and its subdirs (MULTI_RESULTS_ROOT/MULTI_RESULTS_DIR/
-## MULTI_METADATA_DIR/MULTI_SUMMARY_DIR/MULTI_ADA_DIR/MULTI_ETN_DIR),
-## MULTI_TABLE_REGISTRY (the label -> path registry every Multi-Omics table
-## is browsed/read by, see multiomics_helpers.R::multi_read_registry_table()),
-## and MULTI_DIABLO_FIT_REGISTRY (saved mixOmics block.splsda fit objects,
-## keyed by MULTI_CELLS' own `key`) are all defined in data_paths.R (sourced
-## above).
-
-## Whether MOFA2 (and its Python backend, mofapy2, via reticulate/basilisk)
-## can actually run in this deployment - gates the Multi-Omics "Live
-## Analysis" sub-module's MOFA2 integration step, same
-## requireNamespace()-gated-optional-dependency convention
-## ARTHOMIX_ASYNC_AVAILABLE/openxlsx already use elsewhere in this app.
-## Checked once at app start rather than per-session, since package
-## availability doesn't change while the app process is running.
 MULTI_MOFA_AVAILABLE <- requireNamespace("MOFA2", quietly = TRUE)
 
-## Same convention, for the Multi-omics Integration submodule's live DIABLO
-## (mixOmics) and SNF (SNFtool) engines - gates the DIABLO/SNF subtabs so a
-## deployment missing either package gets a plain "not installed" notice
-## instead of a crash.
 MULTI_DIABLO_LIVE_AVAILABLE <- requireNamespace("mixOmics", quietly = TRUE)
 MULTI_SNF_LIVE_AVAILABLE <- requireNamespace("SNFtool", quietly = TRUE)
-
-## ---------------------------------------------------------------------------
-## Methylomics WGCNA: dedicated cache + optional published-reference loaders
-## ---------------------------------------------------------------------------
-## get_or_compute_wgcna_blocks() above hardcodes WGCNA_CACHE_DIR, a
-## transcriptomics-scoped path (DATA_ROOT/data/cache/wgcna) resolved as a
-## free variable, with no cache_dir parameter - reusing it as-is for
-## methylomics would write co-methylation network results into the
-## transcriptomics cache folder. This is a parallel, methylomics-scoped
-## copy (not a modification of the function above), rooted under
-## METH_RAW_DATA_ROOT when that folder exists, else falling back next to
-## ArthOMix/ itself so caching still works on an upload-only deployment.
-## METH_WGCNA_CACHE_DIR is defined (and created) in data_paths.R (sourced
-## above), under data/.cache/methylomics/wgcna.
 
 get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn) {
   cache_key <- paste0("methwgcna_", digest::digest(key_parts, algo = "xxhash64"))
@@ -556,8 +239,6 @@ get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn) {
     readRDS(disk_path)
   } else {
     result <- compute_fn()
-    ## Best-effort: a read-only data folder shouldn't break the
-    ## already-computed in-memory result for this session.
     tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
     result
   }
@@ -565,17 +246,6 @@ get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn) {
   result
 }
 
-## script05_wgcna_sexstratified/ (data/preloaded/methylomics/tables/)
-## - the published, sex-stratified co-methylation network analysis this
-## module's Methylomics WGCNA "Compare with published results" panel reads
-## from. Table-only, same graceful-degradation contract as load_default_dmp()/
-## load_default_dmr() above (returns NULL rather than erroring when
-## METH_DATA_AVAILABLE is FALSE or a specific file isn't present) - this is
-## reference display only, never the live compute path.
-## METH_WGCNA_DIR is defined in data_paths.R (sourced above).
-
-## Per-sex module-eigengene-vs-RA-status correlation/p/FDR table
-## (module_trait_{sex}[_merged10].csv) from the published run.
 load_default_wgcna_module_trait <- function(sex = c("female", "male"), merged = FALSE) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -584,8 +254,6 @@ load_default_wgcna_module_trait <- function(sex = c("female", "male"), merged = 
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Per-sex CpG-to-module assignment table (module_assignment_{sex}[_merged10].csv)
-## from the published run.
 load_default_wgcna_module_assignment <- function(sex = c("female", "male"), merged = FALSE) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -594,12 +262,6 @@ load_default_wgcna_module_assignment <- function(sex = c("female", "male"), merg
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Per-sex DMP/DMR biomarker panel (script04_dmr_sexstratified/tables/
-## biomarker_panel_{sex}.csv) - reuses the already-defined METH_DMR_DIR
-## above. This is what the published WGCNA script's own enrichment step
-## (Fisher's exact test of each significant module's CpGs against this
-## panel) tests against; the Functional Enrichment stage below reuses it
-## rather than inventing a separate GO/KEGG path.
 load_default_dmr_biomarker_panel <- function(sex = c("female", "male")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -608,23 +270,6 @@ load_default_dmr_biomarker_panel <- function(sex = c("female", "male")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics Mendelian Randomization (script08_mendelian_randomization) -
-## same table-only, graceful-degradation contract as load_default_dmp()/
-## load_default_dmr() above. mod_methyl_mr.R's "Preloaded Data" route reads
-## these directly as its computational source of truth (cis-mQTL/GoDMC
-## instruments, already clumped r2<0.001/10000kb, already harmonised
-## action=2, against the Ishigaki et al. 2022 RA GWAS) rather than
-## re-deriving instrument selection/clumping/harmonisation live - see
-## METHODS_mendelian_randomization.md for the full pipeline this reproduces.
-## script08d_mr_coloc.R (colocalization) is a separate analysis belonging to
-## mod_methyl_coloc.R, not read here.
-## ---------------------------------------------------------------------------
-## METH_MR_DIR is defined in data_paths.R (sourced above).
-
-## Per-sex MR estimates (one row per CpG x method actually run under
-## script08b/c's tiered hierarchy: n=1 Wald ratio, n=2 IVW-only, n>=3 the
-## full IVW+Egger+weighted-median+mode+simple-mode set).
 load_default_mr_estimates <- function(sex = c("female", "male")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -633,12 +278,6 @@ load_default_mr_estimates <- function(sex = c("female", "male")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## The single shared harmonised exposure/outcome dataset (one row per
-## harmonised SNP x CpG x outcome triple, both sexes' candidate CpGs
-## together) - already clumped and already harmonise_data(action=2)'d, so
-## sensitivity analyses / single-SNP estimates / plots can be recomputed
-## live from this directly with TwoSampleMR's own functions without
-## re-running GoDMC extraction, clumping, or harmonisation.
 load_default_mr_harmonised <- function() {
   if (!METH_DATA_AVAILABLE) return(NULL)
   path <- file.path(METH_MR_DIR, "mr_harmonised_all_cpgs.csv")
@@ -646,8 +285,6 @@ load_default_mr_harmonised <- function() {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Per-sex Steiger directionality flags (SNP, exposure=CpG, steiger_dir,
-## steiger_pval), already computed once upstream in 08_mr_instrument_prep.R.
 load_default_mr_steiger <- function(sex = c("female", "male")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -656,10 +293,6 @@ load_default_mr_steiger <- function(sex = c("female", "male")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Per-CpG instrument count after LD clumping (cpg, n_snp) - both sexes'
-## candidate CpGs together; the "before clumping -> after clumping" summary
-## mod_methyl_mr.R's LD Clumping tab shows for the Preloaded route reads
-## this recorded count rather than re-calling ieugwasr::ld_clump() live.
 load_default_mr_instrument_counts <- function() {
   if (!METH_DATA_AVAILABLE) return(NULL)
   path <- file.path(METH_MR_DIR, "instrument_counts.csv")
@@ -667,30 +300,12 @@ load_default_mr_instrument_counts <- function() {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## Precomputed coloc.abf() summary (script08d_mr_coloc.R) - PP.H0-H4 +
-## verdict per CpG carried into MR that had >=10 GoDMC candidate SNPs in
-## its cis window. mod_methyl_coloc.R's Preloaded route reads this
-## directly - no per-SNP GoDMC/RA-GWAS region data is bundled with this
-## deployment (see that script's own header comment), so coloc.abf()
-## itself cannot be re-run live for these CpGs, only looked up.
 load_default_meth_coloc_results <- function() {
   if (!METH_DATA_AVAILABLE) return(NULL)
   path <- file.path(METH_MR_DIR, "coloc_results.csv")
   if (!file.exists(path)) return(NULL)
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
-
-## ---------------------------------------------------------------------------
-## Methylomics Diagnostic Classifier (script09_diagnostic_classifier) -
-## table-only reference loaders + the two small panel-CpG-only RDS objects
-## the module trains/evaluates on live.
-## ---------------------------------------------------------------------------
-## script09's own panel CpGs come from script07's majority-vote ensemble
-## (n_votes >= 2 of LASSO/Boruta/SVM-RFE) - reused here as-is rather than
-## re-deriving it, same table-only, graceful-degradation contract as
-## load_default_dmp()/load_default_dmr() above.
-## METH_DIAGNOSTIC_VOTES_DIR/METH_DIAGNOSTIC_DIR are defined in data_paths.R
-## (sourced above).
 
 load_default_diagnostic_ensemble_votes <- function(sex = c("female", "male")) {
   sex <- match.arg(sex)
@@ -700,10 +315,6 @@ load_default_diagnostic_ensemble_votes <- function(sex = c("female", "male")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## The published run's own combined-panel and per-probe AUC tables
-## (train/internal-test/external-test, with DeLong CIs) - for an optional
-## "compare with published results" panel, same idea as mod_methyl_wgcna.R's.
-## Never the live compute path.
 load_default_diagnostic_panel_auc <- function(sex = c("female", "male")) {
   sex <- match.arg(sex)
   if (!METH_DATA_AVAILABLE) return(NULL)
@@ -720,36 +331,6 @@ load_default_diagnostic_perprobe_auc <- function(sex = c("female", "male")) {
   as.data.frame(data.table::fread(path, showProgress = FALSE))
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics Diagnostic Classifier: the actual train/test panel data (live
-## fit, not just reproduced tables)
-## ---------------------------------------------------------------------------
-## Unlike METH_BETA_RAW_RDS/METH_PHENO_RDS above (the main pipeline's ~2.1GB
-## QC'd matrix, at every retained probe), these two objects are the small
-## panel-CpG-only (21 CpGs total) inputs script09 itself trains/evaluates on:
-##  - gse42861_internal_panel_celltype_adjusted.rds: GSE42861 reprocessed
-##    from raw IDATs through minfi::preprocessNoob() (to be comparable with
-##    the external cohort below, since the main pipeline's own normalization
-##    is NOT what script09 uses) and granulocyte-adjusted
-##    (lm(M ~ Neutro + Eosino) per CpG). All 689 samples, both sexes; script09
-##    itself takes a stratified 75/25 train/internal-test split of this per
-##    sex-stratum (set.seed(42), caret::createDataPartition(y, p = 0.75)) -
-##    reproduced identically in mod_methyl_diagnostic.R's dxm_get_active_data().
-##  - gse111942_external_panel.rds: an independent external cohort, Noob-
-##    processed the same way, subset to the panel CpGs. All 43 samples are
-##    female, so external validation exists only for the female stratum.
-## Both live at METH_RAW_DATA_ROOT alongside METH_BETA_RAW_RDS/METH_PHENO_RDS,
-## same optional/graceful contract as METH_RAW_DATA_AVAILABLE above - a
-## deployment without this folder still runs (Upload-only Diagnostic
-## Classifier).
-## METH_DIAG_INTERNAL_RDS/METH_DIAG_EXTERNAL_RDS/METH_DIAG_DATA_AVAILABLE are
-## defined in data_paths.R (sourced above).
-
-## Reads both objects once per running process (same two-tier idea as
-## load_default_meth_matrix() above, in-memory cache only since these files
-## are already small - 131KB/7.6KB - so there's no separate disk-cache tier
-## to add). Returns NULL rather than erroring when METH_DIAG_DATA_AVAILABLE
-## is FALSE, mirroring every other load_default_*() in this file.
 load_default_diagnostic_train_test <- function() {
   key <- "diag_train_test"
   if (!is.null(.arthomix_cache[[key]])) return(.arthomix_cache[[key]])
@@ -773,23 +354,6 @@ GEO_SOURCES <- list(
 )
 geo_link <- function(gse) paste0("https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=", gse)
 
-## Collapses a raw ExpressionSet's probe-level matrix to one row per gene
-## symbol (WGCNA::collapseRows, MaxMean rule - the probe with the highest
-## mean expression represents its gene) - matching
-## scripts/00_shared/03_normalize_batch.R's collapse_to_genes(). Two
-## datasets profiled on different microarray platforms almost never share
-## probe IDs, so merging them by raw probe ID yields close to nothing in
-## common; merging by gene symbol instead is what actually lets the example
-## pipeline's own GSE93272 (GPL570) and GSE110169 (GPL13667) combine.
-## Reference: Miller JA et al. BMC Bioinformatics 2011;12:322.
-## Result carries a "collapsed" attribute stating whether collapsing
-## actually happened, so callers don't have to infer it from a row-count
-## decrease (wrong for the rare platform where every probe maps 1:1 to a
-## unique gene symbol - genuine collapsing renames rows to gene symbols
-## without shrinking row count, so a row-count-based check would wrongly
-## report "not collapsed"). Backward compatible: the return value is still
-## a plain matrix, so existing callers that ignore the attribute are
-## unaffected.
 collapse_probes_to_genes <- function(eset) {
   fd <- Biobase::fData(eset)
   col <- grep("^gene[ ._]?symbol$", colnames(fd), ignore.case = TRUE, value = TRUE)[1]
@@ -809,8 +373,6 @@ collapse_probes_to_genes <- function(eset) {
   structure(out, collapsed = TRUE)
 }
 
-## Disease-group + sex harmonisation from a raw GEO ExpressionSet's
-## phenotype data, matching scripts/00_shared/eda.R's harmonize().
 eset_harmonize_meta <- function(eset, name) {
   pd <- Biobase::pData(eset)
   clin <- grep(":ch1$", colnames(pd), value = TRUE)
@@ -825,18 +387,6 @@ eset_harmonize_meta <- function(eset, name) {
   data.frame(sample = rownames(pd), dataset = name, group = grp, sex = sx, stringsAsFactors = FALSE)
 }
 
-## Falls back to the merged/batch-corrected training cohort's own per-sample
-## `dataset` column when a source's raw ExpressionSet isn't on disk: this
-## app's bundled data/ is deliberately self-contained (see data_paths.R's
-## own header comment) and ships only the already-merged/batch-corrected
-## working dataset plus each script's already-computed result tables - the
-## original per-GSE raw ExpressionSets those were built from were a
-## source-machine-only intermediate, never copied into the bundle, and
-## aren't recoverable on this machine. Only ever returns something for the
-## two GSEs actually merged into the default cohort (GSE93272, GSE110169) -
-## GSE15573/GSE89408 are validation-only and were never part of any merge,
-## so this correctly returns NULL for them and they stay genuinely
-## unavailable.
 merged_training_subset <- function(gse_id) {
   d <- load_default_dataset()
   keep <- d$meta$dataset == gse_id
@@ -849,21 +399,11 @@ merged_training_subset <- function(gse_id) {
   )
 }
 
-## Loads one individual raw GEO dataset (not merged, not batch-corrected) as
-## a plain expr/meta pair, for QC that looks at each source dataset on its
-## own instead of the already-merged/batch-corrected working dataset. Falls
-## back to merged_training_subset() above when the raw file itself isn't
-## available, for the two sources that fallback can actually serve.
-## Cached after first read, same as get_raw_eset(), since these matrices are
-## large and read-only.
 load_individual_dataset <- function(gse_id) {
   key <- paste0("indiv_", gse_id)
   if (!is.null(.arthomix_cache[[key]])) return(.arthomix_cache[[key]])
 
   result <- if (identical(gse_id, "GSE89408")) {
-    ## GSE89408's raw ExpressionSet has no exprs() - counts live in a
-    ## separate file; group/sex come from the eset's pData, matching
-    ## scripts/goal2_sex_stratified/20_testing_synovium_external.R.
     path <- file.path(RAW_DIR, "GSE89408_counts.txt.gz")
     eset <- get_raw_eset("GSE89408")
     if (!file.exists(path) || is.null(eset)) {
@@ -897,19 +437,8 @@ load_individual_dataset <- function(gse_id) {
   result
 }
 
-## ---------------------------------------------------------------------------
-## Helpers
-## ---------------------------------------------------------------------------
-
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-## Guesses which uploaded column a mapping dropdown should default to, by
-## name rather than position: exact match (case-insensitive) first, then a
-## substring match, then a positional fallback. Generic counterpart of
-## mod_dataset.R's own local guess_col() (kept as-is, unchanged, inside that
-## module's server closure) - used by the standalone Differential Gene
-## Expression tab (mod_dge_standalone.R) so its own upload column-mapping
-## doesn't duplicate that same three-tier logic from scratch.
 guess_column_by_name <- function(cols, exact, contains = exact, fallback = cols[1]) {
   hit <- cols[tolower(cols) %in% tolower(exact)]
   if (length(hit) > 0) return(hit[1])
@@ -918,38 +447,9 @@ guess_column_by_name <- function(cols, exact, contains = exact, fallback = cols[
   fallback
 }
 
-## AI research assistant runs against a local Ollama server instead of the
-## Anthropic API - no API key, no per-token billing. Set OLLAMA_BASE_URL to
-## point at a non-default Ollama host; otherwise localhost:11434 is assumed.
-## Not qwen2.5-coder: verified directly against Ollama's /api/chat that
-## qwen2.5-coder returns tool calls as free-text JSON it invents (never
-## populates the structured `tool_calls` field), so PubMed lookups would
-## silently never fire.
-## qwen2.5:1.5b (a former default, chosen for speed/size) DOES populate real
-## structured tool_calls - verified directly - but is noticeably less
-## consistent about choosing to call a tool at all, or which tool: a
-## casually-phrased question ("search PubMed for X") sometimes got a plain
-## chat reply asking for clarification instead of a tool call; a live
-## Cross-Omics MR "suggest a dataset" request (5 registered tools + this
-## app's full system prompt) called the wrong tool entirely
-## (project_methods, with a nonsense module argument) and let a leftover
-## JSON fragment leak into the visible reply.
-## qwen3:8b (current default) - re-verified directly against /api/chat with
-## the actual gwas_catalog_search tool schema, both a directive prompt and a
-## casual one ("search for a diabetes GWAS dataset"): both correctly
-## produced empty text content plus a real structured tool_calls entry
-## naming gwas_catalog_search with the right query argument - no invented
-## free-text JSON, no wrong-tool selection. Slower per response (8.2B vs
-## 1.5B params) but the reliability trade was judged worth it here. Worth
-## re-testing this way against /api/chat before changing the model again -
-## small models vary a lot, and "tools" in /api/tags' capabilities list is
-## not sufficient evidence on its own (qwen2.5-coder has it too, and fails).
 ARTHOMIX_OLLAMA_MODEL <- "qwen3:8b"
 ollama_base_url <- function() Sys.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-## Reachability + model-pulled check in one request: /api/tags lists every
-## model Ollama has locally, so a substring match confirms both that the
-## server is up and that ARTHOMIX_OLLAMA_MODEL has actually been pulled.
 ollama_available <- function() {
   tryCatch({
     con <- url(paste0(ollama_base_url(), "/api/tags"), open = "rb")
@@ -959,9 +459,6 @@ ollama_available <- function() {
   }, error = function(e) FALSE)
 }
 
-## PubMed lookup tool for the assistant (see mod_assistant.R), so it can back
-## scientific claims with real citations instead of inventing them. NCBI's
-## E-utilities are free, keyless, and rate-limit-friendly at this volume.
 pubmed_search <- function(query, max_results = 5) {
   max_results <- min(max(as.integer(max_results %||% 5), 1L), 10L)
   esearch <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi") %>%
@@ -992,19 +489,6 @@ pubmed_search <- function(query, max_results = 5) {
   paste(refs, collapse = "\n")
 }
 
-## ---------------------------------------------------------------------------
-## OpenGWAS dataset catalogue search (for ArthOChat + the MR module's
-## upload-your-own-GWAS hint)
-## ---------------------------------------------------------------------------
-## "Which GWAS/eQTL dataset should I use for trait X" is a different question
-## from pubmed_search's "what does the literature say", and needs a
-## different, keyed API: OpenGWAS (api.opengwas.io, the same catalogue
-## scripts/00_shared/10_MR.R itself drew eQTLGen and Okada 2014 from) requires
-## a free personal access token, unlike PubMed's keyless E-utilities.
-## Degrades to a clear instructional message instead of a raw HTTP error when
-## no token is configured, exactly like ollama_available()'s own reachability
-## check - so this is always safe to register as a tool even when unusable.
-
 opengwas_token_configured <- function() nzchar(Sys.getenv("OPENGWAS_JWT", ""))
 
 gwas_catalog_search <- function(query, max_results = 10) {
@@ -1021,10 +505,6 @@ gwas_catalog_search <- function(query, max_results = 10) {
   }
   max_results <- min(max(as.integer(max_results %||% 10), 1L), 25L)
 
-  ## The full catalogue (~50k datasets) is fetched at most once per session
-  ## and cached, same two-tier pattern as get_raw_eset() above - repeat
-  ## searches (a user or ArthOChat trying several trait terms) filter the
-  ## cached table locally instead of re-querying the API every time.
   cat_df <- .arthomix_cache[["opengwas_catalog"]]
   if (is.null(cat_df)) {
     cat_df <- tryCatch(as.data.frame(ieugwasr::gwasinfo()), error = function(e) NULL)
@@ -1052,30 +532,6 @@ gwas_catalog_search <- function(query, max_results = 10) {
   paste(c(sprintf("Top %d OpenGWAS datasets matching \"%s\" (id | trait | population | N | year):", length(lines), query), lines), collapse = "\n")
 }
 
-## ---------------------------------------------------------------------------
-## Project methodology lookup tool (for ArthOChat)
-## ---------------------------------------------------------------------------
-## The thesis this app is built on wrote up its own methodology per analysis
-## section - a narrative in Chapter_2_subchapter2_sexstratified.md (every
-## section, "**2.X Title**" markers) and, for the more involved sections, an
-## expanded satellite doc in results/ ending in a curated "References cited"
-## bibliography. This is a more authoritative source for "how does THIS
-## project do X" than a live PubMed search - it's what the pipeline actually
-## did, in the author's own words, plus the exact papers that justify it.
-## project_methods() surfaces that directly instead of leaving the assistant
-## to reconstruct it from memory.
-## PROJECT_CHAPTER_MD is defined in data_paths.R (sourced above).
-
-## One row per sub-module: id/title match the TX_MODULES config for that
-## module (kept as a static table, not read from TX_MODULES, so this helper
-## has no load-order dependency on submodules_registry.R), section is the
-## thesis's own numbering, and satellite is the expanded write-up's filename
-## in results/ when one exists (NULL for sections only covered in the
-## chapter narrative) - both per METHODS_00_INDEX.md, the canonical map.
-## `aliases` covers spelling variants (this thesis writes British "-isation";
-## sub-module titles elsewhere in the app use American "-ization"), common
-## abbreviations, and technique names a user is more likely to type than the
-## formal section title.
 ARTHOMIX_METHODS_TOPICS <- list(
   list(id = "overview",         title = "Overview and Datasets",       section = "2.1",  satellite = NULL,
        aliases = c("dataset", "datasets", "geo", "cohort")),
@@ -1109,10 +565,6 @@ ARTHOMIX_METHODS_TOPICS <- list(
        aliases = c("nomogram", "clinical utility", "decision curve"))
 )
 
-## Text between this section's "**2.X Title**" marker and the next one (or
-## EOF). The trailing space in the pattern is load-bearing: matching "2.1"
-## must not also match "2.10" - "**2.1 " only matches when the character
-## after "2.1" is a space, which is true for section 2.1 but not 2.10.
 extract_chapter_section <- function(section) {
   if (!file.exists(PROJECT_CHAPTER_MD)) return(NULL)
   lines <- readLines(PROJECT_CHAPTER_MD, warn = FALSE)
@@ -1126,9 +578,6 @@ extract_chapter_section <- function(section) {
   paste(lines[start:end], collapse = "\n")
 }
 
-## Everything from "## References cited..." to EOF in a satellite doc - by
-## convention (confirmed across every satellite doc) the last section, so
-## nothing follows it to accidentally include.
 extract_references_section <- function(path) {
   if (!file.exists(path)) return(NULL)
   lines <- readLines(path, warn = FALSE)
@@ -1169,21 +618,6 @@ project_methods <- function(module) {
   paste(parts, collapse = "\n")
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics methodology lookup tool (registered on the shared ArthOChat
-## drawer - see R/shared/mod_arthochat.R - so methylomics
-## methodology questions stay grounded even though the Methylomics sidebar
-## only links to that one shared drawer, rather than running its own
-## separate scoped chat session)
-## ---------------------------------------------------------------------------
-## Mirrors project_methods() above, but against the methylomics pipeline's
-## own per-stage write-ups (METH_DATA_ROOT/script0N_*/METHODS_*.md - see
-## METH_DATA_ROOT's own comment) instead of the transcriptomics thesis
-## chapter. `files` is relative to METH_DATA_ROOT and may be more than one
-## path (e.g. DMPs has a plain and an SVA-adjusted write-up); modules with no
-## dedicated script (e.g. colocalisation) are simply left out, so
-## project_methods_methylomics() falls through to its "no module matched"
-## branch and the assistant relies on pubmed_search instead.
 METH_METHODS_TOPICS <- list(
   list(id = "qc",             title = "Quality Control",
        files = "script01_dataload_QC/METHODS_load_qc.md",
@@ -1255,15 +689,6 @@ figure_exists <- function(filename) {
   file.exists(file.path(FIGURES_DIR, filename))
 }
 
-## ---------------------------------------------------------------------------
-## GWAS/eQTL summary-statistics upload helpers - shared by mod_mr.R's
-## upload-your-own-exposure/outcome mode, mod_coloc.R's upload-your-own-GWAS
-## mode, and mod_crossancestry.R's upload-a-replacement-replication/transfer-
-## GWAS mode - one column-mapping UI and one column-guessing table instead of
-## three independent copies that could drift apart on which header spellings
-## each recognises.
-## ---------------------------------------------------------------------------
-
 GWAS_COL_PATTERNS <- list(
   snp  = c("^snp$", "^rsid$", "^rs_?id$", "variant"),
   ea   = c("^effect_allele$", "^ea$", "^a1$", "^alt$"),
@@ -1282,14 +707,6 @@ guess_gwas_col <- function(cols, patterns) {
 
 read_uploaded_table <- function(path) tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) NULL)
 
-## .rds companion for uploaded expression/probe matrices (transcriptomics
-## Preprocessing/Feature Selection/Diagnostic external-cohort uploads) -
-## unlike the CSV upload path (always a first-ID-column data.frame coerced
-## to a numeric matrix), an .rds upload can deserialize into ANY R object,
-## so its shape must be validated before use rather than trusted as-is.
-## Mirrors mod_methyl_featureselection.R's methyl_fs_parse_matrix_rds() -
-## same list(ok, mat, error) contract, same accepted shapes (numeric
-## matrix, or a data.frame with feature IDs in the first column).
 tx_parse_expr_matrix_rds <- function(datapath) {
   loaded <- safe_read_rds(datapath)
   if (!isTRUE(loaded$ok)) {
@@ -1314,16 +731,6 @@ tx_parse_expr_matrix_rds <- function(datapath) {
   list(ok = FALSE, mat = NULL, error = "The .rds file must contain either a numeric feature x sample matrix, or a data.frame with feature IDs in the first column.")
 }
 
-## Each uploaded file should be parsed from disk exactly ONCE per caller
-## (wrap in a `reactive()` keyed on the fileInput, as mod_mr.R does with
-## exp_df_r/out_df_r) - this function itself just renders the mapping UI from
-## whatever data.frame it's handed.
-##
-## `ns` is the caller's own `session$ns` (the generated input ids must live in
-## whichever module renders this). `extra_fields` appends additional required
-## column pickers after the core seven every caller needs - e.g. mod_coloc.R's
-## coloc.abf() also needs a sample-size column mod_mr.R's MR estimator never
-## did (`extra_fields = "n"`).
 gwas_col_map_ui <- function(ns, file_input, df_reactive, prefix, label, extra_fields = character(0)) {
   extra_labels <- c(n = "Sample size (N)")
   renderUI({
@@ -1356,14 +763,6 @@ gwas_col_map_ui <- function(ns, file_input, df_reactive, prefix, label, extra_fi
   })
 }
 
-## ---------------------------------------------------------------------------
-## Shared MR estimator hierarchy - moved here (unchanged) from mod_mr.R so
-## mod_crossancestry.R's live-upload arm can fit the SAME estimator hierarchy
-## (Section 2.6.5: >=3 SNPs -> IVW + MR-Egger + weighted median, 2 SNPs -> IVW
-## alone, 1 SNP -> Wald ratio) instead of a second, drift-prone copy. Pure
-## function of its arguments - no reactive/session dependency - so this is a
-## straight relocation, not a rewrite.
-## ---------------------------------------------------------------------------
 estimate_mr_set <- function(d, include_mode = FALSE, full = TRUE, ci_level = 0.95, run_presso = FALSE) {
   n_snp <- nrow(d)
   methods <- list()
@@ -1385,36 +784,13 @@ estimate_mr_set <- function(d, include_mode = FALSE, full = TRUE, ci_level = 0.9
       by = d$beta.outcome, byse = d$se.outcome,
       snps = d$SNP, exposure = unique(d$gene)[1], outcome = "RA risk (Okada 2014 GWAS)"
     )
-    ## model = "random": MendelianRandomization::mr_ivw()'s own default
-    ## ("fixed") understates the SE relative to the bundled dataset's own
-    ## cached values. The upstream pipeline's IVW is a random-effects
-    ## (multiplicative dispersion, phi = max(1, Q/(n-1))) estimator by
-    ## default - confirmed by reproducing the bundled cached b/se/p
-    ## bit-for-bit across multiple genes (e.g. LPCAT2: se 0.0248 here vs
-    ## 0.0220 under "fixed"; b is identical either way, only the SE/p
-    ## differ). Without this, every p-value and CI shown here would be
-    ## too narrow relative to the bundled reference numbers.
     ivw <- MendelianRandomization::mr_ivw(mrobj, model = "random", alpha = alpha)
     methods[["IVW"]] <- c(estimate = ivw@Estimate, se = ivw@StdError, ci_low = ivw@CILower, ci_high = ivw@CIUpper, p = ivw@Pvalue)
     primary_method <- "IVW"
     if (n_snp >= 3 && full) {
-      ## Bootstrap SE (10,000 draws, package default seed) - the bundled
-      ## dataset's own weighted-median SE is also a bootstrap draw, made
-      ## inside a sequential full-gene-set run, so it cannot be
-      ## reproduced bit-for-bit gene-by-gene here. Never the primary
-      ## estimate in the default hierarchy, so this is a disclosed
-      ## limitation, not a correctness issue for the number that
-      ## actually drives conclusions.
       med <- MendelianRandomization::mr_median(mrobj, alpha = alpha)
       methods[["Weighted median"]] <- c(estimate = med@Estimate, se = med@StdError, ci_low = med@CILower, ci_high = med@CIUpper, p = med@Pvalue)
       egg <- MendelianRandomization::mr_egger(mrobj, alpha = alpha)
-      ## Egger's Estimate/StdError.Est/Intercept/StdError.Int all match
-      ## the bundled cached numbers exactly, but its own Pvalue.Est/
-      ## Pvalue.Int don't: TwoSampleMR::mr_egger_regression gets
-      ## p-values from base R's summary(lm(...)) - a t-distribution on
-      ## n_snp-2 residual df - and neither of this package's own
-      ## distribution options ("normal", "t-dist") reproduces that df.
-      ## Recomputed directly here instead of trusting either.
       egger_df <- n_snp - 2
       egger_slope_p <- 2 * stats::pt(-abs(egg@Estimate / egg@StdError.Est), df = egger_df)
       egger_int_p <- 2 * stats::pt(-abs(egg@Intercept / egg@StdError.Int), df = egger_df)
@@ -1429,13 +805,6 @@ estimate_mr_set <- function(d, include_mode = FALSE, full = TRUE, ci_level = 0.9
         }
       }
     }
-    ## MR-PRESSO (Verbanck et al. 2018): simulation-based global test for
-    ## horizontal pleiotropy plus, when the global test is significant,
-    ## an outlier-corrected re-estimate excluding the flagged SNP(s).
-    ## Needs >=4 instruments by design (one more than MR-Egger, since it
-    ## must leave >=3 after excluding a candidate outlier); optional and
-    ## off by default since NbDistribution=1000 simulations add a
-    ## noticeable delay per run.
     if (n_snp >= 4 && full && isTRUE(run_presso)) {
       presso <- tryCatch({
         pr <- MRPRESSO::mr_presso(
@@ -1469,21 +838,6 @@ estimate_mr_set <- function(d, include_mode = FALSE, full = TRUE, ci_level = 0.9
        primary_method = primary_method, presso = presso, ci_level = ci_level)
 }
 
-## ---------------------------------------------------------------------------
-## Shared cis-eQTL instrument table (Okada 2014 RA GWAS harmonisation) -
-## MR_primary_objects.rds, loaded once per caller. Both mod_mr.R (its
-## bundled-dataset gene picker and batch screen) and mod_crossancestry.R (its
-## live-upload replication/transfer arm, which re-harmonises these SAME
-## exposure-side rows against a *different* outcome GWAS) need this table, so
-## it's loaded and relabel-fixed here once instead of twice.
-##
-## `$dat$gene` is stale for 21 SNPs / 37 genes that share an eQTL with a
-## neighbouring gene - the pair-matched relabelling fix was written into the
-## upstream pipeline but this cached object predates it. The correct label is
-## recomputed here from `$inst` (SNP + exposure-dataset ID pair) rather than
-## trusted from the cached column, and exactly what changed is returned in
-## `relabel_check` for callers to disclose rather than fix silently.
-## ---------------------------------------------------------------------------
 load_mr_instrument_table <- function() {
   mr_obj <- readRDS(MR_PRIMARY_OBJECTS_RDS)
 
@@ -1505,13 +859,6 @@ load_mr_instrument_table <- function() {
   list(dat = dat, primary = as.data.frame(mr_obj$primary), relabel_check = relabel_check)
 }
 
-## ---------------------------------------------------------------------------
-## Shared chart styling
-## ---------------------------------------------------------------------------
-## One fixed, colorblind-safe-ordered palette used everywhere instead of
-## ggplot's default hue wheel, so live figures across submodules read as one
-## system rather than each picking its own colors.
-
 ARTHOMIX_COLORS <- list(
   blue = "#2a78d6", orange = "#eb6834", aqua = "#1baf7a", yellow = "#eda100",
   magenta = "#e87ba4", violet = "#4a3aa7", red = "#e34948",
@@ -1519,12 +866,8 @@ ARTHOMIX_COLORS <- list(
   grid = "#e1e0d9", axis = "#c3c2b7"
 )
 
-## Reserved for state, never reused for an ordinary series.
 ARTHOMIX_STATUS <- list(good = "#0ca30c", warning = "#fab219", critical = "#d03b3b")
 
-## Fixed hue order for categorical series (group, sex, ...); a factor with
-## more levels than this just runs out of distinct colors rather than
-## cycling ggplot's rainbow.
 arthomix_pair <- function(levels) {
   pal <- c(ARTHOMIX_COLORS$blue, ARTHOMIX_COLORS$red, ARTHOMIX_COLORS$aqua,
             ARTHOMIX_COLORS$orange, ARTHOMIX_COLORS$violet, ARTHOMIX_COLORS$magenta,
@@ -1552,17 +895,6 @@ theme_arthomix <- function(base_size = 12) {
     )
 }
 
-## ---------------------------------------------------------------------------
-## Sample-level QC, shared by the Dataset tab and the Preprocessing submodule
-## ---------------------------------------------------------------------------
-## Three standard array/RNA-seq QC signals per sample: total signal, number
-## of detected features, and mean correlation to every other sample (a
-## sample that doesn't correlate with the rest of the cohort is the
-## clearest sign of a technical outlier). Flags are relative to the
-## dataset's own median +/- mad_k median absolute deviations, not a fixed
-## cutoff, so the same function works whether `expr` holds raw counts,
-## log-CPM or log2 microarray intensities.
-
 compute_sample_qc <- function(expr, mad_k = 3, top_n_cor = 2000) {
   detect_cutoff <- stats::quantile(expr, 0.25, na.rm = TRUE)
   signal   <- colSums(expr, na.rm = TRUE)
@@ -1570,10 +902,6 @@ compute_sample_qc <- function(expr, mad_k = 3, top_n_cor = 2000) {
 
   gene_var <- apply(expr, 1, stats::var, na.rm = TRUE)
   top_idx  <- order(gene_var, decreasing = TRUE)[seq_len(min(top_n_cor, nrow(expr)))]
-  ## use="pairwise.complete.obs": the default use="everything" makes a
-  ## single NA anywhere in the top-variance subset propagate to every
-  ## pairwise correlation, silently NA-ing out (and so disabling) the
-  ## cohort-correlation outlier flag below with no warning to the user.
   sample_cor <- cor(expr[top_idx, , drop = FALSE], use = "pairwise.complete.obs")
   mean_cor <- (colSums(sample_cor, na.rm = TRUE) - 1) / (ncol(sample_cor) - 1)
 
@@ -1595,75 +923,6 @@ compute_sample_qc <- function(expr, mad_k = 3, top_n_cor = 2000) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## THE NORMALISATION IMPLEMENTATION - audited 2026-08-12 (see Data
-## Exploration & Normalisation tab in mod_preprocessing.R for the user-
-## facing side of this audit). Summary, so this stays easy to find later:
-##
-##   Where raw data is loaded:    mod_dataset.R (Dataset tab: preloaded /
-##                                 GEO fetch / upload) and mod_preprocessing.R
-##                                 ("Preprocessing" tab, per-source). Either
-##                                 way, the result is a genes(or probes) x
-##                                 samples numeric matrix (`expr`) kept
-##                                 strictly separate from the sample-level
-##                                 metadata data.frame (`meta`) - phenotype/
-##                                 clinical columns are never columns of
-##                                 `expr`, so they can't accidentally be
-##                                 normalised as if they were expression
-##                                 values.
-##   Where preprocessing starts:  mod_preprocessing.R's per-source filters
-##                                 (missing-value tolerance, expression
-##                                 pattern exclusion, log2 decision) run
-##                                 BEFORE datasets are merged; a second,
-##                                 merged-matrix filter (expression/variance
-##                                 percentile) runs in the "Batch correction"
-##                                 tab, immediately before normalisation.
-##                                 Order is explicit and enforced by data
-##                                 flow, not just convention: Filter -> (log2
-##                                 Transform, applied per-source pre-merge) ->
-##                                 Normalise -> Batch-correct.
-##   Normalisation function:      this file, below - needs_quantile_norm()
-##                                 decides IF; the actual transform is either
-##                                 `limma::normalizeBetweenArrays(..., method
-##                                 = "quantile")` (microarray/log-scale data)
-##                                 or `edgeR::calcNormFactors(..., method =
-##                                 "TMM")` + `edgeR::cpm(..., log = TRUE)`
-##                                 (raw RNA-seq counts) - see the `norm_method`
-##                                 branch in mod_preprocessing.R's `result`
-##                                 reactive (Batch correction tab).
-##   Data it receives/returns:    a numeric expression matrix in, the same
-##                                 shape out (never touches `meta`).
-##   Correctness verdict:         both methods are appropriate for their
-##                                 respective data type and were NOT
-##                                 rewritten - quantile normalisation for
-##                                 microarray/already-log-scale data, TMM for
-##                                 raw counts, in the right order relative to
-##                                 filtering. The auto-detect heuristic
-##                                 (needs_quantile_norm(), below) already
-##                                 guards against silently re-normalising
-##                                 data that looks already normalised.
-##   Gap found and addressed:     none of this was surfaced to the user
-##                                 BEFORE they picked a method - no raw-data
-##                                 preview, no visual "does this look already
-##                                 normalised" check, no missing/zero/
-##                                 infinite/duplicate-feature audit, and no
-##                                 record of exactly what was applied for
-##                                 reproducibility. That gap is what the new
-##                                 Data Exploration & Normalisation tab (and
-##                                 the small helpers just below) fills - it
-##                                 calls this same summarize_norm_diagnostics()/
-##                                 needs_quantile_norm() and the same
-##                                 limma::normalizeBetweenArrays()/edgeR TMM
-##                                 calls Batch Correction already uses, rather
-##                                 than reimplementing normalisation a second
-##                                 time.
-## ---------------------------------------------------------------------------
-
-## Per-sample scale diagnostics, before/after normalisation. Same metrics
-## and same "needs quantile normalisation" decision rule the thesis
-## pipeline uses in scripts/00_shared/03_normalize_batch.R: normalise if
-## the data are still on a linear scale, or per-sample medians/IQRs still
-## disagree by more than 0.5 on the log scale.
 summarize_norm_diagnostics <- function(m) {
   sample_medians <- apply(m, 2, stats::median, na.rm = TRUE)
   sample_iqr <- apply(m, 2, stats::IQR, na.rm = TRUE)
@@ -1680,22 +939,6 @@ needs_quantile_norm <- function(diag) {
   diag$max_value > 100 || diag$median_sd > 0.5 || diag$iqr_sd > 0.5
 }
 
-## ---------------------------------------------------------------------------
-## Data Exploration & Normalisation tab helpers (mod_preprocessing.R) - raw-
-## data audit and data-type detection only. None of these apply a
-## normalisation themselves beyond what's delegated straight to the same
-## limma/edgeR calls Batch Correction already uses (see apply_chosen_norm()
-## below) - this section exists to decide WHETHER and WHICH, and to surface
-## raw-data quality issues, not to reimplement normalisation math.
-## ---------------------------------------------------------------------------
-
-## Raw-data health counts a scientist would want before deciding anything:
-## missingness, zeros (routine and expected in RNA-seq counts, worth a
-## second look in microarray/log data), non-finite values (never expected -
-## a sign of a broken upload, e.g. a ratio/fold-change column mistaken for
-## an expression matrix) and duplicated feature IDs (silently ambiguous for
-## any downstream row-name-keyed merge/lookup). None of this was checked
-## anywhere in the app before this tab.
 expr_raw_health <- function(expr) {
   m <- as.matrix(expr)
   vals <- as.numeric(m)
@@ -1708,40 +951,11 @@ expr_raw_health <- function(expr) {
   )
 }
 
-## Best-effort guess at what kind of expression data this is, from the
-## values alone (no filename/platform metadata to go on) - drives which
-## normalisation methods the Data Exploration & Normalisation tab offers.
-## Mirrors the distinction Batch Correction's own TMM-vs-quantile radio
-## already draws by hand, as a reusable, named function:
-##   "counts"              - non-negative, (near-)integer-valued, large
-##                            range - raw RNA-seq counts. TMM + log2-CPM is
-##                            appropriate; quantile-normalising counts
-##                            directly is not (it assumes a roughly
-##                            continuous, already-comparable distribution
-##                            shape, which raw count data doesn't have).
-##   "already_normalised"  - negative values present (only possible after a
-##                            log/z-score-like transform), or per-sample
-##                            medians/IQRs already agree
-##                            (needs_quantile_norm() is FALSE) - most likely
-##                            already log-transformed and/or normalised
-##                            upstream, e.g. a public series' already-
-##                            processed matrix.
-##   "expression"           - anything else: linear- or log-scale
-##                            expression that hasn't been shown to already
-##                            agree across samples - the normal case
-##                            quantile normalisation targets.
 detect_expr_data_type <- function(expr) {
   m <- as.matrix(expr)
   finite_vals <- m[is.finite(m)]
   if (length(finite_vals) == 0) return("expression")
   has_negative <- any(finite_vals < 0)
-  ## Threshold is 0.6, not ~1: real "raw counts" files are routinely
-  ## expected-count estimates from an EM-based quantifier (RSEM, Salmon,
-  ## kallisto), not literal integer read tallies - GSE89408's own bundled
-  ## counts file (scripts/00_shared/eda.R's source) is ~89% near-integer,
-  ## not 100%. Verified against a genuinely continuous synthetic matrix
-  ## (~0% near-integer) to confirm 0.6 keeps real microarray/log-scale data
-  ## out of this bucket while still catching expected-count RNA-seq data.
   looks_like_counts <- !has_negative &&
     mean(abs(finite_vals - round(finite_vals)) < 1e-6) > 0.6 &&
     max(finite_vals) > 100
@@ -1751,28 +965,9 @@ detect_expr_data_type <- function(expr) {
   "expression"
 }
 
-## Filter -> Transform, in that explicit order, kept as one small function
-## so the Data Exploration & Normalisation tab can't accidentally apply them
-## the other way round. Filtering first means a normalisation method that
-## estimates parameters from the data (quantile ranks, TMM size factors)
-## never sees near-empty features that would only distort those estimates;
-## log2 is applied last, evaluating the filter thresholds on the scale a
-## user actually set them on (e.g. "raw count >= 10"), not on already-
-## logged values. Missing values remaining after the row-level filter are
-## median-imputed, the same simple technique mod_pp_source_server() (the
-## per-dataset Preprocessing step) already uses - not a new one invented
-## here.
 filter_and_transform_expr <- function(expr, min_expr = 0, min_sample_frac = 0,
                                         max_na_pct = 100, log2_transform = FALSE) {
   m <- as.matrix(expr)
-  ## Infinite values are never a valid expression measurement; treat them as
-  ## missing so they fall through the same missing-value handling below
-  ## instead of silently winning every ">= min_expr" comparison, or
-  ## corrupting max()/quantile()-based diagnostics downstream. Nothing
-  ## upstream of this tab currently guards against this (see
-  ## expr_raw_health()'s n_infinite count, surfaced as its own warning) -
-  ## this is the one place that actually neutralises it before it reaches
-  ## filtering, transformation or normalisation.
   m[is.infinite(m)] <- NA
   keep_na <- (rowMeans(is.na(m)) * 100) <= max_na_pct
   above <- m >= min_expr
@@ -1792,11 +987,6 @@ filter_and_transform_expr <- function(expr, min_expr = 0, min_sample_frac = 0,
   m
 }
 
-## Normalise (or deliberately don't) - the SAME limma::normalizeBetweenArrays
-## / edgeR TMM calls Batch Correction's `result` reactive already uses, not
-## a reimplementation. method: "none" (used as filtered/transformed, no
-## further scaling - what "Do not normalise" in the tab maps to), "quantile"
-## (microarray/log-scale expression) or "tmm" (raw RNA-seq counts).
 apply_chosen_norm <- function(expr, method = c("none", "quantile", "tmm")) {
   method <- match.arg(method)
   m <- as.matrix(expr)
@@ -1817,10 +1007,6 @@ apply_chosen_norm <- function(expr, method = c("none", "quantile", "tmm")) {
   list(expr = mtx, label = "Quantile normalisation (limma::normalizeBetweenArrays)")
 }
 
-## PCA on a genes-in-rows expression matrix, dropping zero-variance genes
-## first (prcomp's scale.=TRUE would otherwise error on them). Shared by
-## Preprocessing (before/after ComBat) and Overview's QC (a single
-## snapshot of whatever is currently loaded).
 pca_of <- function(m, n_pc = 5) {
   m <- m[apply(m, 1, stats::sd) > 0, , drop = FALSE]
   p <- prcomp(t(m), scale. = TRUE)
@@ -1832,8 +1018,6 @@ pca_of <- function(m, n_pc = 5) {
   list(df = df, var_exp = var_exp, n_pc = n_pc)
 }
 
-## Scree plot: % variance explained per PC, matching xOmicsShiny's
-## fviz_eig()-based "Eigenvalues" view in its QC Plots module.
 scree_plot <- function(var_exp, max_pc = 10) {
   n <- min(max_pc, length(var_exp))
   df <- data.frame(pc = factor(paste0("PC", seq_len(n)), levels = paste0("PC", seq_len(n))),
@@ -1846,10 +1030,6 @@ scree_plot <- function(var_exp, max_pc = 10) {
     theme(panel.grid.major.x = element_blank())
 }
 
-## PCA scatter with a selectable PC pair, group confidence ellipses and
-## optional sample labels - the same controls xOmicsShiny's PCA Plot tab
-## offers (color-by, PC choice, ellipsoid, sample labels), minus
-## 3D/loadings/convex-hull, which are out of scope here.
 plot_pca_advanced <- function(pca_obj, meta, color_by, pc_x = 1, pc_y = 2,
                                 title_suffix = NULL, show_ellipse = TRUE, show_labels = FALSE) {
   xcol <- paste0("PC", pc_x); ycol <- paste0("PC", pc_y)
@@ -1878,18 +1058,6 @@ plot_pca_advanced <- function(pca_obj, meta, color_by, pc_x = 1, pc_y = 2,
   else p + scale_color_manual(values = arthomix_pair(df[[color_by]]))
 }
 
-## Feature (gene/probe) overlap across 2+ datasets - the same idea as
-## scripts/00_shared/03_dataset_gene_overlap_venn.R's ggVennDiagram call,
-## generalised to any number of input datasets instead of just the two
-## training platforms. `sets` is a named list of character vectors (feature
-## IDs measured on each dataset). Area-proportional circles/ellipses for 2-4
-## sets (ggVennDiagram); beyond that, circles stop being readable, so it
-## falls back to an UpSet-style bar chart of exact-combination sizes, capped
-## at the `max_bars` largest combinations so 5-6 sets don't produce 60+ bars.
-## Every non-empty "belongs to exactly these sets and no others" region,
-## with its size - the same exact-combination arithmetic a proportional
-## Venn encodes visually, but as a plain table any downstream code (a
-## downloadable region table, a >7-set fallback) can use directly.
 overlap_region_sizes <- function(sets, max_regions = NULL) {
   nms <- names(sets)
   combos <- unlist(lapply(seq_along(nms), function(k) utils::combn(nms, k, simplify = FALSE)), recursive = FALSE)
@@ -1907,25 +1075,6 @@ overlap_region_sizes <- function(sets, max_regions = NULL) {
   df
 }
 
-## Feature (gene/probe) overlap across 2-7 datasets - ggVennDiagram handles
-## every set count actually offered in this app (MAX_PP_SOURCES = 6) as a
-## true proportional Venn, not just 2-4, so there's no separate bar-chart
-## fallback to keep in sync; `label = "both"` shows count and % of the total
-## per region, and `set_color` gives each dataset its own outline/label
-## colour from the app's own palette instead of ggVennDiagram's default
-## black, so which circle is which is legible without cross-referencing a
-## legend. Above 7 sets (not reachable from this app's own UI) falls back to
-## overlap_region_sizes() as a bar chart, rather than erroring.
-## fill_low/fill_high override the region-size gradient's two end colors
-## (default: pale blue to ARTHOMIX_COLORS$blue) - e.g. mod_candidates.R
-## passes a green gradient for its Female panel and a brown one for Male,
-## matching this project's own reference figures
-## (fig_venn_female_disease_candidates.png / fig_venn_male_disease_candidates.png,
-## from the original pipeline's results/figures/, not bundled with this app), which
-## use the same single-hue-by-region-size scheme, just one hue per sex so
-## the two panels read as visibly distinct at a glance. Every other caller
-## (Preprocessing's dataset-gene-overlap Venn) omits both and keeps the
-## original blue.
 draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EAF3FB", fill_high = ARTHOMIX_COLORS$blue) {
   sets <- sets[lengths(sets) > 0]
   validate(need(length(sets) >= 2, "Need at least two non-empty datasets to compare."))
@@ -1940,20 +1089,6 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
       sets, label = "both", label_alpha = 0, label_size = 3.3, label_percent_digit = 1,
       edge_size = 0.9, set_size = 4.2, set_color = pal[seq_along(sets)]
     )
-    ## ggVennDiagram centers each set-name label (hjust = 0.5) on an anchor
-    ## point just outside its own circle - fine when circles are roughly
-    ## same-sized and spread apart, but when one set is mostly contained in
-    ## the other (a highly asymmetric 2-set overlap, e.g. 65%/14%/21%), that
-    ## anchor sits close enough to the OTHER circle's edge that half the
-    ## centered label text swings back over it. Right-aligning (hjust = 1)
-    ## keeps the anchor in place but grows the label outward, away from both
-    ## circles, instead - identified by its `label` aesthetic mapping to
-    ## `.data$name` (the category-name layer ggVennDiagram itself adds),
-    ## not the region count/percent labels. Scoped to exactly 2 sets: with
-    ## 3+ circles the default centered anchors are already clear of each
-    ## other, and forcing hjust = 1 there instead dragged adjacent set
-    ## names (e.g. "LASSO" / "RandomForest") into one another at the top
-    ## of the diagram.
     two_set_asymmetric <- length(sets) == 2
     if (two_set_asymmetric) {
       for (i in seq_along(p$layers)) {
@@ -1964,12 +1099,6 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
         }
       }
     }
-    ## Every set count uses the same modest scale expansion now - it only
-    ## needs to clear the circles themselves, not reserve room for growing
-    ## labels (that used to be a 110%/35% expansion for the 2-set case,
-    ## which shrank the circles down to a sliver of the panel and, applied
-    ## to every set count, is what crowded 3+-set region-count labels into
-    ## illegible overlapping text).
     p <- p +
       scale_fill_gradient(low = fill_low, high = fill_high, name = "Features") +
       scale_x_continuous(expand = expansion(mult = 0.12)) +
@@ -1977,24 +1106,7 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
       labs(title = auto_title) +
       theme(legend.position = "right", legend.text = element_text(size = 9),
             plot.title = element_text(face = "bold", size = 13, hjust = 0))
-    ## coord_equal(), not coord_cartesian() (ggVennDiagram's own default): circles
-    ## are only actually round if the x/y scales stay 1:1, and clip = "off" lets the
-    ## 2-set label fix below draw into the reserved left margin. Assigned directly
-    ## rather than via `p + coord_equal(...)` - `+` on a plot that already has a
-    ## coordinate system (ggVennDiagram always sets one) makes ggplot2 print
-    ## "Coordinate system already present ... replacing" on every single render;
-    ## direct assignment produces the identical final coord object silently.
     p$coordinates <- coord_equal(clip = "off")
-    ## The 2-set hjust = 1 fix above grows both category-name labels
-    ## leftward, outside the panel, with no upper bound - scale expansion
-    ## (a FRACTION of the data range) can't reserve enough absolute room
-    ## for that reliably, which is what was clipping long names like
-    ## "WGCNA module background" down to "ule background" even after the
-    ## expansion was made generous. A fixed left plot margin (an absolute
-    ## amount, in points, independent of the data range) reserves real
-    ## room for it instead, with clip = "off" above letting the label draw
-    ## into that margin - without shrinking the circles the way growing
-    ## the scale expansion further did.
     if (two_set_asymmetric) {
       p <- p + theme(plot.margin = ggplot2::margin(t = 5.5, r = 5.5, b = 5.5, l = 130, unit = "pt"))
     }
@@ -2011,17 +1123,6 @@ draw_overlap_venn <- function(sets, title = NULL, max_bars = 30, fill_low = "#EA
   }
 }
 
-## Companion to draw_overlap_venn() (same `sets` argument - a 2-7 element
-## named list of feature vectors) - given a click point in the plot's own
-## data coordinates (as reported by plotOutput(click = ...): input$xxx$x/$y),
-## returns which Venn region that point landed in, or NULL if it missed every
-## region (e.g. a click outside all circles, or on a set-name/percent label,
-## which sit outside their own region's fill). Reruns ggVennDiagram's own
-## layout (Venn()/process_data()) to get each region's exact drawn polygon -
-## draw_overlap_venn() doesn't expose that geometry itself, only the finished
-## plot - then does a standard point-in-polygon (ray casting / even-odd rule)
-## test against each one; base R only, no dependency beyond ggVennDiagram
-## itself (already required for the plot).
 venn_region_at_point <- function(sets, x, y) {
   sets <- sets[lengths(sets) > 0]
   if (length(sets) < 2 || length(sets) > 7 || is.null(x) || is.null(y)) return(NULL)
@@ -2044,10 +1145,6 @@ venn_region_at_point <- function(sets, x, y) {
     inside
   }
 
-  ## Regions nest (e.g. region "1/2" is drawn entirely inside both set 1's and
-  ## set 2's own circles), so check the most specific region (most sets in its
-  ## id) first - otherwise a click inside a small overlap sliver would match
-  ## the larger single-set circle it happens to also sit inside of.
   ids <- unique(edge$id)
   ids <- ids[order(-lengths(strsplit(ids, "/", fixed = TRUE)))]
   for (rid in ids) {
@@ -2060,10 +1157,6 @@ venn_region_at_point <- function(sets, x, y) {
   NULL
 }
 
-## A thin, rank-ordered bar chart shared by every QC metric: neutral blue
-## for samples within range, status red for flagged ones, no per-sample
-## x-axis labels (illegible past ~30 samples, and the point is the shape
-## of the distribution plus which bars are red).
 qc_bar_plot <- function(df, y_col, flag_col, y_label, subtitle = NULL) {
   df$.flag <- ifelse(df[[flag_col]], "Flagged", "Within range")
   ggplot(df, aes(x = reorder(sample, .data[[y_col]]), y = .data[[y_col]], fill = .flag)) +
@@ -2073,10 +1166,6 @@ qc_bar_plot <- function(df, y_col, flag_col, y_label, subtitle = NULL) {
     theme_arthomix() +
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.grid.major.x = element_blank())
 }
-
-## ---------------------------------------------------------------------------
-## Top level module registry (Home > Modules > one card per omics layer)
-## ---------------------------------------------------------------------------
 
 MODULE_REGISTRY <- list(
   list(
@@ -2111,22 +1200,6 @@ MODULE_REGISTRY <- list(
   )
 )
 
-## A single, app-wide ArthOChat session lives on its own top-level tab (see
-## ui.R's navbarPage and server.R) rather than a separate chat instance
-## nested inside every sub-module - one shared history that already sees
-## whatever dataset/results are current, regardless of which module surfaces
-## this link. Drops straight into the top-level "arthochat" tab via a client
-## side click on that navbar link (no server-side session plumbing needed to
-## reach across module boundaries), matching the tab's `value` set in ui.R.
-## ArthOChat lives in a persistent slide-out drawer (see ui.R), not a
-## navbarPage tab, so opening it from anywhere - a submodule shortcut, the
-## header button, the Modules landing card, a server-side search match -
-## never navigates away from whatever the user is currently looking at.
-## Every "open ArthOChat" trigger in the app shares this exact JS so
-## there's one behavior to keep in sync, not several copies that could
-## drift: client-side triggers (onclick=) use ARTHOCHAT_DRAWER_OPEN_JS
-## directly; server-side ones (e.g. server.R's header-search handler) run
-## ARTHOCHAT_DRAWER_OPEN_JS_STATEMENT via shinyjs::runjs().
 ARTHOCHAT_DRAWER_OPEN_JS_STATEMENT <- "document.getElementById('arthochat_drawer').classList.add('open')"
 ARTHOCHAT_DRAWER_OPEN_JS <- paste0(ARTHOCHAT_DRAWER_OPEN_JS_STATEMENT, "; return false;")
 
@@ -2155,14 +1228,3 @@ arthochat_shortcut_ui <- function(hint = NULL, compact = FALSE) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Transcriptomics submodules
-## Each submodule's config, UI wrapper and server wrapper live in their own
-## file: R/transcriptomics/mod_<id>.R (Methylomics' own submodules live the
-## same way under R/methylomics/ - see R/0_load_omics_modules.R for how
-## both subfolders get sourced, since shiny's own R/ autoloader doesn't
-## recurse into them). They are assembled into TX_MODULES by
-## R/submodules_registry.R, which is sourced after all of them (see the
-## sourcing note at the top of that file). Section numbers refer to
-## results/METHODS_00_INDEX.md in the data folder.
-## ---------------------------------------------------------------------------

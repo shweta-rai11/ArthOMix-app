@@ -1,37 +1,7 @@
 ## R/multiomics/functions/multiomics_integration_helpers.R
 ## Pure data-processing logic for the live DIABLO/SNF/Compare engine mounted
 ## in mod_multi_integration.R - the Multi-Omics module's own "run a real
-## multiblock integration on whatever data is actually loaded" analysis,
-## parallel in spirit to multiomics_dataset_helpers.R's MOFA2 engine but for
-## mixOmics::block.splsda (supervised) and SNFtool::SNF (unsupervised).
-##
-## Every loader/runner is fail-soft (list(ok, ..., error)), every parameter
-## range is derived from the real data in front of it - never one fixed
-## grid/fold-count/K for every dataset - and "Automatic" always resolves to
-## and reports the concrete value it used (never displayed as the literal
-## word "Automatic" after a run). All mixOmics/SNFtool call shapes below
-## (tune.block.splsda()'s `choice.keepX`, perf()'s
-## `WeightedVote.error.rate[[dist]]["Overall.BER", ]`/`$auc`/`$features$stable`,
-## SNFtool's `affinityMatrix(diff, K, sigma)`/`SNF(Wall, K, t)`/
-## `spectralClustering(affinity, K)`/`estimateNumberOfClustersGivenGraph()`/
-## `concordanceNetworkNMI()`) were confirmed against the installed package
-## versions with a real fit's data before writing this file - nothing here
-## is a guessed argument name.
 
-## ---------------------------------------------------------------------------
-## 1. Data-source adapters - both branches converge on the same shape:
-## list(ok, layers = named list of samples x features matrices sharing
-## rownames, sample_meta = data.frame keyed by sample id (or NULL),
-## outcome_col, label, provenance).
-## ---------------------------------------------------------------------------
-
-## Recomputes live from one preloaded analysis cell's own saved DIABLO fit
-## (data/preloaded/multiomics/fits/*.rds via MULTI_DIABLO_FIT_REGISTRY,
-## multi_diablo_fit() - multiomics_helpers.R) - the ONLY per-sample matrices
-## bundled for the preloaded cohort. `fit$X` is already that cell's own
-## matched samples and its already-selected feature subset (not the full
-## transcriptome/methylome) - `provenance` says so explicitly, this is never
-## presented as raw/unfiltered data.
 mi_preloaded_cell_dataset <- function(cell_key) {
   cell <- multi_cell_by_key(cell_key)
   if (is.null(cell)) return(list(ok = FALSE, error = "Unknown preloaded analysis cell."))
@@ -54,15 +24,6 @@ mi_preloaded_cell_dataset <- function(cell_key) {
     )
   )
 }
-
-## ---------------------------------------------------------------------------
-## 2. Common validation (spec section 5) - every DIABLO/SNF eligibility check
-## reads from this one structure, whether `layers` came from the preloaded
-## adapter above or from the Dataset Workspace's own multi_dataset$layers
-## (already N-omics-generic). Sample matching is ALWAYS by rowname
-## intersection (multi_live_sample_overlap(), multiomics_dataset_helpers.R) -
-## never by row position.
-## ---------------------------------------------------------------------------
 
 MI_MIN_MATCHED_SAMPLES <- 3
 MI_SAMPLE_MISMATCH_MESSAGE <- "Integration cannot be performed because the omics datasets do not contain reliably matched samples."
@@ -90,9 +51,6 @@ mi_validate_dataset <- function(layers, sample_meta = NULL, outcome_col = NULL) 
   )
 }
 
-## Outcome availability/type/class-count summary, restricted to the shared
-## (matched) sample set so class counts reflect what integration would
-## actually see - never the full uploaded metadata's own counts.
 mi_outcome_summary <- function(meta, col, sample_ids = NULL) {
   if (is.null(meta) || !col %in% colnames(meta)) return(NULL)
   vals <- stats::setNames(meta[[col]], rownames(meta))
@@ -100,9 +58,6 @@ mi_outcome_summary <- function(meta, col, sample_ids = NULL) {
   vals <- vals[!is.na(vals)]
   if (length(vals) == 0) return(list(column = col, n = 0, type = "categorical", n_classes = NA_integer_, class_counts = NULL, imbalanced = FALSE, values = vals))
   n_unique <- length(unique(vals))
-  ## Reuses ch_classify_column() (cohort_harmonization_helpers.R) so this
-  ## and Cohort Harmonization's own column classifier apply one cardinality
-  ## rule, not two independently-tuned thresholds.
   is_numeric_like <- identical(ch_classify_column(vals), "continuous")
   fac <- if (is_numeric_like) NULL else factor(vals)
   tab <- if (!is.null(fac)) table(fac) else NULL
@@ -114,10 +69,6 @@ mi_outcome_summary <- function(meta, col, sample_ids = NULL) {
     values = vals
   )
 }
-
-## ---------------------------------------------------------------------------
-## 3. DIABLO (spec sections 6-16)
-## ---------------------------------------------------------------------------
 
 mi_diablo_eligibility <- function(validation, outcome_summary) {
   if (is.null(validation) || !isTRUE(validation$ok) || validation$n_blocks < 2) {
@@ -135,9 +86,6 @@ mi_diablo_eligibility <- function(validation, outcome_summary) {
   list(ok = TRUE, reason = NULL)
 }
 
-## Data-dependent keepX candidate grid for one block (spec section 9) -
-## never the same fixed grid for RNA/methylation/proteomics: candidates are
-## capped at the block's own feature count and deduplicated.
 mi_diablo_keepx_grid <- function(n_features) {
   base <- c(5, 10, 20, 50, 100, 150, 200, 300)
   cand <- unique(pmin(base[base <= n_features], n_features))
@@ -145,21 +93,11 @@ mi_diablo_keepx_grid <- function(n_features) {
   sort(unique(cand))
 }
 
-## Feasible ncomp range: bounded by the number of classes and by the
-## smallest per-class sample count, always at least 1 - never a hardcoded
-## ncomp regardless of dataset size.
 mi_diablo_feasible_ncomp <- function(n_classes, min_class_n) {
   max_ncomp <- max(1, min(5, n_classes + 1, min_class_n - 1))
   seq_len(max_ncomp)
 }
 
-## Feasible CV folds: never a fixed value regardless of data - capped by the
-## smallest outcome class so every fold retains at least one member of each
-## class. Automatic mode (requested = NULL) defaults to 5-fold (or fewer if
-## the data is too small for even that) - 5-fold is standard practice and
-## keeps the automatic tuning grid search (run once per keepX/ncomp
-## candidate) from paying for a 10-fold cost nobody asked for; Manual mode
-## may still request up to the same data-permitted maximum of 10.
 mi_diablo_max_folds <- function(min_class_n) max(2, min(10, min_class_n))
 
 mi_diablo_feasible_folds <- function(min_class_n, requested = NULL) {
@@ -168,26 +106,13 @@ mi_diablo_feasible_folds <- function(min_class_n, requested = NULL) {
   max(2, min(as.integer(requested), max_folds))
 }
 
-## Leave-one-out is only "statistically/computationally appropriate" (spec
-## section 11) below a modest sample size - large enough that an
-## interactive Shiny session can still run |n| single-sample-out models in
-## reasonable time, small enough that LOO's own high-variance error
-## estimate isn't being asked to summarize a large cohort.
 MI_DIABLO_LOO_MAX_N <- 60
 mi_diablo_loo_feasible <- function(n_samples) n_samples <= MI_DIABLO_LOO_MAX_N
 
-## Feasible repeat count for Automatic mode - a small-but-real number so
-## automatic tuning stays within the "may take several minutes" promise on
-## a large dataset, more repeats where the data is small enough to afford it.
 mi_diablo_feasible_repeats <- function(n_samples) {
   if (n_samples < 30) 10L else if (n_samples < 100) 5L else 3L
 }
 
-## Design matrix (spec section 10) - "Automatic" uses mixOmics's own
-## commonly-used moderate cross-block weight (0.1 off-diagonal, the
-## package's own documented default for "no prior block-relationship
-## knowledge assumed"); "Custom" lets the user set every off-diagonal cell,
-## diagonal always forced to 0 (never a self-link).
 mi_diablo_design <- function(block_names, mode = c("automatic", "custom"), custom = NULL) {
   mode <- match.arg(mode)
   n <- length(block_names)
@@ -201,12 +126,6 @@ mi_diablo_design <- function(block_names, mode = c("automatic", "custom"), custo
   design
 }
 
-## Runs the actual DIABLO workflow end to end on the matched samples: builds
-## Y/X, resolves ncomp/keepX/design/folds/repeats/distance (Automatic or
-## Manual, always bounded by the feasibility helpers above), fits
-## block.splsda(), and assesses it with perf(). `$params` always holds the
-## concrete values actually used (spec sections 34-35) - "Automatic" is
-## resolved before this function returns, never left as the literal word.
 mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   X <- lapply(layers, function(m) m[sample_ids, , drop = FALSE])
   Y <- droplevels(factor(outcome[sample_ids]))
@@ -235,18 +154,6 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   dist_choice <- params$distance %||% "automatic"
   keepx_mode <- params$keepx_mode %||% "automatic"
 
-  ## The "Random seed" UI control (mod_multi_integration.R's `d_seed`,
-  ## threaded in here as `params$seed`) only has any effect if it reaches
-  ## mixOmics's OWN `seed=` argument on tune.block.splsda()/perf() below -
-  ## an external set.seed() call before this function does NOT work, because
-  ## both of those functions unconditionally run `set.seed(seed)` themselves
-  ## internally (confirmed directly in the installed mixOmics source: e.g.
-  ## `tune.block.splsda`'s body starts with `BPPARAM$RNGseed <- seed;
-  ## set.seed(seed)`), and their own default `seed = NULL` makes
-  ## `set.seed(NULL)` RE-RANDOMIZE from system entropy on every single call -
-  ## silently overriding any seed the caller set beforehand. `block.splsda()`
-  ## itself has no `seed` argument and no internal randomness (deterministic
-  ## SVD-based fit given ncomp/keepX/design), so it needs no seed at all.
   seed <- if (!is.null(params$seed)) as.integer(params$seed) else NULL
 
   if (identical(keepx_mode, "manual") && !is.null(params$keepx_manual)) {
@@ -273,12 +180,6 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   )
   if (inherits(fit, "error")) return(list(ok = FALSE, error = paste("DIABLO fit failed:", conditionMessage(fit))))
 
-  ## perf()'s own dist="all" runs ONE cross-validation pass and scores every
-  ## prediction distance against the same folds (confirmed directly: ~2.5x
-  ## faster than calling perf() once per candidate distance, since fold
-  ## fitting - the expensive part - doesn't depend on the distance metric,
-  ## only the final classification rule does) - never re-run perf() 3x for
-  ## "Automatic" distance selection.
   perf_dist_arg <- if (identical(dist_choice, "automatic")) "all" else dist_choice
   perf_res <- tryCatch(
     mixOmics::perf(fit, validation = validation_method, folds = folds, nrepeat = nrepeat, dist = perf_dist_arg, auc = TRUE, progressBar = FALSE, seed = seed),
@@ -306,9 +207,6 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   )
 }
 
-## Cross-validated performance summary (BER/overall error/per-class
-## error/AUC at the fitted model's final component) - one tidy list, ready
-## for a result card.
 mi_diablo_performance_summary <- function(diablo_res) {
   if (!isTRUE(diablo_res$ok)) return(NULL)
   p <- diablo_res$perf; par <- diablo_res$params
@@ -322,8 +220,6 @@ mi_diablo_performance_summary <- function(diablo_res) {
   list(ber = unname(ber), overall_error = unname(er), per_class_error = per_class, auc = auc_df, distance = dist, ncomp = ncomp)
 }
 
-## Tidy selected-feature table across every block/component - "Selected
-## multi-omics features", never "validated biomarkers" (spec section 16).
 mi_diablo_selected_features_df <- function(fit) {
   if (is.null(fit)) return(NULL)
   blocks <- names(fit$X)
@@ -343,10 +239,6 @@ mi_diablo_selected_features_df <- function(fit) {
   out[order(out$block, out$component, -abs(out$loading)), , drop = FALSE]
 }
 
-## Per-sample consensus component-1 score (averaged across every real omics
-## block's own `fit$variates` - excludes the internal "Y" outcome block) -
-## shaped to reuse the existing multi_diablo_score_plot() (patient_id,
-## response, score) without a new plot function.
 mi_diablo_sample_scores_df <- function(fit, outcome) {
   blocks <- setdiff(names(fit$variates), "Y")
   if (length(blocks) == 0) return(NULL)
@@ -356,8 +248,6 @@ mi_diablo_sample_scores_df <- function(fit, outcome) {
   data.frame(patient_id = ids, response = as.character(outcome[ids]), score = consensus, stringsAsFactors = FALSE)
 }
 
-## Reshapes mi_diablo_selected_features_df()'s output to reuse the existing
-## multi_diablo_panel_plot() (feature, loading, view) for one component.
 mi_diablo_panel_df_for_plot <- function(sel_df, comp = 1) {
   if (is.null(sel_df)) return(NULL)
   d <- sel_df[sel_df$component == comp, , drop = FALSE]
@@ -365,11 +255,6 @@ mi_diablo_panel_df_for_plot <- function(sel_df, comp = 1) {
   data.frame(feature = d$feature, loading = d$loading, view = d$block, stringsAsFactors = FALSE)
 }
 
-## Feature-selection stability across resampling (spec section 16) -
-## averages perf()'s own per-repeat stability tables
-## (`$features$stable$nrepK$block$compC`, a named frequency table) for one
-## block/component; returns NULL (rendered as "not available") rather than
-## fabricating a number when perf() didn't retain per-repeat stability.
 mi_diablo_stability_df <- function(diablo_res, block, comp) {
   stable <- tryCatch(diablo_res$perf$features$stable, error = function(e) NULL)
   if (is.null(stable)) return(NULL)
@@ -383,10 +268,6 @@ mi_diablo_stability_df <- function(diablo_res, block, comp) {
   df[order(-df$stability), , drop = FALSE]
 }
 
-## ---------------------------------------------------------------------------
-## 4. SNF (spec sections 17-28)
-## ---------------------------------------------------------------------------
-
 mi_snf_eligibility <- function(validation) {
   if (is.null(validation) || !isTRUE(validation$ok) || validation$n_blocks < 2) {
     return(list(ok = FALSE, reason = "SNF unavailable: fewer than two compatible matched omics blocks were detected."))
@@ -399,9 +280,6 @@ mi_snf_eligibility <- function(validation) {
   list(ok = TRUE, reason = NULL)
 }
 
-## K must be strictly less than the number of matched samples (spec section
-## 21) - default is the commonly-explored literature midpoint clipped to
-## what this sample size can actually support, never one universal value.
 mi_snf_feasible_k_range <- function(n_samples) {
   lo <- max(3, floor(n_samples / 10))
   hi <- max(lo + 1, min(n_samples - 1, 30))
@@ -411,19 +289,12 @@ mi_snf_feasible_k_range <- function(n_samples) {
 MI_SNF_ALPHA_RANGE <- list(min = 0.3, max = 0.8, default = 0.5)
 MI_SNF_T_CANDIDATES <- c(10L, 20L, 30L, 50L)
 
-## Builds one block's affinity matrix - standardization is explicit/optional
-## per block (spec section 19), never forced.
 mi_snf_affinity <- function(mat, k, alpha, standardize = TRUE) {
   m <- if (isTRUE(standardize)) SNFtool::standardNormalization(mat) else mat
   d <- SNFtool::dist2(as.matrix(m), as.matrix(m))
   SNFtool::affinityMatrix(d, K = k, sigma = alpha)
 }
 
-## Adaptive T (fusion iterations): starts from the smallest candidate and
-## stops as soon as the fused network stabilizes (correlation between
-## successive candidate fusions >= 0.995) rather than assuming a fixed
-## T=20/T=50 is optimal (spec section 23) - falls back to the largest
-## candidate if it never stabilizes within the search range.
 mi_snf_adaptive_t <- function(Wall, k, candidates = MI_SNF_T_CANDIDATES) {
   fused <- lapply(candidates, function(t) SNFtool::SNF(Wall, K = k, t = t))
   for (i in seq_along(candidates)[-length(candidates)]) {
@@ -433,13 +304,6 @@ mi_snf_adaptive_t <- function(Wall, k, candidates = MI_SNF_T_CANDIDATES) {
   list(t = candidates[length(candidates)], W = fused[[length(candidates)]])
 }
 
-## Real, distinct clustering techniques applicable to a fused SNF affinity
-## network W (or any block's own affinity matrix) - all three partition the
-## same real network, none re-run SNF itself or invent a new fusion step.
-## "spectral" is SNFtool's own graph-Laplacian method (the original default);
-## "hierarchical" and "pam" both operate on the same 1-W/max(W) dissimilarity
-## already used for silhouette scoring elsewhere in this file (consistent
-## distance definition throughout, not a second one invented for this).
 MI_SNF_CLUSTER_METHODS <- c("Spectral clustering (SNFtool::spectralClustering)" = "spectral",
                             "Hierarchical clustering (average linkage, stats::hclust)" = "hierarchical",
                             "PAM / k-medoids (cluster::pam)" = "pam")
@@ -458,23 +322,12 @@ mi_cluster_from_network <- function(W, k, method = c("spectral", "hierarchical",
     grp <- tryCatch(stats::cutree(hc, k = k), error = function(e) NULL)
     return(grp)
   }
-  ## pam
   if (!requireNamespace("cluster", quietly = TRUE)) return(NULL)
   pm <- tryCatch(cluster::pam(d, k = k, diss = TRUE), error = function(e) NULL)
   if (is.null(pm)) return(NULL)
   pm$clustering
 }
 
-## Automatic K/alpha search: a small, bounded grid (never exhaustive),
-## scored by average silhouette width of the eigengap-suggested clustering
-## on the resulting fused network - a real, computable proxy for a
-## well-separated fused structure, not a fabricated "optimal" claim. K and
-## alpha are independently toggleable in the UI (spec sections 21-22) -
-## `k_fixed`/`alpha_fixed` pin one or both to a manual value while the rest
-## of the grid still searches, rather than an all-or-nothing switch.
-## `cluster_method` scores the grid using the SAME clustering technique the
-## final run will use, so a search optimized for e.g. PAM's own structure
-## doesn't hand its K/alpha choice to a differently-shaped spectral result.
 mi_snf_auto_tune <- function(layers, standardize = TRUE, k_fixed = NULL, alpha_fixed = NULL, cluster_method = "spectral") {
   n <- nrow(layers[[1]])
   k_range <- mi_snf_feasible_k_range(n)
@@ -493,8 +346,6 @@ mi_snf_auto_tune <- function(layers, standardize = TRUE, k_fixed = NULL, alpha_f
     if (is.null(best) || sil > best$sil) best <- list(k = k, alpha = alpha, sil = sil, Wall = Wall, W = W, nc = nc)
   }
   if (is.null(best)) {
-    ## Grid search found nothing usable (degenerate data) - fall back to the
-    ## data-dependent (or user-fixed) defaults rather than failing outright.
     k <- if (!is.null(k_fixed)) max(2, min(as.integer(k_fixed), n - 1)) else k_range$default
     alpha <- alpha_fixed %||% MI_SNF_ALPHA_RANGE$default
     Wall <- lapply(layers, mi_snf_affinity, k = k, alpha = alpha, standardize = standardize)
@@ -503,12 +354,6 @@ mi_snf_auto_tune <- function(layers, standardize = TRUE, k_fixed = NULL, alpha_f
   best
 }
 
-## Runs the actual SNF workflow: per-block affinity, fusion, then clustering
-## (spec sections 21-23) at the requested/estimated cluster count using the
-## requested technique (mi_cluster_from_network() - spectral/hierarchical/
-## PAM). K, alpha, and T are each independently Automatic or Manual; any
-## combination is valid; `$params` always holds the concrete values used
-## (spec sections 34-35).
 mi_snf_run <- function(layers, params = list()) {
   standardize <- isTRUE(params$standardize %||% TRUE)
   n <- nrow(layers[[1]])
@@ -516,14 +361,6 @@ mi_snf_run <- function(layers, params = list()) {
   alpha_manual <- identical(params$alpha_mode %||% "automatic", "manual")
   t_manual <- identical(params$t_mode %||% "automatic", "manual")
   cluster_method <- params$cluster_method %||% "spectral"
-  ## SNFtool::spectralClustering() (used both here and inside the K/alpha
-  ## auto-tune grid search below) and cluster::pam() are k-means-based
-  ## internally, so identical K/Alpha/T parameters can still produce
-  ## different cluster assignments run to run without a fixed seed - unlike
-  ## DIABLO, whose reproducibility comes from its own `seed=` argument to
-  ## mixOmics::tune.block.splsda()/perf(). set.seed() here is the SNF
-  ## equivalent, applied once up front so every stochastic step in this one
-  ## run (grid search scoring included) is reproducible for a given seed.
   seed <- as.integer(params$seed %||% 1)
   set.seed(seed)
 
@@ -565,11 +402,6 @@ mi_snf_run <- function(layers, params = list()) {
   )
 }
 
-## Network concordance (spec section 26) - concordanceNetworkNMI() over the
-## individual affinity matrices PLUS the fused network itself, so the last
-## row/column reads as "how well does each block's own clustering agree
-## with the fused clustering" - labeled as network concordance, never
-## interpreted as predictive accuracy.
 mi_snf_concordance <- function(snf_res) {
   if (!isTRUE(snf_res$ok)) return(NULL)
   Wall_plus <- c(snf_res$Wall, list(Fused = snf_res$W))
@@ -582,10 +414,6 @@ mi_snf_concordance <- function(snf_res) {
   data.frame(block = names(fused_row), concordance_with_fused = as.numeric(fused_row), row.names = NULL)
 }
 
-## Post-hoc outcome evaluation (spec section 28) - SNF clusters are never
-## constructed using the outcome; this only compares the already-computed
-## clusters against it afterward. Explicitly labeled "Post-hoc outcome
-## evaluation", never "SNF prediction accuracy".
 mi_snf_posthoc_outcome <- function(snf_res, outcome, sample_ids) {
   if (!isTRUE(snf_res$ok) || is.null(outcome)) return(NULL)
   common <- intersect(names(snf_res$clusters), intersect(sample_ids, names(outcome)))
@@ -600,8 +428,6 @@ mi_snf_posthoc_outcome <- function(snf_res, outcome, sample_ids) {
   )
 }
 
-## Hand-rolled Adjusted Rand Index (Hubert-Arabie) - no new package
-## dependency for one contingency-table formula.
 mi_ari <- function(a, b) {
   tab <- table(a, b)
   n <- sum(tab)
@@ -616,11 +442,6 @@ mi_ari <- function(a, b) {
   (sum_ij - expected) / (max_index - expected)
 }
 
-## Correlation data between two blocks' own DIABLO-selected features (spec
-## section 16's "Correlation/network plot: relationships between selected
-## variables across blocks") - reuses multi_live_correlation_heatmap_data()/
-## _plot() (multiomics_dataset_helpers.R/_plots.R) restricted to just the
-## selected-feature columns, rather than a new correlation routine.
 mi_diablo_selected_correlation_data <- function(layers, sel_df, block_a, block_b, sample_ids, method = "pearson") {
   feats_a <- unique(sel_df$feature[sel_df$block == block_a])
   feats_b <- unique(sel_df$feature[sel_df$block == block_b])
@@ -630,19 +451,6 @@ mi_diablo_selected_correlation_data <- function(layers, sel_df, block_a, block_b
   multi_live_correlation_heatmap_data(matA, matB, top_n = max(length(feats_a), length(feats_b)), method = method)
 }
 
-## ---------------------------------------------------------------------------
-## 5. Compare (spec sections 29-30)
-## ---------------------------------------------------------------------------
-
-## Supervised comparison: single-omics baselines from the existing,
-## untouched ch_evaluate_binary_outcome() (cohort_harmonization_helpers.R -
-## already a proper nested k-fold + glmnet evaluation), alongside the live
-## DIABLO cross-validated performance on the SAME matched samples/outcome.
-## Both use the same k and the same variance-ranked-feature-then-classifier
-## style of evaluation; fold membership is drawn independently per engine
-## (mixOmics's own internal Mfold vs. caret::createFolds) - stated plainly
-## rather than claimed identical (spec section 29's own words: same
-## samples/outcome/preprocessing/validation *framework*/metric).
 mi_compare_supervised <- function(layers, outcome, sample_ids, diablo_res) {
   if (!isTRUE(diablo_res$ok)) return(list(ok = FALSE, error = "Run DIABLO first - Compare needs its cross-validated performance."))
   mat_list <- lapply(layers, function(m) m[sample_ids, , drop = FALSE])
@@ -659,13 +467,6 @@ mi_compare_supervised <- function(layers, outcome, sample_ids, diablo_res) {
   list(ok = TRUE, table = rows, k_folds = single$k_folds, n = single$n, note = "DIABLO and the single-omics baselines each use their own k-fold splits (same k) - not a shared fold assignment.")
 }
 
-## Unsupervised comparison: per-block spectral clustering (same
-## affinity/clustering primitives as SNF itself) vs. the fused SNF
-## clustering, compared by NMI/ARI - clustering metrics only, never
-## accuracy (spec section 30). Reads sample identity from snf_res$Wall's own
-## dimnames (SNFtool's affinity/fusion pipeline preserves them end to end,
-## confirmed directly) rather than a separately-passed `layers` matrix,
-## which could carry more rows than the matched set SNF actually ran on.
 mi_compare_unsupervised <- function(snf_res) {
   if (!isTRUE(snf_res$ok)) return(list(ok = FALSE, error = "Run SNF first - Compare needs its fused clustering."))
   nc <- snf_res$params$n_clusters

@@ -1,12 +1,6 @@
 ## Regression guard for the Methylomics Biomarker Card's API-driven Evidence
 ## Explorer extension (2026-08-26): identifier detection/resolution must
 ## never silently drop a submitted gene or CpG, the source/API provenance
-## envelope must carry every field a "Source & API Information" audit row
-## needs, the generalized per-database evidence-status/status-chip logic
-## must reflect real retrieval outcomes (not just "the database exists"),
-## the panel convergence aggregator must group by the shared item and list
-## every biomarker that hit it, and the automated literature classifier must
-## be a pure keyword heuristic - all tested here without any live network call.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -14,8 +8,6 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
 source_from_app_root(file.path("R", "crossomics", "functions", "integration", "crossomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "methylomics", "15_Biomarker_Analysis", "mod_methyl_biomarkercard.R"))
-
-## ---- Identifier detection & resolution ------------------------------------
 
 test_that("bc_detect_identifier_type routes CpG/Ensembl/Entrez/gene-symbol tokens correctly", {
   expect_equal(bc_detect_identifier_type("cg00000029"), "cpg")
@@ -51,11 +43,6 @@ test_that("bc_resolve_identifiers resolves a mixed gene+CpG list and never silen
 })
 
 test_that("bc_resolve_identifiers handles duplicate and blank input safely", {
-  ## Exact-duplicate ("BRCA1" x2) and blank tokens are dropped before
-  ## resolution; a mere case variant ("brca1") is a distinct submitted row
-  ## that still independently resolves to the same canonical gene - matching
-  ## cx_harmonize_gene_ids()'s own case-insensitive *matching* (not raw dedup),
-  ## the same behavior the sibling transcriptomics card's tbc_panel_identity() tests.
   res <- bc_resolve_identifiers(c("BRCA1", "brca1", "  ", "", "BRCA1"))
   expect_true(res$ok)
   expect_equal(res$n_submitted, 2L)
@@ -77,8 +64,6 @@ test_that("an invalid CpG probe ID is reported unresolved, not dropped", {
   expect_match(res$df$status_label[1], "Unresolved")
 })
 
-## ---- Source/API provenance envelope ---------------------------------------
-
 test_that("bc_meta builds a complete provenance envelope with a live timestamp", {
   before <- Sys.time()
   m <- bc_meta("Test DB", "BRCA1", "example.org/api", "Success", 5L)
@@ -91,14 +76,11 @@ test_that("bc_meta builds a complete provenance envelope with a live timestamp",
   expect_true(m$retrieved_at >= before && m$retrieved_at <= after)
 })
 
-## ---- Generalized evidence status / DB coverage chips ----------------------
-
 test_that("bc_evidence_status classifies not-run/failed/no-results/found correctly", {
   expect_equal(bc_evidence_status(NULL, "pathways"), "Not yet run")
   expect_equal(bc_evidence_status(list(ok = FALSE, reason = "boom"), "pathways"), "Failed")
   expect_equal(bc_evidence_status(list(ok = TRUE, pathways = data.frame()), "pathways"), "No results")
   expect_equal(bc_evidence_status(list(ok = TRUE, pathways = data.frame(id = "hsa04010")), "pathways"), "Results found")
-  ## Non-data.frame scalar fields (e.g. NCBI Gene's $name) count as "found" when non-NULL.
   expect_equal(bc_evidence_status(list(ok = TRUE, name = "BRCA1"), "name"), "Results found")
 })
 
@@ -106,8 +88,6 @@ test_that("BC_EVIDENCE_DBS covers every new live-API client with a matching key"
   keys <- vapply(BC_EVIDENCE_DBS, `[[`, character(1), "key")
   expect_true(all(c("ncbi_gene", "ensembl", "regulatory", "genetics", "gwas_catalog", "hpa", "encode", "geo", "biostudies", "literature") %in% keys))
 })
-
-## ---- Panel convergence aggregation -----------------------------------------
 
 test_that("bc_aggregate_convergence groups by the shared item and lists all biomarkers", {
   long_df <- data.frame(
@@ -120,7 +100,6 @@ test_that("bc_aggregate_convergence groups by the shared item and lists all biom
   bc_row <- agg[agg$Disease == "Breast cancer", ]
   expect_equal(bc_row$`Biomarker count`, 3L)
   expect_equal(bc_row$Biomarkers, "BRCA1, STAT3, TP53")
-  ## Sorted by descending biomarker count - the most-convergent item first.
   expect_equal(agg$Disease[1], "Breast cancer")
 })
 
@@ -128,9 +107,6 @@ test_that("bc_aggregate_convergence returns NULL for empty input rather than err
   expect_null(bc_aggregate_convergence(NULL, "Disease"))
   expect_null(bc_aggregate_convergence(data.frame(ID = character(0), Disease = character(0)), "Disease"))
 })
-
-## ---- Automated literature classification (spec: keyword heuristic, always
-## labeled "automated classification" in the UI, never a database fact) -----
 
 test_that("bc_literature_classify tags plausible categories from title text", {
   cls <- bc_literature_classify("An epigenome-wide association study (EWAS) of BRCA1 promoter methylation as a biomarker for breast cancer risk")
@@ -150,17 +126,12 @@ test_that("bc_literature_classify flags a review article", {
   expect_true("Review" %in% cls)
 })
 
-## ---- Literature query preset builder ---------------------------------------
-
 test_that("bc_literature_query builds gene/CpG-flavored preset queries", {
   expect_equal(bc_literature_query("BRCA1", "Gene + methylation"), "BRCA1 methylation")
   expect_equal(bc_literature_query("BRCA1", "Gene + CpG"), "BRCA1 CpG methylation")
   expect_equal(bc_literature_query("BRCA1", "disease", "rheumatoid arthritis"), "BRCA1 rheumatoid arthritis")
   expect_equal(bc_literature_query("BRCA1", "disease"), "BRCA1 disease")
 })
-
-## ---- Panel per-item row builders (no live network call - unresolved genes
-## degrade to NA rows rather than erroring) -----------------------------------
 
 test_that("bc_panel_gene_rows returns one row per gene, NA-filled for an unresolvable symbol", {
   rows <- bc_panel_gene_rows(c("BRCA1", "NOTAREALGENEXYZ123"))

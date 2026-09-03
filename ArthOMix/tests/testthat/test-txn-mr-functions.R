@@ -1,7 +1,6 @@
 ## Module 1 (Transcriptomics) - Mendelian Randomization's core estimator,
 ## estimate_mr_set() (global.R, shared with mod_crossancestry.R's live
 ## replication/transfer arm) - Wald ratio for a single instrument SNP, IVW +
-## median + Egger for >=3, with heterogeneity/pleiotropy statistics.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -11,7 +10,6 @@ mr_snp_fixture <- function(n_snp, seed = 150, beta_causal = 0.3) {
   set.seed(seed)
   beta.exposure <- runif(n_snp, 0.1, 0.5)
   se.exposure <- runif(n_snp, 0.01, 0.03)
-  ## Each SNP's outcome effect follows the same causal beta, plus small noise.
   beta.outcome <- beta_causal * beta.exposure + rnorm(n_snp, sd = 0.005)
   se.outcome <- runif(n_snp, 0.01, 0.03)
   data.frame(SNP = paste0("rs", 1:n_snp), gene = "TESTGENE",
@@ -48,7 +46,6 @@ test_that("estimate_mr_set() with >=3 instruments runs IVW + Weighted median + M
   expect_equal(out$res_table$method[out$res_table$primary], "IVW")
   expect_true(all(c("Q", "Q_df", "Q_pval") %in% names(out$heterogeneity)))
   expect_true(all(c("intercept", "se", "p", "I2") %in% names(out$pleiotropy)))
-  ## Every method's CI should bracket its own point estimate.
   expect_true(all(out$res_table$ci_low <= out$res_table$estimate))
   expect_true(all(out$res_table$estimate <= out$res_table$ci_high))
 })

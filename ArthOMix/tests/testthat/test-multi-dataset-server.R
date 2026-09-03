@@ -1,8 +1,6 @@
 ## Module 3 (Multiomics) - Dataset Workspace's reactive server logic, via
 ## testServer(): the preloaded branch (real mi_preloaded_cell_dataset()
 ## adapter, no separate special-cased path), the pipeline-switch reset
-## (spec: switching sources must never leave the previous pipeline's data
-## visible), and the precomputed-table browser (Load button).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -45,9 +43,6 @@ test_that("switching dataset_source resets the previously-published Active datas
     expect_true(isTRUE(multi_dataset$active))
     expect_gt(length(raw$mats), 0)
 
-    ## Switching away from "preloaded" must clear both the published dataset
-    ## and the staged raw$mats - never leave stale data visible under a
-    ## different source selection.
     session$setInputs(dataset_source = "upload")
     expect_false(isTRUE(multi_dataset$active))
     expect_null(multi_dataset$source)
@@ -62,8 +57,6 @@ test_that("the precomputed-table browser (table_pick + Load) publishes a real re
   shiny::testServer(mod_multi_dataset_server, args = list(id = "ds", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(dataset_source = "preloaded")
     session$setInputs(table_pick = "RNA-seq QC summary")
-    ## loaded_table is a bare-button eventReactive(ignoreInit=TRUE) - prime
-    ## to 0 first (see feedback_shiny_testserver_ignoreinit_actionbutton_priming.md).
     session$setInputs(load_table_btn = 0)
     session$setInputs(load_table_btn = 1)
 

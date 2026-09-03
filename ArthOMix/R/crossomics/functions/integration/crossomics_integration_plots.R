@@ -1,16 +1,7 @@
 ## R/crossomics/functions/integration/crossomics_integration_plots.R
 ## Plotting/rendering helpers for mod_cross_integration.R - kept separate from
 ## the module file so the Shiny wiring (mod_cross_integration.R) and the
-## visualization logic can be read/changed independently. Every plot reuses
-## the app's shared theme_arthomix()/ARTHOMIX_COLORS (global.R) so it matches
-## the rest of the app, and the quadrant plot is built once as a ggplot
-## object (cx_quadrant_ggplot) reused for both the interactive plotly view
-## and PNG/PDF/SVG export, so there is exactly one place that draws it.
 
-## `message` defaults to the Integration module's own instruction (its
-## original hardcoded text) - callers in the OTHER Cross-Omics sub-modules
-## (Biomarker Convergence, Cross-Omics MR) must pass their own, since "Run
-## Integration" is never the right action there.
 cx_empty_state <- function(message = "Click \"Run Integration\" in the Integration tab to see results here.") {
   div(class = "empty-note", icon("circle-info"), message)
 }
@@ -21,10 +12,6 @@ cx_fmt_num <- function(x, digits = 3, sci = FALSE) {
     if (sci) format(v, digits = 2, scientific = TRUE) else format(round(v, digits), nsmall = digits)
   }, character(1))
 }
-
-## ---------------------------------------------------------------------------
-## Gene Detail Drawer (modal)
-## ---------------------------------------------------------------------------
 
 cx_gene_detail_modal <- function(row, pairing, cpg_rows = NULL) {
   g <- row$gene[1]
@@ -77,10 +64,6 @@ cx_gene_detail_modal <- function(row, pairing, cpg_rows = NULL) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Quadrant plot (the hero visualization)
-## ---------------------------------------------------------------------------
-
 cx_quadrant_ggplot <- function(df, expr_thresh, meth_thresh, show_lines, highlight_genes = NULL, show_labels = FALSE) {
   df$category <- factor(as.character(df$category), levels = CX_CATEGORY_ORDER)
   df$tooltip <- sprintf(
@@ -120,19 +103,6 @@ cx_quadrant_plotly <- function(df, expr_thresh, meth_thresh, show_lines, highlig
     plotly::event_register("plotly_click")
 }
 
-## ---------------------------------------------------------------------------
-## Static gene-CpG network (spec section 20; best-effort, igraph only).
-## ---------------------------------------------------------------------------
-## Deliberately does NOT use ggraph::geom_edge_link() - on this deployment's
-## installed ggraph/ggplot2 combination it fails on every input, even a
-## trivial 3-node graph ("Problem while converting geom to grob ...
-## SET_VECTOR_ELT() can only be applied to a 'list', not a 'integer'", a
-## known ggraph/grid version-compatibility issue, not specific to this
-## module's graphs). Computing the layout with igraph::layout_with_fr()
-## directly and drawing it with plain ggplot2::geom_segment()/geom_point()
-## sidesteps ggraph's edge-grob code entirely while still producing a real
-## static network view.
-
 cx_gene_cpg_network_plot <- function(sub_df) {
   edges <- do.call(rbind, lapply(seq_len(nrow(sub_df)), function(i) {
     cpgs <- strsplit(as.character(sub_df$cpg[i]), ";")[[1]]
@@ -159,10 +129,6 @@ cx_gene_cpg_network_plot <- function(sub_df) {
     theme_arthomix() +
     ggplot2::theme(axis.text = ggplot2::element_blank(), axis.title = ggplot2::element_blank(), panel.grid = ggplot2::element_blank())
 }
-
-## ---------------------------------------------------------------------------
-## Analysis report (spec section 23/24)
-## ---------------------------------------------------------------------------
 
 cx_build_report <- function(df, provenance) {
   counts <- table(df$category)

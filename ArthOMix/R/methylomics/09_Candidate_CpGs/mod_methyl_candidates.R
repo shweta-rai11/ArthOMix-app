@@ -1,26 +1,6 @@
 ## R/methylomics/09_Candidate_CpGs/mod_methyl_candidates.R
 ## Submodule: Candidate CpGs (Module-DMR Overlap).
 ##
-## Module CpGs -> DMR coordinates -> genomic overlap -> candidate CpGs ->
-## filtering/prioritization -> results. Five sub-tabs:
-##   1. Data & Filters      - pick Preloaded/Upload, load, set filters.
-##   2. DMR-CpG Overlap     - coordinate overlap (GenomicRanges::findOverlaps)
-##                            between module CpGs and filtered DMRs.
-##   3. Module-DMR Overlap  - per-module overlap counts + one-sided Fisher's
-##                            exact enrichment test vs. the tested CpG universe.
-##   4. Candidate CpGs      - filter/rank the subtab-2 overlap table.
-##   5. Visualization       - one Generate-plot button per chart, each gated
-##                            on its own upstream analysis having run.
-##
-## Preloaded path reads global.R's loaders (load_default_wgcna_module_
-## assignment/load_default_dmr/load_default_dmp) plus ChAMPdata::probe.features
-## for coordinates/gene/island/region - nothing here reruns WGCNA or DMR
-## calling. Upload path accepts a module-assignment table and a DMR-results
-## table (annotation table optional if coordinates are already in the module
-## table); columns are auto-detected the same way mod_preprocessing.R's
-## pp_guess_col() does.
-
-## ---- Column-name detection --------------------------------------------
 
 MCD_CPG_ID_PATTERNS   <- c("^cpg_id$", "^cpg$", "^probe_id$", "^probeid$", "^probe$", "^illumina_id$", "^id$", "cpg", "probe")
 MCD_MODULE_PATTERNS   <- c("^module_color$", "^modulecolor$", "^module$", "^color$", "module", "color")
@@ -37,9 +17,6 @@ MCD_ISLAND_PATTERNS   <- c("^cgi$", "^island$", "^cpg_island$", "^relation_to_is
 MCD_FEATURE_PATTERNS  <- c("^feature$", "^genomic_region$", "^region$", "^annotation$", "feature")
 MCD_DIRECTION_PATTERNS <- c("^direction$")
 
-## First column matching any pattern (case-insensitive regex), tried in
-## order; NULL if none match. Callers treat that as required (validation
-## error) or optional (column omitted downstream).
 mcd_find_col <- function(cols, patterns) {
   for (p in patterns) {
     hit <- cols[grepl(p, cols, ignore.case = TRUE)]
@@ -130,8 +107,6 @@ mcd_standardize_annotation <- function(df) {
   list(ok = TRUE, df = out, detected = list(cpg_id = cpg_col, chr = chr_col, pos = pos_col, gene = gene_col, island = island_col, feature = feature_col))
 }
 
-## Shared by the optional CpG-level stats upload and the preloaded
-## load_default_dmp("sva", sex) table.
 mcd_standardize_cpg_stats <- function(df) {
   cols <- colnames(df)
   cpg_col <- mcd_find_col(cols, MCD_CPG_ID_PATTERNS)
@@ -149,8 +124,6 @@ mcd_standardize_cpg_stats <- function(df) {
   list(ok = TRUE, df = out)
 }
 
-## ChAMPdata::probe.features: chr/pos plus gene/genomic-region/CpG-island
-## columns not exposed by mod_methyl_dmr.R's own extraction. Cached separately.
 .mcd_champ_anno_cache <- new.env(parent = emptyenv())
 mcd_champ_full_annotation <- function() {
   if (!is.null(.mcd_champ_anno_cache$anno)) return(.mcd_champ_anno_cache$anno)
@@ -169,15 +142,11 @@ mcd_champ_full_annotation <- function() {
   out
 }
 
-## "1"/"X"/"MT" -> "chr1"/"chrX"/"chrMT"; already-prefixed values are just
-## case-normalized; anything else is left as-is.
 mcd_norm_chr <- function(x) {
   x <- trimws(as.character(x))
   ifelse(grepl("^chr", x, ignore.case = TRUE), paste0("chr", sub("^chr", "", x, ignore.case = TRUE)),
          ifelse(grepl("^([0-9]{1,2}|[XYM]|MT)$", x, ignore.case = TRUE), paste0("chr", toupper(x)), x))
 }
-
-## ---- DMR filtering / genomic overlap ----------------------------------
 
 mcd_filter_dmrs <- function(dmr, fdr_max = NULL, p_max = NULL, dbeta_min = 0, mincpgs_min = 0,
                              direction = "all", chr_restrict = character(0)) {
@@ -192,10 +161,6 @@ mcd_filter_dmrs <- function(dmr, fdr_max = NULL, p_max = NULL, dbeta_min = 0, mi
   dmr[keep, , drop = FALSE]
 }
 
-## Joins module_assign to annotation for coordinates, builds CpG/DMR GRanges
-## (DMR optionally flanked), and returns every CpG x DMR overlap pair
-## (GenomicRanges::findOverlaps) plus the CpG universe with resolvable
-## coordinates.
 mcd_compute_overlap <- function(module_assign, annotation, dmr_filtered, flank = 0) {
   cpg_pos <- merge(module_assign, annotation, by = "cpg")
   cpg_pos <- cpg_pos[!is.na(cpg_pos$chr) & !is.na(cpg_pos$pos), , drop = FALSE]
@@ -218,8 +183,6 @@ mcd_compute_overlap <- function(module_assign, annotation, dmr_filtered, flank =
   rownames(joined) <- NULL
   list(joined = joined, cpg_universe = cpg_pos)
 }
-
-## ---- Display helpers ----------------------------------------------------
 
 MCD_PRETTY_MAP <- c(
   cpg = "CpG ID", module = "Module", kme = "kME", dmr_id = "DMR ID", chr = "Chr", pos = "Position",
@@ -245,9 +208,6 @@ mcd_detected_list <- function(detected) {
   tags$ul(style = "font-size:12.5px; color:var(--color-ink-secondary); margin-bottom:0;", lapply(rows, tags$li))
 }
 
-## WGCNA module names are usually literal colours - used directly as fill
-## values when all valid R colour names, else falls back to the app palette
-## (e.g. uploaded "M1"/"M2" labels).
 mcd_module_colors <- function(mods) {
   ok <- vapply(mods, function(m) !inherits(tryCatch(grDevices::col2rgb(m), error = function(e) e), "error"), logical(1))
   if (length(mods) > 0 && all(ok)) return(stats::setNames(as.character(mods), as.character(mods)))
@@ -255,8 +215,6 @@ mcd_module_colors <- function(mods) {
            ARTHOMIX_COLORS$magenta, ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
   stats::setNames(rep(pal, length.out = length(mods)), as.character(mods))
 }
-
-## ---- Plots ---------------------------------------------------------------
 
 mcd_plot_module_bar <- function(mod_tab) {
   d <- mod_tab[order(-mod_tab$n_overlap_cpgs), , drop = FALSE]
@@ -343,8 +301,6 @@ mcd_viz_block <- function(ns, id_prefix, title, icon_name, btn_label, desc) {
   )
 }
 
-## ---- Config / UI -----------------------------------------------------
-
 mod_methyl_candidates_config <- list(
   id = "candidates", title = "Candidate CpGs (Module-DMR Overlap)", icon = "star", group = "Network",
   description = "Finds CpGs that overlap significant DMRs and ranks them by WGCNA module enrichment."
@@ -365,47 +321,22 @@ mod_methyl_candidates_ui <- function(id) {
   )
 }
 
-## ---- Server ------------------------------------------------------------
-
 mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ===================== 1. Data & Filters ============================
-
-    ## Whether a live WGCNA module assignment + DMR result from this same
-    ## session (uploaded/GEO pipeline) are available for auto-loading here
-    ## without a re-upload - published by mod_methyl_wgcna.R/mod_methyl_dmr.R
-    ## into the shared `results` (methyl_results) store, only when the
-    ## Dataset tab's active dataset isn't the preloaded one.
     live_available <- reactive({
       !is.null(results) && !is.null(results$wgcna_module_assignment) && !is.null(results$dmr_table) &&
         !isTRUE(dataset$preloaded)
     })
 
     has_loaded <- reactiveVal(FALSE)
-    ## The "live" panel's button uses its own id (load_live_btn) rather than
-    ## reusing load_btn - conditionalPanel only toggles CSS display, so a
-    ## shared id between the always-rendered "live" and "upload" panels would
-    ## leave two DOM elements bound to the same Shiny input id, and Shiny's
-    ## input binding only wires up the first match (a real, empirically
-    ## verified "Duplicate input ID" bug, not just a lint warning). Both
-    ## buttons bump this single counter so one eventReactive can react to
-    ## either.
     load_trigger <- reactiveVal(0)
     observeEvent(input$load_btn, load_trigger(load_trigger() + 1), ignoreInit = TRUE)
     observeEvent(input$load_live_btn, load_trigger(load_trigger() + 1), ignoreInit = TRUE)
     observeEvent(load_trigger(), has_loaded(TRUE), ignoreInit = TRUE)
     observeEvent(input$data_source, has_loaded(FALSE), ignoreInit = TRUE)
 
-    ## No ignoreInit here (deliberately, unlike the button-driven original):
-    ## has_loaded() gates every reader of loaded() until load_trigger() first
-    ## moves off 0, so this eventReactive is never actually pulled until well
-    ## after session start - with ignoreInit=TRUE, that first-ever pull would
-    ## itself be misread as "the initial state to ignore" and permanently
-    ## swallow the click that produced it (verified empirically: the button
-    ## click registered, has_loaded() flipped TRUE, but this reactive's body
-    ## never ran and the panel stayed blank).
     loaded <- eventReactive(load_trigger(), {
       if (identical(input$data_source, "live")) {
         validate(need(live_available(), "Run WGCNA (Network & Modules) and Differentially Methylated Regions on the current dataset first, then come back here."))
@@ -493,10 +424,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
     })
 
     output$data_source_ui <- renderUI({
-      ## Mirrors whichever pipeline is active on the Methylomics Dataset tab:
-      ## "Use Preloaded Data" only makes sense while the preloaded cohort is
-      ## the active dataset; otherwise this offers the live in-session
-      ## WGCNA+DMR result (when available) or a manual upload.
       is_preloaded <- isTRUE(dataset$preloaded)
       choice_names <- if (is_preloaded) {
         list(tagList(icon("database"), " Use Preloaded Data"), tagList(icon("upload"), " Upload Data"))
@@ -618,8 +545,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       updateTabsetPanel(session, "cd_subtabs", selected = "DMR-CpG Overlap")
     })
 
-    ## ===================== 2. DMR-CpG Overlap ============================
-
     overlap_run <- eventReactive(input$overlap_run_btn, {
       d <- loaded(); req(d)
       validate(need(!is.null(d$annotation), "Genomic coordinates are required for CpG-DMR overlap, but none were detected in the loaded data. Provide a CpG annotation/coordinate file with chromosome and position columns."))
@@ -718,11 +643,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(overlap_run()$table, file, row.names = FALSE)
     )
 
-    ## ===================== 3. Module-DMR Overlap =========================
-    ## Independent of the module filter above (every module is scored, not
-    ## just the currently-selected one) so modules can be compared - but
-    ## reuses the SAME DMR filters/overlap definition as subtab 2.
-
     module_overlap_run <- eventReactive(input$modoverlap_run_btn, {
       d <- loaded(); req(d)
       validate(need(!is.null(d$annotation), "Genomic coordinates are required for this analysis - none were detected."))
@@ -812,10 +732,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(module_overlap_run()$table, file, row.names = FALSE)
     )
 
-    ## ===================== 4. Candidate CpGs =============================
-    ## Filters/prioritizes the overlap table already computed in subtab 2 -
-    ## no recomputation of the overlap itself, only narrowing + scoring it.
-
     output$candidates_tab_ui <- renderUI({
       if (!has_loaded()) return(div(class = "empty-note", icon("circle-info"), "Load a data source on the \"Data & Filters\" tab first."))
       if (!ov_has_run()) return(div(class = "empty-note", icon("circle-info"), "Run \"DMR-CpG Overlap\" first - Candidate CpGs filters/prioritizes that overlap table."))
@@ -893,16 +809,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
 
       mode <- input$cand_rank_mode %||% "significance"
       score <- rep(0, nrow(df)); factors_used <- character(0)
-      ## Every term in "Combined score" is deliberately kept on a comparable
-      ## ~0-10ish scale before summing: 10*|Delta-Beta| and |kME| are already
-      ## bounded that way (delta-beta in [0,1], kME in [0,1]), but a raw
-      ## -log10(FDR) term is unbounded and can reach ~300 for a
-      ## genome-wide-significant CpG - left uncapped, that single term would
-      ## dominate "Combined" ranking regardless of effect size or module
-      ## membership. Capping at 10 (== FDR 1e-10, already far past any
-      ## realistic significance threshold used elsewhere in this app) keeps
-      ## every factor contributing meaningfully. The underlying fdr/delta_beta/
-      ## kme columns themselves are untouched - only this derived score changes.
       if (mode %in% c("significance", "combined")) {
         if ("dmr_fdr" %in% names(df)) { score <- score + pmin(-log10(pmax(df$dmr_fdr, 1e-300)), 10); factors_used <- c(factors_used, "min(-log10(DMR FDR), 10)") }
         if ("fdr" %in% names(df)) { score <- score + pmin(-log10(pmax(df$fdr, 1e-300)), 10); factors_used <- c(factors_used, "min(-log10(CpG FDR), 10)") }
@@ -955,8 +861,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(candidate_result()$table, file, row.names = FALSE)
     )
 
-    ## ===================== 5. Visualization ===============================
-
     output$viz_tab_ui <- renderUI({
       if (!has_loaded()) return(div(class = "empty-note", icon("circle-info"), "Load a data source on the \"Data & Filters\" tab first."))
       tagList(
@@ -969,7 +873,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Registers a plot's button/output pair: gates on its own upstream analysis (`requires()`), gets a has-run flag, renderPlot, and PNG download.
     register_viz <- function(id_prefix, requires, plot_fn, filename) {
       has_run <- reactiveVal(FALSE)
       observeEvent(input[[paste0(id_prefix, "_btn")]], has_run(TRUE), ignoreInit = TRUE)
@@ -1009,7 +912,6 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
                  function() mcd_plot_candidate_volcano(overlap_run()$table, if (isTRUE(cand_has_run())) candidate_result()$table$cpg else NULL),
                  "candidate_volcano.png")
 
-    ## Read by the Assistant sub-module, same as every other analysis tab.
     observe({
       if (!isTRUE(ov_has_run())) return()
       r <- tryCatch(overlap_run(), error = function(e) NULL)

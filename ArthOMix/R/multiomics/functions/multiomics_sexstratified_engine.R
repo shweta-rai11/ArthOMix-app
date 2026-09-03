@@ -1,38 +1,10 @@
 ## R/multiomics/functions/multiomics_sexstratified_engine.R
 ## Live sex-stratified DIABLO/Random-Forest engine - a parameterized,
 ## general-dataset port of Research_05_multiomics_sexstratified's own
-## nested-CV pipeline (analyses/05_female_response/scripts/
-## 11_diablo_response_sexstratified.R, .../13_random_forest_secondary_model.R,
-## .../07_cross_analysis_summary/scripts/14_diablo_drugtype_sexstratified.R),
-## so a user's own uploaded data (or a preloaded cell's own stored blocks)
-## gets the SAME leakage-safe, in-fold-covariate-adjusted, nested 5x5-CV
-## analysis that produced Table34/35/37/39 - not a generic freeform DIABLO
-## run. Every default constant below (top-K per block, ncomp, folds,
-## repeats, keepX bounds, ntree, seeds) is copied verbatim from those
-## scripts; callers may override them via `params`, but the defaults are
-## what reproduces the pipeline's own numbers when pointed at the pipeline's
-## own cohorts.
-##
-## Kept deliberately separate from mi_diablo_run()
-## (multiomics_integration_helpers.R) and mb_cv_roc()
-## (multiomics_biomarker_helpers.R) - those are the app's existing freeform
-## DIABLO engines (single outcome, no covariate adjustment, mixOmics's own
-## tune.block.splsda()/perf() machinery) and are untouched by this file.
-##
-## Matrix convention throughout this file matches the rest of R/multiomics/:
-## samples in rows, features in columns (`multi_dataset$layers`,
-## mi_preloaded_cell_dataset()'s `fit$X`) - the reverse of the pipeline
-## scripts' own features-in-rows convention. Every port below is transposed
-## accordingly; the underlying arithmetic (which values get averaged/tested/
-## imputed) is unchanged.
-
-## ---------------------------------------------------------------------------
-## Pipeline-derived default constants (verbatim from the scripts named above)
-## ---------------------------------------------------------------------------
 
 MSS_DEFAULTS <- list(
-  top_expr = 50L, top_meth = 100L,            ## DIABLO per-block top-K (script 11/14)
-  top_expr_rf = 50L, top_meth_rf = 100L,      ## RF integrated-blocks top-K (script 13, items 5-6)
+  top_expr = 50L, top_meth = 100L,
+  top_expr_rf = 50L, top_meth_rf = 100L,
   ncomp = 2L,
   folds = 5L, repeats = 5L,
   keepx_min = 5L, keepx_max = 15L,
@@ -41,10 +13,6 @@ MSS_DEFAULTS <- list(
   min_train_rows_rf = 4L
 )
 
-## Below this many matched samples, a sex stratum is too small to run a
-## nested-CV model at all - mirrors mcc_build_live()'s own `< 6` guard
-## (mod_multi_concordance.R) so the same "too small, silently skip" rule
-## applies everywhere a live sex split happens in this module.
 MSS_MIN_STRATUM_N <- 6L
 
 MSS_SEX_MODE_CHOICES <- c(
@@ -55,14 +23,6 @@ MSS_SEX_MODE_CHOICES <- c(
 )
 
 MSS_ENGINE_CHOICES <- c("DIABLO (mixOmics::block.splsda)" = "diablo", "Random Forest (randomForest, ntree=500)" = "rf")
-
-## ---------------------------------------------------------------------------
-## 1. Cohort assembly - generic analogue of the pipeline's own get_cohort():
-## intersects sample IDs present in BOTH chosen live matrices with the
-## requested stratum's sample set. Never filters by outcome/covariate here -
-## those enter only inside the CV loop as label/adjustment, exactly as in
-## the pipeline.
-## ---------------------------------------------------------------------------
 
 mss_cohort_for_stratum <- function(expr_mat, meth_mat, sample_meta, sample_ids) {
   common <- intersect(rownames(expr_mat), rownames(meth_mat))
@@ -76,13 +36,6 @@ mss_cohort_for_stratum <- function(expr_mat, meth_mat, sample_meta, sample_ids) 
        meta = if (!is.null(sample_meta)) sample_meta[ids, , drop = FALSE] else NULL)
 }
 
-## ---------------------------------------------------------------------------
-## 2. Leakage-safe per-fold imputation - direct port of the pipeline's
-## impute_fold_matrix(): per-feature TRAIN-only mean, applied to both train
-## and test. A feature whose training column is entirely NA is left as-is
-## (matches the pipeline's own `if (is.na(train_mean[i])) next` guard).
-## ---------------------------------------------------------------------------
-
 mss_impute_fold_matrix <- function(X, train_idx, test_idx) {
   X_train <- X[train_idx, , drop = FALSE]
   X_test  <- X[test_idx, , drop = FALSE]
@@ -93,15 +46,6 @@ mss_impute_fold_matrix <- function(X, train_idx, test_idx) {
   for (j in na_test) { if (is.na(train_mean[j])) next; idx <- is.na(X_test[, j]); X_test[idx, j] <- train_mean[j] }
   list(train = X_train, test = X_test)
 }
-
-## ---------------------------------------------------------------------------
-## 3. In-fold feature selection - training-fold-only limma moderated-t
-## ranking, covariate-adjusted (`~outcome + covariate`, coef=2 tests the
-## outcome term). DIABLO uses topTable()'s own p-ranking (script 11); RF
-## uses the pipeline's separate `rank_by_pvalue()` idiom (sorts the raw
-## eBayes p-value column directly) - both are in-fold-only, never touch
-## test_idx.
-## ---------------------------------------------------------------------------
 
 mss_limma_design <- function(outcome_train, covariate_train) {
   if (is.null(covariate_train)) stats::model.matrix(~outcome_train) else stats::model.matrix(~outcome_train + covariate_train)
@@ -128,17 +72,6 @@ mss_rank_features_pvalue <- function(mat_train, outcome_train, covariate_train, 
   }, error = function(e) NULL)
 }
 
-## ---------------------------------------------------------------------------
-## 4. Per-fold model fits. Both return NULL to signal "skip this fold"
-## (mirrors the pipeline's own `tryCatch(..., error=function(e) NULL)` /
-## `next` guards) or `list(score, selected)` - `selected` (the in-fold chosen
-## feature names) feeds the selection-frequency/stability summary below.
-## ---------------------------------------------------------------------------
-
-## DIABLO: select -> impute -> drop near-zero-variance training columns
-## (pipeline lines 72-73/75-76) -> correlation-derived 2x2 design matrix ->
-## keepX clamped to [keepx_min, keepx_max] -> block.splsda -> the held-out
-## fold's WeightedVote max.dist score at the final component.
 mss_diablo_fold <- function(expr, meth, outcome_full, covariate_full, train_idx, test_idx, params) {
   outcome_train <- outcome_full[train_idx]
   if (length(unique(as.character(outcome_train))) < 2) return(NULL)
@@ -174,12 +107,6 @@ mss_diablo_fold <- function(expr, meth, outcome_full, covariate_full, train_idx,
   list(score = as.numeric(vote == positive_class), selected = list(expr = sel$expr, meth = sel$meth))
 }
 
-## Random Forest: select (own top-K/ranking) -> impute -> concatenate
-## expression+methylation features into one matrix, plus an explicit
-## covariate column (pipeline lines ~ script 13:169-172 - DIABLO instead
-## only adjusts for the covariate at the limma design-matrix stage, RF adds
-## it as a model input) -> randomForest(ntree) -> predicted probability of
-## the positive class.
 mss_rf_fold <- function(expr, meth, outcome_full, covariate_full, train_idx, test_idx, params) {
   outcome_train <- outcome_full[train_idx]
   if (length(unique(as.character(outcome_train))) < 2) return(NULL)
@@ -207,18 +134,6 @@ mss_rf_fold <- function(expr, meth, outcome_full, covariate_full, train_idx, tes
   if (is.null(prob)) return(NULL)
   list(score = as.numeric(prob), selected = list(expr = sel_e, meth = sel_m))
 }
-
-## ---------------------------------------------------------------------------
-## 5. Nested CV orchestrator - caret::createFolds(outcome, k), OUTER_REPEATS
-## repeats, DIABLO's own seed scheme (3000+rep_i, script 11/14) reused for
-## both engines so a Female/Male "both separately" run draws the same fold
-## partitions regardless of which engine is selected. OOF predictions are
-## averaged per patient (rowMeans(na.rm=TRUE)), then scored with
-## pROC::roc(..., direction="<") + ci.auc() exactly as the pipeline does.
-## Requires a strictly two-class outcome - the pipeline's own scope
-## (responder/non-responder, or drug A/B) never modeled more than two
-## classes with this design.
-## ---------------------------------------------------------------------------
 
 mss_nested_cv <- function(expr, meth, outcome, covariate = NULL, engine = c("diablo", "rf"), params = list()) {
   engine <- match.arg(engine)
@@ -288,11 +203,6 @@ mss_nested_cv <- function(expr, meth, outcome, covariate = NULL, engine = c("dia
   )
 }
 
-## Per-feature selection frequency across every fold that actually fit a
-## model (out of the up-to- folds*repeats attempts) - the stability metric
-## Biomarker Discovery's "Sex-Stratified" tab surfaces instead of
-## re-deriving one from mixOmics::perf()'s own stability structure (which
-## this engine, unlike mi_diablo_run(), never calls).
 mss_selection_frequency <- function(fold_selected_features, block = c("expr", "meth")) {
   block <- match.arg(block)
   n_folds <- length(fold_selected_features)
@@ -304,16 +214,6 @@ mss_selection_frequency <- function(fold_selected_features, block = c("expr", "m
                     selection_frequency = as.numeric(tab) / n_folds, stringsAsFactors = FALSE)
   df[order(-df$selection_frequency), , drop = FALSE]
 }
-
-## ---------------------------------------------------------------------------
-## 6. Full-cohort descriptive panel - no CV, purely for the panel/loadings
-## artifact (mirrors the pipeline's own separate full-cohort refit, script
-## 11 lines 122-144). DIABLO's panel is `selectVar()` component-1 loadings,
-## exactly as the pipeline reports it (Table35's own shape). Random Forest
-## has no equivalent pipeline artifact - its panel here (MeanDecreaseGini
-## importance from a full-cohort refit) is a live extension, flagged as such
-## in the returned `note` for the UI to display verbatim.
-## ---------------------------------------------------------------------------
 
 mss_full_cohort_panel <- function(expr, meth, outcome, covariate = NULL, engine = c("diablo", "rf"), params = list()) {
   engine <- match.arg(engine)
@@ -336,13 +236,6 @@ mss_full_cohort_panel <- function(expr, meth, outcome, covariate = NULL, engine 
     for (j in which(colSums(is.na(mat)) > 0)) { if (is.na(means[j])) next; mat[is.na(mat[, j]), j] <- means[j] }
     mat
   }
-  ## Both blocks get the same train-only-style mean imputation the per-fold
-  ## path already applies (mss_impute_fold_matrix) - expr was previously left
-  ## raw here while meth was imputed, so any NA in the expression block made
-  ## this descriptive panel fail (randomForest rejects NA predictors outright)
-  ## even when the CV performance path succeeded via its own fold-level
-  ## imputation, an inconsistent and confusing "performance shown, panel
-  ## silently missing" outcome for the same dataset.
   expr <- impute_full(expr)
   meth_full <- impute_full(meth)
 
@@ -369,7 +262,6 @@ mss_full_cohort_panel <- function(expr, meth, outcome, covariate = NULL, engine 
     return(list(ok = TRUE, panel = panel, fit = fit, note = NULL))
   }
 
-  ## engine == "rf"
   sel_e <- tryCatch(head(names(sort(limma::eBayes(limma::lmFit(t(expr), design))$p.value[, 2])), p$top_expr_rf), error = function(e) NULL)
   sel_m <- tryCatch(head(names(sort(limma::eBayes(limma::lmFit(t(meth_full), design))$p.value[, 2])), p$top_meth_rf), error = function(e) NULL)
   if (is.null(sel_e) || is.null(sel_m) || length(sel_e) < 2 || length(sel_m) < 2) return(list(ok = FALSE, error = "Feature selection failed on the full cohort."))
@@ -387,13 +279,6 @@ mss_full_cohort_panel <- function(expr, meth, outcome, covariate = NULL, engine 
   list(ok = TRUE, panel = panel, fit = fit,
        note = "Random Forest panel = MeanDecreaseGini importance (full-cohort refit) - a live extension, not in the original pipeline.")
 }
-
-## ---------------------------------------------------------------------------
-## 7. Top-level orchestrator - runs one or more sex strata end to end
-## (nested-CV performance + full-cohort descriptive panel). This is the one
-## function the Integration/Biomarker "Sex-Stratified" tabs call directly;
-## everything above is an implementation detail of this function.
-## ---------------------------------------------------------------------------
 
 mss_run_stratified <- function(expr_mat, meth_mat, sample_meta, outcome_col, covariate_col = NULL,
                                 sex_mode = c("pooled", "female", "male", "both"), engine = c("diablo", "rf"), params = list()) {
@@ -447,15 +332,6 @@ mss_run_stratified <- function(expr_mat, meth_mat, sample_meta, outcome_col, cov
   list(ok = TRUE, engine = engine, sex_col = sex_col, strata = results, performance = performance, panels = panels,
        panels_wide = mss_panel_wide_by_sex(panels), panel_note = panel_note)
 }
-
-## ---------------------------------------------------------------------------
-## 8. Side-by-side sex comparison - pivots the combined `panels` table (long
-## format: stratum, view, feature, loading/importance) into one row per
-## feature with a separate column per stratum actually run (e.g. female,
-## male, pooled), so a user can see at a glance which sex(es) a given
-## feature was a candidate biomarker in, rather than scrolling one merged
-## long table sorted by stratum.
-## ---------------------------------------------------------------------------
 
 mss_panel_wide_by_sex <- function(panels) {
   if (is.null(panels) || nrow(panels) == 0) return(NULL)

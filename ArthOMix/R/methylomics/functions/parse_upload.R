@@ -1,10 +1,7 @@
 ## R/methylomics/functions/parse_upload.R
 ## Upload parsing for the Methylomics Dataset tab. Never throws - each parser
 ## returns list(ok = FALSE, error = <message>) instead, same fail-soft pattern
-## used elsewhere in the app.
 
-## Probe-by-sample matrix (beta or M-values): CSV/TSV, first column probe ID,
-## rest numeric.
 methyl_parse_matrix <- function(datapath, filename) {
   df <- tryCatch(
     as.data.frame(data.table::fread(datapath, showProgress = FALSE,
@@ -33,7 +30,6 @@ methyl_parse_matrix <- function(datapath, filename) {
   list(ok = TRUE, mat = mat)
 }
 
-## Sample sheet / phenotype metadata: CSV/TSV, one row per sample.
 methyl_parse_sample_sheet <- function(datapath, filename) {
   df <- tryCatch(as.data.frame(data.table::fread(datapath, showProgress = FALSE)), error = function(e) NULL)
   if (is.null(df) || nrow(df) == 0) {
@@ -42,10 +38,6 @@ methyl_parse_sample_sheet <- function(datapath, filename) {
   list(ok = TRUE, df = df)
 }
 
-## Checks whether a parsed matrix looks transposed (samples x probes instead of
-## probes x samples) by comparing what fraction of rownames vs colnames look like
-## probe IDs (cg######/ch.#######/rs######## - CpG, SNP-control, and Type II
-## "ch." probes all seen on real Illumina manifests).
 methyl_detect_orientation <- function(mat) {
   probe_pattern <- "^(cg|ch\\.|rs)[0-9]"
   row_hits <- mean(grepl(probe_pattern, rownames(mat), ignore.case = TRUE))
@@ -53,11 +45,6 @@ methyl_detect_orientation <- function(mat) {
   list(row_hits = row_hits, col_hits = col_hits, transposed = col_hits > row_hits && col_hits > 0.5)
 }
 
-## Fail-soft check that an already-parsed matrix (i) is oriented probes x samples,
-## transposing automatically if it looks backwards, and (ii) actually looks like the
-## declared input scale - beta values must mostly fall in [0,1]; M-values are
-## unbounded, so only warns (rather than blocks) when they look suspiciously
-## beta-like. Never throws; always returns list(ok, mat, note, error).
 methyl_validate_matrix_upload <- function(mat, declared_scale) {
   orient <- methyl_detect_orientation(mat)
   notes <- character(0)
@@ -82,7 +69,6 @@ methyl_validate_matrix_upload <- function(mat, declared_scale) {
   list(ok = TRUE, mat = mat, note = if (length(notes) > 0) paste(notes, collapse = " ") else NULL)
 }
 
-## Optional probe-exclusion list: one probe ID per line, or first column of a CSV/TSV.
 methyl_parse_probe_list <- function(datapath, filename) {
   lines <- tryCatch(readLines(datapath, warn = FALSE), error = function(e) NULL)
   if (is.null(lines)) return(list(ok = FALSE, error = "Could not read this file.", ids = character(0)))
@@ -92,9 +78,6 @@ methyl_parse_probe_list <- function(datapath, filename) {
   list(ok = TRUE, ids = ids)
 }
 
-## `files` is a fileInput() data.frame for a multi-file IDAT upload. Shiny stores
-## uploads under randomized tmp paths, but minfi pairs *_Grn.idat/*_Red.idat by
-## basename prefix - so each file is copied into a temp dir under its original name first.
 methyl_read_idat <- function(files) {
   if (!requireNamespace("minfi", quietly = TRUE)) {
     return(list(ok = FALSE, error = "The minfi package is not installed in this deployment - IDAT processing is unavailable; upload a beta or M-value matrix instead."))
@@ -104,7 +87,6 @@ methyl_read_idat <- function(files) {
     return(list(ok = FALSE, error = "No .idat files found in this upload."))
   }
   files <- files[is_idat, , drop = FALSE]
-  ## basename() strips any client-supplied path component (path-traversal protection).
   safe_names <- basename(files$name)
   has_grn <- any(grepl("_Grn\\.idat", safe_names, ignore.case = TRUE))
   has_red <- any(grepl("_Red\\.idat", safe_names, ignore.case = TRUE))

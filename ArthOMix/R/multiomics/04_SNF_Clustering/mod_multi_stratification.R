@@ -1,35 +1,11 @@
 ## R/multiomics/04_SNF_Clustering/mod_multi_stratification.R
 ## Submodule: SNF Clustering - a live, data-adaptive unsupervised patient
 ## stratification workflow (Similarity Network Fusion, Wang et al. 2014,
-## SNFtool::SNF) on either the Active Multi-Omics Dataset (Dataset Workspace
-## tab) or a preloaded RA anti-TNF analysis cell. Reuses the tested SNF
-## engine already built for the Multi-omics Integration submodule
-## (mi_snf_*()/mi_ari()/mi_snf_concordance() - multiomics_integration_live_
-## helpers.R) rather than re-implementing it; this file's own helpers
-## (snf_clustering_helpers.R) add only what that engine does not already
-## cover for a dedicated stratification workflow: preprocessing, single-omics
-## fallback, clinical association testing, resampling-based stability,
-## parameter sensitivity, and per-feature cluster-association ranking.
-##
-## Workflow (spec): Data -> Validate -> Configure SNF -> Run -> Clusters ->
-## Stability -> Clinical -> Features. Nothing under Clusters/Stability/
-## Clinical/Features renders until the blue "Run SNF Clustering" button is
-## clicked - every ..._ui below gates on `input$run_btn > 0` first, exactly
-## like Multi-omics Integration's own diablo_results_ui/snf_results_ui.
-## Clusters are always unsupervised molecular groups; any clinical/outcome
-## comparison is explicitly post-hoc and never used to choose K/alpha/T or
-## the cluster count.
 
 mod_multi_stratification_config <- list(
   id = "stratification", title = "SNF Clustering", icon = "diagram-project", group = "Data",
   description = "Unsupervised patient clustering via Similarity Network Fusion (SNF)."
 )
-
-## ---------------------------------------------------------------------------
-## Small shared UI pieces (mi_stat_card()/mi_warn()/mi_ok()/mi_stop() are
-## already defined, globally, in mod_multi_integration.R - reused as-is
-## rather than redefined, so both submodules read identically).
-## ---------------------------------------------------------------------------
 
 mod_multi_stratification_ui <- function(id) {
   ns <- NS(id)
@@ -62,10 +38,6 @@ mod_multi_stratification_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -73,11 +45,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
 
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
 
-    ## =========================================================================
-    ## 1. Data selection (spec section 25) - one reactive dataset object,
-    ## converging on the same shape mi_dataset() uses in Multi-omics
-    ## Integration, never merging preloaded and Active Multi-Omics Dataset.
-    ## =========================================================================
     sc_dataset <- reactive({
       if (identical(input$data_source, "preloaded")) {
         req(input$preloaded_cell)
@@ -102,12 +69,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
           checkboxGroupInput(ns("blocks"), "Available modalities (select at least one; at least two for true multi-omics SNF)", choices = choices, selected = choices, inline = TRUE))
     })
 
-    ## =========================================================================
-    ## 2. Validation (spec sections 6-8) - raw block QC + sample matching,
-    ## before any preprocessing is applied. sfc_validate_dataset() handles
-    ## both the single- and multi-block case (never fails just because one
-    ## modality was deselected).
-    ## =========================================================================
     sc_val_raw <- reactive({
       d <- sc_dataset()
       if (!isTRUE(d$ok)) return(NULL)
@@ -141,12 +102,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       )
     })
 
-    ## =========================================================================
-    ## 3. Preprocessing (spec sections 9-11) - per selected block: data-type
-    ## detection drives which transforms are even offered; missing-value
-    ## handling is never automatic; feature filtering is optional and never
-    ## forces blocks to share a feature count.
-    ## =========================================================================
     output$preproc_ui <- renderUI({
       d <- sc_dataset(); v <- sc_val_raw()
       if (!isTRUE(d$ok) || is.null(v) || !isTRUE(v$ok)) return(NULL)
@@ -183,10 +138,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       )
     })
 
-    ## Applies the chosen preprocessing to each selected block's own full
-    ## sample set (never restricted to the matched set first) - matching is
-    ## re-evaluated afterward (sc_val2()) since removing high-missingness
-    ## samples can change which patients remain.
     sc_ready <- reactive({
       d <- req(sc_dataset()); v <- req(sc_val_raw())
       out <- list(); errors <- character(0)
@@ -226,11 +177,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
           if (isTRUE(e$ok)) mi_ok(sprintf("Ready - %d matched patients after preprocessing (%s).", v2$n_shared, if (identical(e$mode, "single_omics")) "Single-Omics Clustering" else "multi-omics SNF")) else mi_stop(e$reason))
     })
 
-    ## =========================================================================
-    ## 4. SNF Setup (spec sections 12-15) - K/Alpha/T/cluster-count, each
-    ## independently Automatic or Manual, ranges always derived from the
-    ## matched-sample count in front of them (never one universal value).
-    ## =========================================================================
     output$setup_ui <- renderUI({
       v2 <- sc_val2(); e <- sc_elig()
       if (is.null(v2)) return(box(width = NULL, title = "SNF parameters", status = "primary", solidHeader = FALSE, mi_warn("Select and validate a dataset on the Data tab first.")))
@@ -276,12 +222,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
           p(class = "submodule-desc", "Partitions the same fused network regardless of technique."),
           hr(),
           h5("Reproducibility"),
-          ## SNFtool::spectralClustering() (and cluster::pam for the "PAM"
-          ## technique) are k-means-based internally, so identical
-          ## K/Alpha/T settings can still yield different cluster
-          ## assignments run to run without a fixed seed - same
-          ## reproducibility gap Multi-omics Integration's own SNF tab
-          ## closes with its "Random seed" field.
           numericInput(ns("seed"), "Random seed", value = 1, min = 1),
           hr(),
           uiOutput(ns("summary_pre")),
@@ -315,35 +255,9 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       k = input$k, alpha = input$alpha, t = input$t,
       cluster_mode = if (isTRUE(input$cluster_auto)) "automatic" else "manual", n_clusters = input$n_clusters,
       cluster_method = input$cluster_method %||% "spectral",
-      ## Threaded into set.seed() inside sfc_snf_run()/mi_snf_run()
-      ## (snf_clustering_helpers.R / multiomics_integration_helpers.R),
-      ## right before their kmeans-based SNFtool::spectralClustering()/
-      ## cluster::pam() calls.
       seed = input$seed %||% 1
     ))
 
-    ## =========================================================================
-    ## 5. Run (spec section 5, "nothing before the blue button") - the main
-    ## run bundles the headline clustering AND a default stability check
-    ## (fixed, sensible defaults) in one async task, since clusters must
-    ## never be shown/labeled without stability evidence (spec rule 8). The
-    ## Stability tab additionally offers its own "Recompute" controls for a
-    ## custom resample count/fraction, and a separate parameter-sensitivity
-    ## check (both secondary, explicit actions - the heavier of the two,
-    ## sensitivity, is optional/best-effort per spec section 19).
-    ## =========================================================================
-    ## `submitted` is set eagerly, synchronously, in the same observer that
-    ## calls run_task$invoke() - future::multisession worker cold-start
-    ## (spinning up a background R process the first time, loading SNFtool
-    ## in it) can itself take a few real seconds, during which
-    ## run_task$status() can still read something other than "running".
-    ## Without this flag, every render branch below (gate(), run_status_ui,
-    ## the button itself) fell through to nothing visible during that gap -
-    ## confirmed directly on the sibling Multi-omics Integration submodule's
-    ## identical pattern (DIABLO/SNF tabs, mod_multi_integration.R): an
-    ## empty/unchanged panel for several seconds after clicking, not just a
-    ## briefly slow spinner. `submitted` closes that gap so the spinner
-    ## appears the instant the button is clicked.
     state <- reactiveValues(result = NULL, stability = NULL, error = NULL, submitted = FALSE, layers_used = NULL, sample_meta = NULL, dataset_label = NULL)
 
     snapshot_inputs <- function() {
@@ -364,19 +278,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
         validate(need(isTRUE(sc_elig()$ok), sc_elig()$reason))
         layers <- snapshot_inputs()
         p <- sc_params()
-        ## run_task$invoke() calls its ExtendedTask function body
-        ## SYNCHRONOUSLY before returning (confirmed directly on the
-        ## sibling Multi-omics Integration submodule's identical pattern -
-        ## tens of seconds in this app's actual reactive-domain context,
-        ## not the near-instant dispatch its docs describe in isolation) -
-        ## so calling it inline here would block THIS SAME observer, and
-        ## nothing (including snapshot_inputs()'s `submitted` flag) can
-        ## flush to the browser until a running observer/render finishes.
-        ## session$onFlushed(..., once = TRUE) defers the actual invoke()
-        ## to the next flush cycle, so the "Running..." spinner reaches
-        ## the browser first. `layers`/`p` are snapshotted here, not read
-        ## live inside the deferred callback, since that callback runs
-        ## outside a normal reactive-consumer context.
         session$onFlushed(function() run_task$invoke(layers, p), once = TRUE)
       })
       observe({
@@ -401,11 +302,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       run_running <- reactive(FALSE)
     }
 
-    ## Mutates the existing "Run SNF Clustering" button in place via shinyjs
-    ## (already active app-wide, ui.R::useShinyjs()) rather than recreating
-    ## it through renderUI - recreating an actionButton resets its click
-    ## counter to 0, which would break the "has this been run at least
-    ## once" gating used throughout this module (input$run_btn > 0).
     observe({
       if (isTRUE(run_running())) {
         shinyjs::disable(ns("run_btn"))
@@ -432,9 +328,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       body_fn()
     }
 
-    ## =========================================================================
-    ## 6. Clusters (spec section 16) + Analysis Summary / downloads (27-28).
-    ## =========================================================================
     output$clusters_ui <- renderUI(gate(function() {
       res <- state$result; p <- res$params
       multi_mode <- identical(p$mode, "multi_omics_snf")
@@ -498,10 +391,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       utils::write.csv(data.frame(patient_id = names(res$clusters), cluster = as.integer(res$clusters)), file, row.names = FALSE)
     })
 
-    ## multi_plot_or_empty() only decides whether to draw the plotOutput
-    ## placeholder or an empty-state message - it does not register the
-    ## render logic. Each placeholder used above needs its own renderPlot
-    ## binding (mirrors mod_multi_integration.R's own d_error_plot/etc.).
     output$cl_embed_plot <- renderPlot({ res <- req(state$result); sfc_spectral_embedding_plot(res$W, res$clusters) })
     output$cl_heatmap <- renderPlot({ res <- req(state$result); sfc_feature_heatmap(state$layers_used, res$clusters) })
     output$cl_fused <- renderPlot({ res <- req(state$result); mi_snf_fused_heatmap(res$W, res$clusters) })
@@ -512,9 +401,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     output$cl_conc_plot <- renderPlot({ res <- req(state$result); sfc_concordance_bar_plot(mi_snf_concordance(res)) })
     output$cl_estimate_plot <- renderPlot({ res <- req(state$result); mi_snf_cluster_estimate_plot(res$cluster_estimate) })
 
-    ## =========================================================================
-    ## 7. Stability (spec section 18, REQUIRED) + Sensitivity (section 19).
-    ## =========================================================================
     output$stability_ui <- renderUI(gate(function() {
       stab <- state$stability
       tagList(
@@ -583,11 +469,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     })
     output$sens_plot <- renderPlot({ sfc_sensitivity_plot(req(sens())) })
 
-    ## =========================================================================
-    ## 8. Clinical (spec sections 20-23) - fully optional, only ever offers
-    ## variables actually detected in this dataset's own metadata; never
-    ## fabricates a field. Always post-hoc, never used to pick K/alpha/T/n_clusters.
-    ## =========================================================================
     sc_clinical <- reactive({
       req(state$result)
       sfc_detect_clinical(state$sample_meta)
@@ -612,9 +493,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       )
     }))
 
-    ## One combined plot (faceted by variable) + one results table per kind,
-    ## rather than a plot per selected checkbox - avoids dynamically-named
-    ## renderPlot bindings (see the comment above cl_embed_plot/etc.).
     clin_cat_results <- reactive({
       req(length(input$clin_cat_vars) > 0)
       sfc_clinical_run(state$result$clusters, state$sample_meta, input$clin_cat_vars, kind = "categorical")
@@ -689,11 +567,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     })
     output$clin_km_plot <- renderPlot({ surv <- req(clin_surv()); req(isTRUE(surv$ok)); sfc_km_plot(surv) })
 
-    ## =========================================================================
-    ## 9. Features (spec section 24) - association with the already-computed
-    ## clusters, distinct from "features used to construct the network"
-    ## (every feature in a selected block was used for that).
-    ## =========================================================================
     output$features_ui <- renderUI(gate(function() {
       res <- state$result
       tagList(
@@ -726,11 +599,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       utils::write.csv(req(feat_rank())$table, file, row.names = FALSE)
     })
 
-    ## =========================================================================
-    ## 10. Full results bundle (spec section 28) - everything computed so
-    ## far this session, whatever subset that is; nothing fabricated for
-    ## tabs the user never opened.
-    ## =========================================================================
     output$dl_bundle <- downloadHandler(
       filename = function() paste0("snf_clustering_bundle_", Sys.Date(), ".zip"),
       content = function(file) {
@@ -755,12 +623,6 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       }
     )
 
-    ## =========================================================================
-    ## Publish - kept in the same shape multi_qc_scorecard()/
-    ## multi_analysis_summary_table() (multiomics_helpers.R) already read
-    ## (`r$stratification$drug` as a display label) so those shared,
-    ## untouched cross-submodule summaries keep working unmodified.
-    ## =========================================================================
     observe({
       if (is.null(multi_results)) return()
       d <- tryCatch(sc_dataset(), error = function(e) NULL)

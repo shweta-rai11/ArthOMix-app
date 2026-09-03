@@ -1,16 +1,6 @@
 ## Module 3 (Multiomics) - SNF Clustering / Patient Stratification
 ## sub-module, via testServer(): data-source dispatch, raw validation,
 ## the real per-block preprocessing chain (dynamic block-scoped input IDs),
-## post-preprocessing re-validation/eligibility, and the synchronous
-## `validate(need(sc_elig()$ok, ...))` gate on "Run SNF Clustering".
-##
-## KNOWN LIMITATION (disclosed - see test-multi-integration-server.R's own
-## header for the full rationale): the actual SNF+stability computation
-## dispatches through a real `future::multisession` ExtendedTask, deferred
-## via `session$onFlushed()` - not awaited here. `sfc_snf_run_with_stability()`
-## and everything it calls already has real, end-to-end coverage in
-## test-multi-snf-clustering-functions.R and test-multi-integration-live-
-## functions.R.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -22,7 +12,7 @@ source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomi
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "03_DIABLO_SNF_Integration", "mod_multi_integration.R"))  ## defines shared mi_warn()/mi_ok()/mi_stop()/mi_stat_card()
+source_from_app_root(file.path("R", "multiomics", "03_DIABLO_SNF_Integration", "mod_multi_integration.R"))
 source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "snf_clustering_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "snf_clustering_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "mod_multi_stratification.R"))
@@ -65,8 +55,8 @@ test_that("sc_ready() applies the real per-block preprocessing chain (missing-va
     )
     r <- sc_ready()
     expect_equal(length(r$errors), 0L)
-    expect_false(anyNA(r$layers$Transcriptomics))  ## mean-imputed
-    expect_equal(dim(r$layers$Methylomics), dim(fx$meth))  ## untouched, no missing values
+    expect_false(anyNA(r$layers$Transcriptomics))
+    expect_equal(dim(r$layers$Methylomics), dim(fx$meth))
   })
 })
 

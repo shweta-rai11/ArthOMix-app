@@ -1,23 +1,17 @@
 ## Module 1 (Transcriptomics) - Feature Selection's pure/near-pure
 ## computational core: class-weighting helpers and the LASSO+RF+SVM-RFE
 ## per-sex fitting pipeline (fs_fit_sex). Manual mtry/cost params are used
-## throughout to skip fs_fit_sex's own internal CV grid search (caret::train/
-## e1071::tune), keeping these tests fast without changing which code path
-## is exercised - fs_fit_sex's own "manual" branches are real production
-## code, not a test-only shortcut.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "09_Feature_Selection", "mod_featureselection.R"))
 
-## ---- fs_class_weight_levels() / fs_obs_weights() --------------------------
-
 test_that("fs_class_weight_levels() computes inverse-frequency weights in 'balanced' mode", {
   y <- factor(c(rep("HC", 8), rep("RA", 2)), levels = c("HC", "RA"))
   w <- fs_class_weight_levels(y, "balanced", ratio = NULL)
   expect_equal(unname(w["HC"]), 1)
-  expect_equal(unname(w["RA"]), 4)  ## max(n)/n = 8/2
+  expect_equal(unname(w["RA"]), 4)
 })
 
 test_that("fs_class_weight_levels() uses the manual ratio for the second level, and 1 for both in 'equal' mode", {
@@ -35,14 +29,11 @@ test_that("fs_obs_weights() maps per-observation weights from fs_class_weight_le
   expect_equal(w, c(1, 5, 1, 5))
 })
 
-## ---- fs_svm_rfe_rank() / fs_svm_rfe_curve() --------------------------------
-
 fs_separable_fixture <- function(n_per_group = 10, n_genes = 8, seed = 110) {
   set.seed(seed)
   n <- n_per_group * 2
   y <- factor(rep(c("HC", "RA"), each = n_per_group), levels = c("HC", "RA"))
   X <- matrix(rnorm(n * n_genes), n, n_genes, dimnames = list(NULL, paste0("G", 1:n_genes)))
-  ## G1/G2 carry a large, clean separation; the rest are pure noise.
   X[y == "RA", 1] <- X[y == "RA", 1] + 8
   X[y == "RA", 2] <- X[y == "RA", 2] + 8
   list(X = X, y = y)
@@ -53,14 +44,6 @@ test_that("fs_svm_rfe_rank() returns a full permutation of the feature names, mo
   rank <- fs_svm_rfe_rank(fx$X, fx$y, cost = 1)
   expect_setequal(rank, colnames(fx$X))
   expect_length(rank, ncol(fx$X))
-  ## rank[1] is the last feature standing when the RFE elimination loop
-  ## finally stops (most important); rank[length(rank)] was the very first
-  ## one dropped (least important) - confirmed against fs_fit_sex()'s own
-  ## use of this ranking (`svm_rank[seq_len(curve$best)]` takes a top-k
-  ## panel from the FRONT). The two truly informative genes should rank
-  ## among the most important - at least one of them, given linear-SVM
-  ## weight instability on redundant noise dimensions can occasionally
-  ## displace one of two equally-strong true signals.
   expect_true(any(c("G1", "G2") %in% utils::head(rank, 3)))
 })
 
@@ -74,8 +57,6 @@ test_that("fs_svm_rfe_curve() reports a CV error curve over panel sizes 1..p wit
   expect_equal(curve$besterr, min(curve$err))
 })
 
-## ---- fs_fit_sex(): full LASSO + RF + SVM-RFE pipeline ----------------------
-
 test_that("fs_fit_sex() (manual mtry/cost, skipping internal CV grids) returns a well-formed result with real signal recovered", {
   fx <- fs_separable_fixture(n_per_group = 10, n_genes = 10)
   fit <- fs_fit_sex(fx$X, fx$y, params = list(
@@ -87,7 +68,6 @@ test_that("fs_fit_sex() (manual mtry/cost, skipping internal CV grids) returns a
   expect_equal(fit$n_input, 10L)
   expect_equal(fit$n_samples, 20L)
   expect_setequal(names(fit$sets), c("LASSO", "RandomForest", "SVM_RFE"))
-  ## Real, injected signal (G1/G2) should be recoverable by at least the RF importance ranking.
   expect_true(any(c("G1", "G2") %in% fit$rf_genes))
 })
 

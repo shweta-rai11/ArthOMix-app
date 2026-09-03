@@ -17,7 +17,6 @@ dge_fixture_dataset <- function(n_per_group = 6, seed = 70) {
   samples <- paste0("S", 1:n)
   grp <- rep(c("HC", "RA"), each = n_per_group)
   m <- matrix(rnorm(40 * n, mean = 8, sd = 1.2), 40, n, dimnames = list(genes, samples))
-  ## Inject real signal into the first 5 genes so significance isn't purely noise-driven.
   m[1:5, grp == "RA"] <- m[1:5, grp == "RA"] + 2
   meta <- data.frame(sample = samples, group = grp, sex = rep(c("F", "M"), length.out = n), stringsAsFactors = FALSE)
   shiny::reactiveValues(expr = m, meta = meta, source = "dge test cohort", source_type = "uploaded",
@@ -43,7 +42,7 @@ test_that("a limma fit on the pipeline dataset succeeds, produces a well-formed 
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
 
     tbl <- fit_result()$table
@@ -63,7 +62,7 @@ test_that("a DESeq2 fit on raw-count-like data succeeds and produces the expecte
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "deseq2", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
 
     tbl <- fit_result()$table
@@ -78,7 +77,7 @@ test_that("DESeq2 is rejected on already-normalised (log-scale, negative-free bu
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "deseq2", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -92,7 +91,7 @@ test_that("limma is rejected on raw, un-normalised count data", {
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -102,7 +101,6 @@ test_that("limma is rejected on raw, un-normalised count data", {
 
 test_that("DESeq2 is rejected on CPM-like normalised-totals data even though it is non-negative and wide-range", {
   dataset <- dge_counts_dataset()
-  ## Rescale each sample to sum to 1e6 (CPM), preserving relative gene signal.
   m <- shiny::isolate(dataset$expr)
   cpm <- sweep(m, 2, colSums(m), FUN = "/") * 1e6
   shiny::isolate(dataset$expr <- cpm)
@@ -110,7 +108,7 @@ test_that("DESeq2 is rejected on CPM-like normalised-totals data even though it 
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "deseq2", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -124,7 +122,7 @@ test_that("identical reference and comparison levels are rejected", {
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
                         ref_group = "HC", comp_group = "HC", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -134,13 +132,12 @@ test_that("identical reference and comparison levels are rejected", {
 
 test_that("fewer than 6 total matching samples is rejected", {
   dataset <- dge_fixture_dataset(n_per_group = 6)
-  ## Restrict to only 4 samples by pruning the metadata's group labels.
   shiny::isolate(dataset$meta$group[5:12] <- NA)
   results <- shiny::reactiveValues()
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -150,13 +147,12 @@ test_that("fewer than 6 total matching samples is rejected", {
 
 test_that("fewer than 3 samples in one contrast level is rejected even with >=6 total samples", {
   dataset <- dge_fixture_dataset(n_per_group = 6)
-  ## 10 HC, 2 RA = 12 total (passes the >=6 check) but RA has < 3.
   shiny::isolate(dataset$meta$group <- c(rep("HC", 10), rep("RA", 2)))
   results <- shiny::reactiveValues()
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
     session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
                         ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
@@ -165,11 +161,6 @@ test_that("fewer than 3 samples in one contrast level is rejected even with >=6 
 })
 
 test_that("a declared_data_type = 'raw' on the shared dataset lets DESeq2 run even when the live heuristic would be ambiguous, and blocks limma", {
-  ## Small-panel count-like data (40 genes, low counts) that the LIVE
-  ## heuristic alone would call ambiguous (99th percentile <= 100) - but an
-  ## explicit dataset$declared_data_type = "raw" (set by mod_dataset.R's
-  ## upload handler) must take precedence over that heuristic per the method
-  ## gate's own declared-first rule.
   set.seed(73)
   n <- 12
   genes <- paste0("GENE", 1:40)
@@ -216,24 +207,14 @@ test_that("declaring the wrong data type on this module's own upload path blocks
     session$setInputs(map_sample_id = "sample")
     session$setInputs(dge_declared_data_type = "raw")
 
-    ## Visible, live feedback (not gated behind a button click) surfaces the
-    ## block right on the upload card.
     expect_true(grepl("TPM/FPKM/CPM-normalized", fx_html_text(output$upload_type_warning_ui)))
 
-    ## The mismatched upload is never actually used as the fit's data
-    ## source - active_upload_input()'s own validate() gate (same
-    ## tx_validate_expr_upload() check) rejects it, so cur_source() falls
-    ## back to the (empty, in this test) Dataset Pipeline data instead of
-    ## silently fitting against the bad upload.
     src <- cur_source()
     expect_equal(src$mode, "pipeline")
   })
 })
 
 test_that("run_dge_now() runs a contrast directly (no run_btn click) and writes the same results$dge/dge_runs as the button path", {
-  ## Proves the ArthOChat agent-execution hook (server.R's agent_run_hooks,
-  ## R/shared/mod_arthochat.R's execute_confirmed_run) can trigger a real run
-  ## without ever touching input$run_btn.
   dataset <- dge_fixture_dataset()
   results <- shiny::reactiveValues()
   shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
@@ -241,11 +222,11 @@ test_that("run_dge_now() runs a contrast directly (no run_btn click) and writes 
     out <- run_dge_now(contrast_col = "group", ref_group = "HC", comp_group = "RA", method = "limma",
                         padj_cut = 0.05, lfc_cut = 0.1)
 
-    expect_null(session$input$run_btn)  ## the button was never clicked
+    expect_null(session$input$run_btn)
     expect_false(is.null(results$dge))
     expect_equal(results$dge$method, "limma")
     expect_length(results$dge_runs, 1)
-    expect_equal(out, results$dge)  ## return value matches what was saved, for the tool to report back
+    expect_equal(out, results$dge)
   })
 })
 
@@ -260,7 +241,7 @@ test_that("run_dge_now() propagates a validate() failure as a plain catchable er
     )
     expect_true(is.character(err))
     expect_true(grepl("must be different", err))
-    expect_null(results$dge)  ## nothing saved on failure
+    expect_null(results$dge)
   })
 })
 
@@ -281,7 +262,7 @@ test_that("uploading its own expr+meta pair (bypassing the shared dataset) runs 
     session$setInputs(map_sample_id = "sample")
     session$setInputs(method = "limma", contrast_col = "group", ref_group = "HC", comp_group = "RA",
                         padj_cut = 0.05, lfc_cut = 0.1)
-    session$setInputs(run_btn = 0)  ## prime: real actionButtons start at 0 in the browser DOM; testServer doesn't do this automatically, and fit_result()'s ignoreInit=TRUE eventReactive needs that starting value to correctly treat the next setInputs as a real click
+    session$setInputs(run_btn = 0)
     session$setInputs(run_btn = 1)
 
     src <- cur_source()

@@ -1,35 +1,12 @@
 ## R/multiomics/07_Pathways/multiomics_pathway_helpers.R
 ## Data-adaptive engine for the "Pathways" sub-module (mod_multi_pathway.R) -
 ## live GO/KEGG/Reactome/WikiPathways ORA + GSEA, on either the app's
-## preloaded multi-omics candidate panel or an uploaded gene/CpG-level table
-## of unknown structure. Pure functions only, no Shiny reactives here (same
-## split as multiomics_concordance_helpers.R).
-##
-## Reuses, never reinvents:
-##   - mcc_candidate_pool()/mcc_filter_source()/mcc_detect_id_type() (multiomics_concordance_helpers.R):
-##     the app's own "what has already been discovered" candidate-gene/CpG pool.
-##   - cx_harmonize_gene_ids()/cx_get_region_annotation() (crossomics_integration_helpers.R):
-##     gene-ID harmonization and CpG->gene/region annotation.
-##   - multi_read_registry_table() (multiomics_helpers.R): precomputed cohort tables.
-## Every function fails soft (list(ok = FALSE, error = <reason>)) rather than
-## fabricating a pathway, an identifier, or a statistic. No result is ever
-## produced by a code path this file does not itself call GO.db/KEGGREST/
-## reactome.db/msigdbr for.
-
-## ---------------------------------------------------------------------------
-## 0. Availability flags + database registry + upload field patterns
-## ---------------------------------------------------------------------------
 
 MP_REACTOME_AVAILABLE <- requireNamespace("ReactomePA", quietly = TRUE) && requireNamespace("reactome.db", quietly = TRUE)
 MP_FGSEA_AVAILABLE    <- requireNamespace("fgsea", quietly = TRUE)
 MP_MSIGDBR_AVAILABLE  <- requireNamespace("msigdbr", quietly = TRUE)
 MP_PATHVIEW_AVAILABLE <- requireNamespace("pathview", quietly = TRUE)
 
-## One entry per selectable database. `ora`/`gsea` are always TRUE here (the
-## UI only ever offers a database once its package gate passes); `topology`
-## is TRUE only for Reactome, since that is the only source in this
-## deployment with a real pathway-hierarchy structure to draw on (see
-## mp_annotate_reactome_hierarchy()).
 MP_DATABASES <- list(
   GO_BP        = list(label = "GO - Biological Process", category = "GO",           topology = FALSE, available = TRUE),
   GO_MF        = list(label = "GO - Molecular Function", category = "GO",           topology = FALSE, available = TRUE),
@@ -37,17 +14,9 @@ MP_DATABASES <- list(
   KEGG         = list(label = "KEGG",                     category = "KEGG",        topology = FALSE, available = TRUE),
   Reactome     = list(label = "Reactome",                 category = "Reactome",    topology = TRUE,  available = MP_REACTOME_AVAILABLE),
   WikiPathways = list(label = "WikiPathways",              category = "GMT",         topology = FALSE, available = MP_MSIGDBR_AVAILABLE),
-  ## Broad Institute MSigDB Hallmark (H) collection - 50 curated,
-  ## non-redundant gene sets, free/open (msigdbr's bundled MSigDB data,
-  ## same source WikiPathways above already uses - no separate license or
-  ## paid access required).
   Hallmark     = list(label = "MSigDB Hallmark", category = "GMT", topology = FALSE, available = MP_MSIGDBR_AVAILABLE)
 )
 
-## Regex bank for uploaded-table column-role detection - same idiom as
-## CX_FIELD_PATTERNS (crossomics_integration_helpers.R), a distinct bank
-## because this module additionally needs entrez/ensembl/uniprot/cpg/
-## direction/omics role detection that CX_FIELD_PATTERNS does not cover.
 MP_FIELD_PATTERNS <- list(
   id_symbol = c("^gene[_ .]?symbol$", "^hgnc[_ .]?symbol$", "^symbol$", "^gene[_ .]?name$", "^gene$", "^genes$"),
   id_entrez = c("^entrez[_ .]?(id|gene)?$", "^entrezgene$", "^ncbi[_ .]?gene[_ .]?id$"),
@@ -62,13 +31,6 @@ MP_FIELD_PATTERNS <- list(
   omics = c("^omics$", "^omics[_ .]?type$", "^layer$", "^data[_ .]?type$", "^assay$"),
   sex = c("^sex$", "^gender$")
 )
-
-## ---------------------------------------------------------------------------
-## 1. Preloaded-path input building - reuses mcc_candidate_pool() (no
-## discovery recomputed) plus the same Table42/45 gene<->CpG concordance
-## tables the Concordance tab already reads, for real per-feature effect
-## sizes/directions on the preloaded cohort.
-## ---------------------------------------------------------------------------
 
 MP_PRELOADED_COHORTS <- c(
   "Drug x sex (Etanercept panel)" = "Gene <-> CpG concordance - drug x sex (Etanercept panel)",
@@ -91,9 +53,6 @@ mp_build_preloaded_input <- function(multi_results, multi_dataset, expr_layer, m
   if (isTRUE(reg$ok)) {
     conc <- reg$df
     if (length(sex) == 1 && sex %in% c("female", "male") && "sex" %in% colnames(conc)) conc <- conc[tolower(conc$sex) == sex, , drop = FALSE]
-    ## Genes are matched on symbol (harmonized) since the candidate pool's
-    ## `feature` is whatever ID type the live fit used (Ensembl/symbol);
-    ## CpGs are matched directly (Illumina probe IDs are stable identifiers).
     gene_idx_by_symbol <- match(toupper(df$feature), toupper(conc$SYMBOL))
     gene_idx_by_ensembl <- if ("ENSEMBL" %in% colnames(conc)) match(df$feature, conc$ENSEMBL) else rep(NA_integer_, nrow(df))
     gene_hit <- !is.na(gene_idx_by_symbol) | !is.na(gene_idx_by_ensembl)
@@ -132,13 +91,6 @@ mp_build_preloaded_input <- function(multi_results, multi_dataset, expr_layer, m
   list(ok = TRUE, df = df, source = "preloaded", source_detail = source_detail)
 }
 
-## ---------------------------------------------------------------------------
-## 2. Uploaded-path input building - file of UNKNOWN structure; every column
-## role is detected, reported, and left for the user to confirm/override
-## before anything is standardized (spec: never force uploaded data into the
-## preloaded schema, never silently accept a guess).
-## ---------------------------------------------------------------------------
-
 MP_UPLOAD_NA_STRINGS <- c("NA", "", "NaN", "null", "NULL", "#N/A")
 
 mp_read_upload_table <- function(datapath, filename) {
@@ -157,10 +109,6 @@ mp_read_upload_table <- function(datapath, filename) {
   list(ok = FALSE, df = NULL, error = sprintf("Unsupported file type \".%s\" - upload CSV, TSV, TXT, or XLSX.", ext))
 }
 
-## `MP_FIELD_PATTERNS`-driven greedy/order-independent column-role detection,
-## same technique as cx_match_column()/cx_detect_columns() (independent
-## implementation, since crossomics_integration_helpers.R is out of scope to
-## modify and its own field bank doesn't cover entrez/ensembl/uniprot/omics).
 mp_match_column <- function(cols, patterns, exclude = character(0)) {
   candidates <- setdiff(cols, exclude)
   candidates_lower <- tolower(trimws(candidates))
@@ -180,14 +128,8 @@ mp_detect_upload <- function(df) {
   effect_col <- role("effect"); pvalue_col <- role("pvalue"); fdr_col <- role("fdr")
   direction_col <- role("direction"); omics_col <- role("omics"); sex_col <- role("sex")
 
-  ## The single "identifier" column actually used downstream: CpG takes
-  ## priority when present (methylomics input needs mapping before anything
-  ## else can run), then whichever gene-like column was detected first.
   id_col <- if (!is.na(id_cpg)) id_cpg else if (!is.na(id_symbol)) id_symbol else if (!is.na(id_ensembl)) id_ensembl else if (!is.na(id_entrez)) id_entrez else if (!is.na(id_uniprot)) id_uniprot else NA_character_
   id_type <- if (!is.na(id_cpg)) "Illumina CpG probe ID" else if (!is.na(id_ensembl)) "Ensembl Gene ID" else if (!is.na(id_entrez)) "Entrez ID" else if (!is.na(id_uniprot)) "UniProt ID" else if (!is.na(id_symbol)) "Gene symbol" else "unknown"
-  ## Fall back to sniffing the actual values of whatever the first non-empty
-  ## column is, when no column NAME matched any known pattern - never leaves
-  ## id_col unset just because the header wasn't in the expected vocabulary.
   if (is.na(id_col) && ncol(df) > 0) {
     id_col <- cols[1]
     id_type <- mcc_detect_id_type(df[[id_col]])
@@ -218,12 +160,6 @@ mp_detect_upload <- function(df) {
   )
 }
 
-## Applies the user-confirmed (never silently auto-accepted) column-role
-## mapping into the same unified schema mp_build_preloaded_input() produces,
-## so both paths feed mp_harmonize_identifiers()/mp_run_ora()/mp_run_gsea()
-## identically. `mapping` is a named list with the same field names as
-## mp_detect_upload()$detected (id_col/effect_col/pvalue_col/fdr_col/
-## direction_col/omics_col), each either a real column name or NA/"(none)".
 mp_confirm_upload_mapping <- function(df, mapping) {
   none <- function(x) is.null(x) || is.na(x) || identical(x, "(none)")
   if (none(mapping$id_col) || !mapping$id_col %in% colnames(df)) return(list(ok = FALSE, df = NULL, error = "Select an identifier column before confirming."))
@@ -249,17 +185,10 @@ mp_confirm_upload_mapping <- function(df, mapping) {
   out <- out[!is.na(out$feature) & nzchar(trimws(out$feature)), , drop = FALSE]
   out <- out[!duplicated(out$feature), , drop = FALSE]
   if (nrow(out) == 0) return(list(ok = FALSE, df = NULL, error = "No usable rows after removing empty/duplicate identifiers."))
-  ## fdr column, when present, becomes the adjusted-P used by mp_validate_*()
-  ## for ORA gene selection - kept as a separate attribute rather than a
-  ## column so it never collides with expr_p above.
   attr(out, "fdr_col_present") <- !none(mapping$fdr_col)
   if (!none(mapping$fdr_col)) out$expr_fdr <- suppressWarnings(as.numeric(get_col("fdr_col")))
   list(ok = TRUE, df = out, source = "uploaded", source_detail = sprintf("%d of %d uploaded rows usable after de-duplication.", nrow(out), n))
 }
-
-## ---------------------------------------------------------------------------
-## 3. Identifier mapping (shared by both paths)
-## ---------------------------------------------------------------------------
 
 mp_map_uniprot_to_symbol <- function(ids) {
   ids <- unique(ids[!is.na(ids) & nzchar(ids)])
@@ -267,11 +196,6 @@ mp_map_uniprot_to_symbol <- function(ids) {
   tryCatch(AnnotationDbi::select(org.Hs.eg.db::org.Hs.eg.db, keys = ids, keytype = "UNIPROT", columns = c("SYMBOL", "ENTREZID")), error = function(e) NULL)
 }
 
-## CpG -> gene mapping for candidate/uploaded CpGs - direct subset of the same
-## real annotation object cx_get_region_annotation() already loads for the
-## Concordance tab (mcc_gene_cpg_map() maps the other direction, gene->CpG;
-## this is CpG->gene, the direction the annotation object is natively keyed
-## for). Unmapped CpGs are always returned explicitly, never dropped.
 mp_map_candidate_cpgs <- function(cpg_ids, array_type = "450K") {
   cpg_ids <- unique(cpg_ids[!is.na(cpg_ids) & nzchar(cpg_ids)])
   if (length(cpg_ids) == 0) return(list(ok = FALSE, df = NULL, error = "No CpG identifiers to map.", n_mapped = 0L, n_unique_genes = 0L, unmapped_cpgs = character(0)))
@@ -288,19 +212,8 @@ mp_map_candidate_cpgs <- function(cpg_ids, array_type = "450K") {
        n_mapped = nrow(df), n_unique_genes = length(unique(df$gene)), unmapped_cpgs = unmapped)
 }
 
-## Dispatches identifier mapping by the row's own id_type: gene-like ->
-## cx_harmonize_gene_ids(); CpG -> mp_map_candidate_cpgs(); UniProt ->
-## mp_map_uniprot_to_symbol(). Returns one unified data.frame keyed by the
-## original `feature`, with `canonical_symbol`, `entrez_id`, `mapped` (logical).
 mp_harmonize_identifiers <- function(input_df, array_type = "450K") {
   df <- input_df
-  ## `is_cpg` reflects whether the row's OWN feature identifier is a CpG
-  ## probe ID - NOT whether the row happens to have a `cpg` column populated
-  ## (that column, when present, is a *paired* CpG joined in from the
-  ## concordance table for a transcriptomics candidate, a different thing;
-  ## conflating the two would try to CpG-map a gene symbol like "TNF" and
-  ## silently fail to harmonize it as a gene). Falls back to detecting the
-  ## `feature` value directly when `id_type` wasn't already recorded upstream.
   row_id_type <- df$id_type %||% vapply(df$feature, mcc_detect_id_type, character(1))
   is_cpg <- row_id_type == "Illumina CpG probe ID"
   gene_features <- unique(df$feature[!is_cpg])
@@ -328,9 +241,6 @@ mp_harmonize_identifiers <- function(input_df, array_type = "450K") {
     out$canonical_symbol[chit] <- cpg_map$df$gene[ci[chit]]
     out$match_type[chit] <- "cpg_mapped"
     out$mapped[chit] <- TRUE
-    ## Resolve the CpG-mapped gene symbol to an Entrez ID via the same
-    ## lookup, so CpG-derived candidates enter enrichment identically to
-    ## gene-derived ones.
     gh <- cx_harmonize_gene_ids(unique(stats::na.omit(out$canonical_symbol[chit])))
     if (isTRUE(gh$ok)) {
       gi <- match(toupper(out$canonical_symbol[chit]), toupper(gh$df$input_id))
@@ -348,10 +258,6 @@ mp_mapping_summary <- function(mapped_df) {
        mapping_rate = if (n > 0) round(100 * n_mapped / n, 1) else 0,
        unmapped_ids = mapped_df$feature[!mapped_df$mapped])
 }
-
-## ---------------------------------------------------------------------------
-## 4. Background / universe resolution
-## ---------------------------------------------------------------------------
 
 mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, meth_layer, uploaded_universe_ids = NULL) {
   ids <- switch(background_choice,
@@ -377,12 +283,6 @@ mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, me
     return(list(ok = TRUE, universe_entrez = NULL, universe_label = "Entire selected database - no experimental universe supplied.", n = NA_integer_))
   }
   ids <- unique(ids[!is.na(ids) & nzchar(ids)])
-  ## "auto_experimental" is the UI's default selection, but it can only ever
-  ## resolve to something when an Active Multi-Omics Dataset with expr/meth
-  ## layers is loaded - otherwise this used to hard-fail Run for the common
-  ## "preloaded candidate panel, no dataset loaded" case with no advance
-  ## warning. Fall back to the same "entire selected database" universe
-  ## entire_database uses, disclosed via the label, rather than blocking.
   if (identical(background_choice, "auto_experimental") && length(ids) == 0) {
     return(list(ok = TRUE, universe_entrez = NULL,
                 universe_label = "No active dataset layers to build an experimental universe from - falling back to the entire selected database.",
@@ -399,10 +299,6 @@ mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, me
   list(ok = TRUE, universe_entrez = entrez, universe_label = sprintf("%s (%s genes)", label, format(length(entrez), big.mark = ",")), n = length(entrez))
 }
 
-## ---------------------------------------------------------------------------
-## 5. WikiPathways / generic GMT term-gene source (msigdbr, cached)
-## ---------------------------------------------------------------------------
-
 .mp_msigdbr_cache <- new.env(parent = emptyenv())
 
 mp_get_wikipathways_termgene <- function() {
@@ -411,9 +307,6 @@ mp_get_wikipathways_termgene <- function() {
   if (!MP_MSIGDBR_AVAILABLE) return(NULL)
   wp <- tryCatch(msigdbr::msigdbr(species = "Homo sapiens", collection = "C2", subcollection = "CP:WIKIPATHWAYS"), error = function(e) NULL)
   if (is.null(wp) || nrow(wp) == 0) return(NULL)
-  ## Column is `ncbi_gene` (Entrez ID) in this installed msigdbr's schema -
-  ## older msigdbr releases called this `entrez_gene`; confirmed against the
-  ## actual installed package before writing this, not assumed from memory.
   term2gene <- unique(wp[, c("gs_exact_source", "ncbi_gene")])
   term2name <- unique(wp[, c("gs_exact_source", "gs_name")])
   out <- list(TERM2GENE = term2gene, TERM2NAME = term2name, db_version = unique(wp$db_version)[1])
@@ -421,14 +314,6 @@ mp_get_wikipathways_termgene <- function() {
   out
 }
 
-## MSigDB Hallmark (H) - the Broad Institute's 50 curated, non-redundant
-## "well-defined biological states/processes" gene sets - free, no license
-## required (msigdbr bundles CC-licensed MSigDB data, already an installed
-## dependency of this deployment - same package WikiPathways above already
-## uses). Hallmark sets have no external cross-reference ID
-## (`gs_exact_source` is empty for this collection, confirmed against the
-## actual installed package) - `gs_id` (MSigDB's own stable set ID, e.g.
-## "M5905") is used as the term key instead.
 mp_get_hallmark_termgene <- function() {
   cached <- .mp_msigdbr_cache[["hallmark"]]
   if (!is.null(cached)) return(cached)
@@ -441,10 +326,6 @@ mp_get_hallmark_termgene <- function() {
   .mp_msigdbr_cache[["hallmark"]] <- out
   out
 }
-
-## ---------------------------------------------------------------------------
-## 6. ORA runners
-## ---------------------------------------------------------------------------
 
 mp_normalize_enrich_result <- function(res_df, source_label, method = "ORA") {
   if (is.null(res_df) || nrow(res_df) == 0) return(NULL)
@@ -462,10 +343,6 @@ mp_normalize_enrich_result <- function(res_df, source_label, method = "ORA") {
   )
 }
 
-## Turns a normalized-but-possibly-NULL enrichment table into a proper
-## list(ok, df, error) - an empty result (0 genes testable, or 0 terms
-## annotated at all) is a failure to report, never a silent
-## ok=TRUE/df=NULL that a caller could mistake for "ran fine, nothing found".
 mp_finalize_enrich <- function(df, label) {
   if (is.null(df) || nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = sprintf("%s returned no terms - check that enough identifiers mapped to Entrez IDs (see the Mapping Results table).", label)))
   list(ok = TRUE, df = df, error = NULL)
@@ -517,8 +394,6 @@ mp_run_ora_hallmark <- function(genes_entrez, universe_entrez, pvalueCutoff = 1,
   mp_finalize_enrich(mp_normalize_enrich_result(as.data.frame(eh), "Hallmark"), "MSigDB Hallmark")
 }
 
-## Dispatcher - `database` is one of names(MP_DATABASES); GO_BP/MF/CC share
-## mp_run_ora_go() with ont set accordingly.
 mp_run_ora <- function(database, genes_entrez, universe_entrez, params) {
   switch(database,
     GO_BP = mp_run_ora_go(genes_entrez, universe_entrez, "BP", params$pvalueCutoff, params$minGSSize, params$maxGSSize),
@@ -532,13 +407,6 @@ mp_run_ora <- function(database, genes_entrez, universe_entrez, params) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## 7. GSEA runners
-## ---------------------------------------------------------------------------
-
-## Named numeric vector (Entrez-keyed), decreasing sort. Duplicate Entrez IDs
-## (e.g. two probes/rows mapping to the same gene) are deduped by the entry
-## with the larger absolute value - documented here, never silent.
 mp_build_ranked_vector <- function(df, entrez_ids, ranking_method = c("log2fc", "statistic", "signed_neglog10p", "custom"), custom_col = NULL, custom_values = NULL) {
   ranking_method <- match.arg(ranking_method)
   vals <- if (identical(ranking_method, "log2fc")) df$expr_logFC
@@ -620,12 +488,6 @@ mp_run_gsea <- function(database, ranked_vec, params) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## 8. Topology (Reactome only) - real pathway-hierarchy annotation from the
-## live Reactome ContentService, never a fabricated topology statistic (this
-## deployment has no SPIA/topology-weighted-p-value package installed).
-## ---------------------------------------------------------------------------
-
 mp_annotate_reactome_hierarchy <- function(reactome_result_df) {
   if (is.null(reactome_result_df) || nrow(reactome_result_df) == 0) return(reactome_result_df)
   df <- reactome_result_df
@@ -657,15 +519,6 @@ mp_run_topology <- function(genes_entrez, universe_entrez, params) {
   res
 }
 
-## ---------------------------------------------------------------------------
-## 9. Evidence tracks & concordance direction
-## ---------------------------------------------------------------------------
-
-## Per-pathway Transcriptomics/Methylomics/Integrated evidence, built from
-## the enrichment table's own `geneID` (overlapping genes, "/"-joined) and
-## the harmonized+effect-annotated input table (`mapped_df`, the row-per-
-## feature table produced upstream in the module - candidate genes' own
-## expr/meth effect sizes and directions, never re-derived here).
 mp_build_evidence_tracks <- function(enrichment_df, input_df) {
   if (is.null(enrichment_df) || nrow(enrichment_df) == 0) return(enrichment_df)
   df <- enrichment_df
@@ -711,13 +564,6 @@ mp_build_evidence_tracks <- function(enrichment_df, input_df) {
   df
 }
 
-## Directionally consistent / opposite / mixed / insufficient information.
-## Defers to the preloaded cohort's own audited `biological_pattern`
-## (Table42/45's region-aware concordance call) when it's present, rather
-## than recomputing a naive sign check on top of an already-audited verdict.
-## For uploaded data with two independent signed effect columns, classifies
-## by direct sign concordance. Never auto-labels an opposite-direction pair
-## "concordant".
 mp_concordance_direction <- function(row) {
   bp <- row$biological_pattern
   if (!is.null(bp) && !is.na(bp) && nzchar(bp)) {
@@ -735,11 +581,6 @@ mp_concordance_direction <- function(row) {
   "Mixed"
 }
 
-## ---------------------------------------------------------------------------
-## 10. Validation (hard-rule enforcement) - each returns list(ok, error);
-## called before every dispatch, never a silent partial run.
-## ---------------------------------------------------------------------------
-
 mp_validate_ora_inputs <- function(genes_entrez, universe_entrez) {
   if (is.null(genes_entrez) || length(genes_entrez) < 3) return(list(ok = FALSE, error = "Fewer than 3 identifiers could be mapped to Entrez IDs - not enough for a meaningful over-representation test."))
   if (!is.null(universe_entrez) && length(universe_entrez) < length(genes_entrez)) return(list(ok = FALSE, error = "Background/universe is smaller than the input gene list - switch Background to \"Entire selected database\"."))
@@ -751,10 +592,6 @@ mp_validate_gsea_inputs <- function(ranked_vec) {
   list(ok = TRUE, error = NULL)
 }
 
-## Blocks a database from running when its own package gate has already
-## failed (e.g. Reactome selected but ReactomePA/reactome.db unavailable) -
-## the UI already disables that choice, but this is the last line of defense
-## against enrichment silently no-oping on a database it cannot actually query.
 mp_validate_database_choice <- function(database) {
   avail <- MP_DATABASES[[database]]$available %||% FALSE
   if (!isTRUE(avail)) return(list(ok = FALSE, error = sprintf("%s is not available in this deployment.", MP_DATABASES[[database]]$label %||% database)))
@@ -768,10 +605,6 @@ mp_infer_species <- function(id_type, ids) {
   }
   "Homo sapiens"
 }
-
-## ---------------------------------------------------------------------------
-## 11. Metadata
-## ---------------------------------------------------------------------------
 
 mp_build_metadata <- function(database, method, species, background_label, ranking_method, input_count, mapped_count, padj_thresh, min_size, max_size, timestamp = NULL) {
   data.frame(

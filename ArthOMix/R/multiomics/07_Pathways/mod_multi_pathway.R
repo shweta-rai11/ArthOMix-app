@@ -1,14 +1,6 @@
 ## R/multiomics/07_Pathways/mod_multi_pathway.R
 ## Submodule: Pathways - a live GO/KEGG/Reactome/WikiPathways pathway-
 ## enrichment engine (ORA + GSEA) over either the app's preloaded multi-omics
-## candidate panel (DIABLO/SNF-selected genes, methylation-linked genes via
-## CpG->gene mapping, real per-feature effect sizes from Table42/45) or a
-## user-uploaded gene/CpG-level table whose structure is auto-detected, never
-## assumed. Nothing below is computed - no enrichment table, plot, or pathway
-## map - until the blue "Run Pathway Analysis" button is clicked; only
-## filters/settings and the Detected Data summary are visible before that.
-## All heavy lifting is in multiomics_pathway_helpers.R/_plots.R; this file
-## is UI wiring only (same split as mod_multi_concordance.R).
 
 mod_multi_pathway_config <- list(
   id = "pathway", title = "Pathways", icon = "sitemap", group = "Interpretation",
@@ -16,10 +8,6 @@ mod_multi_pathway_config <- list(
 )
 
 MP_ORA_FIELDS <- c("id_col", "id_type", "effect_col", "pvalue_col", "fdr_col", "direction_col", "omics_col")
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_multi_pathway_ui <- function(id) {
   ns <- NS(id)
@@ -85,19 +73,10 @@ mod_multi_pathway_ui <- function(id) {
   ))
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
-
-    ## =========================================================================
-    ## Preloaded-path layer pickers (spec 2/3) - populated only from what
-    ## multi_dataset actually contains, same helpers mod_multi_concordance.R uses.
-    ## =========================================================================
 
     output$layer_pick_ui <- renderUI({
       layers <- multi_dataset$layers %||% list()
@@ -117,10 +96,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
       if (length(unavail) == 0) return(NULL)
       div(class = "empty-note", icon("triangle-exclamation"), sprintf("Unavailable in this deployment: %s.", paste(vapply(unavail, function(nm) MP_DATABASES[[nm]]$label, character(1)), collapse = ", ")))
     })
-
-    ## =========================================================================
-    ## Upload path (spec 2, 10, 15) - detect, report, never silently accept.
-    ## =========================================================================
 
     upload_raw <- reactiveVal(NULL)
     upload_detected <- reactiveVal(NULL)
@@ -175,20 +150,9 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
       div(class = "empty-note", icon("circle-check"), upload_confirmed()$source_detail)
     })
 
-    ## =========================================================================
-    ## Built input (spec 2/3) - dispatches by data source; drives readiness
-    ## and the GSEA ranking-column choices, but triggers NO enrichment itself.
-    ## =========================================================================
-
     built_input <- reactive({
       if (identical(input$data_source, "upload")) {
         bi <- upload_confirmed()
-        ## Sex is preloaded-only in mp_build_preloaded_input() (it filters a
-        ## precomputed table's own `sex` column) - for an upload, the same
-        ## filter is applied here, post-hoc, against the optional `sex`
-        ## column mp_confirm_upload_mapping() now carries through when the
-        ## user's own file has one (map_sex_col above). Never invents a sex
-        ## value when the uploaded file didn't provide one.
         if (!is.null(bi) && isTRUE(bi$ok) && nzchar(input$sex %||% "") && "sex" %in% colnames(bi$df) && any(!is.na(bi$df$sex))) {
           bi$df <- bi$df[!is.na(bi$df$sex) & tolower(trimws(bi$df$sex)) == input$sex, , drop = FALSE]
           bi$source_detail <- sprintf("%s Filtered to Sex = %s.", bi$source_detail, input$sex)
@@ -210,10 +174,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         row("Ranked list (GSEA)", identical(input$method, "GSEA") == FALSE || (!is.null(bi) && isTRUE(bi$ok) && sum(!is.na(pool_filtered$expr_logFC %||% bi$df$expr_logFC)) >= 10), if (identical(input$method, "GSEA")) sprintf("%d features with a numeric effect size.", sum(!is.na(pool_filtered$expr_logFC %||% bi$df$expr_logFC %||% NA))) else "Not required for ORA/Topology.")
       ))
     })
-
-    ## =========================================================================
-    ## RUN (spec 1, 19-20) - the only place computation happens.
-    ## =========================================================================
 
     has_run <- reactiveVal(FALSE)
     result <- reactiveVal(NULL)
@@ -275,13 +235,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         }
         tab <- do.call(rbind, rows)
         fdr_thresh <- if (identical(input$method, "GSEA")) input$gsea_fdr_cut %||% 0.25 else input$fdr_cut %||% 0.25
-        ## Every tested term is kept and shown, ranked by p.adjust - a small
-        ## input gene list (e.g. a 21-gene candidate panel) naturally clears
-        ## FDR for only a handful of terms; previously this dropped every
-        ## other tested term from view entirely, which is why KEGG/etc. could
-        ## show just one pathway even though the database itself was queried
-        ## in full. `significant` flags which rows actually clear FDR - nothing
-        ## is hidden, nothing is relabeled as significant that isn't.
         tab <- tab[order(tab$p.adjust, tab$pvalue), , drop = FALSE]
         tab$significant <- !is.na(tab$p.adjust) & tab$p.adjust < fdr_thresh
         n_sig <- sum(tab$significant)
@@ -304,10 +257,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     })
 
     res_ok <- function() { r <- result(); if (!is.null(r) && isTRUE(r$ok)) r else NULL }
-
-    ## =========================================================================
-    ## Enrichment tab
-    ## =========================================================================
 
     output$enrichment_ui <- renderUI({
       if (!has_run()) return(box(width = NULL, title = "Enrichment", status = "primary", solidHeader = FALSE, div(class = "empty-note", icon("circle-info"), "Not run yet. Set filters on the left, then click \"Run Pathway Analysis\".")))
@@ -358,10 +307,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     })
     output$dl_enrich_csv <- downloadHandler(function() "pathway_enrichment.csv", function(file) utils::write.csv(req(res_ok())$table, file, row.names = FALSE))
 
-    ## =========================================================================
-    ## Pathway Map tab (spec 12, Plots 5-6)
-    ## =========================================================================
-
     output$map_ui <- renderUI({
       if (!has_run()) return(box(width = NULL, title = "Pathway Map", status = "primary", solidHeader = FALSE, div(class = "empty-note", icon("circle-info"), "Not run yet.")))
       r <- res_ok()
@@ -395,10 +340,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
       list(src = out$path, contentType = "image/png", width = "100%", alt = "Reactome pathway diagram")
     }, deleteFile = FALSE)
 
-    ## =========================================================================
-    ## Gene Sets tab (spec 13)
-    ## =========================================================================
-
     output$genesets_ui <- renderUI({
       if (!has_run()) return(box(width = NULL, title = "Gene Sets", status = "primary", solidHeader = FALSE, div(class = "empty-note", icon("circle-info"), "Not run yet.")))
       r <- res_ok()
@@ -422,10 +363,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     })
     output$geneset_table <- DT::renderDataTable(DT::datatable(geneset_rows(), rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact"))
     output$dl_geneset_csv <- downloadHandler(function() "pathway_genes.csv", function(file) utils::write.csv(geneset_rows(), file, row.names = FALSE))
-
-    ## =========================================================================
-    ## Results tab (spec 11, 14)
-    ## =========================================================================
 
     output$results_ui <- renderUI({
       if (!has_run()) return(box(width = NULL, title = "Results", status = "primary", solidHeader = FALSE, div(class = "empty-note", icon("circle-info"), "Not run yet.")))
@@ -471,11 +408,6 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     output$dl_all_genesets_csv <- downloadHandler(function() "pathway_genes_full.csv", function(file) utils::write.csv(req(all_genesets()), file, row.names = FALSE))
     output$dl_enrich_csv2 <- downloadHandler(function() "pathway_enrichment.csv", function(file) utils::write.csv(req(res_ok())$table, file, row.names = FALSE))
     output$dl_metadata_csv <- downloadHandler(function() "pathway_analysis_metadata.csv", function(file) utils::write.csv(req(res_ok())$metadata, file, row.names = FALSE))
-
-    ## =========================================================================
-    ## Publish - keeps the multi_results$pathway$df contract other code
-    ## reads (multi_qc_scorecard()/multi_analysis_summary_table()).
-    ## =========================================================================
 
     observe({
       r <- res_ok()

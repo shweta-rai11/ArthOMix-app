@@ -1,19 +1,6 @@
 ## R/multiomics/functions/multiomics_integration_plots.R
 ## Plot functions for the live DIABLO/SNF/Compare engine
 ## (multiomics_integration_helpers.R / mod_multi_integration.R). Reuses
-## the shared theme_arthomix()/ARTHOMIX_COLORS/arthomix_pair() (global.R),
-## multi_empty_state()/multi_plot_or_empty()/multi_png_download()
-## (multiomics_plots.R), and - where the data shape already matches -
-## multi_diablo_score_plot()/multi_diablo_panel_plot()/
-## multi_diablo_variance_plot()/multi_live_pca_plot()/
-## multi_live_correlation_heatmap_plot() directly, rather than duplicating
-## them. Only genuinely new chart types live here.
-
-## ---------------------------------------------------------------------------
-## DIABLO performance: overall + per-class error rate at the fitted model's
-## final component (spec section 16's "Performance" card set) - a plain bar
-## chart, no fabricated confidence interval (perf() doesn't bootstrap one).
-## ---------------------------------------------------------------------------
 
 mi_diablo_error_bar_plot <- function(perf_summary) {
   if (is.null(perf_summary)) return(NULL)
@@ -30,12 +17,6 @@ mi_diablo_error_bar_plot <- function(perf_summary) {
     ggplot2::labs(x = NULL, y = sprintf("Error rate (%s, comp %d, %s)", "cross-validated", perf_summary$ncomp, perf_summary$distance), fill = NULL) +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## SNF fused-network affinity heatmap, samples ordered by cluster - a plain
-## visualization of the fused matrix itself, not a claim about which pairs
-## are "truly" similar beyond what the matrix already encodes.
-## ---------------------------------------------------------------------------
 
 mi_snf_fused_heatmap <- function(W, clusters) {
   if (is.null(W) || is.null(clusters)) return(NULL)
@@ -56,12 +37,6 @@ mi_snf_fused_heatmap <- function(W, clusters) {
     ggplot2::theme(axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(), panel.grid = ggplot2::element_blank())
 }
 
-## ---------------------------------------------------------------------------
-## SNF cluster-number diagnostic - real eigengap/rotation-cost candidates
-## from SNFtool::estimateNumberOfClustersGivenGraph(), not an assumed k=2
-## (spec section 24).
-## ---------------------------------------------------------------------------
-
 mi_snf_cluster_estimate_plot <- function(est) {
   if (is.null(est)) return(NULL)
   df <- data.frame(criterion = names(est), k = as.integer(unlist(est)))
@@ -73,15 +48,6 @@ mi_snf_cluster_estimate_plot <- function(est) {
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 20, hjust = 1))
 }
 
-## ---------------------------------------------------------------------------
-## SNF cluster low-dimensional view - PCA over the column-concatenated,
-## per-block standardized matrices (real PCA via the existing
-## multi_live_pca()/multi_live_pca_plot(), multiomics_dataset_helpers.R /
-## multiomics_dataset_plots.R), colored by fused cluster. Not a claim that
-## cluster separation in this 2D view equals cluster quality - the
-## eigengap/rotation-cost/silhouette diagnostics are the actual evidence.
-## ---------------------------------------------------------------------------
-
 mi_snf_pca_cluster_plot <- function(layers, clusters) {
   if (is.null(layers) || is.null(clusters)) return(NULL)
   scaled <- lapply(layers, function(m) scale(m[names(clusters), , drop = FALSE]))
@@ -91,12 +57,6 @@ mi_snf_pca_cluster_plot <- function(layers, clusters) {
   meta <- data.frame(row.names = names(clusters), cluster = factor(clusters))
   multi_live_pca_plot(pca, meta, "cluster")
 }
-
-## ---------------------------------------------------------------------------
-## Compare subtab: single-omics vs. integrated performance/clustering -
-## a plain bar chart, "type" (Single-omics / Integrated / Baseline) sets
-## the fill so integration is never visually implied to be the default winner.
-## ---------------------------------------------------------------------------
 
 mi_compare_bar_plot <- function(df, value_col = "auroc", ylab = "AUROC") {
   need <- c("model", value_col, "type")

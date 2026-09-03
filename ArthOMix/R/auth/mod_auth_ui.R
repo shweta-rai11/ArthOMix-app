@@ -1,17 +1,7 @@
 ## R/auth/mod_auth_ui.R
 ## Authentication screen: sign up / log in / forgot password / reset
 ## password / "check your email", as sibling <div>s inside one tagList,
-## with visibility toggled server-side (mod_auth_server.R, via
-## shinyjs::hide()/show()) rather than a second layer of renderUI - keeps
-## every input's binding stable across screen switches. Styling lives in
-## www/auth.css, built entirely from custom.css's existing --color-*/
-## --radius-* tokens so it matches the app (and picks up dark mode) without
-## editing custom.css itself.
 
-## A password field with a visibility-toggle eye icon - shinyjs has no
-## built-in for this, so it's a couple of lines of vanilla JS toggling
-## type="password"/"text" on the paired input. `ns` is passed in (rather
-## than looked up again) since this is called several times per screen.
 auth_password_field <- function(ns, input_id, label, placeholder) {
   fid <- ns(input_id)
   tagList(
@@ -36,9 +26,6 @@ auth_password_field <- function(ns, input_id, label, placeholder) {
   )
 }
 
-## Lightweight, offline password-strength meter - a few length/character-class
-## checks, no external library, no server round-trip. Purely informational
-## (see mod_auth_server.R for the one enforced rule: length >= 8).
 AUTH_PASSWORD_STRENGTH_JS <- "
 function arthomixPasswordStrength(pw) {
   var score = 0;
@@ -90,7 +77,6 @@ mod_auth_ui <- function(id) {
       tags$div(class = "auth-brand", "ArthOMix"),
       tags$div(class = "auth-avatar", icon("circle-user", class = "auth-avatar-icon")),
 
-      ## ---- Log in ------------------------------------------------------
       tags$div(
         id = ns("screen_login"),
         h3("Log in"),
@@ -106,7 +92,6 @@ mod_auth_ui <- function(id) {
         )
       ),
 
-      ## ---- Sign up -------------------------------------------------------
       tags$div(
         id = ns("screen_signup"), style = "display:none;",
         h3("Create your account"),
@@ -120,7 +105,6 @@ mod_auth_ui <- function(id) {
         tags$div(class = "auth-links", actionLink(ns("go_login_from_signup"), "Already have an account? Log In"))
       ),
 
-      ## ---- Check your email (post-signup / resend / forgot-password) ----
       tags$div(
         id = ns("screen_check_email"), style = "display:none;",
         h3("Check your email"),
@@ -129,7 +113,6 @@ mod_auth_ui <- function(id) {
         tags$div(class = "auth-links", actionLink(ns("go_login_from_check"), "Return to Login"))
       ),
 
-      ## ---- Forgot password -----------------------------------------------
       tags$div(
         id = ns("screen_forgot"), style = "display:none;",
         h3("Reset your password"),
@@ -141,7 +124,6 @@ mod_auth_ui <- function(id) {
         tags$div(class = "auth-links", actionLink(ns("go_login_from_forgot"), "Back to Login"))
       ),
 
-      ## ---- Set a new password (reached only via a valid recovery link) --
       tags$div(
         id = ns("screen_reset_password"), style = "display:none;",
         h3("Choose a new password"),

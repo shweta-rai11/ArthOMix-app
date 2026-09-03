@@ -1,12 +1,6 @@
 ## Module 3 (Multiomics) - Biomarker Discovery's own pure functions
 ## (multiomics_biomarker_helpers.R): block role selection, class-label
 ## friendliness (display-only, never changing the filtered value), the
-## variance prefilter (outcome-blind, so it cannot leak), the Data Check
-## table, evidence-based stability categorization, component correlation,
-## and the reproducibility/matched-sample tables - plus a REAL small
-## mixOmics::block.splsda fit exercising mb_signature_table()/mb_cv_roc()
-## (leakage-safe per-fold refit + pooled out-of-fold ROC), never a
-## fabricated stability/AUC value.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -18,8 +12,6 @@ source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "mu
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "05_Biomarker_Discovery", "multiomics_biomarker_helpers.R"))
-
-## ---- mb_select_blocks() -----------------------------------------------------
 
 test_that("mb_select_blocks() re-labels the user-chosen roles to fixed Transcriptomics/Methylomics names", {
   layers <- list(RNA = matrix(1, 2, 2), Meth = matrix(2, 2, 2), Extra = matrix(3, 2, 2))
@@ -35,8 +27,6 @@ test_that("mb_select_blocks() returns NULL when the same block is assigned to bo
   expect_null(mb_select_blocks(NULL, "RNA", "Meth"))
 })
 
-## ---- mb_friendly_class_label() -----------------------------------------------
-
 test_that("mb_friendly_class_label() maps known responder/non-responder abbreviations, case/whitespace-insensitively", {
   expect_equal(unname(mb_friendly_class_label(c("resp", " NON ", "Response"))), c("Responder", "Non-responder", "Responder"))
 })
@@ -44,8 +34,6 @@ test_that("mb_friendly_class_label() maps known responder/non-responder abbrevia
 test_that("mb_friendly_class_label() passes through any value not on the synonym list unchanged (never invents a label)", {
   expect_equal(unname(mb_friendly_class_label(c("HC", "RA", "Class1"))), c("HC", "RA", "Class1"))
 })
-
-## ---- mb_variance_prefilter() / mb_default_max_features() ---------------------
 
 test_that("mb_variance_prefilter() keeps exactly the top-N highest-variance columns without reading any outcome", {
   set.seed(300)
@@ -67,8 +55,6 @@ test_that("mb_default_max_features() caps at 5000 but never exceeds the actual f
   expect_equal(mb_default_max_features(20000), 5000L)
 })
 
-## ---- mb_data_check_table() ---------------------------------------------------
-
 test_that("mb_data_check_table() reports 'Not available' rows when validation itself failed", {
   tbl <- mb_data_check_table(list(ok = FALSE), NULL, list(ok = FALSE, reason = "no data"))
   expect_equal(tbl$Status[tbl$Check == "Transcriptomics"], "Not available")
@@ -87,7 +73,7 @@ test_that("mb_data_check_table() reports real per-block sample/feature counts, m
   eligibility <- list(ok = TRUE)
   tbl <- mb_data_check_table(validation, outcome_summary, eligibility)
   expect_true(grepl("25.*500", tbl$Status[tbl$Check == "Transcriptomics"]))
-  expect_true(grepl("High \\(8.5%", tbl$Status[tbl$Check == "Missing values"]))  ## > MB_MISSING_ACCEPTABLE_PCT(5)
+  expect_true(grepl("High \\(8.5%", tbl$Status[tbl$Check == "Missing values"]))
   expect_true(grepl("2 classes", tbl$Status[tbl$Check == "Outcome"]))
   expect_equal(tbl$Status[tbl$Check == "DIABLO eligibility"], "Ready")
 })
@@ -101,14 +87,10 @@ test_that("mb_data_check_table() reports a continuous outcome as not usable for 
   expect_true(grepl("not usable for DIABLO", tbl$Status[tbl$Check == "Outcome"]))
 })
 
-## ---- mb_stability_category() -------------------------------------------------
-
 test_that("mb_stability_category() cuts selection frequency at the documented 0.5/0.8 thresholds", {
   out <- mb_stability_category(c(0.1, 0.49, 0.5, 0.79, 0.8, 1.0))
   expect_equal(as.character(out), c("Low stability", "Low stability", "Moderately stable", "Moderately stable", "Stable", "Stable"))
 })
-
-## ---- mb_component_correlation() ----------------------------------------------
 
 test_that("mb_component_correlation() computes the real correlation between two blocks' first-component scores", {
   ids <- paste0("S", 1:10)
@@ -119,10 +101,6 @@ test_that("mb_component_correlation() computes the real correlation between two 
     Y = matrix(0, 10, 1, dimnames = list(ids, "comp1"))
   ))
   out <- mb_component_correlation(fit)
-  ## Uses stats::cor() explicitly, matching the production code's own
-  ## explicit qualification - WGCNA (loaded by global.R) masks a bare
-  ## cor() call and returns a 1x1 matrix instead of a scalar for two
-  ## plain vectors, which the production code deliberately avoids.
   expect_equal(out$r, stats::cor(v1, v2))
   expect_equal(out$n, 10L)
 })
@@ -131,8 +109,6 @@ test_that("mb_component_correlation() returns NULL when there aren't exactly 2 r
   fit_one <- list(variates = list(Transcriptomics = matrix(1, 5, 1), Y = matrix(0, 5, 1)))
   expect_null(mb_component_correlation(fit_one))
 })
-
-## ---- mb_reproducibility_table() / mb_matched_sample_table() -------------------
 
 test_that("mb_reproducibility_table() reports every real parameter used, never a placeholder", {
   diablo_res <- list(params = list(
@@ -159,8 +135,6 @@ test_that("mb_matched_sample_table() lists every matched sample id with its real
   expect_true(all(is.na(tbl_no_outcome$outcome)))
 })
 
-## ---- REAL small DIABLO fit exercising mb_signature_table()/mb_cv_roc() -----
-
 test_that("mb_signature_table()/mb_cv_roc() run on a real small mixOmics fit: real stability categories and a real, better-than-chance pooled OOF AUC", {
   skip_if_not_installed("mixOmics")
   set.seed(400)
@@ -185,7 +159,7 @@ test_that("mb_signature_table()/mb_cv_roc() run on a real small mixOmics fit: re
   roc_res <- mb_cv_roc(res$fit$X, y, res$params, seed = 1)
   expect_true(!is.null(roc_res))
   expect_true(roc_res$auc >= 0 && roc_res$auc <= 1)
-  expect_true(roc_res$auc > 0.6)  ## real planted signal should clearly beat chance in pooled OOF scoring
+  expect_true(roc_res$auc > 0.6)
 })
 
 test_that("mb_cv_roc() returns NULL (never a crash) for a non-binary outcome", {

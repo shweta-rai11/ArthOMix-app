@@ -1,46 +1,7 @@
 ## R/transcriptomics/07_Mendelian_Randomization/mod_mr.R
 ## Submodule: Mendelian Randomization
 ## A general-purpose two-sample MR tool. "Your analysis" runs a live MR test
-## for any gene against a bundled RA dataset, or against your own uploaded
-## exposure/outcome GWAS summary statistics for any trait - unlike the rest
-## of this app (which reads a currently loaded expression matrix), GWAS
-## summary statistics have no single "your dataset" equivalent, so both
-## paths live side by side behind one switch.
-##
-## Bundled dataset: data/processed/new/MR_primary_objects.rds - cis-
-## restricted (+/-1Mb of the gene body, GRCh37), MHC-flagged, and harmonised
-## (action=2) cis-eQTL instruments against the Okada 2014 RA GWAS (ieu-a-832)
-## for 1,701 genes with at least one usable (mr_keep) harmonised instrument.
-## The advanced filters below (instrument p-value, F-statistic, MHC
-## handling) subset THIS cached, already-cis-filtered object live, rather
-## than re-deriving cis restriction from scratch (that needs a GRCh37
-## annotation this app does not otherwise load - 20% of unfiltered
-## instruments would sit on the wrong chromosome entirely without it).
-##
-## TWO layers, not one - "Your analysis" (the interactive tool, ArthOChat
-## shortcut top-left, matching every other sub-module's layout) comes first
-## on the page; the bundled RA reference results follow as their own
-## full-width box, gated behind a click like every other analysis in this
-## app (nothing computes or renders until asked):
-##  1. "Your analysis" runs the estimator hierarchy LIVE, gene by gene or in
-##     a batch screen, starting from recommended default filters so a user
-##     who changes nothing reproduces layer 2's numbers for that gene.
-##  2. The bundled RA reference results read pre-computed saved CSVs
-##     (MR_MHC_sensitivity_{sex}.csv etc.) directly - the exact, already-
-##     FDR-corrected, already-MHC-sensitivity-tested numbers for this
-##     dataset. Nothing here is recomputed.
-## A live data-integrity check (`relabel_check` below) verified that
-## `$dat$gene` in the cached RDS is stale for 21 SNPs / 37 genes that share
-## an eQTL with a neighbouring gene - the pair-matched relabelling fix was
-## written into the upstream pipeline but the cached object predates it.
-## This module recomputes the correct label from `$inst` (SNP + exposure-
-## dataset ID pair) at load time rather than trusting the cached column, so
-## layer 1 is never affected by that staleness; layer 2 is unaffected too,
-## because none of the 37 genes are in either sex's FDR-surviving list.
 
-## Small hover tooltip (native browser title attribute - no extra JS/CSS
-## dependency) for a filter's rationale, so the control row stays one line
-## instead of a paragraph underneath it.
 mr_info_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
 mod_mr_config <- list(
@@ -62,11 +23,6 @@ mod_mr_ui <- function(id) {
   )
 }
 
-## "MR female"/"MR male": the bundled dataset's own reference results for
-## that sex - but, like every other analysis in this app (Run MR, batch
-## screen, ...), nothing renders - not the stats, not the plot, not the
-## table - until the user explicitly clicks "Show". Opening the tab alone
-## isn't a click; the button inside it is.
 mod_mr_sex_tab_ui <- function(ns, sx) {
   uiOutput(ns(paste0(sx, "_tab_body")))
 }
@@ -191,20 +147,10 @@ mod_mr_overall_ui <- function(ns) {
         ),
         column(
           8,
-          ## No box/title here until Run MR is clicked (mr_has_run) - the
-          ## trigger lives in the "Instrument filters" box in the left
-          ## column, so hiding these entirely first-load costs nothing for
-          ## discoverability. Result comes last, below the plots it explains.
-          ## Pre-click, uiOutput(ns("scatter_diag_ui")) itself fills this
-          ## space with a plain empty-state card (see server) instead of
-          ## leaving the whole column blank next to a much taller filters
-          ## panel - still no result content, box title or number shown.
           uiOutput(ns("scatter_diag_ui")),
           uiOutput(ns("result_box_ui"))
         )
       ),
-      ## Nothing below - title included - exists until its own trigger is
-      ## clicked. Each uiOutput returns NULL (no box, no chrome) pre-click.
       uiOutput(ns("instrument_mr_tables_ui")),
       uiOutput(ns("batch_screen_section"))
   )
@@ -214,53 +160,15 @@ mod_mr_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## mr_obj$dat: one row per (gene, SNP), already cis-restricted and
-    ## MHC-flagged, harmonised against Okada 2014 - see the header comment
-    ## above for why this file (not the raw MR_instruments.rds this module
-    ## used previously) is the right base for live filtering. Loading,
-    ## mr_keep filtering, and the SNP->gene relabel fix (see global.R's
-    ## load_mr_instrument_table() for the full rationale) live in global.R
-    ## now, shared with mod_crossancestry.R's live-upload arm, which
-    ## re-harmonises these SAME exposure-side rows against a different
-    ## outcome GWAS.
     mr_loaded <- load_mr_instrument_table()
     mr_dat_all <- mr_loaded$dat
     mr_primary_all <- mr_loaded$primary
     available_genes <- sort(unique(mr_dat_all$gene))
 
-    ## Static, filter-independent "is this gene in the MHC region" lookup for
-    ## the batch screen (below) - taken from the pipeline's own per-gene
-    ## MHC_gene flag (mr_primary_all$MHC_gene, the same source already used
-    ## for the single-gene Result panel's "(MHC-flagged)" note), NOT derived
-    ## from `any(MHC)` over that gene's currently-filtered instrument rows.
-    ## The latter is wrong under "Exclude" MHC mode - by construction every
-    ## surviving instrument row has MHC == FALSE once MHC rows are excluded,
-    ## so `any(MHC)` over the filtered set is FALSE for every gene and the
-    ## batch table's "In MHC" column would silently read "No" across the
-    ## board regardless of a gene's true MHC status. It can be wrong under
-    ## "Include" mode too whenever the "cap instruments per gene" filter
-    ## happens to drop a gene's (typically weaker) MHC-region instruments
-    ## while keeping its non-MHC ones. 7 of the 1,701 cached genes have no
-    ## row in mr_primary_all (primary-estimate step failed upstream); their
-    ## MHC status is genuinely unknown here rather than silently "No".
     mhc_gene_lookup <- stats::setNames(as.logical(mr_primary_all$MHC_gene), mr_primary_all$gene)
 
-    ## Transparency record of exactly what the relabelling changed, surfaced
-    ## to the user via data_quality_note below rather than fixed silently -
-    ## a correctness fix a user can't see isn't verifiable.
     relabel_check <- mr_loaded$relabel_check
 
-    ## -----------------------------------------------------------------------
-    ## "This project's own MR results" (Section 2.6): read straight from the
-    ## pipeline's saved output, never recomputed. MR_MHC_sensitivity_{sex}.csv
-    ## covers every gene tested in that stratum (1,477 female / 1,478 male)
-    ## with the primary estimate, its 95% CI, and the MHC-exclusion verdict
-    ## already computed - filtering to FDR_primary < 0.05 reproduces
-    ## FS_input_{sex}.csv / MR_causal_FDR_{sex}.csv exactly (verified: 32
-    ## female / 25 male rows) while also carrying OR_lo/OR_hi for the forest
-    ## plot and the ROBUST/UNTESTABLE/MHC-DEPENDENT/FDR-RANK-ONLY verdict
-    ## from the full MHC sensitivity re-run (Section 2.6.8).
-    ## -----------------------------------------------------------------------
     verdict_short <- function(v) {
       dplyr::case_when(
         startsWith(v, "ROBUST")      ~ "ROBUST",
@@ -299,39 +207,12 @@ mod_mr_server <- function(id, dataset, results) {
       if (is.null(d)) NA_integer_ else length(unique(d$gene))
     }, integer(1))
 
-    ## -----------------------------------------------------------------------
-    ## Upload-your-own-GWAS mode: parse a user's exposure/outcome summary
-    ## statistics files with TwoSampleMR::format_data() + harmonise_data() -
-    ## the SAME functions scripts/00_shared/10_MR.R itself calls (`::`-
-    ## qualified so this file never attaches the package and risks the
-    ## dplyr::slice-style namespace collisions that motivated 10_MR.R's own
-    ## D1 fix) - rather than hand-rolling allele-flipping/strand logic. Both
-    ## functions are pure data-frame operations, no OpenGWAS network access
-    ## needed, so this works entirely offline on whatever the user uploads.
-    ##
-    ## Column-guessing/mapping (GWAS_COL_PATTERNS, guess_gwas_col(),
-    ## read_uploaded_table(), gwas_col_map_ui()) lives in global.R now,
-    ## shared with mod_coloc.R and mod_crossancestry.R's own upload modes.
-    ## -----------------------------------------------------------------------
-
-    ## Each uploaded file is parsed from disk exactly ONCE, cached by Shiny's
-    ## own reactive graph (re-reads only when input$exp_file/out_file itself
-    ## changes) - three different consumers (the column-mapping UI below,
-    ## the "Your data" summary, and mr_result_uploaded() when Run MR is
-    ## clicked) previously each called read_uploaded_table() independently,
-    ## paying the parse cost up to 3x per file for no reason, which is what
-    ## made switching between the mapping UI and running MR feel slow on a
-    ## large outcome GWAS file.
     exp_df_r <- reactive({ req(input$exp_file); read_uploaded_table(input$exp_file$datapath) })
     out_df_r <- reactive({ req(input$out_file); read_uploaded_table(input$out_file$datapath) })
 
     output$exp_map_ui <- gwas_col_map_ui(ns, reactive(input$exp_file), exp_df_r, "exp", "Exposure file")
     output$out_map_ui <- gwas_col_map_ui(ns, reactive(input$out_file), out_df_r, "out", "Outcome file")
 
-    ## "Your data" reference summary - the upload-mode counterpart to the
-    ## "GWAS used" note shown for the bundled dataset. Updates the instant a
-    ## file is selected (no "Run MR" click needed), reusing exp_df_r/
-    ## out_df_r above rather than re-reading either file.
     output$upload_data_summary <- renderUI({
       req(identical(input$data_source, "upload"))
       if (is.null(input$exp_file) && is.null(input$out_file)) return(NULL)
@@ -349,10 +230,6 @@ mod_mr_server <- function(id, dataset, results) {
     })
 
     output$gene_ui <- renderUI({
-      ## selectize = TRUE here (unlike the plain <select> this app uses for
-      ## every other single-pick dropdown, e.g. mod_dge.R's contrast_col) is
-      ## deliberate: this list has ~1,700 genes, not 2-20, and needs to be
-      ## searchable rather than scrolled.
       default_gene <- if ("LPCAT2" %in% available_genes) "LPCAT2" else available_genes[1]
       tagList(
         selectInput(ns("gene"), "Candidate gene", choices = available_genes, selected = default_gene, selectize = TRUE),
@@ -361,17 +238,6 @@ mod_mr_server <- function(id, dataset, results) {
       )
     })
 
-    ## -----------------------------------------------------------------------
-    ## Project-results outputs (stats, forest plot, table, downloads) per
-    ## sex - written once as factories over `sx` so the female/male panels
-    ## can never drift apart in how they're built.
-    ## -----------------------------------------------------------------------
-    ## One factory shared by the "MR female"/"MR male" top-level tabs so
-    ## they can never drift apart. Each tab gets its OWN output id
-    ## (data_quality_note_female / _male) - two uiOutputs bound to the same
-    ## Shiny output id would collide in the DOM, since both tabs exist in
-    ## the page simultaneously (tabsetPanel keeps inactive tab content in
-    ## the DOM, just hidden) rather than one being inserted only on demand.
     render_data_quality_note <- function() renderUI({
       rc <- relabel_check
       if (rc$n_snp == 0) return(NULL)
@@ -403,12 +269,6 @@ mod_mr_server <- function(id, dataset, results) {
     output$proj_stats_female <- render_proj_stats("female")
     output$proj_stats_male   <- render_proj_stats("male")
 
-    ## Shared by the on-screen plot and its PNG download, so the two can
-    ## never show different figures. Title/subtitle kept short and wrapped
-    ## across two short lines (rather than one long technical sentence) so
-    ## nothing overflows the plot panel and gets clipped at narrow widths;
-    ## the method-hierarchy detail lives in the "Result" panel and page text
-    ## elsewhere instead of being crammed into the figure itself.
     build_proj_forest <- function(sx) {
       surv <- project_survivors[[sx]]
       validate(need(!is.null(surv) && nrow(surv) > 0, "No reference results available for this sex."))
@@ -471,9 +331,6 @@ mod_mr_server <- function(id, dataset, results) {
       filename = function() sprintf("MR_%s_all_tables.xlsx", sx),
       content = function(file) {
         src <- file.path(TABLES_DIR, sprintf("MR_%s_all_tables.xlsx", sx))
-        ## file.copy() on a missing source silently returns FALSE and leaves
-        ## `file` unwritten/empty rather than raising anything a user could
-        ## see - fail loudly instead of handing back a 0-byte "download".
         if (!file.exists(src)) stop(sprintf("MR_%s_all_tables.xlsx is not present in this deployment's TABLES_DIR.", sx))
         file.copy(src, file, overwrite = TRUE)
       }
@@ -481,11 +338,6 @@ mod_mr_server <- function(id, dataset, results) {
     output$dl_proj_xlsx_female <- make_dl_xlsx("female")
     output$dl_proj_xlsx_male   <- make_dl_xlsx("male")
 
-    ## "MR female"/"MR male" tab bodies: nothing (no stats, no plot, no
-    ## table) until the user clicks "Show ... MR results" - same click-gated
-    ## pattern as "Run MR" and the batch screen, applied here too so the
-    ## whole module behaves consistently: opening a tab is not, itself, a
-    ## request to compute or reveal anything.
     sex_shown <- reactiveValues(female = FALSE, male = FALSE)
     observeEvent(input$show_female_btn, sex_shown$female <- TRUE)
     observeEvent(input$show_male_btn, sex_shown$male <- TRUE)
@@ -526,16 +378,6 @@ mod_mr_server <- function(id, dataset, results) {
       updateCheckboxInput(session, "run_presso", value = FALSE)
     })
 
-    ## estimate_mr_set() - the project's own estimator hierarchy (Section
-    ## 2.6.5): >=3 SNPs get IVW + MR-Egger + weighted median (+ weighted mode
-    ## if requested), 2 SNPs get IVW alone, 1 SNP gets the Wald ratio - now
-    ## lives in global.R, shared with mod_crossancestry.R's live-upload arm
-    ## so the two can never silently drift apart on how a gene is estimated.
-
-    ## Shared by both branches below: current confidence level as a
-    ## fraction, and an optional cap on how many instruments (strongest by
-    ## exposure p-value) actually reach estimate_mr_set() - lets a user
-    ## stress-test how an estimate degrades with fewer, stronger instruments.
     current_ci_level <- function() as.numeric(input$ci_level %||% "0.95")
     apply_max_snps_cap <- function(d) {
       cap <- suppressWarnings(as.numeric(input$max_snps %||% "Inf"))
@@ -543,12 +385,6 @@ mod_mr_server <- function(id, dataset, results) {
       d[order(d$pval.exposure), , drop = FALSE][seq_len(cap), , drop = FALSE]
     }
 
-    ## Uploaded-data branch: format + harmonise the user's own two files with
-    ## TwoSampleMR (same functions, same defaults 10_MR.R itself uses), then
-    ## hand off to the SAME estimate_mr_set() the project-data branch below
-    ## uses, so the estimator hierarchy, its output shape and every
-    ## downstream render (scatter, diagnostics, tables) is identical either
-    ## way - only how `d` gets built differs.
     mr_result_uploaded <- function() {
       req(input$exp_file, input$out_file)
       req(input$exp_snp, input$exp_beta, input$exp_se, input$exp_pval, input$exp_ea, input$exp_oa)
@@ -590,21 +426,6 @@ mod_mr_server <- function(id, dataset, results) {
         n_before
       )))
 
-      ## Optional live LD clumping (independence): off by default (needs
-      ## network access to the OpenGWAS LD reference). A failure here
-      ## (no token, unreachable, or no LD panel match) degrades to
-      ## proceeding on the unclumped set rather than blocking the run - the
-      ## clump_note flag records which happened so the Result panel can say
-      ## so honestly instead of silently pretending it always succeeds.
-      ## Distinguishes three outcomes explicitly rather than lumping them
-      ## into one "failed" state: a genuine API/network/token failure (the
-      ## call itself errors) is a different problem from the call
-      ## succeeding but returning nothing usable (e.g. the uploaded rsIDs
-      ## aren't genotyped in the chosen population's LD reference panel) -
-      ## confirmed against this app's own test fixtures, where synthetic
-      ## rsIDs correctly clump to zero survivors while real cached rsIDs
-      ## clump successfully. Either way, the unclumped set is kept rather
-      ## than silently discarding every instrument.
       clump_status <- "off"
       n_before_clump <- nrow(d)
       if (isTRUE(input$do_clump) && nrow(d) > 1) {
@@ -640,10 +461,6 @@ mod_mr_server <- function(id, dataset, results) {
       )
     }
 
-    ## Parameterised on `gene` (not always input$gene) so the female/male
-    ## tab pickers below can reuse the exact same bundled-dataset logic -
-    ## same filters, same estimator hierarchy, same reference comparison -
-    ## instead of a second, drift-prone copy.
     mr_result_for_gene <- function(gene) {
       req(gene)
       pval_cut <- as.numeric(input$pval_cut %||% "5e-8")
@@ -682,11 +499,6 @@ mod_mr_server <- function(id, dataset, results) {
       if (identical(input$data_source, "upload")) mr_result_uploaded() else mr_result_project()
     })
 
-    ## Nothing about a run's results - Result/scatter/diagnostics/instrument
-    ## table/MR-estimates, box titles included - exists on the page until
-    ## "Run MR" has actually been clicked at least once. A validate() error
-    ## inside mr_result() (e.g. no instruments left after filtering) still
-    ## surfaces normally once revealed, same as every other tab in this app.
     mr_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, mr_has_run(TRUE))
 
@@ -700,10 +512,6 @@ mod_mr_server <- function(id, dataset, results) {
 
     output$scatter_diag_ui <- renderUI({
       if (!mr_has_run()) {
-        ## Empty state, not a result: no box title, no numbers, nothing
-        ## this app has actually computed - just fills the column next to
-        ## the (now taller) filters panel so the page doesn't read as
-        ## broken while still showing nothing result-related pre-click.
         return(box(
           width = NULL, solidHeader = FALSE,
           div(class = "coming-soon", style = "padding: 90px 20px;",
@@ -819,18 +627,8 @@ mod_mr_server <- function(id, dataset, results) {
       )
     })
 
-    ## ---------------------------------------------------------------------
-    ## Instrument table: exactly the rows estimate_mr_set() above was fit
-    ## on for this gene, so what a user sees here is never out of step with
-    ## the estimate below it.
-    ## ---------------------------------------------------------------------
     output$instrument_table <- DT::renderDataTable({
       res <- mr_result()
-      ## Uploaded data has no chr/pos (format_data() wasn't given chr_col/
-      ## pos_col, since this app doesn't ask the user to map them) and no
-      ## real MHC flag (always FALSE, set in mr_result_uploaded) - build the
-      ## column list from what's actually present instead of assuming the
-      ## project-cached shape.
       cols <- c(SNP = "SNP", Chr = "chr.exposure", `Position (GRCh37)` = "pos.exposure",
                 `β exposure` = "beta.exposure", `SE exposure` = "se.exposure",
                 `eQTL/exposure p-value` = "pval.exposure", `F-statistic` = "Fstat", `In MHC` = "MHC")
@@ -876,20 +674,8 @@ mod_mr_server <- function(id, dataset, results) {
       p
     })
 
-    ## No tryCatch(..., error = function(e) NULL) here: scatter_plot_obj()
-    ## re-reads mr_result(), and swallowing its errors would also swallow
-    ## mr_result()'s own validate()/need() messages (e.g. "No instruments
-    ## remain after filtering...") - leaving this panel silently blank while
-    ## the "Result" box above correctly explains why. Letting Shiny's normal
-    ## validate() handling reach this output keeps both panels consistent.
     output$scatter_plot <- renderPlot(scatter_plot_obj())
 
-    ## ---------------------------------------------------------------------
-    ## Leave-one-out: re-fit IVW with each SNP dropped in turn, plus the
-    ## all-SNP estimate as the reference row - the same diagnostic
-    ## scripts/goal2_sex_stratified/35_figure_mr_diagnostics.R draws for
-    ## the >=3-instrument subset of the thesis's own prioritised genes.
-    ## ---------------------------------------------------------------------
     loo_result <- reactive({
       res <- mr_result()
       d <- res$d
@@ -909,10 +695,6 @@ mod_mr_server <- function(id, dataset, results) {
       out
     })
 
-    ## Per-SNP Wald ratio (beta.outcome/beta.exposure) against its own
-    ## precision (1/SE of that ratio) - the standard MR funnel-plot
-    ## construction: symmetric scatter around the pooled IVW estimate is
-    ## consistent with no directional pleiotropy, a lopsided funnel is not.
     funnel_data <- reactive({
       res <- mr_result()
       d <- res$d
@@ -963,17 +745,10 @@ mod_mr_server <- function(id, dataset, results) {
       content = function(file) write.csv(mr_result()$est$res_table, file, row.names = FALSE)
     )
 
-    ## No box, no title, until "Run batch screen" is clicked - this box's
-    ## own button is its only entry point (unlike Result/scatter/
-    ## diagnostics, which are triggered by the separate "Run MR" button in
-    ## the "Instrument filters" box).
     batch_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_batch_btn, batch_has_run(TRUE))
 
     output$batch_screen_section <- renderUI({
-      ## Bundled-dataset only (it loops over the ~1,700 cached genes), so it
-      ## is entirely absent - not just disabled - when "MR overall" is set
-      ## to upload mode, matching that tab's own data-source switch.
       if (!identical(input$data_source, "project")) return(NULL)
       if (!batch_has_run()) {
         return(div(
@@ -992,14 +767,6 @@ mod_mr_server <- function(id, dataset, results) {
       )
     })
 
-    ## ---------------------------------------------------------------------
-    ## Batch screen: the same filters and the same estimate_mr_set() used
-    ## for one gene above, run across every gene with a cached instrument,
-    ## then BH-FDR corrected across whatever set of genes the current
-    ## filters actually leave testable - this session's own screen, kept
-    ## explicitly distinct from the thesis's separate, sex-stratified
-    ## denominators (Section 2.6.7) in every label this produces.
-    ## ---------------------------------------------------------------------
     batch_result <- eventReactive(input$run_batch_btn, {
       validate(need(identical(input$data_source, "project"),
         "The batch screen runs across the bundled dataset's genes and isn't available in \"Upload your own GWAS\" mode - switch the data source above to the bundled dataset first."))

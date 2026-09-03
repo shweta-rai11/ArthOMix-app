@@ -1,12 +1,6 @@
 ## R/transcriptomics/16_Nomogram/mod_nomogram.R
 ## Clinical Utility Nomogram (Section 2.15): fits a per-sex rms::lrm logistic
 ## model on a chosen gene panel (unstandardised log2 expression, sex as
-## partition not predictor) and evaluates it via nomogram, calibration
-## (rms::calibrate), decision curve analysis (Vickers & Elkin 2006), and
-## clinical impact - mirrors 19_testing_blood_clinical_utility.R. Gene panel
-## comes from one of four sources (Your own / Same-tissue / Cross-tissue /
-## Cross-ancestry, same picker as mod_enrichment.R); fitting runs only when
-## "Build nomogram" is clicked.
 
 mod_nomogram_config <- list(
   id = "nomogram", group = "Interpretation",
@@ -15,19 +9,12 @@ mod_nomogram_config <- list(
   icon = "file-medical"
 )
 
-## ---------------------------------------------------------------------------
-## Shared fitting helpers (pure functions, "nom_" prefix keeps names unique
-## across this app's shared sourcing environment).
-## ---------------------------------------------------------------------------
-
 NOM_DEFAULT_PARAMS <- list(
   penalty_mode = "project", penalty_manual = 0,
   calibrate_B = 200, dca_step = 0.01,
   impact_N = 1000, impact_B = 500, seed = 1234
 )
 
-## Net benefit (Vickers & Elkin 2006): NB = TP/n - FP/n * pt/(1-pt); `all` is
-## the treat-everyone reference, treat-none is zero by definition.
 nom_dca <- function(y, p, th) {
   n <- length(y); ev <- mean(y == 1)
   model <- vapply(th, function(pt) {
@@ -38,9 +25,6 @@ nom_dca <- function(y, p, th) {
   list(model = model, all = all)
 }
 
-## Clinical-impact curve (Kerr et al. 2016): per N patients, how many are
-## flagged high-risk and how many are true cases, with 95% bands from B
-## bootstrap refits (same penalty, sampling variability not optimism-corrected).
 nom_clinical_impact <- function(df, form, penalty, p, y, th, N, B, seed) {
   nhigh  <- vapply(th, function(pt) mean(p >= pt) * N, numeric(1))
   nevent <- vapply(th, function(pt) mean(p >= pt & y == 1) * N, numeric(1))
@@ -64,19 +48,9 @@ nom_clinical_impact <- function(df, form, penalty, p, y, th, N, B, seed) {
        nevent_lo = q(be, .025), nevent_hi = q(be, .975), N = N, B = B)
 }
 
-## One sex's full instrument: fit + nomogram + calibration + decision curve +
-## clinical impact + coefficients, from `df` (one sex, 0/1 `y` outcome column).
 nom_fit_core <- function(df, predictors, penalty, event_label, params) {
   form <- as.formula(paste("y ~", paste(predictors, collapse = " + ")))
 
-  ## datadist must be a global option (rms requirement). A single fixed
-  ## object name here would race under a standard multi-session Shiny
-  ## deployment - two users clicking "Build nomogram" concurrently share one
-  ## R process's .GlobalEnv, so the second assign() can silently overwrite
-  ## the first fit's datadist mid-computation. tempfile()'s name is
-  ## per-call-unique (and doesn't touch the RNG the way sample()/runif()
-  ## would, so it can't affect params$seed's reproducibility below); tear
-  ## down on exit so nothing leaks between sessions or calls either way.
   dd_name <- paste0(".arthomix_nomogram_dd_", basename(tempfile("")))
   assign(dd_name, rms::datadist(df), envir = .GlobalEnv)
   old_opts <- options(datadist = dd_name)
@@ -85,12 +59,6 @@ nom_fit_core <- function(df, predictors, penalty, event_label, params) {
     if (exists(dd_name, envir = .GlobalEnv)) rm(list = dd_name, envir = .GlobalEnv)
   }, add = TRUE)
 
-  ## penalty == "auto": pick the ridge penalty from this fit's own data via
-  ## rms::pentrace()'s AIC-corrected grid search (Harrell, Regression
-  ## Modeling Strategies) rather than a hardcoded per-sex value - applied by
-  ## the exact same procedure regardless of sex_label, so any male/female
-  ## difference in the resulting penalty reflects the data, not a rule keyed
-  ## on sex.
   if (identical(penalty, "auto")) {
     fit0 <- rms::lrm(form, data = df, x = TRUE, y = TRUE)
     pen_grid <- c(0, 0.5, 1, 2, 3, 5, 8, 12, 20, 30)
@@ -122,8 +90,6 @@ nom_fit_core <- function(df, predictors, penalty, event_label, params) {
   )
 }
 
-## Decision-curve plot with a secondary Cost:Benefit ratio axis (rmda
-## convention, ticks 1:100 .. 100:1).
 nom_render_dca_plot <- function(dca_df, event_label) {
   th <- dca_df$threshold
   ymax <- suppressWarnings(max(c(dca_df$NB_panel, dca_df$NB_all), na.rm = TRUE))
@@ -141,7 +107,6 @@ nom_render_dca_plot <- function(dca_df, event_label) {
          col = c("#C0392B", "grey55", "black"), lwd = c(2.5, 1.5, 1.2), bty = "n")
 }
 
-## Clinical-impact plot - matches this project's own script section (D).
 nom_render_impact_plot <- function(impact, event_label) {
   th <- impact$threshold; N <- impact$N
   op <- par(mar = c(7.5, 4, 3, 1)); on.exit(par(op))
@@ -169,10 +134,6 @@ nom_impact_df <- function(impact) {
     n_high_risk_true_case_hi95 = round(impact$nevent_hi, 1)
   )
 }
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_nomogram_ui <- function(id) {
   ns <- NS(id)
@@ -244,9 +205,6 @@ mod_nomogram_ui <- function(id) {
         ),
         column(
           8,
-          ## Hidden until "Build nomogram" is clicked once - nom_result() is
-          ## an eventReactive keyed on that button, and rendering earlier
-          ## would surface a raw dispatch error instead of an empty state.
           conditionalPanel(
             condition = sprintf("input['%s'] > 0", ns("run_btn")),
             tabsetPanel(
@@ -305,15 +263,10 @@ mod_nomogram_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_nomogram_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Independent synovium cohort for the Cross-tissue source, loaded once, read-only.
     val <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
     bundled_venn <- read_table_safe("FS_venn_membership.csv")
 
@@ -328,13 +281,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       cross_ancestry = "Genes whose MR causal signal replicates in European AND transfers to East-Asian ancestry GWAS - fit in blood, since this project has no ancestry-stratified expression cohort."
     )
 
-    ## Resolves "female"/"male"/"pooled" to the actual value used in a live sex
-    ## column, same grepl("^f"/"^m") convention as mod_diagnostic.R's/
-    ## mod_featureselection.R's sex_levels() - an uploaded dataset's sex column
-    ## isn't guaranteed to be coded literally "F"/"M" (e.g. "Female"/"Male").
-    ## Only for dataset$meta$sex; the bundled synovium object's sex column is
-    ## fixed at "F"/"M" by this project's own preprocessing, so call sites
-    ## against `val$sex` keep the literal switch() instead.
     nom_live_sex_code <- function(sex_label, sex_col) {
       if (identical(sex_label, "pooled")) return(NULL)
       lv <- unique(stats::na.omit(as.character(sex_col)))
@@ -344,10 +290,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       if (identical(sex_label, "female")) (if (length(f) > 0) f[1] else lv_sorted[1])
       else (if (length(m) > 0) m[1] else lv_sorted[min(2, length(lv_sorted))])
     }
-
-    ## -----------------------------------------------------------------
-    ## Gene-panel sources: live session data first, bundled fallback.
-    ## -----------------------------------------------------------------
 
     nom_same_tissue_panel <- function(sex_label) {
       live <- results$featureselection[[sex_label]]$consensus_genes
@@ -385,12 +327,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
     }
 
     nom_cross_ancestry_panel <- function(sex_label) {
-      ## mod_crossancestry.R only ever fits/saves "female"/"male" (its Run
-      ## buttons are per-sex; there is no pooled arm and no
-      ## MR35_crossancestry_pooled.csv bundled table), so live and bundled
-      ## both fail for sex_label == "pooled" no matter what the user does -
-      ## the generic "run Cross-Ancestry MR first" message below would send
-      ## them to do something that module can't do. Say so explicitly instead.
       if (identical(sex_label, "pooled")) {
         return(list(genes = character(0), is_live = FALSE,
              note = "Cross-Ancestry MR is fit per sex only (Female/Male) in this project - there is no pooled panel. Switch Sex to Female or Male, or use \"Your own\" to enter a gene list."))
@@ -416,12 +352,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
 
     panel_fns <- list(same_tissue = nom_same_tissue_panel, cross_tissue = nom_cross_tissue_panel, cross_ancestry = nom_cross_ancestry_panel)
 
-    ## GSE89408 is a fixed bundled synovial cohort, unrelated to whatever the
-    ## user just fetched from NCBI GEO - offering it as a "Fit & evaluate on"
-    ## choice only makes sense when the loaded dataset is itself blood (the
-    ## preloaded/uploaded case). For a GEO fetch, skip the choice entirely;
-    ## current_cohort() below already falls back to "blood" (the fetched
-    ## dataset) when input$own_cohort is absent.
     output$own_cohort_ui <- renderUI({
       if (identical(dataset$source_type, "geo")) return(NULL)
       radioButtons(
@@ -431,15 +361,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Circularity disclosure: for "same_tissue" and "cross_ancestry", the
-    ## gene panel above comes from a live Feature-Selection (or Cross-Ancestry
-    ## MR) fit on THIS SAME loaded cohort, and the nomogram below is then
-    ## fit AND calibrated on that identical cohort - the panel-selection step
-    ## and the evaluation step never see independent data. "cross_tissue" is
-    ## the one source that's genuinely circularity-free (panel selected in
-    ## blood, evaluated fresh in the independent GSE89408 synovium cohort).
-    ## Same house style as mod_diagnostic.R's/mod_methyl_diagnostic.R's/
-    ## mod_methyl_featureselection.R's own "optimistic"/circularity callouts.
     nom_circularity_note <- function(src) {
       if (!src %in% c("same_tissue", "cross_ancestry")) return(NULL)
       div(class = "empty-note", style = "margin-top: 8px; border-left: 3px solid #d97706;",
@@ -468,8 +389,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Which cohort "Build nomogram" fits on: cross_tissue -> synovium,
-    ## same_tissue/cross_ancestry -> blood, own -> user's choice.
     current_cohort <- reactive({
       src <- input$gene_source %||% "own"
       if (identical(src, "cross_tissue")) "synovium"
@@ -511,25 +430,12 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## -----------------------------------------------------------------
-    ## Locks in sex/source/cohort/filters and builds the full instrument.
-    ## -----------------------------------------------------------------
-
     nom_result <- eventReactive(input$run_btn, {
       sex_label <- input$fit_sex %||% "female"
       sex_code <- switch(sex_label, female = "F", male = "M", NULL)
       src <- input$gene_source %||% "own"
       cohort <- current_cohort()
       params <- nom_advanced_params()
-      ## numericInput()'s min/max are client-side hints only - Shiny does not
-      ## clamp server-side, and a value typed directly (bypassing the
-      ## spinner arrows) reaches here as-is. dca_step <= 0 makes seq(0.01,
-      ## 0.99, by = dca_step) error ("invalid '(to - from)/by'" or "wrong
-      ## sign in 'by'"); impact_B < 1 makes nom_clinical_impact()'s
-      ## matrix(NA, length(th), B) + apply() error ("invalid 'ncol' value")
-      ## - both uncaught, which would surface as a raw R error instead of
-      ## this app's usual guided message. calibrate_B doesn't need this: its
-      ## call site already wraps rms::calibrate() in tryCatch().
       validate(need(is.numeric(params$dca_step) && params$dca_step > 0, "Decision-curve threshold step must be a positive number."))
       validate(need(is.numeric(params$impact_B) && params$impact_B >= 1, "Clinical impact bootstrap reps must be at least 1."))
 
@@ -553,13 +459,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
                       sprintf("The %s synovium subset needs at least 10 samples in each group (RA/Normal).", sex_label)))
         expr_sub <- val$logcpm[genes_present, idx_sex, drop = FALSE]
         df <- as.data.frame(t(expr_sub)); names(df) <- make.names(names(df))
-        ## Explicit relevel, not the stored factor's own level order: this
-        ## project's val_synovium.rds happens to store levels(grp) as
-        ## c("Normal","RA") today, but as.numeric() on whatever order the RDS
-        ## was last built with would silently invert Normal/RA (and hence
-        ## event_label = "RA" below) if that object were ever regenerated
-        ## with a different level order - nothing downstream would catch it.
-        df$y <- as.numeric(factor(as.character(y_full), levels = c("Normal", "RA"))) - 1  ## Normal = 0, RA = 1
+        df$y <- as.numeric(factor(as.character(y_full), levels = c("Normal", "RA"))) - 1
         event_label <- "RA"
         tissue_label <- "Cross-tissue - synovium (GSE89408)"
       } else {
@@ -594,13 +494,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       }
 
       predictors <- setdiff(names(df), "y")
-      ## "auto" -> nom_fit_core() below selects the ridge penalty from the
-      ## data itself (rms::pentrace(), AIC-optimal over a fixed candidate
-      ## grid), identically for both sexes - this used to be a hardcoded
-      ## 0 (female) / 5 (male) split with no citation or cross-validation,
-      ## which confounded any male-vs-female comparison of the resulting
-      ## nomograms with an arbitrary, sex-keyed regularization choice rather
-      ## than a genuine difference in the fitted data.
       penalty <- if (identical(params$penalty_mode, "manual")) params$penalty_manual else "auto"
 
       res <- nom_fit_core(df, predictors, penalty, event_label, params)
@@ -610,12 +503,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       res
     }, ignoreInit = TRUE)
 
-    ## Gates every output below on "has this been (re-)built for the
-    ## CURRENTLY loaded dataset" - nom_result() is an eventReactive keyed
-    ## only on run_btn, so switching datasets on the Dataset tab without
-    ## re-clicking "Build nomogram" would otherwise leave every plot/table
-    ## silently showing the previous cohort's fit. Mirrors mod_dge.R's
-    ## dge_has_run / mod_interaction.R's int_has_run reset pattern.
     nom_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, nom_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(dataset$source, {
@@ -717,7 +604,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       }
     )
 
-    ## Publishes summary stats for ArthOChat / build_assistant_context().
     observeEvent(nom_result(), {
       res <- nom_result()
       results$nomogram <- utils::modifyList(

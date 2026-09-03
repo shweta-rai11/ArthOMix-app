@@ -13,7 +13,7 @@ test_that("wgcna_encode_trait() passes numeric traits through unchanged", {
 test_that("wgcna_encode_trait() factor-encodes a categorical trait alphabetically", {
   meta <- data.frame(group = c("RA", "HC", "HC", "RA"))
   out <- wgcna_encode_trait(meta, "group")
-  expect_equal(out, c(2, 1, 1, 2))  ## HC=1, RA=2 alphabetically
+  expect_equal(out, c(2, 1, 1, 2))
 })
 
 test_that("wgcna_encode_trait() restricts to levels_keep, coding excluded values as NA", {

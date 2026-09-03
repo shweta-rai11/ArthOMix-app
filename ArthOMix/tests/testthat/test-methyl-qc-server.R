@@ -23,7 +23,7 @@ methyl_qc_fixture <- function(n_probes = 30, n_samples = 12, seed = 240) {
 
 test_that("Sample QC computes a call-rate table for every sample in the active stratum, flagging low call rate correctly", {
   methyl_dataset <- methyl_qc_fixture()
-  shiny::isolate(methyl_dataset$beta[1:20, 1] <- NA)  ## sample 1: 20/30 probes missing -> call_rate ~0.33
+  shiny::isolate(methyl_dataset$beta[1:20, 1] <- NA)
   methyl_results <- shiny::reactiveValues()
   shiny::testServer(mod_methyl_qc_server, args = list(id = "qc", methyl_dataset = methyl_dataset, methyl_results = methyl_results), {
     session$setInputs(call_rate_min = 0.95)
@@ -49,7 +49,7 @@ test_that("current_subgroup() restricts Sample QC to one sex stratum when select
 
 test_that("Probe QC's missing-value filter removes probes exceeding the missingness threshold from the active stratum", {
   methyl_dataset <- methyl_qc_fixture()
-  shiny::isolate(methyl_dataset$beta[1, ] <- NA)  ## probe 1: 100% missing
+  shiny::isolate(methyl_dataset$beta[1, ] <- NA)
   methyl_results <- shiny::reactiveValues()
   shiny::testServer(mod_methyl_qc_server, args = list(id = "qc", methyl_dataset = methyl_dataset, methyl_results = methyl_results), {
     session$setInputs(f_missing = TRUE, missing_max = 0, f_detp = FALSE, f_beadcount = FALSE,
@@ -58,7 +58,7 @@ test_that("Probe QC's missing-value filter removes probes exceeding the missingn
     session$setInputs(run_probe_qc_btn = 1)
 
     r <- probe_qc_result()
-    expect_equal(nrow(r$mat), 30L)          ## r$mat is the pre-filter input
+    expect_equal(nrow(r$mat), 30L)
     expect_false("cg10000001" %in% rownames(r$filtered))
     expect_equal(nrow(r$filtered), 29L)
   })

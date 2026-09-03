@@ -1,7 +1,6 @@
 ## Module 1 (Transcriptomics) - Cross-Ancestry Validation's single source-of-
 ## truth classifier, ca_classify(), covering every branch of its 2x2
 ## (replicated_EUR x transferable_EAS) -> ancestry_class mapping plus its
-## NA-safety and direction-requirement toggle.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -41,7 +40,7 @@ test_that("ca_classify() assigns 'EUR-replicated, not EAS' when testable but p_b
   out <- ca_classify(ca_fixture(), p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)
   row <- out[out$gene == "NOT_TRANSFERABLE", ]
   expect_true(row$replicated_EUR)
-  expect_false(row$transferable_EAS)  ## p_bbj = 0.5, fails p_eas cutoff
+  expect_false(row$transferable_EAS)
   expect_equal(row$ancestry_class, "EUR-replicated, not EAS")
 })
 
@@ -64,7 +63,6 @@ test_that("require_dir = FALSE ignores direction concordance entirely", {
   df <- ca_fixture()
   out <- ca_classify(df, p_eur = 0.05, p_eas = 0.05, require_dir = FALSE)
   row <- out[out$gene == "NOT_REPLICATED", ]
-  ## Same row that failed direction concordance above now replicates purely on p-value.
   expect_true(row$replicated_EUR)
 })
 
@@ -77,19 +75,11 @@ test_that("threshold sensitivity: a gene just above p_eur is not replicated, jus
 })
 
 test_that("ca_classify() defaults testable_EUR to TRUE when the column is absent (bundled panel)", {
-  ## ca_fixture() never sets testable_EUR - every existing call above relies
-  ## on this default, since only an uploaded EUR-replacement GWAS ever
-  ## populates that column (mod_crossancestry.R's live_arm_for_genes()).
   out <- ca_classify(ca_fixture(), p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)
   expect_true(all(out$testable_EUR))
 })
 
 test_that("ca_classify() assigns 'untestable in EUR' rather than 'not EUR-replicated' when testable_EUR is FALSE", {
-  ## Simulates an uploaded European replacement GWAS that produced no usable
-  ## harmonised instrument for this gene: p_stahl/dir are NA-like inputs, but
-  ## the point of testable_EUR is that this must read as "no test was
-  ## possible", not "the test failed" - the exact distinction the module
-  ## already makes for testable_EAS.
   df <- ca_fixture()[1, ]
   df$testable_EUR <- FALSE
   out <- ca_classify(df, p_eur = 0.05, p_eas = 0.05, require_dir = TRUE)

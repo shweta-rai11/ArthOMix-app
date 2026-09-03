@@ -1,11 +1,6 @@
 ## Module 2 (Methylomics) - Dataset tab: preloaded/upload/GEO paths, via
 ## testServer(). The preloaded path normally loads its ~2.1GB live matrix
 ## asynchronously (ExtendedTask/future_promise) - pre-warming
-## .arthomix_cache[["meth_default_matrix"]] by calling
-## load_default_meth_matrix() once before the click routes it through the
-## same function's own synchronous "already cached" branch instead, so the
-## real finish_preloaded_load() path is exercised without needing to drive
-## an actual async promise resolution through testServer().
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -16,7 +11,7 @@ source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
 source_from_app_root(file.path("R", "methylomics", "01_Data", "mod_methyl_dataset.R"))
 
 test_that("loading the preloaded whole-blood dataset (pre-warmed cache) populates methyl_dataset with a real beta matrix", {
-  invisible(load_default_meth_matrix())  ## pre-warm .arthomix_cache
+  invisible(load_default_meth_matrix())
   methyl_dataset <- shiny::reactiveValues()
   shiny::testServer(mod_methyl_dataset_server, args = list(id = "mds", methyl_dataset = methyl_dataset), {
     session$setInputs(preloaded_choice = "gse42861_wholeblood")
@@ -110,8 +105,6 @@ test_that("fewer than 4 matched sample IDs between the matrix and sample sheet i
   })
 })
 
-## ---- GEO fetch (offline, mocked GEOquery::getGEO) --------------------------
-
 test_that("fetching a GEO series (mocked, recognized 450K platform) loads with the correct array_type via MX_METHYLATION_GPL", {
   set.seed(232)
   n_probes <- 20; n_samples <- 6
@@ -120,7 +113,7 @@ test_that("fetching a GEO series (mocked, recognized 450K platform) loads with t
   pdat <- data.frame(geo_accession = colnames(mat), `disease state:ch1` = rep(c("RA", "HC"), 3),
                        check.names = FALSE, row.names = colnames(mat))
   eset <- Biobase::ExpressionSet(assayData = mat, phenoData = Biobase::AnnotatedDataFrame(pdat))
-  Biobase::annotation(eset) <- "GPL13534"  ## maps to "450K" per MX_METHYLATION_GPL
+  Biobase::annotation(eset) <- "GPL13534"
 
   testthat::local_mocked_bindings(getGEO = function(...) list(GPL13534 = eset), .package = "GEOquery")
 

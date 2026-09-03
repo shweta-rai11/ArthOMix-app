@@ -1,29 +1,13 @@
 ## R/auth/mod_auth_server.R
 ## Server logic for the authentication screens (R/auth/mod_auth_ui.R):
 ## validation, the Supabase REST calls (R/auth/auth_api.R), and the
-## email-verification/password-recovery link handling (Supabase's
-## confirmation/reset emails are customized - see the project setup notes -
-## to link back here with ?token_hash=...&type=signup|recovery, since the
-## default hash-fragment link is invisible to a classic Shiny server).
-##
-## Returns list(session_info = reactiveVal, logout = function()) - NULL
-## session_info means "not logged in"; server.R's output$app_shell reads it
-## to decide whether to show this screen or the existing app, and the
-## once=TRUE guard on it triggers existing_app_server() exactly once.
 
-## Not pedantic - just "looks like an email", matching the spec's
-## instruction not to over-restrict legitimate addresses.
 is_valid_email <- function(x) {
   grepl("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", x %||% "")
 }
 
-## Matches Supabase's own default minimum; no arbitrary uppercase/number/
-## symbol requirements - the strength meter in mod_auth_ui.R is feedback,
-## not a gate.
 is_valid_password <- function(x) nchar(x %||% "") >= 8
 
-## Status reactiveVals hold either NULL or list(msg=, type=) - `type` is
-## "error"/"success", picking the CSS class auth_status_ui() renders with.
 auth_status_ui <- function(status) {
   if (is.null(status)) return(NULL)
   div(class = paste0("auth-alert auth-alert-", status$type), status$msg)
@@ -35,8 +19,6 @@ mod_auth_server <- function(id) {
     session_info <- reactiveVal(NULL)
     recovery_token <- reactiveVal(NULL)
     pending_email <- reactiveVal(NULL)
-    ## "signup" or "forgot" - which copy/resend behavior screen_check_email
-    ## shows, since both flows land on the same screen.
     check_email_mode <- reactiveVal("signup")
 
     login_status_msg <- reactiveVal(NULL)
@@ -44,16 +26,12 @@ mod_auth_server <- function(id) {
     forgot_status_msg <- reactiveVal(NULL)
     reset_status_msg <- reactiveVal(NULL)
 
-    ## shinyjs::hide()/show() apply session$ns() internally when called from
-    ## inside a moduleServer, so plain (non-namespaced) ids here correctly
-    ## target this module's own screen_* divs.
     show_screen <- function(target) {
       for (s in c("login", "signup", "check_email", "forgot", "reset_password")) {
         if (identical(s, target)) shinyjs::show(paste0("screen_", s)) else shinyjs::hide(paste0("screen_", s))
       }
     }
 
-    ## ---- Log in ------------------------------------------------------------
     observeEvent(input$login_btn, {
       login_status_msg(NULL)
       email <- trimws(input$login_email %||% "")
@@ -72,7 +50,6 @@ mod_auth_server <- function(id) {
       }
     }, ignoreInit = TRUE)
 
-    ## ---- Sign up -------------------------------------------------------------
     observeEvent(input$signup_btn, {
       signup_status_msg(NULL)
       email <- trimws(input$signup_email %||% "")
@@ -92,9 +69,6 @@ mod_auth_server <- function(id) {
       }
       shinyjs::disable("signup_btn")
       on.exit(shinyjs::enable("signup_btn"), add = TRUE)
-      ## Outcome intentionally not branched on - the same "check your email"
-      ## screen shows whether or not the address was already registered, so
-      ## a sign-up attempt never reveals which addresses have accounts.
       supabase_sign_up(email, pw)
       pending_email(email)
       check_email_mode("signup")
@@ -122,7 +96,6 @@ mod_auth_server <- function(id) {
       showNotification("Email sent.", type = "message", duration = 3)
     }, ignoreInit = TRUE)
 
-    ## ---- Forgot password -------------------------------------------------
     observeEvent(input$forgot_btn, {
       forgot_status_msg(NULL)
       email <- trimws(input$forgot_email %||% "")
@@ -132,15 +105,12 @@ mod_auth_server <- function(id) {
       }
       shinyjs::disable("forgot_btn")
       on.exit(shinyjs::enable("forgot_btn"), add = TRUE)
-      ## Outcome intentionally not branched on - same generic "if an account
-      ## exists..." message regardless (enumeration safety).
       supabase_recover(email)
       pending_email(email)
       check_email_mode("forgot")
       show_screen("check_email")
     }, ignoreInit = TRUE)
 
-    ## ---- Reset password (reached only via a valid recovery link) --------
     observeEvent(input$reset_btn, {
       reset_status_msg(NULL)
       token <- recovery_token()
@@ -162,9 +132,6 @@ mod_auth_server <- function(id) {
       on.exit(shinyjs::enable("reset_btn"), add = TRUE)
       res <- supabase_update_password(token, pw)
       if (res$ok) {
-        ## Deliberately does not auto-log the user in from the recovery
-        ## token - forces a clean password login, rather than silently
-        ## treating "I reset my password" as "I'm now signed in".
         recovery_token(NULL)
         login_status_msg(list(msg = "Password updated. Please log in with your new password.", type = "success"))
         show_screen("login")
@@ -173,17 +140,12 @@ mod_auth_server <- function(id) {
       }
     }, ignoreInit = TRUE)
 
-    ## ---- Screen navigation links ------------------------------------------
     observeEvent(input$go_signup, show_screen("signup"), ignoreInit = TRUE)
     observeEvent(input$go_login_from_signup, show_screen("login"), ignoreInit = TRUE)
     observeEvent(input$go_forgot, show_screen("forgot"), ignoreInit = TRUE)
     observeEvent(input$go_login_from_forgot, show_screen("login"), ignoreInit = TRUE)
     observeEvent(input$go_login_from_check, show_screen("login"), ignoreInit = TRUE)
 
-    ## ---- Email confirmation / password recovery links --------------------
-    ## Our customized Supabase email templates point back here with
-    ## ?token_hash=...&type=signup|recovery (query string, not the default
-    ## hash fragment) - see the project setup notes for why.
     observeEvent(session$clientData$url_search, {
       qs <- shiny::parseQueryString(session$clientData$url_search)
       token_hash <- qs$token_hash

@@ -15,7 +15,6 @@ dmp_fixture_dataset <- function(n_per_group = 10, seed = 260) {
   set.seed(seed)
   n <- n_per_group * 2
   m <- matrix(runif(60 * n, 0.2, 0.8), 60, n, dimnames = list(paste0("cg", 10000000 + 1:60), paste0("S", 1:n)))
-  ## Real methylation signal on the first 5 CpGs for the RA group.
   m[1:5, (n_per_group + 1):n] <- pmin(m[1:5, (n_per_group + 1):n] + 0.3, 0.99)
   sheet <- data.frame(sample = colnames(m), group = rep(c("HC", "RA"), each = n_per_group),
                         sex = rep(c("F", "M"), length.out = n), stringsAsFactors = FALSE)
@@ -38,7 +37,6 @@ test_that("the live DMP fit recovers real signal and produces a well-formed, sci
     expect_true(all(r$df$fdr >= r$df$p_raw - 1e-9, na.rm = TRUE))
     expect_equal(r$n_ref, 10L)
     expect_equal(r$n_comp, 10L)
-    ## The 5 CpGs with injected signal should be among the most significant.
     top5 <- r$df$cpg[order(r$df$p_raw)][1:5]
     expect_true(sum(top5 %in% paste0("cg", 10000001:10000005)) >= 3)
 
@@ -74,7 +72,6 @@ test_that("fewer than 3 samples in one group is rejected even with enough total 
 
 test_that("restricting to a single sex with too few remaining samples is rejected", {
   methyl_dataset <- dmp_fixture_dataset(n_per_group = 10)
-  ## Only 2 females total across both groups.
   shiny::isolate(methyl_dataset$sample_sheet$sex <- c(rep("M", 8), rep("F", 2), rep("M", 8), rep("F", 2)))
   methyl_results <- shiny::reactiveValues()
   shiny::testServer(mod_methyl_dmp_server, args = list(id = "dmp", methyl_dataset = methyl_dataset, methyl_results = methyl_results), {

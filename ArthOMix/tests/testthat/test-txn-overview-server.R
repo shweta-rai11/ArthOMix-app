@@ -21,19 +21,15 @@ test_that("run_qc_btn computes sample_qc() against the active dataset and flags/
     expect_equal(nrow(qc), 20L)
     expect_true(all(c("flag_signal", "flag_detected", "flag_cor") %in% colnames(qc)))
 
-    ## Changing the active dataset invalidates qc_target() -> marks qc_stale().
     dataset$expr <- fx_expr_meta(n_genes = 200, n_samples = 20, seed = 999)$expr
     session$flushReact()
-    ## qc_stale is internal, but its externally-observable effect is
-    ## qc_summary_ui showing the "changed - re-run" note instead of a fresh
-    ## valueBox; check via the rendered output rather than internal state.
     expect_true(grepl("Dataset changed", fx_html_text(output$qc_summary_ui)))
   })
 })
 
 test_that("an artificially injected outlier sample is actually flagged by sample_qc()", {
   fm <- fx_expr_meta(n_genes = 200, n_samples = 20, seed = 51)
-  fm$expr[, 1] <- fm$expr[, 1] + 40   ## grossly inflate one sample's signal
+  fm$expr[, 1] <- fm$expr[, 1] + 40
   dataset <- shiny::reactiveValues(expr = fm$expr, meta = fm$meta, source = "test cohort",
                                      source_type = "uploaded", is_bundled_reference = FALSE, geo_ids = character(0))
   shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = NULL), {
@@ -80,21 +76,14 @@ test_that("adopting shows a persistent confirmation banner, and a repeat adopt d
     session$setInputs(apply_norm_btn = 1)
     session$setInputs(adopt_norm_btn = 1)
 
-    ## Regression: adopting writes dataset$expr, which invalidates
-    ## qc_target() and flips norm_stale() TRUE in the same flush - a
-    ## confirmation nested inside the norm_stale()-gated panel would be
-    ## hidden before ever reaching the user. It must live in its own output.
     banner <- paste(as.character(output$adopt_confirmation_ui), collapse = "")
     expect_true(grepl("Done - every sub-module", banner))
 
-    ## Re-running the same normalise -> apply -> adopt cycle a second time
-    ## must not accumulate the suffix.
     session$setInputs(run_norm_btn = 2)
     session$setInputs(apply_norm_btn = 2)
     session$setInputs(adopt_norm_btn = 2)
     expect_equal(dataset$source, "test cohort (quantile-normalised)")
 
-    ## Switching to inspect a different dataset clears the stale banner.
     session$setInputs(qc_source = "GSE15573")
     expect_error(as.character(output$adopt_confirmation_ui))
   })
@@ -108,8 +97,6 @@ test_that("adopt_norm_btn is a no-op when qc_source is not 'active' (a read-only
     session$setInputs(run_norm_btn = 1)
     session$setInputs(apply_norm_btn = 1)
     session$setInputs(adopt_norm_btn = 1)
-    ## req(identical(input$qc_source, "active")) in the observer should block
-    ## this entirely - the shared dataset must be untouched.
     expect_identical(dataset$expr, original_expr)
   })
 })

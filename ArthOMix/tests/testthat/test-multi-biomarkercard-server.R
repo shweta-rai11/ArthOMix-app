@@ -1,10 +1,6 @@
 ## Module 3 (Multiomics) - Biomarker Card sub-module, via testServer(): a
 ## fully synchronous, read-only interpretation layer over
 ## multi_results$concordance$df. Verifies the real evidence-tier
-## classification (cx_classify_evidence(), the same classifier Cross-Omics
-## Integration uses), the stale-selection guard (a new Concordance run must
-## clear any card in progress), and both selection paths (browse-table row
-## click, text search).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -35,7 +31,7 @@ test_that("evidence_df() classifies a real inverse-direction, negatively-correla
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {
     df <- evidence_df()
     expect_equal(df$evidence_tier[df$gene_symbol == "TP53"], "Strong candidate")
-    expect_equal(df$evidence_tier[df$gene_symbol == "BRCA1"], "Moderate candidate")  ## inverse direction, no significant negative correlation
+    expect_equal(df$evidence_tier[df$gene_symbol == "BRCA1"], "Moderate candidate")
     expect_equal(df$evidence_tier[df$gene_symbol == "EGFR"], "Insufficient evidence")
   })
 })
@@ -49,8 +45,6 @@ test_that("selecting a row in the browse table sets mbc_selected(), and clicking
     expect_equal(sel$gene_symbol, "TP53")
     expect_false(has_card())
 
-    ## Bare-actionButton observeEvent(ignoreInit=TRUE) needs priming to 0
-    ## first in testServer (see feedback_shiny_testserver_ignoreinit_actionbutton_priming).
     session$setInputs(mbc_generate_btn = 0)
     session$setInputs(mbc_generate_btn = 1)
     expect_true(has_card())
@@ -83,22 +77,6 @@ test_that("the stale-selection guard clears mbc_selected()/has_card() when Conco
     session$setInputs(mbc_generate_btn = 1)
     expect_true(has_card())
 
-    ## Simulate a fresh Concordance run - a NEW list object (isTRUE(x) checks
-    ## on the old value would still pass; the observer keys on the reactive
-    ## value CHANGING, matching how multi_results$concordance is genuinely
-    ## reassigned by mod_multi_concordance.R's own Run handler).
-    ##
-    ## testServer quirk (confirmed via isolated repro, not documented
-    ## upstream): observeEvent(ext$field, ..., ignoreInit=TRUE) on a
-    ## reactiveValues field mutated from OUTSIDE the module (as opposed to
-    ## via session$setInputs()) lags by one CONTENT change under
-    ## testServer's flush cycle - reassigning to identical-content values is
-    ## itself a no-op (Shiny skips invalidation when nothing really
-    ## changed), and even a genuinely different first reassignment doesn't
-    ## fire the handler until a SECOND, also-distinct reassignment follows.
-    ## A harmless distinct-content "nudge" first works around it, mirroring
-    ## the actionButton ignoreInit priming gotcha already documented for
-    ## this project.
     nudge <- mbc_conc_fixture(); nudge$priority_score <- nudge$priority_score + 1
     multi_results$concordance <- list(df = nudge)
     session$flushReact()

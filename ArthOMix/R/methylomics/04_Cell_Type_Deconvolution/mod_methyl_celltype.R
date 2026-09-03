@@ -1,27 +1,12 @@
 ## R/methylomics/04_Cell_Type_Deconvolution/mod_methyl_celltype.R
 ## Cell-Type Deconvolution submodule: estimates cell-type proportions from bulk methylation via EpiDISH
 ## (Houseman CP, RPC, CBS, hepidish two-stage) against built-in reference panels or a custom upload.
-## Single file: config, non-UI helpers (reference-library registry, marker-CpG ranking, EpiDISH
-## epidish()/hepidish() wrappers, overlap QC, reconstruction validation, cross-method comparison,
-## group stats, ggplot builders), UI, and server all live here, scoped to id = "celltype".
-## Shares methyl_dataset from the Dataset tab; only EpiDISH drives real estimation, other methods are
-## disabled with a reason (see methyl_ct_unavailable_methods() below).
 
 mod_methyl_celltype_config <- list(
   id = "celltype", title = "Cell-Type Deconvolution", icon = "people-group", group = "Data",
   description = "Estimates cell-type proportions from bulk methylation. Works on the loaded dataset, or upload data"
 )
 
-## =============================================================================
-## Non-UI helpers
-## =============================================================================
-
-## =============================================================================
-## Reference library registry
-## =============================================================================
-
-## Every entry maps to a real EpiDISH data object; ncpg/celltypes are read off
-## the installed object rather than hardcoded.
 methyl_ct_reference_registry <- function() {
   specs <- list(
     list(id = "blood7",       label = "Blood - 7 cell type (Reinius/Houseman)",       object = "centDHSbloodDMC.m", tissue = "blood"),
@@ -33,9 +18,6 @@ methyl_ct_reference_registry <- function() {
     list(id = "blood19",      label = "Blood - extended 19-subtype panel",            object = "centCAB100i.m",     tissue = "blood")
   )
   lapply(specs, function(s) {
-    ## getExportedValue() (not get(..., envir=asNamespace(...))): EpiDISH's
-    ## reference matrices are LazyData objects not yet touched via :: or
-    ## data(), which plain get() against the namespace env can't resolve.
     mat <- tryCatch({
       if (!requireNamespace("EpiDISH", quietly = TRUE)) stop("EpiDISH not installed")
       getExportedValue("EpiDISH", s$object)
@@ -52,9 +34,6 @@ methyl_ct_get_reference <- function(ref_id) {
   getExportedValue("EpiDISH", spec$object)
 }
 
-## Methods this deployment can't honestly implement - shown in the UI as
-## disabled selector entries with the reason attached (same convention as
-## qc.R's methyl_filter_cross_reactive()/methyl_filter_maf()).
 methyl_ct_unavailable_methods <- function() {
   list(
     list(id = "methylresolver", label = "MethylResolver",
@@ -66,14 +45,6 @@ methyl_ct_unavailable_methods <- function() {
   )
 }
 
-## =============================================================================
-## Scale detection / transforms / dataset summary
-## =============================================================================
-
-## Distinguishes beta (0-1), percent methylation (0-100), and M-values
-## (unbounded log2 ratio) from a sampled quantile range. Never transforms
-## silently - caller surfaces `note` and requires an explicit "Apply
-## Transformation" click.
 methyl_ct_detect_scale <- function(mat) {
   v <- mat[is.finite(mat)]
   if (length(v) == 0) return(list(scale = "beta", note = "No finite values found - assuming beta scale."))
@@ -92,11 +63,8 @@ methyl_ct_detect_scale <- function(mat) {
 
 methyl_ct_pct_to_beta <- function(mat) mat / 100
 
-## Inverse of qc.R's methyl_beta_to_mvalue() logit transform.
 methyl_ct_m_to_beta <- function(m) 2^m / (1 + 2^m)
 
-## Compact "Data & QC" preview card summary; chromosome count degrades to NA
-## (not an error) when no manifest annotation resolves for the array type.
 methyl_ct_working_summary <- function(mat, array_type = NULL) {
   finite_v <- mat[is.finite(mat)]
   rng <- if (length(finite_v) > 0) range(finite_v) else c(NA_real_, NA_real_)
@@ -112,9 +80,6 @@ methyl_ct_working_summary <- function(mat, array_type = NULL) {
        beta_min = rng[1], beta_max = rng[2], n_duplicated = sum(duplicated(rownames(mat))), n_chr = n_chr)
 }
 
-## Custom reference-matrix upload: CpG x cell-type mean-beta CSV/TSV, first
-## column CpG ID. Reuses methyl_parse_matrix(), then validates it looks like
-## a methylation reference (finite, in [0,1], >=2 cell-type columns).
 methyl_ct_parse_custom_reference <- function(datapath, filename) {
   p <- methyl_parse_matrix(datapath, filename)
   if (!isTRUE(p$ok)) return(p)
@@ -125,15 +90,6 @@ methyl_ct_parse_custom_reference <- function(datapath, filename) {
   list(ok = TRUE, mat = mat)
 }
 
-## =============================================================================
-## Marker-CpG ranking (off reference centroids - no fabricated p-values)
-## =============================================================================
-
-## For every CpG, assigns the cell type it's the strongest marker for: effect
-## size (centroid beta vs. the most extreme other cell type's centroid) and a
-## specificity score (effect normalized by spread of the other centroids).
-## Deliberately no p-value/FDR - centroids are single mean-beta values with no
-## per-sample replicates, so a real significance test isn't available.
 methyl_ct_marker_rank <- function(ref_mat) {
   ct <- colnames(ref_mat)
   n_ct <- length(ct)
@@ -169,10 +125,6 @@ methyl_ct_marker_rank <- function(ref_mat) {
              centroid_beta = centroid_beta, row.names = NULL, stringsAsFactors = FALSE)
 }
 
-## Applies CpG feature-selection filters on top of methyl_ct_marker_rank()'s
-## per-CpG table. `sort_by` is "effect" for reference-library markers or
-## "btw_type_var" for variance-based CpGs (between-cell-type variance, not
-## bulk-sample variance across conditions).
 methyl_ct_select_markers <- function(rank_df, dbeta_min = 0, effect_min = 0, direction = "both",
                                       specificity_mode = "all", chr_allowed_ids = NULL) {
   df <- rank_df
@@ -189,9 +141,6 @@ methyl_ct_select_markers <- function(rank_df, dbeta_min = 0, effect_min = 0, dir
   df[keep, , drop = FALSE]
 }
 
-## Balances a top-N cap roughly evenly across cell types (rather than one
-## type's larger effect sizes crowding out the rest), then trims any
-## overshoot from the globally weakest picks.
 methyl_ct_top_n_balanced <- function(df, sort_col = "effect", top_n = NULL) {
   if (is.null(top_n) || is.na(top_n) || top_n <= 0 || nrow(df) <= top_n) {
     return(df[order(-df[[sort_col]]), , drop = FALSE])
@@ -208,9 +157,6 @@ methyl_ct_top_n_balanced <- function(df, sort_col = "effect", top_n = NULL) {
   picked
 }
 
-## Chromosome-scope restriction for marker selection (autosomes only /
-## autosomes+X / all). A CpG with no manifest match is kept rather than
-## dropped (unresolved = kept, same convention as qc.R's methyl_filter_maf()).
 methyl_ct_chr_allowed_ids <- function(cpg_ids, array_type, scope = c("all", "autosomes", "autosomes_x")) {
   scope <- match.arg(scope)
   if (identical(scope, "all")) return(list(ids = cpg_ids, note = "No chromosome restriction applied."))
@@ -226,10 +172,6 @@ methyl_ct_chr_allowed_ids <- function(cpg_ids, array_type, scope = c("all", "aut
   list(ids = union(allowed, unresolved),
        note = sprintf("%d probe(s) removed by chromosome scope; %d unresolved probe(s) kept unfiltered.", sum(!keep), length(unresolved)))
 }
-
-## =============================================================================
-## Reference / working-matrix overlap QC (spec S17-18)
-## =============================================================================
 
 methyl_ct_overlap_qc <- function(marker_ids, working_ids) {
   marker_ids <- unique(marker_ids)
@@ -252,15 +194,6 @@ methyl_ct_overlap_by_type <- function(marker_df, working_ids) {
   df
 }
 
-## =============================================================================
-## EpiDISH / hepidish wrappers
-## =============================================================================
-
-## Thin, validated wrapper around EpiDISH::epidish() - method is one of
-## "CP" (Houseman constrained projection), "RPC" (robust partial
-## correlations), "CBS" (CIBERSORT-style support vector regression).
-## No extra clipping/renormalization here - EpiDISH's own constraint already
-## guarantees non-negative/sum-to-one fractions.
 methyl_ct_run_epidish <- function(beta_mat, ref_mat, method = c("RPC", "CBS", "CP"),
                                    maxit = 50, nu.v = c(0.25, 0.5, 0.75), constraint = c("inequality", "equality")) {
   method <- match.arg(method)
@@ -283,10 +216,6 @@ methyl_ct_run_epidish <- function(beta_mat, ref_mat, method = c("RPC", "CBS", "C
   list(ok = TRUE, fractions = res$estF, method = method, n_markers_used = nrow(bm), ref_used = rm_)
 }
 
-## Two-stage hierarchical EpiDISH: `ref1` splits the tissue into top-level
-## components (e.g. Epi/Fib/IC), then `ref2` decomposes whichever `ref1`
-## column is named in `ic_column` into its own cell subtypes (e.g. the 7
-## blood types). Zheng et al. 2018's hepidish().
 methyl_ct_run_hepidish <- function(beta_mat, ref1_mat, ref2_mat, ic_column,
                                     method = c("RPC", "CBS", "CP"), maxit = 50,
                                     nu.v = c(0.25, 0.5, 0.75), constraint = c("inequality", "equality")) {
@@ -309,10 +238,6 @@ methyl_ct_run_hepidish <- function(beta_mat, ref1_mat, ref2_mat, ic_column,
   list(ok = TRUE, fractions = res, method = paste0("hepidish (", method, ")"),
        n_markers_used = length(common1) + length(common2))
 }
-
-## =============================================================================
-## Reconstruction validation (spec S15)
-## =============================================================================
 
 methyl_ct_reconstruct <- function(ref_mat, fractions) {
   common_ct <- intersect(colnames(ref_mat), colnames(fractions))
@@ -346,10 +271,6 @@ methyl_ct_validation_metrics <- function(observed, reconstructed) {
        per_sample = per_sample, observed = obs, reconstructed = rec, n_cpg = nrow(obs), n_sample = ncol(obs))
 }
 
-## =============================================================================
-## Cross-method comparison (spec S16)
-## =============================================================================
-
 methyl_ct_compare_methods <- function(beta_mat, ref_mat, methods = c("CP", "RPC", "CBS"), ...) {
   results <- list()
   failures <- character(0)
@@ -362,9 +283,6 @@ methyl_ct_compare_methods <- function(beta_mat, ref_mat, methods = c("CP", "RPC"
   list(ok = TRUE, fractions_by_method = results, failures = failures)
 }
 
-## Overall correlation between every pair of methods' estimated fractions
-## (flattened across samples and cell types) - the "method-correlation
-## heatmap" input.
 methyl_ct_method_correlation <- function(fractions_by_method) {
   methods <- names(fractions_by_method)
   n <- length(methods)
@@ -379,7 +297,6 @@ methyl_ct_method_correlation <- function(fractions_by_method) {
   m
 }
 
-## Plain-language mean-absolute-difference summary per method pair.
 methyl_ct_method_agreement_summary <- function(fractions_by_method) {
   methods <- names(fractions_by_method)
   pairs <- utils::combn(methods, 2, simplify = FALSE)
@@ -393,15 +310,6 @@ methyl_ct_method_agreement_summary <- function(fractions_by_method) {
   do.call(rbind, rows)
 }
 
-## =============================================================================
-## Group / phenotype comparison (spec S13-14)
-## =============================================================================
-
-## Two-group Wilcoxon (rank-biserial effect size) or multi-group
-## Kruskal-Wallis (epsilon-squared effect size), one test per cell type,
-## BH-adjusted across cell types. Reimplemented locally rather than shared
-## with transcriptomics' compute_group_stats() since that module isn't to
-## be touched or imported from.
 methyl_ct_group_stats <- function(fractions, group) {
   group <- as.character(group)
   lv <- sort(unique(stats::na.omit(group)))
@@ -431,14 +339,6 @@ methyl_ct_group_stats <- function(fractions, group) {
   list(ok = TRUE, table = df, test_used = if (two_group) "Wilcoxon rank-sum" else "Kruskal-Wallis", levels = lv)
 }
 
-## =============================================================================
-## Cell-composition ordination (PCA / MDS on the fraction matrix itself)
-## =============================================================================
-
-## Deliberately not qc.R's methyl_pca_scores()/methyl_mds_scores(): those
-## enforce a >=10-row minimum (meant for probes) that would wrongly reject a
-## 3-4 cell-type reference. These operate directly on the small samples x
-## cell-types fraction matrix instead.
 methyl_ct_composition_pca <- function(fractions, n_pcs = 10) {
   m <- stats::na.omit(fractions)
   if (nrow(m) < 3 || ncol(m) < 2) return(list(ok = FALSE, reason = "Not enough samples/cell types for PCA."))
@@ -460,10 +360,6 @@ methyl_ct_composition_mds <- function(fractions, k = 2) {
   colnames(fit) <- paste0("Dim", seq_len(ncol(fit)))
   list(ok = TRUE, scores = fit)
 }
-
-## =============================================================================
-## ggplot builders (theme_arthomix()/ARTHOMIX_COLORS/arthomix_pair() from global.R)
-## =============================================================================
 
 methyl_ct_plot_marker_bar <- function(marker_df) {
   agg <- as.data.frame(table(cell_type = marker_df$cell_type))
@@ -604,8 +500,6 @@ methyl_ct_plot_bland_altman <- function(frac_a, frac_b, label_a, label_b) {
     theme_arthomix()
 }
 
-## Boxplot with significance-star annotation, reimplemented locally rather
-## than importing mod_deconvolution.R's render_group_boxplot().
 methyl_ct_plot_group_diff <- function(fractions, group, stats_df) {
   df <- as.data.frame(as.table(fractions))
   colnames(df) <- c("sample", "cell_type", "fraction")
@@ -624,10 +518,6 @@ methyl_ct_plot_group_diff <- function(fractions, group, stats_df) {
     labs(x = NULL, y = "Estimated fraction", fill = "Group") +
     theme_arthomix() + theme(axis.text.x = element_text(angle = 30, hjust = 1))
 }
-
-## =============================================================================
-## UI - one helper per sub-tab
-## =============================================================================
 
 mod_methyl_celltype_dataqc_ui <- function(ns) {
   tagList(
@@ -878,15 +768,10 @@ mod_methyl_celltype_ui <- function(id) {
   )
 }
 
-## =============================================================================
-## Server
-## =============================================================================
-
 mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Local "not run yet" gate helper, mirrors mod_methyl_qc.R's register_has_run_gate().
     register_has_run_gate_local <- function(gate_id, has_run_flag_fn, result_output_id, not_run_message) {
       output[[gate_id]] <- renderUI({
         if (isTRUE(has_run_flag_fn())) uiOutput(ns(result_output_id))
@@ -894,23 +779,16 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       })
     }
 
-    ## Per-figure PNG download factory, same pattern as mod_methyl_mr.R's make_plot_dl().
     make_plot_dl <- function(build_fn, base_name) downloadHandler(
       filename = function() sprintf("%s.png", base_name),
       content = function(file) ggplot2::ggsave(file, plot = build_fn(), width = 9, height = 6, dpi = 300, device = "png")
     )
 
-    ## ggplotly() doesn't inherit theme_arthomix()'s bottom legend layout; re-lays it out as
-    ## a horizontal strip with a bottom margin reserved for it.
     plotly_safe <- function(p) {
       plotly::layout(plotly::ggplotly(p),
                       legend = list(orientation = "h", x = 0, y = -0.3, yanchor = "top"),
                       margin = list(b = 110))
     }
-
-    ## =========================================================================
-    ## 1. Data & QC
-    ## =========================================================================
 
     own_raw <- reactiveVal(NULL)
     own_ready <- reactiveVal(NULL)
@@ -930,9 +808,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       div(class = "empty-note", icon("circle-info"),
           sprintf("Read %s: %s CpGs x %s samples.", input$ct_own_matrix_file$name, format(nrow(p$mat), big.mark = ","), ncol(p$mat)))
     })
-    ## Scale detection runs synchronously here (not via a separate observer) since reactiveVal()
-    ## setters don't reliably re-invalidate on content-identical repeats (e.g. clicking the same
-    ## file twice) - doing it inline ensures each click fully resolves the state.
     observeEvent(input$ct_own_load_btn, {
       p <- own_matrix_parsed()
       if (!isTRUE(p$ok)) { showNotification(p$error, type = "error"); return() }
@@ -954,9 +829,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       methyl_ct_detect_scale(raw$mat)
     })
 
-    ## renderUI must not both read and write the same reactiveVal - doing so previously
-    ## corrupted Shiny's client-side output-binding state machine. own_ready() is only
-    ## written by the load/transform handlers; this output is a pure read.
     output$ct_scale_ui <- renderUI({
       if (!identical(input$ct_data_source, "own")) return(NULL)
       raw <- own_raw()
@@ -1072,10 +944,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
     })
     outputOptions(output, "ct_qc_cascade_table", suspendWhenHidden = FALSE)
 
-    ## =========================================================================
-    ## 2. Reference & Method
-    ## =========================================================================
-
     ct_registry <- methyl_ct_reference_registry()
 
     output$ct_ref_celltypes_ui <- renderUI({
@@ -1130,10 +998,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
                            selected = if ("IC" %in% colnames(ref)) "IC" else colnames(ref)[length(colnames(ref))])
       }
     })
-
-    ## =========================================================================
-    ## 3. CpG Feature Selection
-    ## =========================================================================
 
     output$ct_fs_dbeta_ui <- renderUI({
       if (identical(input$ct_fs_method, "reference")) {
@@ -1272,10 +1136,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       if (isTRUE(ok)) shinyjs::enable("ct_run_decon_btn") else shinyjs::disable("ct_run_decon_btn")
     })
 
-    ## =========================================================================
-    ## 4. Deconvolution
-    ## =========================================================================
-
     decon_has_run <- reactiveVal(FALSE)
     register_has_run_gate_local("ct_decon_result_gate", decon_has_run, "ct_decon_result_ui",
                                  "Not run yet - click \"Run Cell-Type Deconvolution\" above.")
@@ -1353,10 +1213,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       }
     )
 
-    ## =========================================================================
-    ## 5. Cell Composition
-    ## =========================================================================
-
     output$ct_composition_gate <- renderUI({
       if (!isTRUE(decon_has_run())) {
         return(div(class = "card", p(class = "empty-note", icon("circle-info"), "Run deconvolution first (Deconvolution tab) to see cell-composition figures.")))
@@ -1405,8 +1261,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
             column(3, radioButtons(ns("ct_ord_method"), NULL, choices = c("PCA" = "pca", "MDS" = "mds"), inline = TRUE)),
             column(3, selectInput(ns("ct_ord_color"), "Color by",
                                    choices = c("None" = "", stats::setNames(cts, paste0("Cell type: ", cts)),
-                                               ## paste0() on a zero-length sheet_cols recycles instead of returning
-                                               ## character(0), which setNames() then rejects - guard on length().
                                                if (length(sheet_cols) > 0) stats::setNames(sheet_cols, paste0("Phenotype: ", sheet_cols)) else character(0)))),
             column(3, checkboxInput(ns("ct_ord_labels"), "Show sample labels", value = FALSE))
           ),
@@ -1538,10 +1392,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(cmp_result()$stats$table, file, row.names = FALSE)
     )
 
-    ## =========================================================================
-    ## 6. Validation
-    ## =========================================================================
-
     val_has_run <- reactiveVal(FALSE)
     register_has_run_gate_local("ct_val_result_gate", val_has_run, "ct_val_result_ui",
                                  "Not run yet - click \"Run Validation\" above (needs a completed deconvolution run first).")
@@ -1629,10 +1479,6 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
         DT::formatSignif(columns = c("mean_abs_diff", "max_abs_diff"), digits = 4)
     })
     outputOptions(output, "ct_cmpmethods_summary_table", suspendWhenHidden = FALSE)
-
-    ## =========================================================================
-    ## 7. Export
-    ## =========================================================================
 
     output$ct_export_beta <- downloadHandler(
       filename = function() "celltype_filtered_beta_matrix.csv",

@@ -1,34 +1,11 @@
 ## R/multiomics/05_Biomarker_Discovery/mod_multi_biomarker.R
 ## Submodule: Biomarker Discovery - a live, data-adaptive supervised DIABLO
 ## (mixOmics::block.splsda) engine scoped to this module's primary use case:
-## Transcriptomics + Methylomics -> supervised multi-omics feature selection
-## -> cross-validated predictive performance -> feature-selection stability
-## -> an interpretable candidate biomarker signature. Runs on whichever data
-## is actually selected below - the Active Multi-Omics Dataset built on the
-## Dataset Workspace tab, or one preloaded RA anti-TNF analysis cell
-## (recomputed live from that cell's own saved fit,
-## multiomics_integration_helpers.R::mi_preloaded_cell_dataset()) -
-## never a fixed template, and never fabricating an outcome when none is
-## available. Every parameter is derived from the data actually in front of
-## it (multiomics_biomarker_helpers.R / multiomics_integration_helpers.R);
-## nothing in the Signature/Performance/Stability/Integration/Plots tabs
-## renders until "Run analysis" is clicked.
-##
-## Selected features are reported as "selected features"/"candidate
-## biomarkers", never "clinically validated"/"diagnostic"/"causal" -
-## stability is an evidence-based label cut from perf()'s own real
-## cross-validation selection-frequency table against fixed, disclosed
-## thresholds (mb_stability_category(), multiomics_biomarker_helpers.R) -
-## never a user-adjustable "confidence" score.
 
 mod_multi_biomarker_config <- list(
   id = "biomarker", title = "Biomarker Discovery", icon = "star", group = "Biomarker modeling",
   description = "Supervised DIABLO feature selection across Transcriptomics + Methylomics."
 )
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_multi_biomarker_ui <- function(id) {
   ns <- NS(id)
@@ -72,20 +49,11 @@ mod_multi_biomarker_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
 
-    ## =========================================================================
-    ## 1. Data source + block roles - mirrors mi_dataset() in
-    ## mod_multi_integration.R exactly (same two adapters), restricted here
-    ## to the two blocks the user assigns as Transcriptomics/Methylomics.
-    ## =========================================================================
     mb_dataset <- reactive({
       if (identical(input$data_source, "preloaded")) {
         req(input$preloaded_cell)
@@ -98,9 +66,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
           ok = TRUE, layers = multi_dataset$layers, sample_meta = multi_dataset$sample_meta, outcome_col = NULL,
           label = sprintf("Active Multi-Omics Dataset (%s)", paste(names(multi_dataset$layers), collapse = " + ")),
           provenance = sprintf("Active Multi-Omics Dataset from the Dataset Workspace tab (source: %s).", multi_dataset$source %||% "unknown"),
-          ## Authoritative per-layer omics type as selected on the Dataset tab -
-          ## used below to guess block roles instead of guessing from whatever
-          ## label the user happened to type.
           omics_type = stats::setNames(
             vapply(names(multi_dataset$layers), function(nm) multi_dataset$layer_meta[[nm]]$omics_type %||% "other", character(1)),
             names(multi_dataset$layers)
@@ -135,8 +100,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       )
     })
 
-    ## Exactly the two role-assigned blocks, full samples/features (before
-    ## any filtering below) - never assumed by name or position.
     mb_raw_layers <- reactive({
       d <- mb_dataset()
       if (!isTRUE(d$ok)) return(NULL)
@@ -145,19 +108,12 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       mb_select_blocks(d$layers, input$transcript_block, input$methyl_block)
     })
 
-    ## Sample matching (spec section 17) - computed on the raw, unfiltered
-    ## blocks, since feature filtering below never drops or reorders rows.
     mb_val_raw <- reactive({
       layers <- mb_raw_layers()
       req(layers)
       mi_validate_dataset(layers, mb_dataset()$sample_meta, outcome_col = NULL)
     })
 
-    ## =========================================================================
-    ## 2. Outcome + class selection (spec sections 7, 18) - never fabricated;
-    ## restricted to the shared (matched) sample set so counts reflect what
-    ## the analysis would actually see.
-    ## =========================================================================
     outcome_candidates <- reactive({
       d <- mb_dataset()
       if (!isTRUE(d$ok) || is.null(d$sample_meta)) return(character(0))
@@ -187,23 +143,11 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       o <- mb_outcome_summary_raw()
       if (is.null(o) || !identical(o$type, "categorical") || is.null(o$class_counts)) return(NULL)
       cls <- names(o$class_counts)
-      ## Dropdown, not fixed checkboxes - `cls` is read straight off the
-      ## outcome column's own real values (mi_outcome_summary() -> factor(vals)),
-      ## whatever they are, so this already works identically for the
-      ## preloaded cohort's real "resp"/"non" codes and for an uploaded
-      ## outcome column with entirely different class names (e.g.
-      ## "Case"/"Control") - nothing here assumes a fixed vocabulary. The
-      ## VALUE submitted is always the real class string; only the display
-      ## label is prettified via mb_friendly_class_label() for known
-      ## responder/non-responder abbreviations, never for anything else.
       labels <- sprintf("%s (n=%d)", mb_friendly_class_label(cls), as.integer(o$class_counts))
       choices <- stats::setNames(cls, labels)
       selectizeInput(ns("classes_selected"), "Classes to include", choices = choices, selected = cls, multiple = TRUE, width = "100%")
     })
 
-    ## Matched samples whose outcome falls in the selected class set - the
-    ## sample set every downstream step (data check, eligibility, the run
-    ## itself) is scoped to.
     mb_eligible_ids <- reactive({
       v <- mb_val_raw()
       req(v)
@@ -215,11 +159,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       ids
     })
 
-    ## =========================================================================
-    ## 3. Feature filtering (spec sections 9, 15) - unsupervised
-    ## variance-ranked cap per block, applied to the matched/class-filtered
-    ## sample rows only (never touches the outcome).
-    ## =========================================================================
     output$feature_filter_ui <- renderUI({
       layers <- mb_raw_layers()
       req(layers)
@@ -240,10 +179,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       )
     })
 
-    ## Final validation/eligibility - recomputed on the actual analysis-ready
-    ## data (matched + class-filtered samples, filtered features) so the
-    ## Data Check table and the Model tab's eligibility gate reflect exactly
-    ## what a click of "Run analysis" would use.
     mb_val <- reactive({
       layers <- tryCatch(mb_final_layers(), error = function(e) NULL)
       if (is.null(layers)) return(NULL)
@@ -264,11 +199,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       DT::datatable(mb_data_check_table(mb_val(), mb_outcome(), mb_elig()), rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
 
-    ## =========================================================================
-    ## 4. Model parameters + "Run analysis" (spec sections 8-10, 14) - exactly
-    ## two blocks, so the design panel is one slider (not the N-choose-2 grid
-    ## Integration's generic version needs).
-    ## =========================================================================
     output$model_params_ui <- renderUI({
       v <- mb_val(); o <- mb_outcome(); elig <- mb_elig()
       if (is.null(v) || !isTRUE(v$ok)) return(box(width = NULL, title = "Model parameters", status = "primary", solidHeader = FALSE, mi_warn("Complete Setup first (data source, blocks, outcome).")))
@@ -345,12 +275,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       )
     })
 
-    ## =========================================================================
-    ## 5. Run analysis (spec section 14) - a single DIABLO fit + cross-
-    ## validated performance/stability (mi_diablo_run(), reused as-is) plus a
-    ## pooled out-of-fold ROC curve for binary outcomes (mb_cv_roc()). Never
-    ## renders a result before this is clicked.
-    ## =========================================================================
     mb_run_analysis <- function(layers, outcome, sample_ids, params, seed) {
       set.seed(seed)
       diablo_res <- mi_diablo_run(layers, outcome, sample_ids, params)
@@ -376,11 +300,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
         mb_state$error <- NULL; mb_state$result <- NULL; mb_state$submitted <- TRUE
         mb_state$outcome_used <- outcome; mb_state$layers_used <- layers; mb_state$dataset_label <- mb_dataset()$label
         p <- mb_params(); ids <- v$shared_ids; seed <- input$seed %||% 1
-        ## Deferred to the next flush cycle - ExtendedTask$invoke() runs its
-        ## body synchronously before returning in this app's actual
-        ## reactive-domain context (confirmed in mod_multi_integration.R's
-        ## own identical pattern) - without this, the "Running..." state set
-        ## above can't reach the browser before invoke() itself blocks.
         session$onFlushed(function() mb_task$invoke(layers, outcome, ids, p, seed), once = TRUE)
       })
       observe({
@@ -431,9 +350,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
 
     sig_df <- reactive({ req(mb_state$result); mb_signature_table(mb_state$result$diablo) })
 
-    ## =========================================================================
-    ## 6. Signature tab (spec section 13.A)
-    ## =========================================================================
     output$signature_ui <- renderUI(gate_ui(function(res) {
       sig <- sig_df()
       if (is.null(sig)) return(mi_warn("No features were selected by this model."))
@@ -455,9 +371,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
     })
     output$dl_signature <- downloadHandler(function() "biomarker_discovery_signature.csv", function(file) utils::write.csv(req(sig_df()), file, row.names = FALSE))
 
-    ## =========================================================================
-    ## 7. Performance tab (spec section 13.B)
-    ## =========================================================================
     output$performance_ui <- renderUI(gate_ui(function(res) {
       perf_sum <- mi_diablo_performance_summary(res$diablo)
       p <- res$diablo$params
@@ -501,9 +414,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
     output$perf_error_plot <- renderPlot({ mi_diablo_error_bar_plot(mi_diablo_performance_summary(req(mb_state$result)$diablo)) })
     output$perf_roc_plot <- renderPlot({ mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
 
-    ## =========================================================================
-    ## 8. Stability tab (spec section 13.C)
-    ## =========================================================================
     output$stability_ui <- renderUI(gate_ui(function(res) {
       sig <- sig_df()
       if (is.null(sig)) return(mi_warn("No selected features to assess."))
@@ -532,11 +442,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       utils::write.csv(sig[, intersect(c("omics", "feature", "component", "selection_frequency", "stability_category"), colnames(sig)), drop = FALSE], file, row.names = FALSE)
     })
 
-    ## =========================================================================
-    ## 9. Integration tab (spec section 13.D) - relationships between the
-    ## Transcriptomics and Methylomics components/features, using the DIABLO
-    ## design matrix actually fitted - nothing invented.
-    ## =========================================================================
     output$integration_ui <- renderUI(gate_ui(function(res) {
       fit <- res$diablo$fit; p <- res$diablo$params
       cc <- mb_component_correlation(fit)
@@ -568,12 +473,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       multi_live_correlation_heatmap_plot(corr$df)
     })
 
-    ## =========================================================================
-    ## 10. Plots tab (spec section 13.E) - only plots that are meaningful for
-    ## this run; a Circos-style plot is not implemented in this delivery (see
-    ## the cross-omics correlation heatmap on the Integration tab instead for
-    ## selected-feature relationships) rather than fabricating one.
-    ## =========================================================================
     output$plots_ui <- renderUI(gate_ui(function(res) {
       fit <- res$diablo$fit
       sel <- mi_diablo_selected_features_df(fit)
@@ -605,12 +504,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
     output$plot_variance <- renderPlot({ multi_diablo_variance_plot(multi_diablo_variance_df(req(mb_state$result)$diablo$fit)) })
     output$plot_roc <- renderPlot({ mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
 
-    ## =========================================================================
-    ## 11. Reproducibility (spec sections 20, 23) - folded into the
-    ## Performance tab (spec section 24 names exactly Setup/Model/Signature/
-    ## Performance/Stability/Integration/Plots, no separate tab) + remaining
-    ## downloads (spec section 22).
-    ## =========================================================================
     output$repro_table <- DT::renderDataTable({
       res <- req(mb_state$result)
       preprocessing_note <- sprintf(
@@ -633,17 +526,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       utils::write.csv(mb_matched_sample_table(mb_val(), mb_state$outcome_used, ids), file, row.names = FALSE)
     })
 
-    ## =========================================================================
-    ## 12. Sex-Stratified tab - same exact-match nested-CV engine as
-    ## Integration's "Sex-Stratified" tab (multiomics_sexstratified_engine.R),
-    ## reused here rather than duplicated, surfacing the angle this module
-    ## specializes in: per-feature selection frequency across the fitted
-    ## folds (mss_selection_frequency()), in the same stability spirit as
-    ## sig_df()'s own selection_frequency/stability_category columns above -
-    ## computed directly from this engine's own fold data, mb_cv_roc()/
-    ## mb_signature_table() (used by Setup-Model-Signature above) are
-    ## untouched by this section.
-    ## =========================================================================
     ss_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     ss_sex_col <- reactive({
@@ -855,11 +737,6 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       DT::datatable(req(df), rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## =========================================================================
-    ## Publish - kept `df`-shaped so multi_qc_scorecard()/
-    ## multi_analysis_summary_table() (multiomics_helpers.R) and the Results
-    ## Summary tab's session-bundle download keep working unmodified.
-    ## =========================================================================
     observe({
       if (is.null(multi_results) || is.null(mb_state$result)) return()
       multi_results$biomarker <- list(df = sig_df(), cohort = mb_state$dataset_label)

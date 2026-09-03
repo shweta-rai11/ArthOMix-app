@@ -1,27 +1,6 @@
 ## R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_helpers.R
 ## Data-adaptive engine for the "Gene-CpG Concordance" submodule
 ## (mod_multi_concordance.R). Pure functions only, no Shiny reactives here.
-##
-## Nothing in this file re-implements logic that already exists elsewhere in
-## the app - it composes real, already-verified building blocks:
-##   - crossomics_integration_helpers.R (cx_*): sample pairing, gene-ID
-##     harmonization, CpG->gene/region/island annotation, Hyper/Hypo x Up/
-##     Down classification, evidence tiering, FDR.
-##   - multiomics_integration_helpers.R / multiomics_biomarker_helpers.R
-##     (mi_*/mb_*): DIABLO selection output, already published live by the
-##     Biomarker Discovery submodule to multi_results$biomarker$df.
-##   - snf_clustering_helpers.R (sfc_*): per-feature cluster association,
-##     reused directly against the real SNF cluster vector published by the
-##     Patient Stratification submodule to multi_results$stratification$clusters.
-##   - multiomics_dataset_helpers.R (multi_live_*): sample-overlap primitives.
-##   - R/methylomics/functions/qc.R::methyl_beta_to_mvalue() for beta->M conversion.
-## Every function below fails soft (returns NA/"Not available"/ok=FALSE with
-## a reason) rather than fabricating a gene, CpG, coordinate, or statistic -
-## per the module's own "never invent" requirement.
-
-## ---------------------------------------------------------------------------
-## 0. Small shared vocab
-## ---------------------------------------------------------------------------
 
 MCC_REGION_PROMOTER <- c("TSS200", "TSS1500", "5'UTR")
 MCC_REGION_BODY <- c("Body", "3'UTR", "1stExon", "ExonBnd")
@@ -32,24 +11,12 @@ MCC_DIRECTION_LEVELS <- c(
   "Weak/uncertain", "Not interpretable"
 )
 
-## ---------------------------------------------------------------------------
-## 1. Layer selection (spec section 5-6) - thin wrapper over the same
-## mb_select_blocks() the Biomarker Discovery submodule already uses to turn
-## two arbitrarily-named `multi_dataset$layers` entries into fixed
-## "Transcriptomics"/"Methylomics" roles. Candidate defaults are guessed the
-## same way mod_multi_biomarker.R already guesses them (by omics_type
-## metadata first, by name regex as a fallback) - never silently assumed.
-## ---------------------------------------------------------------------------
-
 mcc_layer_candidates <- function(multi_dataset, omics_type) {
   layers <- multi_dataset$layers %||% list()
   meta <- multi_dataset$layer_meta %||% list()
   if (length(layers) == 0) return(character(0))
   by_meta <- names(layers)[vapply(names(layers), function(nm) identical(meta[[nm]]$omics_type, omics_type), logical(1))]
   if (length(by_meta) > 0) return(by_meta)
-  ## No layer_meta$omics_type recorded (e.g. metadata stripped on import) -
-  ## fall back to a name-based guess only, and only for the two types this
-  ## module needs; never guessed for other omics types.
   rx <- switch(omics_type, rnaseq = "transcript|rna|express|gene", methylation = "methyl|cpg|beta|meth", NULL)
   if (is.null(rx)) return(character(0))
   names(layers)[grepl(rx, names(layers), ignore.case = TRUE)]
@@ -59,12 +26,6 @@ mcc_default_layer <- function(candidates, layers) {
   if (length(candidates) == 0) return(NULL)
   candidates[1]
 }
-
-## ---------------------------------------------------------------------------
-## 2. Data status panel (spec section 4) - inspects the ACTUAL active
-## dataset/results, never assumes a field exists. `expr_layer`/`meth_layer`
-## are the user's current layer picks (may be NULL before any pick is made).
-## ---------------------------------------------------------------------------
 
 mcc_data_status <- function(multi_dataset, multi_results, expr_layer = NULL, meth_layer = NULL, array_type = "450K") {
   layers <- multi_dataset$layers %||% list()
@@ -93,10 +54,6 @@ mcc_data_status <- function(multi_dataset, multi_results, expr_layer = NULL, met
   )
 }
 
-## ---------------------------------------------------------------------------
-## 3. Format detection (spec section 5-6) - report only, never silently coerce.
-## ---------------------------------------------------------------------------
-
 mcc_detect_id_type <- function(ids) {
   ids <- as.character(ids)
   ids <- ids[!is.na(ids) & nzchar(ids)]
@@ -117,11 +74,6 @@ mcc_detect_methylation_value_type <- function(mat) {
   "delta/other (already-differenced or non-standard scale)"
 }
 
-## ---------------------------------------------------------------------------
-## 4. Sample matching (spec section 6) - thin wrapper, never re-implements
-## the intersection logic in cx_detect_sample_pairing().
-## ---------------------------------------------------------------------------
-
 mcc_match_samples <- function(expr_mat, meth_mat) {
   if (is.null(expr_mat) || is.null(meth_mat)) return(list(ok = FALSE, error = "Both expression and methylation data are required for sample matching."))
   pairing <- cx_detect_sample_pairing(rownames(expr_mat), rownames(meth_mat))
@@ -131,17 +83,6 @@ mcc_match_samples <- function(expr_mat, meth_mat) {
     n_removed_meth = pairing$n_meth - pairing$n_common, common_samples = pairing$common_samples
   )
 }
-
-## ---------------------------------------------------------------------------
-## 5. Candidate biomarker pool (spec section 7, 17-19) - unifies whatever the
-## app has ACTUALLY already produced. "Joint Biomarker Discovery" and
-## "DIABLO" both read multi_results$biomarker$df (the one live DIABLO/
-## block.splsda signature this app computes, published by the Biomarker
-## Discovery submodule) - see the module's own tooltip for why there is one
-## engine behind both facets. "SNF" reads the real cluster vector published
-## by Patient Stratification and re-derives per-feature cluster association
-## via sfc_feature_ranking() (never re-runs SNF itself).
-## ---------------------------------------------------------------------------
 
 mcc_diablo_candidates <- function(multi_results) {
   rows <- list()
@@ -154,14 +95,6 @@ mcc_diablo_candidates <- function(multi_results) {
       stringsAsFactors = FALSE
     )
   }
-  ## Sex-Stratified DIABLO panel (Integration's "Sex-Stratified" tab,
-  ## multiomics_sexstratified_engine.R::mss_run_stratified()) - folded in
-  ## here so a user who ran that tab on an Active/uploaded dataset also gets
-  ## DIABLO-panel cross-referencing here, not just from the freeform
-  ## Biomarker Discovery signature above. Only the DIABLO engine's panel
-  ## (component-1 selectVar() loadings) is comparable to the freeform
-  ## engine's own loadings - the Random Forest panel (MeanDecreaseGini
-  ## importance) is a different statistic and is never folded in.
   strat <- multi_results$integration_stratified$result
   if (!is.null(strat) && isTRUE(strat$ok) && identical(strat$engine, "diablo") && !is.null(strat$panels) && nrow(strat$panels) > 0) {
     sp <- strat$panels
@@ -178,15 +111,6 @@ mcc_diablo_candidates <- function(multi_results) {
   out[!duplicated(out$feature), , drop = FALSE]
 }
 
-## Cross-references the Preloaded path's own gene/CpG rows against the
-## precomputed, per-sex DIABLO candidate-biomarker panel for the same cohort
-## (Table40/44b, read by mod_multi_concordance.R via
-## MCC_PRELOADED_DIABLO_PANEL + multi_read_registry_table() - never a live
-## refit). `panel` must have columns sex, omics ("transcriptomics_gene" /
-## "methylation_CpG"), feature (Ensembl gene ID or CpG probe ID -
-## joined against `df$gene_id`/`df$cpg` by exact ID, not gene symbol),
-## biomarker_status, loading. Joined per-sex when both sides have a sex
-## column, so a female-only panel hit never flags a male row.
 mcc_join_preloaded_diablo_panel <- function(df, panel) {
   df$diablo <- FALSE; df$joint <- FALSE
   df$diablo_status <- NA_character_; df$diablo_loading <- NA_real_
@@ -228,10 +152,6 @@ mcc_snf_candidates <- function(multi_results, multi_dataset, expr_layer, meth_la
   do.call(rbind, out)
 }
 
-## Merges DIABLO/Joint + SNF + custom user-entered features into one long
-## table, then narrows to `source_filter` (spec section 7's Biomarker Source
-## options). Returns list(ok, df, note) - ok = FALSE ("No candidate
-## biomarkers available") only when nothing at all is present.
 mcc_candidate_pool <- function(multi_results, multi_dataset, expr_layer, meth_layer,
                                 custom_genes = character(0), custom_cpgs = character(0),
                                 snf_fdr_thresh = 0.1) {
@@ -260,9 +180,6 @@ mcc_candidate_pool <- function(multi_results, multi_dataset, expr_layer, meth_la
     base$snf[hit] <- TRUE
   }
   base$custom[base$feature %in% custom_genes | base$feature %in% custom_cpgs] <- TRUE
-  ## Feature identifier type distinguishes a candidate gene from a candidate
-  ## CpG when `omics` metadata is missing (e.g. a bare custom entry) -
-  ## never guessed beyond the regex already used for id-type detection.
   base$id_type <- vapply(base$feature, function(f) mcc_detect_id_type(f), character(1))
   base$omics[is.na(base$omics) & base$id_type == "Illumina CpG probe ID"] <- "Methylomics"
   base$omics[is.na(base$omics) & base$id_type %in% c("Ensembl Gene ID", "Entrez ID", "Gene symbol")] <- "Transcriptomics"
@@ -270,7 +187,6 @@ mcc_candidate_pool <- function(multi_results, multi_dataset, expr_layer, meth_la
   list(ok = TRUE, df = base, note = NULL)
 }
 
-## Spec section 7's Biomarker Source dropdown, applied to the pool above.
 mcc_filter_source <- function(pool_df, source) {
   if (is.null(pool_df) || nrow(pool_df) == 0) return(pool_df)
   switch(source,
@@ -287,12 +203,6 @@ mcc_filter_source <- function(pool_df, source) {
     pool_df
   )
 }
-
-## ---------------------------------------------------------------------------
-## 6. Gene<->CpG mapping (spec section 9) - one row per (gene, CpG) actually
-## annotated to that gene, restricted to CpGs actually present in the
-## methylation layer when one is supplied. Never invents a CpG.
-## ---------------------------------------------------------------------------
 
 mcc_gene_cpg_map <- function(candidate_genes, meth_features = NULL, array_type = "450K") {
   candidate_genes <- unique(candidate_genes[!is.na(candidate_genes) & nzchar(candidate_genes)])
@@ -325,18 +235,6 @@ mcc_gene_cpg_map <- function(candidate_genes, meth_features = NULL, array_type =
        note = "Transcript ID, strand, and distance-to-TSS are not exposed by this annotation source and are reported as Not available rather than estimated.")
 }
 
-## ---------------------------------------------------------------------------
-## 7. Direction classification (spec section 10-11) - reuses cx_classify()
-## for the base Hyper/Hypo x Up/Down category, then layers a genomic-
-## context-aware `canonical` flag on top (never a universal hard-coded
-## inverse rule). Promoter/TSS CpGs: canonical = inverse direction
-## (Hyper+Down / Hypo+Up). Gene-body CpGs: canonical = concordant direction
-## (Hyper+Up / Hypo+Down) - matching the precomputed Table42/45's own
-## "concordant (gene-body hypermethylation -> higher expression)" vocabulary,
-## so live and preloaded results agree on the rule. Any other/unknown region
-## bucket: the rule does not apply (`canonical = NA`), never guessed.
-## ---------------------------------------------------------------------------
-
 mcc_classify_direction <- function(pairs_df, expr_thresh, expr_fdr_thresh, meth_thresh, meth_fdr_thresh) {
   need <- c("log2fc", "expr_fdr", "dbeta", "meth_fdr")
   if (!all(need %in% colnames(pairs_df))) stop("mcc_classify_direction: pairs_df missing required columns.")
@@ -357,12 +255,6 @@ mcc_classify_direction <- function(pairs_df, expr_thresh, expr_fdr_thresh, meth_
   df$direction_classification[has_stats & both_sig & cat_chr == "Hypo + Down"] <- "Down expression + Hypomethylation"
   df$direction_classification <- factor(df$direction_classification, levels = MCC_DIRECTION_LEVELS)
 
-  ## Canonical/non-canonical is only a meaningful verdict once a pair has
-  ## actually cleared both significance thresholds - a "Weak/uncertain" or
-  ## "Not interpretable" pair has no determined direction to judge against
-  ## the region rule, so it stays NA ("Not applicable") rather than being
-  ## called "Non-canonical" by default (spec section 11: the rule must not
-  ## be applied beyond what the data actually supports).
   sig_relevant <- has_stats & both_sig
   df$canonical <- NA
   df$canonical[promoter & sig_relevant] <- cat_chr[promoter & sig_relevant] %in% c("Hyper + Down", "Hypo + Up")
@@ -373,34 +265,11 @@ mcc_classify_direction <- function(pairs_df, expr_thresh, expr_fdr_thresh, meth_
 
 MCC_CANONICAL_RULE_TEXT <- "Canonical: inverse methylation-expression relationship at promoter/TSS CpGs, concordant at gene-body CpGs. Other regions: Not applicable."
 
-## ---------------------------------------------------------------------------
-## 7b. Multi-omics biomarker direction breakdown - `direction_classification`
-## (above) only assigns a real Up/Down x Hyper/Hypo label once a pair clears
-## BOTH this run's own expression and methylation significance thresholds;
-## everything else collapses into "Weak/uncertain", which hides the actual
-## direction for a pair that DIABLO/SNF/Joint Biomarker Discovery already
-## flagged as a candidate on independent multi-omics evidence. This restricts
-## to those already-flagged pairs and reports the raw sign of dbeta/log2fc
-## (methylation_direction x expression_direction) regardless of this run's
-## significance thresholds - never a new significance verdict, just the
-## direction of change for a feature already selected by another method.
-## ---------------------------------------------------------------------------
-
 MCC_RAW_DIRECTION_LEVELS <- c(
   "Up expression + Hypomethylation", "Down expression + Hypermethylation",
   "Up expression + Hypermethylation", "Down expression + Hypomethylation"
 )
 
-## Adds `raw_direction` (the same 4-way Up/Down x Hyper/Hypo label as
-## `direction_classification`, but from the raw sign of dbeta/log2fc alone -
-## every row that has both values gets one, never gated by this run's
-## significance thresholds), `raw_canonical_label` (the same promoter/
-## gene-body region rule as `canonical_label`, applied to `raw_direction`
-## instead of the significance-gated category - the un-gated equivalent of
-## the precomputed pipeline's own `biological_pattern` column on the
-## Preloaded path), and `biomarker_source` (which of DIABLO/SNF/Joint
-## flagged this row, "" if none) to every row of `pairs_df`. Never filters
-## rows - callers subset first if they only want biomarker-flagged pairs.
 mcc_add_raw_direction <- function(pairs_df) {
   need <- c("methylation_direction", "expression_direction")
   if (!all(need %in% colnames(pairs_df))) stop("mcc_add_raw_direction: pairs_df missing required columns.")
@@ -428,18 +297,6 @@ mcc_add_raw_direction <- function(pairs_df) {
   df
 }
 
-## ---------------------------------------------------------------------------
-## 7c. Genome-wide response-driven significance (Table3/4, script 05) -
-## real per-feature nominal p_response/fdr_response/logFC_response
-## (genes) and delta_M_response (CpGs), joined by (sex, gene_id) / (sex,
-## cpg) against `deg`/`dmp` (multi_read_registry_table() reads of the
-## candidate-only lookups above). This is a materially different test family
-## than mcc_classify_direction()'s own recompute (which BH-corrects only over
-## the small candidate subset already in pairs_df, inflating its apparent
-## multiple-testing burden) - use this for a "is this pair genuinely
-## significant" verdict, not the FDR columns computed on pairs_df alone.
-## ---------------------------------------------------------------------------
-
 mcc_join_genome_wide_significance <- function(df, deg, dmp) {
   df$genome_expr_p <- NA_real_; df$genome_expr_fdr <- NA_real_; df$genome_expr_logfc <- NA_real_
   df$genome_meth_p <- NA_real_; df$genome_meth_fdr <- NA_real_; df$genome_meth_dbeta <- NA_real_
@@ -463,9 +320,6 @@ mcc_join_genome_wide_significance <- function(df, deg, dmp) {
   df
 }
 
-## Restricted to rows DIABLO/SNF/Joint Biomarker Discovery already flagged as
-## a candidate - see mcc_add_raw_direction() above for why raw sign, not the
-## significance-gated direction_classification, is used here.
 mcc_biomarker_direction_table <- function(pairs_df) {
   need <- c("gene_symbol", "cpg", "methylation_direction", "expression_direction")
   if (!all(need %in% colnames(pairs_df))) stop("mcc_biomarker_direction_table: pairs_df missing required columns.")
@@ -475,16 +329,6 @@ mcc_biomarker_direction_table <- function(pairs_df) {
   if (nrow(df) == 0) return(df)
   mcc_add_raw_direction(df)
 }
-
-## ---------------------------------------------------------------------------
-## 8. Sample-level Gene-CpG correlation (spec section 12) - a genuine
-## per-pair primitive: unlike cx_gene_correlation() (which matches
-## expr_mat/meth_mat by IDENTICAL rowname, i.e. gene-level aggregated
-## methylation vs. gene expression), a Gene-CpG pair needs the individual
-## CpG's own value vector against its mapped gene's expression vector - a
-## different orientation contract, not a fork of that function. Reuses the
-## same stats::cor.test() call and BH-FDR (cx_adjust_p()) it already uses.
-## ---------------------------------------------------------------------------
 
 mcc_pair_correlation <- function(expr_mat, meth_mat, pairs_df, common_samples, method = c("pearson", "spearman"), min_n = 3L) {
   method <- match.arg(method)
@@ -504,12 +348,6 @@ mcc_pair_correlation <- function(expr_mat, meth_mat, pairs_df, common_samples, m
   list(ok = TRUE, df = df, error = NULL)
 }
 
-## ---------------------------------------------------------------------------
-## 9. Optional adjusted association / regression (spec section 13) - only
-## uses covariates that actually exist in sample_meta; disabled (returns
-## ok=FALSE) rather than silently run when N is too small for the model.
-## ---------------------------------------------------------------------------
-
 mcc_regression <- function(expr_vec, meth_vec, covariates_df = NULL, covariate_cols = character(0)) {
   d <- data.frame(expression = expr_vec, methylation = meth_vec)
   if (!is.null(covariates_df) && length(covariate_cols) > 0) {
@@ -528,26 +366,9 @@ mcc_regression <- function(expr_vec, meth_vec, covariates_df = NULL, covariate_c
        p_value = co["methylation", "Pr(>|t|)"], model_n = nrow(d), covariates_used = intersect(covariate_cols, colnames(d)))
 }
 
-## ---------------------------------------------------------------------------
-## 10. Sex-specific analysis (spec section 14) - column detection only;
-## values/labels are never invented, only read from real sample_meta.
-## Delegates to multi_sex_candidates()/multi_sex_groups()
-## (multiomics_helpers.R), the shared implementation every live "stratify by
-## sex" path in this module now uses (Integration/Biomarker's Sex-Stratified
-## tab, Pathway's upload branch) - kept as thin mcc_-prefixed wrappers so
-## this file's own call sites are unchanged.
-## ---------------------------------------------------------------------------
-
 mcc_sex_candidates <- function(sample_meta) multi_sex_candidates(sample_meta)
 
 mcc_sex_groups <- function(sample_meta, sex_col, sample_ids) multi_sex_groups(sample_meta, sex_col, sample_ids)
-
-## ---------------------------------------------------------------------------
-## 11. Priority score (spec section 16) - interpretable, component-visible,
-## never a black-box AI score. Every component is a 0-1 normalized real
-## value or a real boolean; final label is always "Potential"/"Candidate",
-## never "confirmed".
-## ---------------------------------------------------------------------------
 
 mcc_priority_score <- function(df) {
   norm01 <- function(x) { x <- abs(x); if (all(is.na(x))) return(rep(NA_real_, length(x))); rng <- range(x, na.rm = TRUE); if (diff(rng) == 0) return(ifelse(is.na(x), NA_real_, 0.5)); (x - rng[1]) / diff(rng) }
@@ -555,10 +376,6 @@ mcc_priority_score <- function(df) {
   meth_component <- norm01(df$dbeta) %||% rep(NA_real_, nrow(df))
   fdr_component <- 1 - norm01(pmin(df$expr_fdr, df$meth_fdr, na.rm = FALSE))
   cor_component <- norm01(df$correlation_r)
-  ## isTRUE() is scalar (identical(TRUE, x)) - always FALSE for a vector of
-  ## length > 1, which previously collapsed ifelse()'s whole result to a
-  ## single recycled constant instead of one value per row. is.na()/a plain
-  ## logical vector drive ifelse()'s shape correctly here.
   region_component <- ifelse(is.na(df$canonical), 0.3, ifelse(df$canonical, 1, 0))
   diablo_component <- as.numeric(isTRUE(df$diablo) | df$diablo %in% TRUE)
   snf_component <- as.numeric(df$snf %in% TRUE)
@@ -572,21 +389,6 @@ mcc_priority_score <- function(df) {
   parts
 }
 
-## ---------------------------------------------------------------------------
-## 12. Two-group differential statistics (spec section 5-6's "raw/normalized
-## matrices supplied -> allow the user to select the analysis design and
-## calculate the required statistics" path). `multi_dataset$layers` only
-## ever holds numeric matrices (never a pre-computed DE-results table - that
-## upload shape isn't part of the Dataset Workspace's own ingestion
-## contract, which this task does not modify), so this module's live branch
-## computes log2FC/dbeta and a per-feature test itself, restricted to the
-## already-matched samples and an already-existing 2-class design column
-## from real sample_meta - never a fabricated grouping.
-## ---------------------------------------------------------------------------
-
-## Candidate 2-class categorical sample_meta columns among the matched
-## samples only - reuses mi_outcome_summary()'s own categorical-detection
-## logic rather than re-implementing class counting.
 mcc_design_candidates <- function(sample_meta, sample_ids) {
   if (is.null(sample_meta) || ncol(sample_meta) == 0) return(character(0))
   ok <- vapply(colnames(sample_meta), function(cl) {
@@ -596,9 +398,6 @@ mcc_design_candidates <- function(sample_meta, sample_ids) {
   colnames(sample_meta)[ok]
 }
 
-## Per-feature two-group log2FC (assumes already log2-scale expression, the
-## standard convention for the normalized matrices this module receives) +
-## Welch t-test + BH-FDR. Returns data.frame(feature, log2fc, p, fdr).
 mcc_expression_stats <- function(expr_mat, group) {
   common <- intersect(rownames(expr_mat), names(group))
   if (length(common) < 4) return(list(ok = FALSE, error = "Too few matched samples for a two-group expression comparison."))
@@ -617,9 +416,6 @@ mcc_expression_stats <- function(expr_mat, group) {
   list(ok = TRUE, df = df, groups = lv, n = length(common))
 }
 
-## Per-CpG delta-M (Welch t-test on M-values, preferred for the statistical
-## test per spec section 6) + delta-Beta (for biological interpretation,
-## reported alongside, never in place of, delta-M) + BH-FDR.
 mcc_methylation_stats <- function(meth_mat, group, value_type = c("beta", "M-value", "delta/other (already-differenced or non-standard scale)")) {
   value_type <- match.arg(value_type)
   common <- intersect(rownames(meth_mat), names(group))
@@ -640,10 +436,6 @@ mcc_methylation_stats <- function(meth_mat, group, value_type = c("beta", "M-val
   df$fdr <- stats::p.adjust(df$p, method = "BH")
   list(ok = TRUE, df = df, groups = lv, n = length(common), value_type = value_type)
 }
-
-## ---------------------------------------------------------------------------
-## 13. Summary counts (spec section 26)
-## ---------------------------------------------------------------------------
 
 mcc_summary_counts <- function(pairs_df, sex_col_present = FALSE) {
   if (is.null(pairs_df) || nrow(pairs_df) == 0) return(NULL)

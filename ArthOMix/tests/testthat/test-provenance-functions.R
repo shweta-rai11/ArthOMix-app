@@ -1,15 +1,11 @@
 ## Provenance manifest helper (R/provenance.R): arthomix_provenance_record()
 ## and its JSON-serialization/download-handler support. This is the shared
 ## helper wired into mod_dge.R, mod_methyl_dmp.R, and (as an extension of
-## its existing fs_model_export() object) mod_methyl_featureselection.R -
-## see those files' own "Download analysis record (.json)" handlers.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "provenance.R"))
-
-## ---- checksum determinism ---------------------------------------------
 
 test_that("arthomix_provenance_record()'s checksum is deterministic for identical input and changes with different input", {
   input_a <- list(mat_dim = c(100, 10), group = c("HC", "RA", "HC", "RA"))
@@ -21,26 +17,17 @@ test_that("arthomix_provenance_record()'s checksum is deterministic for identica
   r3 <- arthomix_provenance_record(module = "test_mod", checksum_input = input_b)
   expect_false(isTRUE(all.equal(r1$checksum, r3$checksum)))
 
-  ## Mirrors the seed-determinism pattern used elsewhere in this codebase
-  ## (see methyl_fs_validate_nested()/methyl_fs_validate_frozen() tests in
-  ## test-methyl-featureselection-functions.R): re-running with the exact
-  ## same inputs reproduces the same checksum, a differing input does not.
   expect_type(r1$checksum, "character")
   expect_true(nzchar(r1$checksum))
 })
 
 test_that("arthomix_provenance_record()'s checksum also changes when only params differ but checksum_input is identical", {
-  ## checksum is defined over checksum_input only, not params - confirm this
-  ## is the actual (documented) contract rather than an accident: params
-  ## differing alone must NOT change the checksum.
   input_a <- list(mat_dim = c(50, 5))
   r1 <- arthomix_provenance_record(module = "m", checksum_input = input_a, params = list(x = 1))
   r2 <- arthomix_provenance_record(module = "m", checksum_input = input_a, params = list(x = 2))
   expect_identical(r1$checksum, r2$checksum)
   expect_false(identical(r1$params, r2$params))
 })
-
-## ---- schema shape --------------------------------------------------------
 
 test_that("arthomix_provenance_record() always returns every documented top-level field", {
   r <- arthomix_provenance_record(
@@ -70,15 +57,12 @@ test_that("arthomix_provenance_record() defaults produce an empty-but-present pa
   expect_identical(r$software$packages, stats::setNames(list(), character(0)))
 })
 
-## ---- graceful degradation for missing/uninstalled packages ---------------
-
 test_that("an uninstalled/nonexistent package name degrades to a note instead of erroring the whole record", {
   r <- expect_no_error(arthomix_provenance_record(
     module = "m", checksum_input = list(a = 1),
     packages = c("digest", "this_package_definitely_does_not_exist_12345")
   ))
   expect_identical(r$software$packages[["this_package_definitely_does_not_exist_12345"]], "not installed")
-  ## A real, installed package alongside it still resolves normally.
   expect_true(grepl("^[0-9]+\\.[0-9]+", r$software$packages[["digest"]]))
 })
 
@@ -86,8 +70,6 @@ test_that("duplicate package names are only resolved/listed once", {
   r <- arthomix_provenance_record(module = "m", checksum_input = list(a = 1), packages = c("digest", "digest"))
   expect_identical(names(r$software$packages), "digest")
 })
-
-## ---- JSON safety / download handler ---------------------------------------
 
 test_that("arthomix_provenance_json_safe() formats POSIXct/Date/factor fields instead of leaving them opaque for jsonlite", {
   x <- list(run_at = as.POSIXct("2026-01-01 12:00:00", tz = "UTC"), grp = factor(c("a", "b")), n = 5L, note = NULL)
@@ -112,11 +94,6 @@ test_that("a full provenance record round-trips through jsonlite::toJSON()/fromJ
   expect_identical(parsed$checksum, r$checksum)
 })
 
-## downloadHandler() (shiny) nests the content= function two closures deep -
-## environment(handler)$renderFunc's own environment$content - rather than
-## exposing it as an attribute; extracted here so these tests can exercise
-## the actual content-writing logic without spinning up a full reactive
-## session/testServer just to click a download button.
 provenance_handler_content_fn <- function(handler) {
   environment(environment(handler)$renderFunc)$content
 }
@@ -126,9 +103,6 @@ test_that("arthomix_provenance_download_handler() returns a shiny download handl
   handler <- arthomix_provenance_download_handler(record_fn, "test_record")
   expect_true(inherits(handler, "shiny.render.function"))
 
-  ## Exercise the content function directly (bypassing the Shiny reactive
-  ## machinery downloadHandler() normally runs under) to confirm it writes
-  ## valid, parseable JSON containing the record built by record_fn().
   content_fn <- provenance_handler_content_fn(handler)
   tmp <- tempfile(fileext = ".json")
   on.exit(unlink(tmp), add = TRUE)
@@ -136,7 +110,7 @@ test_that("arthomix_provenance_download_handler() returns a shiny download handl
   expect_true(file.exists(tmp))
   parsed <- jsonlite::fromJSON(tmp)
   expect_identical(parsed$module, "m")
-  expect_equal(parsed$seed, 7)  ## JSON round-trip: no int/double distinction
+  expect_equal(parsed$seed, 7)
 })
 
 test_that("arthomix_provenance_download_handler() degrades gracefully instead of erroring when record_fn() itself throws", {

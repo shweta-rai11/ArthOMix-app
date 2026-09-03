@@ -1,16 +1,6 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_mofa_engine.R
 ## Nested sub-module mounted inside mod_multi_mofa.R (sections 5-8: MOFA2
 ## Integration, Factor Results, Cross-Omics Correlation, Export). Reads the
-## `live_state` reactiveValues mod_multi_mofa_server publishes (final
-## preprocessed/scaled, matched-sample matrices per layer + uploaded
-## metadata) - never touches the precomputed-cohort tabs' own state.
-##
-## MOFA2 training runs via shiny::ExtendedTask + future::future_promise(),
-## gated by ARTHOMIX_ASYNC_AVAILABLE (global.R) exactly like
-## mod_methyl_dataset.R's own ~2.1GB preloaded-matrix read - the one other
-## genuinely slow operation in this app - so training doesn't freeze the
-## rest of the app for every open session. Falls back to a blocking call
-## with a clear notice if `future`/`promises` aren't installed.
 
 mod_multi_mofa_engine_ui <- function(id) {
   ns <- NS(id)
@@ -71,7 +61,6 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       )
     })
 
-    ## ---- Async training (falls back to blocking if future/promises absent) --
     run_training <- function() {
       multi_live_run_mofa(live_state$mats, num_factors = input$num_factors %||% 10, seed = input$seed %||% 1, convergence_mode = input$convergence %||% "fast")
     }
@@ -125,7 +114,6 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       })
     }
 
-    ## ---- 6. Factor Results --------------------------------------------------
     output$variance_ui <- renderUI({
       if (is.null(model_state$variance_df)) return(multi_empty_state("Train MOFA2 first."))
       tagList(
@@ -197,7 +185,6 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
     output$dl_loadings_png <- multi_png_download(loadings_plot_fn, function() sprintf("multiomics_factor_loadings_%s.png", input$loadings_factor %||% "factor"))
     output$dl_loadings_csv <- downloadHandler(function() "multiomics_factor_loadings.csv", function(file) utils::write.csv(model_state$loadings_df, file, row.names = FALSE))
 
-    ## ---- 7. Cross-Omics Correlation -----------------------------------------
     output$correlation_ui <- renderUI({
       mats <- live_state$mats
       if (is.null(mats) || length(mats) < 2) return(multi_empty_state("Complete preprocessing (steps 1-3) first."))
@@ -258,7 +245,6 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       utils::write.csv(if (isTRUE(r$ok)) r$df else data.frame(), file, row.names = FALSE)
     })
 
-    ## ---- 8. Export -----------------------------------------------------------
     output$export_ui <- renderUI({
       if (is.null(model_state$model)) return(multi_empty_state("Train MOFA2 first."))
       tagList(

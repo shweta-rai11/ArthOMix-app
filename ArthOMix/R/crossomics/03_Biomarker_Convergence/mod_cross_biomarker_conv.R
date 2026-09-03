@@ -1,18 +1,6 @@
 ## R/crossomics/03_Biomarker_Convergence/mod_cross_biomarker_conv.R
 ## Submodule: Biomarker Convergence - loads the pipeline's own already-joined
 ## eQTL-MR x mQTL-MR x DEG x DMP x DMR table (cross_Omics_Sexstratified_COPY/
-## results/cross_omics_eQTL_mQTL_{sex}.csv - see crossomics_biomarkerconv_
-## helpers.R) and lets the significance thresholds that decide "which rows
-## count as evidence" be reconfigured instantly, by relabeling the table's
-## own retained raw p/FDR/effect-size values. No join is re-run, no
-## statistics are recomputed, and no file outside cross_Omics_Sexstratified_
-## COPY is ever read - this module integrates already-computed
-## Transcriptomics/Methylomics potential-biomarker evidence, it does not
-## reproduce the analyses that produced it.
-##
-## Language throughout: "evidence present in N of 3 layers", never
-## "confirmed biomarker" - joining/relabeling never upgrades association
-## evidence into a causal or diagnostic claim.
 
 mod_cross_biomarker_conv_config <- list(
   id = "biomarkerconv", title = "Biomarker Convergence", icon = "diagram-project", group = "Data",
@@ -72,10 +60,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
 
     raw <- reactiveValues(df = NULL, sex = NULL, loaded_at = NULL, missing_layer = NULL)
 
-    ## Preloaded and Upload are independent pipelines - switching the radio
-    ## clears whatever the other mode had loaded, so stale preloaded data
-    ## can't keep showing under "Upload your own data" (or vice versa) just
-    ## because its own Load button hasn't been clicked yet in this mode.
     observeEvent(input$data_source, {
       raw$df <- NULL; raw$sex <- NULL; raw$loaded_at <- NULL; raw$missing_layer <- NULL
     }, ignoreInit = TRUE)
@@ -108,10 +92,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
         if (!is.null(input$upload_eqtl_file)) sprintf("eQTL-MR: \"%s\"", input$upload_eqtl_file$name),
         if (!is.null(input$upload_mqtl_file)) sprintf("mQTL-MR: \"%s\"", input$upload_mqtl_file$name)
       ), collapse = "; ")
-      ## Only one of the two files given - flagged so the eQTL-mQTL tab can
-      ## explain WHY it's empty (nothing to intersect against), rather than
-      ## looking like the same "these panels just don't overlap" case the
-      ## preloaded data can genuinely show.
       raw$missing_layer <- if (is.null(input$upload_eqtl_file)) "eQTL-MR" else if (is.null(input$upload_mqtl_file)) "mQTL-MR" else NULL
       showNotification(sprintf("Loaded %s genes from %s.", format(nrow(merged$df), big.mark = ","), files_desc), type = "message")
       if (!is.null(raw$missing_layer)) {
@@ -121,11 +101,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       }
     })
 
-    ## No filter UI left in this module - every significance threshold
-    ## (DEG/DMP/DMR FDR, mQTL-MR basis/cutoff) is fixed at the pipeline's
-    ## own default (CX_BC_DEFAULT_PARAMS). Relabeling itself still runs
-    ## through cx_bc_relabel() so the *_significant/n_evidence_layers
-    ## columns published to other Cross-Omics sub-modules are unchanged.
     bc_df <- reactive({
       req(raw$df)
       cx_bc_relabel(raw$df, CX_BC_DEFAULT_PARAMS)
@@ -149,18 +124,12 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       )
     })
 
-    ## ---- eQTL-MR tab: genes in the eQTL-MR panel, that layer's own columns ----
     eqtl_df <- reactive({
       df <- bc_df()
       d <- df[df$in_eQTL_MR_panel %in% TRUE, , drop = FALSE]
       cols <- intersect(c("gene", "eQTL_MR_OR", "eQTL_MR_pval", "eQTL_MR_FDR", "eQTL_MHC_region", "eQTL_MR_significant"), colnames(d))
       d[, cols, drop = FALSE]
     })
-    ## Shared by the eQTL-MR and eQTL-mQTL tabs below: how many rows in a table that
-    ## carries eQTL_MHC_region sit in the MHC region (chr6, ~25-34Mb) - the single most
-    ## notorious horizontal-pleiotropy hotspot in autoimmune-disease genetics, where an
-    ## MR estimate is more likely to reflect regional LD than the gene's own causal
-    ## effect. NULL (renders nothing) when there's nothing to warn about.
     cx_bc_mhc_warning <- function(d) {
       if (is.null(d) || !"eQTL_MHC_region" %in% colnames(d)) return(NULL)
       n_mhc <- sum(d$eQTL_MHC_region %in% TRUE)
@@ -185,7 +154,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
     output$dl_eqtl_csv <- downloadHandler(function() paste0("biomarker_convergence_eQTL-MR_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(eqtl_df(), file, row.names = FALSE))
 
-    ## ---- mQTL-MR tab: genes in the mQTL-MR panel, that layer's own columns ----
     mqtl_df <- reactive({
       df <- bc_df()
       d <- df[df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
@@ -208,9 +176,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
     })
     output$dl_mqtl_csv <- downloadHandler(function() paste0("biomarker_convergence_mQTL-MR_", raw$sex, "_", Sys.Date(), ".csv"), function(file) utils::write.csv(mqtl_df(), file, row.names = FALSE))
 
-    ## ---- eQTL-mQTL tab: genes with BOTH a causal-expression AND a causal- ----
-    ## methylation instrument - the genetic convergence set, a stronger
-    ## candidate list than either MR panel alone.
     eqtl_mqtl_df <- reactive({
       df <- bc_df()
       d <- df[df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
@@ -253,9 +218,6 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       openxlsx::write.xlsx(bc_df(), file)
     })
 
-    ## Published for other Cross-Omics sub-modules (Cross-Omics MR's Tier
-    ## classification) and ArthOChat to read - kept live/reactive to filter
-    ## changes, not just the initial load.
     observe({
       df <- tryCatch(bc_df(), error = function(e) NULL)
       if (is.null(df) || is.null(cross_results)) return()

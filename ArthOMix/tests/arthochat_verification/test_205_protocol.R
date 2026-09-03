@@ -9,7 +9,6 @@ OUT_CSV <- "/private/tmp/claude-501/-Users-swetarai-ArthOMix/4d90ea6c-5cd2-4ae4-
 PROGRESS_LOG <- "/private/tmp/claude-501/-Users-swetarai-ArthOMix/4d90ea6c-5cd2-4ae4-b26a-b4b077c66b2a/scratchpad/full_205_progress.txt"
 unlink(PROGRESS_LOG)
 
-## ---- ids + real titles, verified against each mod_*_config in the repo ----
 tx <- list(
   overview="Overview and Datasets", preprocessing="Preprocessing and Batch Correction", dge="Differential Expression",
   wgcna="WGCNA Co-expression Network", candidates="Candidate Gene Identification", mr="Mendelian Randomization",
@@ -78,7 +77,6 @@ ollama_chat <- function(sys_prompt, user_msg) {
        ollama_s = round((resp$total_duration %||% NA) / 1e9, 2), eval_tokens = resp$eval_count %||% NA)
 }
 
-## keyword hit for Q1 (weak, informational signal only - NOT a correctness grade)
 kw_hit <- function(answer, title) {
   words <- unique(tolower(unlist(strsplit(gsub("[^A-Za-z ]", " ", title), "\\s+"))))
   words <- words[nchar(words) >= 4]

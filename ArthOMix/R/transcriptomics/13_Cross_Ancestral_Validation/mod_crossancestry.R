@@ -1,44 +1,6 @@
 ## R/transcriptomics/13_Cross_Ancestral_Validation/mod_crossancestry.R
 ## Submodule: Cross-Ancestry Validation (Section 2.12)
 ## "Your analysis" recomputes, on a per-sex Run click, which prioritised
-## genes replicate in an independent European RA GWAS (Stahl et al. 2010)
-## and transfer to an East Asian RA GWAS (BioBank Japan, Ishigaki et al.
-## 2020), at whatever significance threshold and direction-of-effect rule
-## the user sets - instead of the fixed 0.05/direction-required columns
-## bundled in MR35_crossancestry_{female,male}.csv. Same house style as
-## Cross-Tissue Validation (mod_crosstissue.R): a headline "validated
-## biomarker" count driven by one shared classification rule, a concordance
-## scatter, a ranked evidence plot, and a per-gene table - adapted to what
-## this module's OWN data actually is (per-SNP MR odds ratios across three
-## GWAS cohorts, not expression samples to fit a classifier on). Adjusting a
-## slider/radio does NOT recompute anything until Run is clicked again -
-## same click-to-lock-in-results convention as Diagnostic Model and
-## Cross-Tissue Validation, even though this module's own computation is
-## cheap enough that it could have stayed fully live.
-##
-## WHAT "VALIDATED CROSS-ANCESTRY BIOMARKER" MEANS HERE: a gene whose MR
-## estimate (a) replicates in the second European cohort (same direction as
-## the European discovery GWAS, nominal p < threshold) AND (b) transfers to
-## the East Asian cohort (same direction, nominal p < threshold) - i.e. this
-## module's "shared EUR+EAS" class. This is genetic evidence for a causal
-## effect on RA liability, not a re-evaluated diagnostic classifier: no
-## expression data from any non-European cohort exists, so the panel itself
-## is never re-fit here (Section 2.12.1).
-##
-## WHY THE EAST ASIAN ARM ISN'T A LIKE-FOR-LIKE REPLICATION: the genetic
-## instruments are European cis-eQTL variants - no comparable East Asian
-## whole-blood eQTL resource exists - so that arm tests European-derived
-## instruments against an East Asian outcome GWAS (Section 2.12.7). A gene
-## failing to transfer may reflect the instrument tagging the causal variant
-## poorly in East Asians, not an absence of a real effect - this is why
-## "untestable in East Asian" (no instrument variant survived harmonisation)
-## is its own KPI tile and table state, never folded into "not transferable".
-##
-## NOT SEX-SPECIFIC ESTIMATES: both the eQTL exposure and all three outcome
-## GWAS are sex-combined (Section 2.12.1) - the Female/Male tabs here
-## partition genes by which sex-stratified panel prioritised them, not by a
-## different MR model per sex, so a gene appearing in both tabs carries an
-## identical estimate in both.
 
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Validation",
@@ -47,32 +9,15 @@ mod_crossancestry_config <- list(
   icon = "earth-americas"
 )
 
-## Single source of truth for "did this gene replicate in Europeans and
-## transfer to East Asians, at the user's current thresholds" - every KPI
-## tile, plot and table column reads from these three columns so they can
-## never disagree with one another.
 ca_classify <- function(df, p_eur, p_eas, require_dir) {
-  ## Every row in the bundled panel has a European (Stahl) estimate by
-  ## construction; only an uploaded replacement GWAS can leave a gene without
-  ## a usable instrument (live_arm_for_genes()), so callers that never touch
-  ## the European arm don't have to know this column exists.
   if (is.null(df$testable_EUR)) df$testable_EUR <- TRUE
   dir_eur <- if (require_dir) df$dir_okada_eq_stahl else TRUE
   dir_eas <- if (require_dir) df$dir_okada_eq_bbj else TRUE
-  ## A gene with no computable estimate in a cohort (e.g. zero surviving
-  ## instrument SNPs) yields NA here, not FALSE - coerced explicitly so it
-  ## reads as "not replicated"/"not transferable" rather than silently
-  ## poisoning every downstream sum()/table with NA.
   replicated <- df$testable_EUR & dir_eur & df$p_stahl < p_eur
   transferable <- df$testable_EAS & dir_eas & df$p_bbj < p_eas
   df$replicated_EUR <- !is.na(replicated) & replicated
   df$transferable_EAS <- !is.na(transferable) & transferable
   df$biomarker <- df$replicated_EUR & df$transferable_EAS
-  ## An untestable European arm (no harmonised instrument survived against an
-  ## uploaded replacement GWAS - see live_arm_for_genes()) gets its own class,
-  ## the same way !testable_EAS does below: absence of a usable instrument is
-  ## not evidence against replication, so it must never collapse into
-  ## "not EUR-replicated".
   df$ancestry_class <- ifelse(
     df$biomarker, "shared EUR+EAS",
     ifelse(!df$testable_EUR, "untestable in EUR",
@@ -82,10 +27,6 @@ ca_classify <- function(df, p_eur, p_eas, require_dir) {
   )
   df
 }
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_crossancestry_sex_panel <- function(ns, sex_label) {
   run_id <- paste0("run_", sex_label, "_btn")
@@ -166,10 +107,6 @@ mod_crossancestry_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_crossancestry_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -179,14 +116,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
       male   = read_table_safe("MR35_crossancestry_male.csv")
     )
 
-    ## ---------------------------------------------------------------------
-    ## Upload-a-replacement-GWAS mode: parse + map the uploaded file with
-    ## the SAME shared helpers mod_mr.R's and mod_coloc.R's own upload modes
-    ## use (global.R). Loaded lazily and cached: MR_primary_objects.rds is
-    ## the same file mod_mr.R already loads, cheap either way, but there's
-    ## no reason to pay for it when this module's upload mode is never used
-    ## this session.
-    ## ---------------------------------------------------------------------
     gwas_df_r <- reactive({ req(input$gwas_file); read_uploaded_table(input$gwas_file$datapath) })
     output$gwas_map_ui <- gwas_col_map_ui(ns, reactive(input$gwas_file), gwas_df_r, "gwas", "GWAS file")
 
@@ -196,9 +125,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
       mr_instrument_cache
     }
 
-    ## Formatted once per upload (Shiny's own reactive cache), reused by
-    ## whichever sex's Run is clicked - the uploaded GWAS itself doesn't
-    ## depend on sex.
     uploaded_outcome <- reactive({
       req(input$gwas_file, input$gwas_snp, input$gwas_beta, input$gwas_se, input$gwas_pval, input$gwas_ea, input$gwas_oa)
       raw <- gwas_df_r()
@@ -213,13 +139,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
       list(dat = out_fmt, label = label)
     })
 
-    ## Re-harmonises this project's own Okada-discovery cis-eQTL instruments
-    ## (the SAME exposure-side rows mod_mr.R's bundled path reads, via the
-    ## shared global.R loader) against the uploaded outcome instead of
-    ## Okada, restricted to whichever genes are in the current sex's panel -
-    ## the exact TwoSampleMR harmonise_data() + estimate_mr_set() machinery
-    ## mod_mr.R's own upload/batch modes already use, applied here to a
-    ## small, fixed gene list instead of one gene or all ~1,700.
     live_arm_for_genes <- function(genes) {
       out <- uploaded_outcome()
       instr_all <- get_mr_instruments()$dat
@@ -234,10 +153,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
       if (is.null(dat) || nrow(dat) == 0) return(list(table = NULL, n_input_genes = length(unique(instr$gene)), n_output_genes = 0L, label = out$label))
       dat <- dat[dat$mr_keep, , drop = FALSE]
       if (nrow(dat) == 0) return(list(table = NULL, n_input_genes = length(unique(instr$gene)), n_output_genes = 0L, label = out$label))
-      ## Re-derive gene from (SNP, id.exposure) rather than trust a
-      ## passed-through column - the same defensive pattern global.R's
-      ## load_mr_instrument_table() uses for the SAME reason: harmonise_data
-      ## isn't guaranteed to preserve columns it doesn't itself recognise.
       dat$gene <- instr$gene[match(paste(dat$SNP, dat$id.exposure), paste(instr$SNP, instr$id.exposure))]
 
       rows <- lapply(split(dat, dat$gene), function(dg) {
@@ -254,11 +169,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
     result_for <- function(sex_label) {
       df <- tables[[sex_label]]
       validate(need(!is.null(df), "The cross-ancestry results table was not found on disk."))
-      ## Every submodule server is instantiated at app startup regardless of
-      ## whether its UI has been added yet (server.R inserts UI lazily on
-      ## demand), so these inputs can still be NULL the first time this runs
-      ## - fall back to the sliders'/radio's own UI defaults rather than
-      ## erroring, matching mod_crosstissue.R's ct_advanced_params() pattern.
       p_eur <- input$p_eur %||% 0.05
       p_eas <- input$p_eas %||% 0.05
       require_dir <- !identical(input$require_dir %||% "yes", "no")
@@ -284,25 +194,17 @@ mod_crossancestry_server <- function(id, dataset, results) {
           df$nSNP_bbj <- live$table$nSNP[m]
           df$dir_okada_eq_bbj <- (df$OR_okada > 1) == (df$OR_bbj > 1)
           df$testable_EAS <- !is.na(m)
-          df$eafgap_bbj <- NA_real_  ## BBJ-specific diagnostic, meaningless for an arbitrary uploaded GWAS
+          df$eafgap_bbj <- NA_real_
         }
         live_note <- list(arm = arm, label = live$label, n_input_genes = live$n_input_genes, n_output_genes = live$n_output_genes)
       }
 
       list(df = ca_classify(df, p_eur, p_eas, require_dir), live_note = live_note)
     }
-    ## Locked to whatever the sliders/radio/upload said at the moment Run was
-    ## last clicked, for that sex - changing a threshold, or re-uploading,
-    ## afterwards does nothing until Run is clicked again (ignoreInit = TRUE:
-    ## skip the phantom "click" every actionButton starts at value 0, not a
-    ## real click).
     result_female <- eventReactive(input$run_female_btn, result_for("female"), ignoreInit = TRUE)
     result_male <- eventReactive(input$run_male_btn, result_for("male"), ignoreInit = TRUE)
     res_sex <- function(sex_label) if (identical(sex_label, "female")) result_female else result_male
 
-    ## Saved into results$crossancestry as each sex's Run completes - same
-    ## results$<id> convention every other submodule uses, so ArthOChat sees
-    ## this module's headline numbers as soon as they exist.
     save_result <- function(sex_label, res) {
       df <- res$df
       results$crossancestry <- utils::modifyList(
@@ -340,11 +242,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
         )
       })
 
-      ## Ancestry concordance: European replication OR vs East Asian transfer
-      ## OR (log2 scale, so OR=1 sits at 0 on both axes) - the direct
-      ## cross-ancestry analog of Cross-Tissue Validation's blood-vs-synovium
-      ## log2FC scatter. Untestable genes (no East Asian instrument) are
-      ## excluded rather than plotted at a misleading position.
       output[[paste0(sex_label, "_concordance_plot")]] <- renderPlot({
         df <- res()$df
         d <- df[df$testable_EAS & !is.na(df$OR_stahl) & !is.na(df$OR_bbj) & df$OR_stahl > 0 & df$OR_bbj > 0, , drop = FALSE]
@@ -364,14 +261,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
           theme_arthomix(base_size = 12)
       }, alt = sprintf("Scatter plot comparing each testable %s gene's European replication odds ratio against its East Asian transfer odds ratio, with validated cross-ancestry biomarkers highlighted and labelled.", sex_label))
 
-      ## Cross-ancestry biomarker identification: genes testable in East
-      ## Asian, ranked by transfer significance - a lollipop, not a bar
-      ## chart, with a live threshold line at the current p_eas cutoff (this
-      ## line moves as the slider moves) and only validated genes labelled
-      ## with their East Asian OR.
-      ## Height grows with the number of testable genes (one row each) so
-      ## labels never overlap regardless of panel size - matched to
-      ## plotOutput(height = "auto") in the UI, which reads this pixel value.
       rank_plot_height <- function() {
         df <- res()$df
         n <- sum(df$testable_EAS & !is.na(df$p_bbj))
@@ -384,10 +273,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
         d$Status <- factor(ifelse(d$biomarker, "Validated biomarker", "Not validated"), levels = c("Validated biomarker", "Not validated"))
         d$neglogp <- -log10(pmax(d$p_bbj, 1e-300))
         d$gene <- factor(d$gene, levels = d$gene[order(d$neglogp)])
-        ## Extreme hits (e.g. HLA associations at p < 1e-50) otherwise
-        ## squash every other gene into an unreadable cluster near zero on a
-        ## linear scale - capped for DISPLAY only; ranking, classification
-        ## and the labelled OR value all still use the real p-value.
         CAP <- 20
         d$neglogp_plot <- pmin(d$neglogp, CAP)
         subtitle <- if (any(d$neglogp > CAP)) sprintf("East Asian transfer significance (capped at -log10 p = %d)", CAP) else "East Asian transfer significance"
@@ -428,14 +313,6 @@ mod_crossancestry_server <- function(id, dataset, results) {
     register_sex_outputs("female", result_female)
     register_sex_outputs("male", result_male)
 
-    ## A plain shinydashboard::box(collapsible = TRUE) never actually opens
-    ## here: AdminLTE's box-widget click handler only binds to boxes present
-    ## at initial page load, not ones inserted later via renderUI/uiOutput
-    ## (this box's entire reason for existing) - so its "+" toggle looks like
-    ## a working collapse but silently does nothing. A native <details>
-    ## disclosure needs no JS at all and always works, dynamically inserted
-    ## or not; box/box-header/box-title/box-body classes are reused purely
-    ## for the visual match to every other box on this page, not their JS.
     output$references_box_ui <- renderUI({
       tags$details(
         class = "box box-primary",

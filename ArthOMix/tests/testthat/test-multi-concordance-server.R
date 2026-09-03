@@ -1,10 +1,6 @@
 ## Module 3 (Multiomics) - Gene-CpG Concordance sub-module, via testServer():
 ## the "Run Gene-CpG Analysis" pipeline is SYNCHRONOUS (no ExtendedTask,
 ## unlike Integration/Stratification/Biomarker Discovery) - so this drives
-## a REAL, full click-through run: real gene->CpG annotation mapping (real
-## 450K manifest), real per-feature expression/methylation stats (real
-## Welch t-tests), and real per-pair correlation, using genuine CpG probe
-## IDs looked up from the real annotation for TP53 rather than invented ones.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -35,7 +31,7 @@ test_that("clicking 'Run Gene-CpG Analysis' on a real live dataset computes a re
   ids <- paste0("S", seq_len(n))
   grp <- rep(c("HC", "RA"), each = n / 2)
   expr <- matrix(rnorm(n * 3), n, 3, dimnames = list(ids, c("TP53", "BRCA1", "EGFR")))
-  expr[grp == "RA", "TP53"] <- expr[grp == "RA", "TP53"] + 3  ## real, planted group difference
+  expr[grp == "RA", "TP53"] <- expr[grp == "RA", "TP53"] + 3
   meth <- matrix(runif(n * length(real_cpgs), 0.3, 0.5), n, length(real_cpgs), dimnames = list(ids, real_cpgs))
   meth[grp == "RA", ] <- meth[grp == "RA", ] + 0.15
   meta <- data.frame(design = grp, row.names = ids, stringsAsFactors = FALSE)
@@ -62,8 +58,6 @@ test_that("clicking 'Run Gene-CpG Analysis' on a real live dataset computes a re
     expect_true(nrow(r$pairs_df) > 0)
     expect_true(all(r$pairs_df$gene_symbol == "TP53"))
     expect_setequal(r$pairs_df$sex, "pooled")
-    ## The planted TP53 group difference should show up as a real,
-    ## significant expression effect - not a fabricated statistic.
     expect_true(all(r$pairs_df$log2fc > 1))
     expect_true(all(r$pairs_df$expr_p < 0.05))
   })

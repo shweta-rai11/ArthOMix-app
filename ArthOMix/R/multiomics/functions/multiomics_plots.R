@@ -1,31 +1,12 @@
 ## R/multiomics/functions/multiomics_plots.R
 ## Plotting helpers for the Multi-Omics sub-modules - kept separate from the
 ## module files themselves, same split crossomics_integration_plots.R uses
-## for mod_cross_integration.R. Every plot reuses the app's shared
-## theme_arthomix()/ARTHOMIX_COLORS (global.R) so it matches the rest of the
-## app; every plot here is built once as a ggplot object and reused for both
-## on-screen rendering and PNG export (one function, one place each plot is
-## drawn), matching cx_quadrant_ggplot()'s convention.
 
 multi_empty_state <- function(msg = "Load a table (Dataset tab) to see results here.") {
   div(class = "empty-note", icon("circle-info"), msg)
 }
 
-## Generic "plot, or an explicit empty state" chooser for a `..._ui`
-## renderUI() block. A plot function can legitimately return NULL even after
-## the caller's own "is data loaded at all" gate passes - e.g. a user filter
-## (region, sex, FDR) zeroing out every remaining row. Without this, that
-## case fell through to a bare plotOutput() with nothing ever drawn into it
-## (a blank box, not the explicit "no data for this selection" text the
-## module aims for everywhere else) - evaluates plot_fn() once, up front, to
-## decide which of the two to render; renderPlot() below still re-evaluates
-## it for the actual drawing.
 multi_plot_or_empty <- function(plot_fn, output_id, msg = "No data for the current selection.", height = "420px") {
-  ## A caught error is logged (server-side only, no UI change) rather than
-  ## silently discarded, so a real bug in plot_fn() is distinguishable from a
-  ## legitimate "no rows for this selection" NULL in the server console/logs -
-  ## the blanket silent-swallow here was the reason a real data-provenance bug
-  ## (see MULTI_CELLS' has_snf) previously looked identical to an empty state.
   p <- tryCatch(plot_fn(), error = function(e) {
     message(sprintf("multi_plot_or_empty(%s): %s", output_id, conditionMessage(e)))
     NULL
@@ -34,10 +15,6 @@ multi_plot_or_empty <- function(plot_fn, output_id, msg = "No data for the curre
   plotOutput(output_id, height = height)
 }
 
-## Generic "ggplot -> PNG download" handler, 7x6in @300dpi, matching
-## mod_dge.R's download_volcano_png convention - takes a *function* that
-## returns the ggplot object (not the plot itself), so it's re-evaluated at
-## download time against whatever is reactive at that moment.
 multi_png_download <- function(plot_fn, filename_fn) {
   downloadHandler(
     filename = filename_fn,
@@ -52,12 +29,6 @@ multi_png_download <- function(plot_fn, filename_fn) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## DIABLO per-patient component score, colored by response - a direct plot
-## of the pipeline's own Table29b/34b/40b `score` column (LOOCV-derived, per
-## the pipeline's method), not a re-fit.
-## ---------------------------------------------------------------------------
-
 multi_diablo_score_plot <- function(df) {
   need <- c("patient_id", "response", "score")
   if (is.null(df) || nrow(df) == 0 || !all(need %in% colnames(df))) return(NULL)
@@ -68,11 +39,6 @@ multi_diablo_score_plot <- function(df) {
     theme_arthomix() +
     ggplot2::theme(axis.text.x = ggplot2::element_blank(), axis.ticks.x = ggplot2::element_blank())
 }
-
-## ---------------------------------------------------------------------------
-## DIABLO panel loadings, one bar per selected feature, faceted/colored by
-## omics view - a direct plot of Table30/35/41's `loading` column.
-## ---------------------------------------------------------------------------
 
 multi_diablo_panel_plot <- function(df, top_n = 20) {
   need <- c("feature", "loading", "view")
@@ -86,14 +52,6 @@ multi_diablo_panel_plot <- function(df, top_n = 20) {
     ggplot2::labs(x = NULL, y = "DIABLO loading (component 1)", fill = "Omics view") +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## DIABLO variance explained per component, per omics block - direct plot of
-## the saved block.splsda fit's own `prop_expl_var` (real mixOmics output,
-## read via multi_diablo_fit() in multiomics_helpers.R), not re-fit here.
-## This is the correctly-scoped, correctly-named ("component", not "factor")
-## analog of a MOFA-style variance-explained plot for a method that isn't MOFA.
-## ---------------------------------------------------------------------------
 
 multi_diablo_variance_plot <- function(prop_df) {
   need <- c("block", "component", "variance_explained")

@@ -1,16 +1,12 @@
 ## Module 1 (Transcriptomics) - Dataset tab, "Switch to preloaded data" path.
 ## Covers the top-level catalog helpers in mod_dataset.R (individual_dataset_entry,
 ## preloaded_choices, entry_geo_ids - all plain functions, not inside the
-## moduleServer closure, so directly unit-testable) plus the load_preloaded_btn
-## observer's effect on the shared `dataset` reactiveValues via testServer().
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R"))
-
-## ---- Unit: catalog helpers -----------------------------------------------
 
 test_that("individual_dataset_entry() uses the display label when known, else falls back to the raw GSE ID", {
   known <- individual_dataset_entry("GSE93272")
@@ -49,8 +45,6 @@ test_that("default_dataset_entry$load() returns the same shape load_default_data
   expect_equal(dim(d$expr), dim(load_default_dataset()$expr))
 })
 
-## ---- testServer: load_preloaded_btn observer -----------------------------
-
 test_that("loading the default merged entry activates dataset immediately and marks it as the bundled reference", {
   dataset <- shiny::reactiveValues()
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
@@ -61,9 +55,6 @@ test_that("loading the default merged entry activates dataset immediately and ma
     expect_equal(dataset$source_type, "preloaded")
     expect_true(dataset$is_bundled_reference)
     expect_equal(dataset$geo_ids, c("GSE93272", "GSE110169"))
-    ## staged_* mirrors the active dataset for this path (see mod_dataset.R's
-    ## own comment: the preloaded/GEO/upload handlers activate immediately,
-    ## not just stage).
     expect_identical(dataset$staged_expr, dataset$expr)
   })
 })
@@ -82,12 +73,6 @@ test_that("loading an individual raw GEO entry is NOT marked as the bundled refe
 })
 
 test_that("loading a preloaded dataset clears any stale declared_data_type left over from a previous upload", {
-  ## Simulates a session that previously uploaded raw counts (setting
-  ## dataset$declared_data_type <- "raw"), then switched to a preloaded
-  ## source - that stale declaration must not leak onto the newly loaded
-  ## (batch-corrected, normalized) preloaded dataset, or Differential
-  ## Expression's/Immune Deconvolution's method gates would wrongly treat it
-  ## as raw counts.
   dataset <- shiny::reactiveValues(declared_data_type = "raw")
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
     session$setInputs(preloaded_choice = "__default_merged__")
@@ -107,9 +92,6 @@ test_that("switching preloaded picks overwrites the previous dataset rather than
     session$setInputs(load_preloaded_btn = 2)
     expect_false(dataset$is_bundled_reference)
     expect_equal(dataset$geo_ids, "GSE15573")
-    ## Different cohort -> not the same sample count as the merged default
-    ## (regression guard against a stale-state bug where switching picks
-    ## silently kept the previous dataset$expr in place).
     expect_false(identical(ncol(dataset$expr), n_merged))
   })
 })

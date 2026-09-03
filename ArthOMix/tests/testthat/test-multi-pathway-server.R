@@ -1,10 +1,6 @@
 ## Module 3 (Multiomics) - Pathways sub-module, via testServer(): the
 ## upload -> detect -> confirm-mapping -> run pipeline is SYNCHRONOUS (no
 ## ExtendedTask), so this drives a REAL, full click-through ORA run: a real
-## CSV upload of immune genes, real column-role auto-detection, real
-## identifier harmonization, and a real offline clusterProfiler::enrichGO()
-## call - verifying a genuine immune-related GO term surfaces, not a
-## fabricated result.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -23,9 +19,6 @@ source_from_app_root(file.path("R", "multiomics", "07_Pathways", "mod_multi_path
 test_that("clicking 'Run' on a real uploaded immune-gene table (ORA, GO_BP, entire-database background) surfaces a real immune-related GO term", {
   skip_if_not_installed("clusterProfiler")
   skip_if_not_installed("org.Hs.eg.db")
-  ## Same real, well-known immune/inflammation gene panel used in
-  ## test-multi-pathway-helpers-functions.R's direct mp_run_ora_go() check -
-  ## here it goes through the full upload/detect/confirm/run pipeline instead.
   genes <- c("IL6", "TNF", "CXCL8", "IL13", "CCL2", "IL15")
   df <- data.frame(gene_symbol = genes, log2FC = c(2.1, 1.8, -1.5, 1.2, 2.4, 1.1), pvalue = c(0.001, 0.002, 0.01, 0.02, 0.001, 0.03))
   path <- tempfile(fileext = ".csv")
@@ -73,6 +66,6 @@ test_that("the Run handler reports a clear error (never a crash) when no databas
     session$setInputs(confirm_mapping = 1)
     session$setInputs(database = character(0), method = "ORA")
     session$setInputs(run_btn = 1)
-    expect_null(result())  ## returns early with a notification, never sets a fabricated result
+    expect_null(result())
   })
 })

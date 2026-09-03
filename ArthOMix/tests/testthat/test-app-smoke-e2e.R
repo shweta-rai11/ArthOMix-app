@@ -1,8 +1,6 @@
 ## End-to-end smoke test: launches the real app in a headless browser and
 ## visits each top-level omics module, asserting no Shiny output error is
 ## rendered. This is the app-level counterpart to test-data-loaders.R's
-## function-level checks - it exercises the actual UI -> server -> reactive
-## chain, not just "does the file exist / does the loader function work".
 
 skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")

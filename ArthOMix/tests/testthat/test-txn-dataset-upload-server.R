@@ -1,9 +1,6 @@
 ## Module 1 (Transcriptomics) - Dataset tab, "Upload your own data" path.
 ## Covers mod_dataset.R's expr_raw/meta_raw parsing, the local guess_col()
 ## column-mapping defaults (observed via the rendered column_mapping UI,
-## since testServer() never turns a selectInput's `selected=` into a live
-## input default - see fx_selected_value()), and the load_btn observer's
-## success/error behavior.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -73,7 +70,6 @@ test_that("fewer than 4 overlapping sample IDs between expr and meta is rejected
     session$setInputs(load_btn = 1)
 
     expect_true(grepl("Fewer than 4 sample IDs", fx_html_text(output$load_message)))
-    ## dataset was NOT overwritten by the rejected upload.
     expect_identical(dataset$expr, "sentinel_expr")
     expect_identical(dataset$meta, "sentinel_meta")
   })
@@ -109,11 +105,6 @@ test_that("an unparseable/malformed uploaded expression file surfaces a read err
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
     session$setInputs(expr_file = fx_mkfile(malformed_path))
     session$setInputs(meta_file = fx_mkfile(meta_fixture_path))
-    ## expr_raw()/upload_preview_data() wraps parsing in tryCatch and reports
-    ## inline rather than raising - a malformed CSV is not guaranteed to
-    ## error at all (fread is lenient), so this only asserts the app doesn't
-    ## crash and the preview UI renders something (error note or a garbage
-    ## but non-fatal parse) rather than throwing out of testServer.
     html <- tryCatch(output$upload_preview_ui, error = function(e) e)
     expect_false(inherits(html, "error"))
   })
@@ -136,9 +127,6 @@ test_that("uploading a well-formed expr+meta pair records the declared data type
 test_that("declaring 'Raw counts' for a matrix that is actually TPM-normalized is blocked, and the shared dataset is left untouched", {
   dataset <- shiny::reactiveValues(expr = "sentinel_expr", meta = "sentinel_meta")
   fm <- fx_expr_meta(n_genes = 40, n_samples = 8, seed = 4)
-  ## Rescale to a raw-count-like scale, then normalize each sample to sum to
-  ## 1e6 (TPM/CPM-like) - the exact mismatch tx_validate_expr_upload() must
-  ## catch when "Raw counts" is declared.
   counts_like <- round(exp(fm$expr))
   tpm_like <- sweep(counts_like, 2, colSums(counts_like), FUN = "/") * 1e6
   dir <- withr::local_tempdir()
@@ -169,11 +157,6 @@ test_that("an empty uploaded expression file (header only, 0 rows) is not silent
     session$setInputs(meta_file = fx_mkfile(meta_fixture_path))
     session$setInputs(map_id = "sample", map_group = "group", map_sex = "(none)", map_batch = "(none)")
     session$setInputs(load_btn = 1)
-    ## 0 features x 3 samples: tx_validate_expr_upload() now catches this
-    ## before the sample-overlap check even runs (no finite values at all
-    ## in a 0-row matrix), which is a more specific/accurate message than
-    ## the "fewer than 4 sample IDs" this used to fall through to - either
-    ## way, this must be rejected, not loaded as a valid (but empty) dataset.
     expect_identical(dataset$expr, "sentinel_expr")
     expect_true(grepl("No finite numeric values", fx_html_text(output$load_message)))
   })

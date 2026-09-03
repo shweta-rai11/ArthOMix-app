@@ -1,9 +1,6 @@
 ## R/submodules_registry.R
 ## Assembles TX_MODULES from every mod_<id>.R file's config/ui/server trio.
 ## Sourced after all of them: Shiny sources R/*.R alphabetically
-## (shiny:::loadSupport, sort_c()), and "submodules_registry.R" sorts after
-## every "mod_*.R" filename, so every mod_<id>_config/_ui/_server referenced
-## below already exists by the time this file runs.
 
 TX_MODULES <- list(
   list(config = mod_overview_config,        ui = mod_overview_ui,        server = mod_overview_server),
@@ -26,16 +23,6 @@ TX_MODULES <- list(
 
 TX_MODULES_BY_ID <- setNames(TX_MODULES, vapply(TX_MODULES, function(m) m$config$id, character(1)))
 
-## Methylomics sub-modules - same config/ui/server trio shape as TX_MODULES
-## above, added to as the Methylomics module grows past Dataset + Quality
-## Control (see ui.R's methylomicsUI(), which reuses build_submodule_grid()
-## against this list instead of TX_MODULES).
-##
-## Order follows the sex-stratified methylomics pipeline
-## (Research_Q3_METHYLOMICS_sexstratified_COPY/methylomics/script0N_*):
-## qc/normalization/dmp are built; celltype through diagnostic are
-## registry-only placeholder scaffolds (mod_methyl_<id>_ui() renders a
-## "not built yet" box) queued up to be built out one at a time.
 MX_MODULES <- list(
   list(config = mod_methyl_qc_config,             ui = mod_methyl_qc_ui,             server = mod_methyl_qc_server),
   list(config = mod_methyl_normalization_config,  ui = mod_methyl_normalization_ui,  server = mod_methyl_normalization_server),
@@ -55,14 +42,6 @@ MX_MODULES <- list(
 
 MX_MODULES_BY_ID <- setNames(MX_MODULES, vapply(MX_MODULES, function(m) m$config$id, character(1)))
 
-## Cross-Omics sub-modules - same config/ui/server trio shape as TX_MODULES/
-## MX_MODULES above (see ui.R's crossomicsUI(), which reuses
-## build_submodule_grid() against this list instead of TX_MODULES/MX_MODULES).
-##
-## All three are fully built (see mod_cross_integration.R, mod_cross_biomarker_conv.R,
-## mod_cross_mr_stage.R for their real UI/server implementations) - this list
-## no longer holds registry-only placeholder scaffolds, unlike when it followed
-## the same convention MX_MODULES used while Methylomics was still partway built.
 CX_MODULES <- list(
   list(config = mod_cross_integration_config,    ui = mod_cross_integration_ui,    server = mod_cross_integration_server),
   list(config = mod_cross_biomarker_conv_config, ui = mod_cross_biomarker_conv_ui, server = mod_cross_biomarker_conv_server),
@@ -71,17 +50,6 @@ CX_MODULES <- list(
 
 CX_MODULES_BY_ID <- setNames(CX_MODULES, vapply(CX_MODULES, function(m) m$config$id, character(1)))
 
-## Multi-Omics sub-modules - same config/ui/server trio shape as TX_MODULES/
-## MX_MODULES/CX_MODULES above (see ui.R's multiomicsUI(), which reuses
-## build_submodule_grid() against this list). Order follows
-## Research_05_multiomics_sexstratified's own pipeline stages: cohort/sample
-## harmonization first, then DIABLO+SNF integration, patient stratification,
-## biomarker discovery, gene<->CpG concordance, and pathway enrichment.
-## The MOFA2 module (mod_multi_mofa.R / mod_multi_mofa_engine.R)
-## is no longer a standalone sub-module here; it's mounted directly inside
-## the Dataset Workspace tab (mod_multi_dataset.R) as "Integrated Analysis
-## (MOFA2)", since it operates on the same Active Multi-Omics Dataset that
-## tab builds.
 MULTI_MODULES <- list(
   list(config = mod_multi_overview_config,       ui = mod_multi_overview_ui,       server = mod_multi_overview_server),
   list(config = mod_multi_integration_config,    ui = mod_multi_integration_ui,    server = mod_multi_integration_server),
@@ -95,35 +63,6 @@ MULTI_MODULES <- list(
 
 MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m) m$config$id, character(1)))
 
-## ---------------------------------------------------------------------------
-## AI assistant context - module-scoped
-## ---------------------------------------------------------------------------
-## Turns each vertical's shared dataset/results reactiveValues into a flat
-## text block for ArthOChat's system prompt. Modules that haven't published a
-## results$<id> yet (never run this session) render as "not yet run" rather
-## than being silently omitted, so the assistant can tell the user what to go
-## compute instead of guessing.
-##
-## Every build_*_context() below takes an optional `focus_id`: a single
-## TX_MODULES/MX_MODULES/CX_MODULES/MULTI_MODULES config$id narrows the loop
-## to just that one sub-module - this is what lets ArthOChat's default
-## per-message context be scoped to whatever sub-module the user is actually
-## looking at (see mod_arthochat.R's `current_context`), instead of always
-## dumping every sub-module of every vertical regardless of what's on screen.
-## `focus_id = NULL` (the fallback used for the Dataset/Sub-modules-picker
-## tabs, the Home/Modules landing pages, and the other_module_context() tool
-## an explicit cross-module question can call) dumps every sub-module of that
-## vertical, same as this file's original single build_assistant_context().
-##
-## Lives here, not in global.R, because it reads TX_MODULES/TX_MODULES_BY_ID
-## etc above: shiny:::loadSupport() sources global.R into .GlobalEnv but every
-## R/*.R file (this one included) into a separate child environment, so a
-## global.R-defined function can never see a binding made in R/*.R - only
-## the other way around. Defining it here instead keeps it in the same
-## environment as the *_MODULES lists it depends on.
-
-## Renders one sub-module's results block - shared by every build_*_context()
-## below so "not yet run" / key-value formatting stays identical everywhere.
 .format_results_block <- function(title, res) {
   if (is.null(res)) {
     return(c(
@@ -183,10 +122,6 @@ build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
   paste(lines, collapse = "\n")
 }
 
-## The "integration" sub-module gets the bespoke summary-stats formatting it
-## always had (cx$summary's counts aren't a flat named vector, so the generic
-## .format_results_block() key-value loop can't render it usefully); every
-## other Cross-Omics sub-module falls back to that generic loop.
 .format_cx_integration <- function(cx) {
   if (is.null(cx)) return("(not yet run in this session)")
   s <- cx$summary
@@ -238,20 +173,10 @@ build_mo_context <- function(multi_dataset, multi_results, focus_id = NULL) {
   paste(lines, collapse = "\n")
 }
 
-## Whole-app fallback context - every Transcriptomics sub-module plus the
-## Cross-Omics integration summary. Used when no single omics module is in
-## view (Home/Modules landing pages) as ArthOChat's context builder.
 build_assistant_context <- function(dataset, results, cross_results = NULL) {
   paste(build_tx_context(dataset, results), "", build_cx_context(cross_results %||% list(), focus_id = "integration"), sep = "\n")
 }
 
-## Dispatches to the one build_*_context() matching whichever top-level
-## module (server.R's `input$sidebar_tabs` value) is currently open, scoped
-## to `submodule_id` (that vertical's own tx_menu/mx_menu/cx_menu/mo_menu
-## selection, resolved back to a config$id - NULL when the user is on that
-## vertical's Dataset/Sub-modules-picker tab rather than inside one specific
-## sub-module). Anything outside the four omics verticals (Home, Modules,
-## the ArthOChat drawer's own tab id) falls back to the whole-app view.
 build_scoped_assistant_context <- function(module, submodule_id,
                                             dataset, results,
                                             methyl_dataset, methyl_results,

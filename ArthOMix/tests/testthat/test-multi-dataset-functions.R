@@ -1,8 +1,6 @@
 ## Module 3 (Multiomics) - Dataset Workspace's pure functions
 ## (mod_multi_dataset.R): status-badge/summary-table/provenance rendering,
 ## the preloaded-branch dataset blocks (real RNA-seq/methylation QC
-## summaries, never hardcoded numbers), block-id helpers, omics-type
-## labeling, sample-matching remapping, and metadata merge/read helpers.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -11,8 +9,6 @@ source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpe
 source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "mod_multi_dataset.R"))
-
-## ---- mo_status_badge() / mo_load_first_msg() --------------------------------
 
 test_that("mo_status_badge() renders the label and lists every reason for a non-ready status", {
   html <- htmltools::doRenderTags(mo_status_badge(list(level = "review", label = "Review Required", reasons = c("Low sample overlap", "Unrecognized omics type"))))
@@ -33,16 +29,12 @@ test_that("mo_load_first_msg() phrases the message for preloaded vs. upload/GEO 
   expect_true(grepl("Validate Datasets", mo_load_first_msg("geo")))
 })
 
-## ---- mo_dataset_block_card() -------------------------------------------------
-
 test_that("mo_dataset_block_card() shows the label and formatted sample/feature counts", {
   html <- htmltools::doRenderTags(mo_dataset_block_card("Transcriptomics", 1234, 56789, list(level = "ready", label = "Ready", reasons = character(0))))
   expect_true(grepl("Transcriptomics", html))
   expect_true(grepl("1,234", html))
   expect_true(grepl("56,789", html))
 })
-
-## ---- mo_summary_table() -------------------------------------------------------
 
 test_that("mo_summary_table() builds one row per layer with real sample/feature counts from validation, 'Not processed'/'Unknown' when absent", {
   layer_meta <- list(
@@ -65,8 +57,6 @@ test_that("mo_summary_table() returns NULL for an empty layer_meta", {
   expect_null(mo_summary_table(list()))
 })
 
-## ---- mo_provenance_ui() -------------------------------------------------------
-
 test_that("mo_provenance_ui() shows an empty-state note with no layers, and each layer's provenance fields otherwise", {
   html_empty <- htmltools::doRenderTags(mo_provenance_ui(list()))
   expect_true(grepl("No datasets selected", html_empty))
@@ -77,8 +67,6 @@ test_that("mo_provenance_ui() shows an empty-state note with no layers, and each
   expect_true(grepl("my_expr.csv", html))
   expect_true(grepl("2026-08-30 10:00:00", html))
 })
-
-## ---- mo_preloaded_blocks_ui() (real registry data) ---------------------------
 
 test_that("mo_preloaded_blocks_ui() shows real RNA-seq/methylation QC-derived sample and feature counts, never hardcoded", {
   skip_if_not(MULTI_DATA_AVAILABLE, "multi-omics preloaded data not available in this deployment")
@@ -94,8 +82,6 @@ test_that("mo_preloaded_blocks_ui() shows real RNA-seq/methylation QC-derived sa
   expect_true(grepl("Tao et al. 2021", html))
 })
 
-## ---- mo_block_id() / mo_file_input_id() / mo_meta_file_input_id() ------------
-
 test_that("mo_block_id() prefixes by mode so upload and GEO block ids never collide", {
   expect_equal(mo_block_id(1, "upload"), "ublock1")
   expect_equal(mo_block_id(1, "geo"), "gblock1")
@@ -109,8 +95,6 @@ test_that("mo_file_input_id()/mo_meta_file_input_id() suffix by generation so a 
   expect_true(grepl("_file_g0$", id_gen0))
   expect_true(grepl("_meta_file_g2$", mo_meta_file_input_id("ublock1", 2)))
 })
-
-## ---- mo_label_omics_type() -----------------------------------------------------
 
 test_that("mo_label_omics_type() maps the two fixed preloaded labels, 'other' for anything else", {
   expect_equal(mo_label_omics_type("Transcriptomics", NULL, 0, 0, "preloaded"), "rnaseq")
@@ -126,13 +110,11 @@ test_that("mo_label_omics_type() looks up an upload/GEO block's own omics-type i
   expect_equal(mo_label_omics_type("No such label", input, n_upload = 2, n_geo = 0, mode = "upload"), "other")
 })
 
-## ---- mo_apply_matching() -------------------------------------------------------
-
 test_that("mo_apply_matching() with method='patient_id' remaps rownames via a metadata Patient ID column and drops unmapped samples", {
   m1 <- matrix(1:6, 3, 2, dimnames = list(c("S1", "S2", "S3"), c("f1", "f2")))
   meta <- data.frame(patient_id = c("P1", "P2"), row.names = c("S1", "S2"))
   out <- mo_apply_matching(list(rna = m1), method = "patient_id", meta = meta, patient_col = "patient_id")
-  expect_setequal(rownames(out$mats$rna), c("P1", "P2"))  ## S3 dropped (no metadata row)
+  expect_setequal(rownames(out$mats$rna), c("P1", "P2"))
   expect_equal(nrow(out$mats$rna), 2L)
 })
 
@@ -141,7 +123,7 @@ test_that("mo_apply_matching() with method='mapping' remaps rownames via a per-l
   mapping_df <- data.frame(canonical = c("P1", "P2"), RNA = c("a1", "a2"), stringsAsFactors = FALSE)
   out <- mo_apply_matching(list(RNA = m1), method = "mapping", mapping_df = mapping_df)
   expect_setequal(rownames(out$mats$RNA), c("P1", "P2"))
-  expect_equal(out$dropped$RNA, 1L)  ## a3 has no mapping entry
+  expect_equal(out$dropped$RNA, 1L)
 })
 
 test_that("mo_apply_matching() with method='exact' (or missing prerequisites) leaves matrices untouched", {
@@ -151,16 +133,14 @@ test_that("mo_apply_matching() with method='exact' (or missing prerequisites) le
   expect_equal(out$dropped, list())
 })
 
-## ---- mo_merge_sample_meta() -----------------------------------------------------
-
 test_that("mo_merge_sample_meta() unions sample IDs from both frames and lets 'b' win on a column-name collision", {
   a <- data.frame(sex = c("F", "M"), group = c("HC", "HC"), row.names = c("S1", "S2"))
-  b <- data.frame(sex = c("Female", "Male", "Female"), row.names = c("S1", "S2", "S3"))  ## same "sex" col, different values
+  b <- data.frame(sex = c("Female", "Male", "Female"), row.names = c("S1", "S2", "S3"))
   out <- mo_merge_sample_meta(a, b)
   expect_setequal(rownames(out), c("S1", "S2", "S3"))
-  expect_equal(out["S1", "sex"], "Female")  ## b wins the collision
-  expect_equal(out["S1", "group"], "HC")    ## a's non-colliding column survives
-  expect_true(is.na(out["S3", "group"]))    ## S3 only in b -> NA for a's columns
+  expect_equal(out["S1", "sex"], "Female")
+  expect_equal(out["S1", "group"], "HC")
+  expect_true(is.na(out["S3", "group"]))
 })
 
 test_that("mo_merge_sample_meta() passes through when either side is NULL/empty", {
@@ -169,8 +149,6 @@ test_that("mo_merge_sample_meta() passes through when either side is NULL/empty"
   expect_identical(mo_merge_sample_meta(a, NULL), a)
   expect_identical(mo_merge_sample_meta(a, data.frame()), a)
 })
-
-## ---- mo_read_meta_file() -------------------------------------------------------
 
 test_that("mo_read_meta_file() reads a metadata CSV keyed by its first column as rownames", {
   path <- tempfile(fileext = ".csv")

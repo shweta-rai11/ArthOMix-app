@@ -1,10 +1,6 @@
 ## R/transcriptomics/01_Data/mod_dataset.R
 ## Dataset tab: pick a preloaded dataset, upload your own, or fetch from NCBI
 ## GEO - each of the three is an independent pipeline, and whichever one you
-## load becomes dataset$expr/meta/source/source_type immediately (every
-## sub-module below reads it), not just dataset$staged_* (kept in parallel as
-## the preview shown on this tab and as the input Preprocessing's "Currently
-## loaded dataset" option reads before any merge/batch-correction step runs).
 
 mod_dataset_config <- list(
   id = "dataset", 
@@ -13,8 +9,6 @@ mod_dataset_config <- list(
   description = "Pick a preloaded dataset or upload your own - either way it's what every sub-module below reads from."
 )
 
-## Tissue-first display names for the preloaded dropdown - no GEO accession shown;
-## falls back to the raw GSE ID if a source has no entry here.
 INDIVIDUAL_DATASET_LABELS <- c(
   "GSE93272"  = "Whole Blood Training Cohort A",
   "GSE110169" = "Whole Blood Training Cohort B",
@@ -34,8 +28,6 @@ individual_dataset_entry <- function(gse_id) {
   )
 }
 
-## Reloads the same merged, batch-corrected cohort loaded at startup, so switching
-## to an individual raw dataset below isn't a one-way trip.
 default_dataset_entry <- list(
   id = "__default_merged__",
   label = "Merged Data",
@@ -45,7 +37,6 @@ default_dataset_entry <- list(
   }
 )
 
-## Catalog: the merged/batch-corrected default cohort plus each individual raw GEO source.
 PRELOADED_DATASETS <- c(
   list(default_dataset_entry),
   lapply(vapply(GEO_SOURCES, `[[`, character(1), "gse"), individual_dataset_entry)
@@ -55,8 +46,6 @@ preloaded_choices <- function() {
   setNames(vapply(PRELOADED_DATASETS, `[[`, character(1), "id"),
            vapply(PRELOADED_DATASETS, `[[`, character(1), "label"))
 }
-
-## The two GEO series load_default_dataset()'s merged cohort is built from training data
 
 MERGED_DEFAULT_GEO_IDS <- c("GSE93272", "GSE110169")
 
@@ -150,14 +139,6 @@ mod_dataset_server <- function(id, dataset) {
         return(p(class = "empty-note", icon("circle-info"),
           "The same merged, batch-corrected training cohort the app loads by default on startup - pick this to switch back to it after loading something else."))
       }
-      ## GSE93272/GSE110169 only fall back to samples filtered out of the
-      ## merged cohort (via load_individual_dataset()'s own
-      ## merged_training_subset() fallback in global.R) when their raw
-      ## ExpressionSet isn't actually on disk in this deployment - checked
-      ## live here (matching preloaded_geo_card_ui's own get_raw_eset() check
-      ## just below, and mod_overview.R's identical card) rather than assumed,
-      ## so this note can't drift out of sync with which raw files this
-      ## deployment actually ships.
       raw_unavailable <- input$preloaded_choice %in% c("GSE93272", "GSE110169") &&
         {
           eset <- get_raw_eset(input$preloaded_choice)
@@ -172,8 +153,6 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## GEO info-card for the 4 individual sources (not "Merged Data"), matching the
-    ## card the Overview and Datasets tab uses for the same sources.
     output$preloaded_geo_card_ui <- renderUI({
       req(input$preloaded_choice)
       if (identical(input$preloaded_choice, default_dataset_entry$id)) return(NULL)
@@ -220,8 +199,6 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Parses the expression file once; preview and load_btn both read from this
-    ## instead of re-parsing a potentially large CSV.
     expr_raw <- reactive({
       req(input$expr_file)
       path <- input$expr_file$datapath
@@ -233,15 +210,6 @@ mod_dataset_server <- function(id, dataset) {
         m <- as.data.frame(data.table::fread(path, showProgress = FALSE))
         rn <- as.character(m[[1]])
         m <- as.matrix(m[, -1, drop = FALSE])
-        ## as.matrix() on a data.frame with any non-numeric data cell (stray
-        ## text, a thousands-separated "1,234", a footnote) silently coerces
-        ## the whole matrix to character (or, for an all-blank/0-row file,
-        ## logical) instead of erroring - that would otherwise surface later
-        ## as an opaque low-level error out of tx_validate_expr_upload(). Only
-        ## block on genuine non-numeric TEXT here; an all-NA/empty matrix is
-        ## intentionally let through so tx_validate_expr_upload's own "No
-        ## finite numeric values" check - a more specific message - catches
-        ## it downstream instead.
         if (!is.numeric(m)) {
           storage.mode(m) <- "character"
           m_num <- suppressWarnings(matrix(as.numeric(m), nrow = nrow(m), ncol = ncol(m), dimnames = dimnames(m)))
@@ -254,8 +222,6 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Fires as soon as both files are readable, before Load is clicked, so a large
-    ## upload doesn't look stuck; shared by the summary line and preview tables below.
     upload_preview_data <- reactive({
       req(input$expr_file, input$meta_file)
       tryCatch(list(expr = expr_raw(), meta = meta_raw()), error = function(e) e)
@@ -273,8 +239,6 @@ mod_dataset_server <- function(id, dataset) {
                   input$meta_file$name, nrow(preview$meta)))
     })
 
-    ## Shows the first rows of the uploaded metadata/expression matrix as read,
-    ## before any column mapping.
     output$upload_preview_tables_ui <- renderUI({
       preview <- upload_preview_data()
       req(!inherits(preview, "error"))
@@ -306,22 +270,6 @@ mod_dataset_server <- function(id, dataset) {
                      options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## Guesses a mapping dropdown's default column by name, not position: each
-    ## exact-match term tried in order, then each substring term tried in
-    ## order, then falls back to the first column. Each tier must go
-    ## term-by-term (not one combined OR regex checked column-by-column) - a
-    ## combined regex returns whichever candidate COLUMN happens to come
-    ## first in the data, not whichever TERM the caller ranked highest, and
-    ## for a real GEO series that's often wrong (e.g. an administrative
-    ## "status" column - not the caller's 5th-priority term but simply the
-    ## column GEO happened to place earliest - beating the actual "disease
-    ## state:ch1" column for the group/diagnosis guess).
-    ## Return value carries a "matched" attribute (TRUE = a real heuristic hit,
-    ## FALSE = the positional fallback was used) so required-field callers
-    ## below can warn the user instead of silently pre-selecting an arbitrary
-    ## column - a native (selectize = FALSE) <select> always shows some
-    ## option selected, so "no default" isn't renderable here; flagging the
-    ## guess as unconfident is the achievable alternative.
     guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
       for (term in exact) {
         hit <- cols[tolower(cols) == tolower(term)]
@@ -334,9 +282,6 @@ mod_dataset_server <- function(id, dataset) {
       structure(fallback, matched = FALSE)
     }
 
-    ## Small "double check this" note shown under a required-field dropdown
-    ## whose selection is only the positional fallback, not a real name-based
-    ## guess - see guess_col()'s header comment.
     unconfident_guess_note <- function(guess, label) {
       if (isTRUE(attr(guess, "matched"))) return(NULL)
       div(class = "empty-note", icon("triangle-exclamation"),
@@ -362,28 +307,16 @@ mod_dataset_server <- function(id, dataset) {
       )
     })
 
-    ## Keeps "Upload Data" disabled until files and required column mappings are set.
     observe({
       ready <- !is.null(input$expr_file) && !is.null(input$meta_file) &&
         !is.null(input$map_id) && !is.null(input$map_group)
       if (isTRUE(ready)) shinyjs::enable("load_btn") else shinyjs::disable("load_btn")
     })
 
-    ## Mirrors the enable/disable guards on load_btn/geo_load_btn below, so
-    ## all three "Load this dataset" buttons behave the same way instead of
-    ## this one being always-clickable while unset (a blank preloaded_choice
-    ## used to be a silent no-op with no feedback at all).
     observe({
       shinyjs::toggleState("load_preloaded_btn", condition = !is.null(input$preloaded_choice))
     })
 
-    ## Stages + immediately activates a freshly loaded dataset - the seven
-    ## fields below used to be hand-copied identically into each of the three
-    ## load handlers (preloaded/upload/GEO), risking the three copies
-    ## silently drifting apart. Also runs the duplicate-feature-ID check that
-    ## used to run only on the upload path, so all three paths warn the same
-    ## way about a condition the Preprocessing merge tab silently papers over
-    ## (keeps only the first occurrence of a duplicate row name).
     activate_dataset <- function(expr, meta, source, source_type, is_bundled_reference,
                                   geo_ids, declared_data_type = NA_character_) {
       dataset$staged_expr <- expr
@@ -410,13 +343,6 @@ mod_dataset_server <- function(id, dataset) {
       entry <- Find(function(d) d$id == input$preloaded_choice, PRELOADED_DATASETS)
       req(entry)
       d <- entry$load()
-      ## is_bundled_reference is TRUE only for the exact default merged
-      ## cohort - the one the app's bundled/precomputed reference-panel CSVs
-      ## (FS_input_*.csv etc.) were actually computed from - not for the 4
-      ## individual raw GSE picks. No declaration UI for preloaded data, so
-      ## declared_data_type is left at its NA default - clears any stale
-      ## value left over from a previous upload (see the upload handler
-      ## below), falling back to heuristic-only inference downstream.
       n_dup <- activate_dataset(
         expr = d$expr, meta = d$meta, source = d$source,
         source_type = "preloaded",
@@ -436,14 +362,6 @@ mod_dataset_server <- function(id, dataset) {
 
       result <- tryCatch({
         expr <- expr_raw()
-        ## Declare-then-verify (mirrors R/methylomics/functions/parse_upload.R's
-        ## methyl_validate_matrix_upload()): checks the "Data type" radio
-        ## button above against the matrix's actual value range/shape, hard-
-        ## blocking on an unambiguous mismatch (negative/TPM-pinned values
-        ## declared "raw", raw-count-shaped values declared "normalized"/
-        ## "logtransformed", or a differential-results table shaped upload)
-        ## rather than only discovering the mismatch later, when
-        ## Differential Expression's method gate runs at analysis time.
         checked <- tx_validate_expr_upload(expr, input$declared_data_type)
         validate(need(isTRUE(checked$ok), checked$error))
         expr <- checked$mat
@@ -475,13 +393,6 @@ mod_dataset_server <- function(id, dataset) {
         )
       } else {
         source_label <- paste0("Uploaded dataset: ", input$expr_file$name, " + ", input$meta_file$name)
-        ## This is Pipeline 1's isolation moment: every downstream module now
-        ## reads only this uploaded data. No known GEO provenance for an
-        ## arbitrary upload, so geo_ids is empty - the Overview and Datasets
-        ## tab's "Datasets" tab shows "No GEO ID found" for this.
-        ## declared_data_type (raw/normalized/logtransformed) is read by
-        ## Differential Expression's/Immune Deconvolution's run-time method
-        ## gates in preference to live heuristic inference.
         n_dup <- activate_dataset(
           expr = result$expr, meta = result$meta, source = source_label,
           source_type = "uploaded", is_bundled_reference = FALSE,
@@ -499,8 +410,6 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Fetches one GEO Series as an ExpressionSet via GEOquery on Fetch click; returns
-    ## an error condition object instead of raising, so it can be shown inline.
     geo_fetch_result <- eventReactive(input$geo_fetch_btn, {
       if (!requireNamespace("GEOquery", quietly = TRUE)) {
         return(simpleError("The GEOquery package is not installed in this deployment. Install it with BiocManager::install(\"GEOquery\") to enable fetching by GEO accession, or use \"Upload your own data\" instead."))
@@ -511,14 +420,6 @@ mod_dataset_server <- function(id, dataset) {
       }
       tryCatch({
         gpl_skipped <- FALSE
-        ## GEOquery's default getGPL=TRUE also downloads the platform annotation file;
-        ## when NCBI rate-limits/captchas that request, it hands back an HTML challenge
-        ## page that GEOquery's SOFT parser chokes on with this same generic message even
-        ## though the series matrix itself downloaded fine - retry once without it.
-        ## "series_data_table_begin" is GEOquery's own SOFT-parser sentinel string
-        ## (verified present in installed GEOquery 2.74.0) - a GEOquery upgrade that
-        ## changes this wording would silently disable this retry; re-verify against
-        ## GEOquery::getGEO's parser on any GEOquery version bump.
         gset <- tryCatch(
           suppressMessages(GEOquery::getGEO(acc, GSEMatrix = TRUE)),
           error = function(e) {
@@ -553,18 +454,6 @@ mod_dataset_server <- function(id, dataset) {
       }
     })
 
-    ## Extracts expr/meta from the fetched ExpressionSet, collapsing probes to genes
-    ## via collapse_probes_to_genes() when the platform annotation allows it.
-    ##
-    ## "Still waiting on a platform pick" for a multi-platform series is
-    ## deliberately checked BEFORE calling geo_eset() (whose own
-    ## req(input$geo_platform_choice) would otherwise throw a Shiny
-    ## shiny.silent.error - which DOES inherit from "error", so the tryCatch
-    ## below would catch it and re-surface it through the generic
-    ## inherits(em, "error") branch in geo_fetch_status as a visible,
-    ## near-blank warning banner instead of the silent "not ready yet" Shiny
-    ## intends req() failures to produce). Returning NULL here instead lets
-    ## req(em) downstream do the silent wait correctly.
     geo_expr_meta <- reactive({
       res <- geo_fetch_result()
       req(res); req(!inherits(res, "error"))
@@ -583,12 +472,6 @@ mod_dataset_server <- function(id, dataset) {
       }, error = function(e) e)
     })
 
-    ## Compact fetch-confirmation line, not a full preview - once loaded, the
-    ## detailed info card (title, platform, GEO link) lives on the Overview
-    ## and Datasets sub-module's "Datasets" tab (dataset$geo_ids-driven, see
-    ## mod_overview.R), and the full sample metadata table on its "Metadata"
-    ## tab, rather than duplicating both here before the user has even
-    ## clicked "Load this dataset".
     output$geo_fetch_status <- renderUI({
       req(input$geo_fetch_btn)
       res <- geo_fetch_result()
@@ -615,8 +498,6 @@ mod_dataset_server <- function(id, dataset) {
       )
     })
 
-    ## No sample-ID mapping needed here - pData() rownames are already the same
-    ## GSM accessions exprs() is indexed by.
     output$geo_column_mapping <- renderUI({
       em <- geo_expr_meta()
       req(em); req(!inherits(em, "error"))
@@ -627,19 +508,6 @@ mod_dataset_server <- function(id, dataset) {
         contains = c("group", "diagnosis", "disease", "condition", "phenotype", "characteristics_ch1")
       )
       tagList(
-        ## "status" excluded, and "characteristics_ch1" moved to contains-only
-        ## (never exact) - unlike the upload mapping's own guess_col() call
-        ## below, GEO's own pData() always has a literal administrative
-        ## "status" column ("Public on <date>") AND, for any series GEOquery
-        ## didn't auto-expand into named "<key>:ch1" columns, a literal
-        ## column named exactly "characteristics_ch1" (the raw, unparsed
-        ## first characteristics field) - either would win the exact-match
-        ## tier over the real disease/diagnosis column (almost always one of
-        ## the *:ch1-suffixed fields, e.g. "disease state:ch1") for
-        ## essentially every real GEO series fetched this way. Confirmed live
-        ## against GSE93272 (has both a literal "status" and a literal
-        ## "characteristics_ch1" column, alongside the correct
-        ## "disease state:ch1").
         selectInput(ns("geo_map_group"), "Group / diagnosis column", choices = cols,
                     selected = geo_group_guess, selectize = FALSE),
         unconfident_guess_note(geo_group_guess, "group/diagnosis column"),
@@ -695,9 +563,6 @@ mod_dataset_server <- function(id, dataset) {
         )
       } else {
         source_label <- paste0("NCBI GEO: ", result$label)
-        ## This is Pipeline 2's isolation moment. No declaration UI for
-        ## GEO-fetched data either - declared_data_type is left at its NA
-        ## default, same stale-value guard as the preloaded handler above.
         n_dup <- activate_dataset(
           expr = result$expr, meta = result$meta, source = source_label,
           source_type = "geo", is_bundled_reference = FALSE, geo_ids = result$acc
@@ -708,10 +573,6 @@ mod_dataset_server <- function(id, dataset) {
         } else {
           ""
         }
-        ## Echoes the pre-Load "no gene-symbol annotation" banner (see geo_fetch_status
-        ## above) here too - a user who skimmed past that banner and clicked Load
-        ## should still see, in the one message that persists after loading, that
-        ## rows are raw probe/feature IDs rather than gene symbols.
         probe_note <- if (!isTRUE(em$collapsed)) " Note: no gene-symbol annotation was found for this platform, so rows are raw probe/feature IDs, not gene symbols." else ""
         output$load_message <- renderUI(tagList(
           div(class = "empty-note", icon("check"),

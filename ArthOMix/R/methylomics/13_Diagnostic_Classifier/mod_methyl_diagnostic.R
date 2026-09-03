@@ -1,28 +1,12 @@
 ## R/methylomics/13_Diagnostic_Classifier/mod_methyl_diagnostic.R
 ## Diagnostic Classifier submodule (script09_diagnostic_classifier). Methylomics only -
 ## transcriptomics' mod_diagnostic.R is a separate, unrelated tab.
-##
-## Preloaded Data reproduces script09's train/test workflow, not the main pipeline's
-## beta_raw.rds/pheno.rds (methyl_dataset$beta): a separate panel-CpG-only reprocessing
-## of GSE42861 (Noob-renormalized, granulocyte-adjusted), loaded via
-## load_default_diagnostic_train_test() (see global.R for provenance).
-##
-## WGCNA/Feature Selection candidates are read from those modules' own published-reference
-## tables/exports (load_default_wgcna_module_assignment(),
-## load_default_diagnostic_ensemble_votes(), fs_model_export()) since neither module
-## writes into the shared `results` reactiveValues.
 
 mod_methyl_diagnostic_config <- list(
   id = "diagnostic", title = "Diagnostic Classifier", icon = "stethoscope", group = "Biomarker modeling",
   description = "Diagnostic classifiers (logistic regression, elastic net, SVM, random forest, XGBoost, kNN) on single CpGs or a panel, with cross-validated tuning."
 )
 
-## =============================================================================
-## Small shared utilities
-## =============================================================================
-
-## beta -> M-value, clipped as script09 does before fitting (not the covariate-adjusted
-## residuals used upstream for CpG selection).
 dxm_beta_to_m <- function(beta) {
   b <- pmin(pmax(beta, 1e-6), 1 - 1e-6)
   log2(b / (1 - b))
@@ -35,18 +19,13 @@ dxm_parse_num_list <- function(txt, default) {
   if (length(v) == 0) default else v
 }
 
-## Sex stratum selector shared by preloaded and uploaded data: "all", "female", or "male".
 dxm_sex_label <- function(sex_sel) switch(sex_sel %||% "female", all = "All samples", female = "Female", male = "Male", tools::toTitleCase(as.character(sex_sel)))
 
-## Normalizes free-text sex-column values ("Female"/"female"/"F"/"f" -> "F", same for M) so
-## uploaded sample sheets can be filtered by sex without dictating an exact label convention.
 dxm_normalize_sex <- function(x) {
   v <- toupper(substr(trimws(as.character(x)), 1, 1))
   ifelse(v %in% c("F", "M"), v, NA_character_)
 }
 
-## The preloaded WGCNA/Feature-Selection reference tables are published per sex only (no "all"
-## file); "all" unions the female+male tables here rather than requiring a new published export.
 dxm_load_wgcna_for_sex <- function(sex_sel) {
   if (!identical(sex_sel, "all")) return(tryCatch(load_default_wgcna_module_assignment(sex_sel), error = function(e) NULL))
   parts <- Filter(Negate(is.null), lapply(c("female", "male"), function(s) tryCatch(load_default_wgcna_module_assignment(s), error = function(e) NULL)))
@@ -61,15 +40,8 @@ dxm_load_fs_votes_for_sex <- function(sex_sel) {
   tbl[order(-tbl$n_votes), ][!duplicated(tbl$cpg), ]
 }
 
-## "Class1" is always the comparison/disease group internally (dxm$comp_level is
-## display-only) - avoids caret::twoClassSummary's syntactic-validity checks on
-## arbitrary user-typed phenotype labels.
 DXM_POS <- "Class1"
 DXM_NEG <- "Class0"
-
-## =============================================================================
-## Data / validation helpers
-## =============================================================================
 
 dxm_validate_checklist <- function(dxm) {
   rows <- list()
@@ -108,11 +80,6 @@ dxm_intersect_features <- function(train_ids, test_ids) {
   list(train = train_ids, test = test_ids, shared = shared, unmatched = setdiff(train_ids, test_ids))
 }
 
-## =============================================================================
-## CV / imbalance handling - fold-safe: sampling runs inside caret's own
-## resampling, never on the held-out test data.
-## =============================================================================
-
 dxm_smote_fold <- function(x, y) {
   x <- as.data.frame(x)
   tab <- table(y)
@@ -138,12 +105,6 @@ dxm_cv_control <- function(input) {
                        savePredictions = "final", search = search, sampling = sampling)
 }
 
-## =============================================================================
-## Model fitting - generic caret wrapper for LR/Elastic Net/SVM/RF/kNN, plus a
-## native xgboost path (caret's xgbTree returns NA ROC under xgboost >=3.2's
-## objective-in-params API break).
-## =============================================================================
-
 dxm_fit_caret <- function(method, X, y, tune_grid, tune_length, ctrl, seed, preProcess = NULL, extra = list()) {
   set.seed(seed)
   args <- c(list(x = X, y = y, method = method, trControl = ctrl, metric = "ROC", preProcess = preProcess), extra)
@@ -163,8 +124,6 @@ dxm_xgb_grid <- function(input, mid) {
 }
 
 dxm_fit_xgb_native <- function(X, y, input, mid, ctrl, seed) {
-  ## This native xgboost path never goes through caret's trainControl(sampling=)
-  ## hook, so SMOTE would silently have no effect - fail loudly instead.
   validate(need(!identical(input$imbalance_mode, "smote"),
                 "SMOTE imbalance handling isn't available for Gradient Boosting/XGBoost (this model trains via its own native cross-validation path, not caret's fold-safe sampling hook) - choose \"None\" or \"Class weighting\" on the Filters & Parameters tab instead."))
   grid <- dxm_xgb_grid(input, mid)
@@ -212,10 +171,6 @@ dxm_predict_prob <- function(fit, X) {
   } else stop("Unsupported fit object")
 }
 
-## =============================================================================
-## ROC / metrics / calibration / learning curve
-## =============================================================================
-
 dxm_roc_bundle <- function(y, prob) {
   r <- tryCatch(pROC::roc(response = y, predictor = as.numeric(prob), levels = c(DXM_NEG, DXM_POS), direction = "auto", quiet = TRUE),
                 error = function(e) NULL)
@@ -226,8 +181,6 @@ dxm_roc_bundle <- function(y, prob) {
   list(roc = r, auc = as.numeric(r$auc), ci_lo = ci[1], ci_hi = ci[3], n = length(y), coords = co)
 }
 
-## Reuses caret's own out-of-fold predictions at the best tune rather than
-## re-running a separate CV loop.
 dxm_cv_roc_from_fit <- function(fit) {
   pred <- fit$pred
   if (is.null(pred)) return(NULL)
@@ -263,10 +216,6 @@ dxm_xgb_cv_roc <- function(X, y, params, nrounds, folds_n, seed) {
        mean_auc = mean(aucs), sd_auc = stats::sd(aucs), n_folds = length(curves))
 }
 
-## Threshold strategies - always computed from train/CV, never from test.
-## "sensitivity"/"specificity" fall back to 0.5 when no threshold reaches the
-## 0.90 target (which.max() on an all-FALSE condition would otherwise return
-## the first coordinate instead of signaling "not found").
 dxm_pick_threshold <- function(strategy, roc_bundle) {
   if (is.null(roc_bundle)) return(0.5)
   co <- roc_bundle$coords
@@ -322,9 +271,6 @@ dxm_calibration <- function(y, prob, bins = 10) {
        intercept = if (!is.null(fit)) unname(stats::coef(fit)[1]) else NA_real_)
 }
 
-## test_label defaults to "independent test" for the Validation submodule's external-cohort
-## reuse of this helper; the Diagnostic Classifier's own internal-test call site below passes
-## "internal validation" instead, since that comparison is never against an external cohort.
 dxm_overfitting_note <- function(train_auc, cv_auc, test_auc, test_label = "independent test") {
   if (is.na(train_auc) || is.na(test_auc)) return("Not enough completed evaluations yet to assess overfitting.")
   gap <- train_auc - test_auc
@@ -350,10 +296,6 @@ dxm_learning_curve <- function(X, y, fit_one, fracs, seed) {
   })
   do.call(rbind, Filter(Negate(is.null), out))
 }
-
-## =============================================================================
-## Plots
-## =============================================================================
 
 dxm_theme <- function() ggplot2::theme_minimal(base_size = 12) + ggplot2::theme(panel.grid.minor = ggplot2::element_blank(), legend.position = "bottom")
 
@@ -429,14 +371,6 @@ dxm_plot_roc_compare <- function(bundles_named, title) {
     ggplot2::theme(legend.text = ggplot2::element_text(size = 8)) +
     ggplot2::guides(color = ggplot2::guide_legend(nrow = 3, byrow = TRUE))
 }
-
-## =============================================================================
-## Model registry - one entry per sub-tab. Each `fit` closure has the
-## signature function(X, y, input, mid, ctrl, seed) and returns
-## list(model=, kind="caret"|"xgb", ...); the rest of the UI/server behavior
-## is generic across all six models (dxm_register_model_server()/
-## dxm_render_model_panel() below).
-## =============================================================================
 
 DXM_MODEL_SPECS <- list(
   lr = list(id = "lr", label = "Logistic Regression", icon = "chart-line", kind = "caret",
@@ -545,11 +479,6 @@ dxm_metrics_display <- function(m) {
   )
 }
 
-## =============================================================================
-## Per-model tab: one generic UI builder + server registration shared by all
-## six DXM_MODEL_SPECS entries; each model still gets its own tabPanel.
-## =============================================================================
-
 dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
   if (!isTRUE(dxm$validated)) return(p(class = "text-muted", "Validate your data on the Datasets tab first."))
   single <- identical(input$analysis_type, "single")
@@ -621,8 +550,6 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms) {
   tagList(out)
 }
 
-## Shared by each model tab's own "Run Model" button and the dispatcher on the
-## Filters & Parameters tab - same effect either way.
 dxm_do_run_model <- function(mid, spec, input, dxm, feat, ms) {
   ids <- intersect(dxm_active_ids(mid, input, feat), colnames(dxm$train_X))
   validate(need(length(ids) > 0, "No selected CpG(s) are present in the training data - pick a CpG (single mode) or load a feature panel (combined mode) on the Filters & Parameters / Feature Source tabs first."))
@@ -704,14 +631,6 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
                                   train_auc = round(ms$train_roc$auc, 3), cv_auc = round(ms$cv_roc$mean_auc, 3),
                                   test_auc = round(ms$test_internal_roc$auc, 3))
 
-      ## Publishes the actual trained-model artifact (fitted object, exact feature
-      ## order, training-derived threshold) for the Validation submodule
-      ## (mod_methyl_validation.R) to apply as-is - never refit, never re-tuned,
-      ## never re-thresholded there. External-cohort evaluation lives only in
-      ## that submodule - this file only ever produces internal-test results.
-      ## Every distinct model/feature-panel combination is kept (keyed the same
-      ## way as `runs`), not just the most recently tested one, so the Validation
-      ## submodule can evaluate every trained model against the external cohort.
       model_entry <- list(
         model_id = mid, label = spec$label, kind = ms$fit$kind,
         fit = ms$fit, feature_ids = ids, threshold = ms$threshold,
@@ -803,10 +722,6 @@ dxm_register_model_server <- function(mid, spec, input, output, session, ns, dxm
   invisible(NULL)
 }
 
-## =============================================================================
-## UI
-## =============================================================================
-
 mod_methyl_diagnostic_ui <- function(id) {
   ns <- NS(id)
   model_tabs <- lapply(DXM_MODEL_SPECS, function(spec) {
@@ -826,10 +741,6 @@ mod_methyl_diagnostic_ui <- function(id) {
   ))
 }
 
-## =============================================================================
-## Server
-## =============================================================================
-
 mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -840,12 +751,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
                            validated = FALSE, validation_report = NULL, leakage_safe = FALSE)
     feat <- reactiveValues(source = NULL, table = NULL, selected = character(0))
 
-    ## Re-derives dxm$train_X/test_internal_X from dxm$full_X using an
-    ## explicit set of held-out sample IDs (from a leakage-safe Feature
-    ## Selection export), instead of the arbitrary random split made at
-    ## Validate & Split time - this is what makes the internal test set
-    ## genuinely disjoint from whatever samples chose the loaded panel's
-    ## CpGs, rather than merely disjoint by chance.
     dxm_apply_holdout_split <- function(holdout_ids) {
       req(dxm$full_X, dxm$full_y)
       avail <- rownames(dxm$full_X)
@@ -860,8 +765,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
     }
     runs <- reactiveValues()
     compare_state <- reactiveValues(generated = FALSE, bundles = NULL)
-
-    ## ---- Datasets ------------------------------------------------------
 
     output$setup_ui <- renderUI({
       tagList(
@@ -1002,8 +905,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(dxm$validation_report, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Feature Source ------------------------------------------------------
-
     output$feature_ui <- renderUI({
       req(dxm$validated)
       tagList(
@@ -1090,10 +991,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
         sub <- tbl[tbl$n_votes >= min_votes, , drop = FALSE]
         cpgs <- intersect(as.character(sub$cpg), dxm$all_cpgs)
         src_tbl <- sub[as.character(sub$cpg) %in% cpgs, , drop = FALSE]
-        ## This precomputed ensemble-vote panel is an offline-script output,
-        ## not this session's live Feature Selection run, so there is no
-        ## held-out sample list to enforce here - dxm$leakage_safe stays
-        ## FALSE and the UI shows the "not leakage-safe" badge accordingly.
       } else {
         req(input$fs_upload)
         loaded <- safe_read_rds(input$fs_upload$datapath)
@@ -1148,8 +1045,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       showNotification(sprintf("Loaded %d manually selected CpG(s).", length(cpgs)), type = "message")
     })
 
-    ## ---- Filters & Parameters ------------------------------------------------
-
     output$filters_ui <- renderUI({
       req(dxm$validated)
       tagList(
@@ -1202,8 +1097,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Per-model tabs --------------------------------------------------
-
     model_states <- lapply(DXM_MODEL_SPECS, function(spec) {
       ms <- reactiveValues(fit = NULL, analysis_type = NULL, feature_ids = NULL, ran_at = NULL,
                             train_prob = NULL, train_roc = NULL, train_metrics = NULL, confusion_train = NULL,
@@ -1224,8 +1117,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       ok <- dxm_do_run_model(mid, spec, input, dxm, feat, model_states[[mid]])
       if (isTRUE(ok)) updateTabsetPanel(session, "main_tabs", selected = spec$label)
     })
-
-    ## ---- Model Comparison --------------------------------------------------
 
     output$compare_ui <- renderUI({
       keys <- names(shiny::reactiveValuesToList(runs))
@@ -1303,8 +1194,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(tbl, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    ## ---- Test Internal Data ------------------------------------------------------
-
     output$testdata_ui <- renderUI({
       req(dxm$validated)
       intr <- dxm_intersect_features(colnames(dxm$train_X), colnames(dxm$test_internal_X))
@@ -1314,8 +1203,6 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
                 tags$li(sprintf("Shared features: %d", length(intr$shared))), tags$li(sprintf("Unmatched (dropped) features: %d", length(intr$unmatched))))))
       tagList(out)
     })
-
-    ## ---- Export ------------------------------------------------------
 
     output$export_ui <- renderUI({
       keys <- names(shiny::reactiveValuesToList(runs))

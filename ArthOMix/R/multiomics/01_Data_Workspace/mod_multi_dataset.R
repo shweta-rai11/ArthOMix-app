@@ -1,22 +1,6 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_dataset.R
 ## Multi-Omics Dataset Workspace - the front door for the Multi-Omics module.
 ## Lets the user pick a preloaded dataset, upload their own, or retrieve one
-## from NCBI GEO; validates structure, matches samples across layers, and
-## applies omics-appropriate preprocessing; then publishes one validated
-## Active Multi-Omics Dataset into the shared `multi_dataset` reactiveValues
-## every Multi-Omics sub-module below reads from.
-##
-## Upload/GEO validation, sample matching, and preprocessing reuse the exact
-## functions already written in multiomics_dataset_helpers.R - nothing here
-## recomputes DIABLO/SNF/MOFA2, and no algorithm is redesigned. The
-## "Integrated Analysis (MOFA2)" step (mod_multi_mofa.R, mounted at the
-## bottom of this tab's UI/server) is embedded here too, not a separate
-## sub-module, since it trains on the same Active Multi-Omics Dataset this
-## tab builds. The precomputed-cohort sub-modules (Overview/Integration/
-## Biomarker/Concordance/Pathway/Stratification) keep browsing their own
-## bundled tables unchanged; this tab only decides what "the active
-## dataset" means and makes sure every sub-module can see whose data it
-## actually is (multi_active_dataset_banner(), multiomics_helpers.R).
 
 mod_multi_dataset_config <- list(
   id = "dataset", title = "Dataset Workspace", icon = "database",
@@ -28,12 +12,6 @@ MO_BLOCK_IDS <- paste0("block", seq_len(MO_MAX_BLOCKS))
 
 MO_SOURCE_CHOICES <- c("Reference / Example Dataset" = "preloaded", "Upload Dataset" = "upload", "Retrieve from GEO" = "geo")
 
-## ---------------------------------------------------------------------------
-## Small shared UI pieces
-## ---------------------------------------------------------------------------
-
-## Ready / Review Required / Not Compatible badge, matching the color/icon
-## convention the Overview tab's QC scorecard already uses.
 mo_status_badge <- function(status) {
   color <- switch(status$level, ready = ARTHOMIX_COLORS$aqua, review = ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
   icn <- switch(status$level, ready = "circle-check", review = "triangle-exclamation", "circle-xmark")
@@ -44,15 +22,10 @@ mo_status_badge <- function(status) {
   )
 }
 
-## The pipeline tabs' shared "nothing loaded yet" message - phrased for
-## whichever source is actually selected, since preloaded/reference data
-## never clicks "Validate Datasets" (loading happens at "Load Reference
-## Dataset" instead).
 mo_load_first_msg <- function(dataset_source) {
   if (identical(dataset_source, "preloaded")) "Click \"Load Reference Dataset\" above first." else "Add at least two datasets and click \"Validate Datasets\" first."
 }
 
-## One dataset block (spec section 6): Samples / Features / Status card.
 mo_dataset_block_card <- function(label, n_samples, n_features, status) {
   color <- switch(status$level, ready = ARTHOMIX_COLORS$aqua, review = ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
   div(class = "card", style = sprintf("flex:1 1 220px; padding:14px; border-left:4px solid %s;", color),
@@ -65,7 +38,6 @@ mo_dataset_block_card <- function(label, n_samples, n_features, status) {
   )
 }
 
-## The always-visible Dataset Summary Table (spec section 29).
 mo_summary_table <- function(layer_meta) {
   if (length(layer_meta) == 0) return(NULL)
   do.call(rbind, lapply(names(layer_meta), function(nm) {
@@ -83,7 +55,6 @@ mo_summary_table <- function(layer_meta) {
   }))
 }
 
-## Data Provenance panel (spec section 30).
 mo_provenance_ui <- function(layer_meta) {
   if (length(layer_meta) == 0) return(multi_empty_state("No datasets selected yet."))
   tagList(lapply(names(layer_meta), function(nm) {
@@ -99,11 +70,6 @@ mo_provenance_ui <- function(layer_meta) {
   }))
 }
 
-## ---------------------------------------------------------------------------
-## Preloaded branch: dataset blocks built from the pipeline's own real
-## RNA-seq/methylation QC summaries - never hardcoded numbers.
-## ---------------------------------------------------------------------------
-
 mo_preloaded_blocks_ui <- function() {
   if (!MULTI_DATA_AVAILABLE) {
     return(div(class = "empty-note", icon("triangle-exclamation"),
@@ -113,9 +79,6 @@ mo_preloaded_blocks_ui <- function() {
   meth <- multi_read_registry_table("Methylation QC summary")
   matching <- multi_read_registry_table("Patient sample matching (all 80 patients)")
 
-  ## RNA-seq QC summary has one row per cell type (PBMC/CD14/CD4); PBMC is
-  ## the primary comparable cohort used elsewhere in this module - summing
-  ## across cell types would double-count the same patients.
   rna_pbmc <- if (rna$ok && all(c("cell_type", "n_samples", "n_genes_retained") %in% colnames(rna$df))) rna$df[rna$df$cell_type == "PBMC", , drop = FALSE] else NULL
   rna_n_samples <- if (!is.null(rna_pbmc) && nrow(rna_pbmc) > 0) rna_pbmc$n_samples[1] else NA
   rna_n_features <- if (!is.null(rna_pbmc) && nrow(rna_pbmc) > 0) rna_pbmc$n_genes_retained[1] else NA
@@ -140,25 +103,8 @@ mo_preloaded_blocks_ui <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Upload / GEO branch: one block generator shared by both source modes.
-## ---------------------------------------------------------------------------
-
-## Upload and GEO blocks are rendered from separate uiOutput()s but can both
-## exist in the DOM at once (conditionalPanel only toggles CSS visibility) -
-## prefix the id by mode so e.g. "block1_type" never collides between the
-## Upload and GEO panels.
 mo_block_id <- function(i, mode) paste0(if (identical(mode, "geo")) "g" else "u", "block", i)
 
-## fileInputs can't be programmatically cleared by re-rendering with the same
-## inputId - a browser won't let JS reset an <input type=file>'s value, and a
-## freshly-mounted fileInput bound to an id that was already used never
-## re-pushes an "empty" value to the server, so input$<id> keeps resolving to
-## whatever was last uploaded under that id. Suffixing the id with the
-## Dataset tab's block_reset_gen() (bumped once per pipeline switch, see
-## mod_multi_dataset_server()) sidesteps that entirely: after a switch, these
-## ids have never been assigned any value, so they start genuinely NULL
-## rather than relying on a reset actually taking effect.
 mo_file_input_id <- function(bid, gen) paste0(bid, "_file_g", gen)
 mo_meta_file_input_id <- function(bid, gen) paste0(bid, "_meta_file_g", gen)
 
@@ -167,13 +113,6 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo"), gen = 0) {
   bid <- mo_block_id(i, mode)
   box(
     width = NULL, title = sprintf("Dataset %d%s", i, if (i <= 2) " (required)" else ""),
-    ## Boxes here are inserted dynamically via renderUI (mo_block_ui() is
-    ## called from output$upload_blocks_ui / output$geo_blocks_ui, which
-    ## re-render as a whole every time n_upload_blocks()/n_geo_blocks()
-    ## changes) - shinydashboard's collapse click handler never binds to
-    ## content added this way, so a block that started collapsed could
-    ## never be expanded. Always render expanded to avoid depending on
-    ## that broken toggle.
     status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
     selectInput(ns(paste0(bid, "_type")), "Omics type", choices = MULTI_LIVE_OMICS_TYPES,
                 selected = if (i == 1) "rnaseq" else if (i == 2) "methylation" else "other"),
@@ -183,32 +122,13 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo"), gen = 0) {
       fileInput(ns(mo_file_input_id(bid, gen)), "File (CSV, TSV, TXT, XLSX, or RDS)",
                 accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
       uiOutput(ns(paste0(bid, "_omics_type_note"))),
-      ## Per-dataset metadata (optional) - merged by sample ID into the
-      ## session's combined sample metadata alongside every other dataset's
-      ## own upload here and the shared "Sample Metadata" file below, via
-      ## the same mo_merge_sample_meta() union-of-IDs logic (spec: no source
-      ## silently overwrites another).
       fileInput(ns(mo_meta_file_input_id(bid, gen)), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
                 accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_orient_note"))),
-      ## Wide (samples/features matrix) vs. long/tidy (one row per
-      ## measurement) is auto-detected on upload (multi_live_detect_table_shape())
-      ## and pre-selected here, but always a user-confirmable choice - never
-      ## applied silently. The long-format branch below never re-implements a
-      ## separate analysis path: it only pivots into the exact same wide
-      ## matrix the rest of this pipeline already consumes.
       uiOutput(ns(paste0(bid, "_shape_ui")))
     ) else tagList(
       textInput(ns(paste0(bid, "_geo_acc")), "GEO accession", placeholder = "GSE12345"),
-      ## The actual trigger for observeEvent(input[[paste0(gbid, "_geo_fetch")]], ...)
-      ## below - without this button that handler could never fire (a real
-      ## bug: the GEO source was previously wired up server-side with no way
-      ## to invoke it from the UI at all).
       actionButton(ns(paste0(bid, "_geo_fetch")), "Fetch from GEO", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
-      ## GEO series already carry their own sample metadata (wired up
-      ## automatically below on fetch) - this lets a user layer on
-      ## additional columns of their own, same optional/merge semantics as
-      ## the Upload branch's per-dataset metadata file above.
       fileInput(ns(mo_meta_file_input_id(bid, gen)), "Additional sample metadata for this dataset (optional, CSV, first column = sample ID)",
                 accept = c(".csv")),
       uiOutput(ns(paste0(bid, "_geo_platform_ui"))),
@@ -236,14 +156,8 @@ mod_multi_dataset_ui <- function(id) {
           div(style = "margin-top:10px;", uiOutput(ns("preloaded_blocks_ui"))),
           div(style = "margin-top:10px;", uiOutput(ns("preloaded_activate_ui")))
       ),
-      ## Hidden entirely until "Load Dataset" is clicked - browsing the
-      ## precomputed result tables is a secondary feature that shouldn't
-      ## appear before the user has loaded anything.
       conditionalPanel(
         condition = sprintf("input['%s'] > 0", ns("load_preloaded_btn")),
-        ## collapsed = FALSE: same dynamic-box collapse-toggle issue as the
-        ## per-dataset blocks above - render expanded so the picker is
-        ## visible without depending on a click-to-expand that never binds.
         box(width = NULL, title = "Table", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
             if (!MULTI_DATA_AVAILABLE) div(class = "empty-note", icon("triangle-exclamation"), "Not available in this deployment.")
             else tagList(
@@ -272,13 +186,6 @@ mod_multi_dataset_ui <- function(id) {
             box(width = NULL, title = "Sample Metadata", status = "primary", solidHeader = FALSE,
                 p(class = "submodule-desc", "Imported automatically from each fetched GEO series' own sample metadata."))
           ),
-          ## The primary action sits right after the inputs it needs (the
-          ## dataset blocks + optional metadata) - sample matching method is
-          ## only used one step later (Sample Matching tab, right column),
-          ## so it lives there instead of adding another box the user would
-          ## have to scroll past just to reach this button. Preloaded/
-          ## reference data has no files to validate - "Load Reference
-          ## Dataset" above already reads it into the same pipeline below.
           conditionalPanel(
             condition = sprintf("input['%s'] == 'upload' || input['%s'] == 'geo'", ns("dataset_source"), ns("dataset_source")),
             actionButton(ns("validate_btn"), "Validate Datasets", icon = icon("check-double"), class = "btn-primary btn-sm", width = "100%")
@@ -287,12 +194,6 @@ mod_multi_dataset_ui <- function(id) {
         column(8, uiOutput(ns("pipeline_ui")))
       ),
 
-      ## Data Provenance applies to any source that has run through this
-      ## shared pipeline, including the reference dataset (its own "Load
-      ## Reference Dataset" click stands in for "Validate Datasets" below).
-      ## Hidden until its own step has actually run, never shown as an empty
-      ## placeholder first. (Dataset Summary now lives in the MOFA2
-      ## sub-module box below - see mod_multi_mofa.R.)
       conditionalPanel(
         condition = sprintf("input['%s'] > 0 || input['%s'] > 0", ns("validate_btn"), ns("load_preloaded_btn")),
         hr(),
@@ -311,15 +212,6 @@ mod_multi_dataset_ui <- function(id) {
   )
 }
 
-## Finds which currently-configured block owns a given display label and
-## returns its declared omics type - used once preprocessing/activation work
-## from labels alone rather than block ids (labels are what the rest of the
-## pipeline, and multi_dataset$layers, key on). The reference/preloaded path
-## has no per-block "Omics type" picker (mi_preloaded_cell_dataset() always
-## names its two layers "Transcriptomics"/"Methylomics" via
-## MULTI_BLOCK_LABELS) - map those fixed labels directly so preprocessing
-## still offers the correct omics-appropriate normalization choices for it,
-## exactly as it would for an upload of the same omics type.
 mo_label_omics_type <- function(label, input, n_upload, n_geo, mode) {
   if (identical(mode, "preloaded")) {
     return(switch(label, Transcriptomics = "rnaseq", Methylomics = "methylation", "other"))
@@ -333,20 +225,6 @@ mo_label_omics_type <- function(label, input, n_upload, n_geo, mode) {
   "other"
 }
 
-## Remaps each matrix's rownames per the chosen sample matching method (spec
-## sections 14-15). "exact" leaves rownames untouched. "patient_id"
-## translates sample IDs to a Patient ID column already present in uploaded
-## metadata. "mapping" translates via a user-supplied mapping file with one
-## column per dataset label. Samples with no mapping entry are dropped from
-## THAT dataset only, and the count is returned rather than silently lost.
-## Matching against `meta`/`mapping_df` uses the SAME normalization
-## ch_id_harmonization_table() (cohort_harmonization_helpers.R) reports by -
-## ch_normalize_id() - so a QC report claiming "Normalized match" can never
-## disagree with what this real join actually did. A byte-exact match is
-## always preferred; the normalized form is used only as a fallback, and
-## only when it is unambiguous (not shared by two different raw IDs on the
-## lookup side) - a duplicate normalized ID is left unmatched rather than
-## silently resolved to one of them (spec: require exact match as tiebreak).
 mo_apply_matching <- function(mats, method, meta = NULL, patient_col = NULL, mapping_df = NULL) {
   if (identical(method, "patient_id") && !is.null(meta) && !is.null(patient_col) && patient_col %in% colnames(meta)) {
     meta_ids <- rownames(meta)
@@ -394,13 +272,6 @@ mo_apply_matching <- function(mats, method, meta = NULL, patient_col = NULL, map
   list(mats = mats, dropped = list())
 }
 
-## Combines two sample-metadata data.frames keyed by rowname (sample ID) -
-## every sample ID from either is kept; on a column-name collision `b` wins
-## (called as mo_merge_sample_meta(inferred, explicit) so an explicitly
-## uploaded metadata file can override/extend what was merely inferred from
-## a long-format layer's own group/condition column, never silently lost
-## underneath it, and never silently overwritten by it either when the
-## column names actually differ).
 mo_merge_sample_meta <- function(a, b) {
   if (is.null(a)) return(b)
   if (is.null(b) || nrow(b) == 0) return(a)
@@ -411,9 +282,6 @@ mo_merge_sample_meta <- function(a, b) {
   out
 }
 
-## Reads one uploaded metadata CSV (first column = sample ID) into a
-## rowname-keyed data.frame, or NULL if unreadable/empty - shared by every
-## per-dataset metadata upload and the session-wide one below.
 mo_read_meta_file <- function(fi) {
   if (is.null(fi)) return(NULL)
   m <- tryCatch(as.data.frame(data.table::fread(fi$datapath, showProgress = FALSE)), error = function(e) NULL)
@@ -426,12 +294,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## =========================================================================
-    ## Preloaded branch
-    ## =========================================================================
-    ## Nothing below shows anything until its own "Load"/"Load Dataset"
-    ## button is actually clicked - selecting a radio/dropdown value alone
-    ## never reveals results.
     output$preloaded_blocks_ui <- renderUI({
       if (!isTRUE(input$load_preloaded_btn > 0)) return(multi_empty_state("Click \"Load Dataset\" to preview this dataset."))
       mo_preloaded_blocks_ui()
@@ -447,11 +309,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       if (isTRUE(res$ok)) multi_dataset$table_label <- input$table_pick
     }, ignoreInit = TRUE)
 
-    ## Tracks "has Load been clicked since we last switched to this
-    ## pipeline" separately from input$load_preloaded_btn's own click count
-    ## (which is monotonic and never resets) - otherwise, switching away and
-    ## back to "preloaded" would show a false "could not load" warning below
-    ## from an earlier visit's click, before the user has done anything here.
     preloaded_load_attempted <- reactiveVal(FALSE)
 
     output$preloaded_activate_ui <- renderUI({
@@ -465,13 +322,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           "Use the pipeline below (1. Preview and Validate through 5. Compatibility and Activate) - the same steps used for an uploaded dataset.")
     })
 
-    ## Populates the SAME raw$mats/raw$validations/raw$meta the Upload/GEO
-    ## branch fills at Validate time, from one preloaded analysis cell's own
-    ## saved DIABLO fit (mi_preloaded_cell_dataset(), already used this way by
-    ## mod_multi_overview.R/mod_multi_integration.R). Reusing this adapter -
-    ## rather than a special preloaded-only path - is what lets steps 1-5
-    ## below (including Batch Diagnostics) actually run on the reference
-    ## dataset instead of staying permanently empty.
     observeEvent(input$load_preloaded_btn, {
       req(identical(input$dataset_source, "preloaded"))
       preloaded_load_attempted(TRUE)
@@ -496,12 +346,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       raw$meta <- res$sample_meta
     }, ignoreInit = TRUE)
 
-    ## Switching which pipeline is selected must not leave the previous
-    ## pipeline's data visible under the new one (spec sections 2/17/21):
-    ## clears the published Active dataset AND the in-progress wizard
-    ## staging state (raw/proc/geo_*), so steps 1-4 below go back to their
-    ## "load first" empty state instead of showing stale data. Fires on
-    ## every switch (Upload<->GEO included, not just leaving "preloaded").
     observeEvent(input$dataset_source, {
       multi_dataset$source <- NULL
       multi_dataset$active <- FALSE
@@ -519,55 +363,19 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       for (nm in names(geo_fetched)) geo_fetched[[nm]] <- NULL
       for (nm in names(block_shape)) block_shape[[nm]] <- NULL
 
-      ## The per-block orientation/omics-type advisory notes (set by the
-      ## file-change observer below, keyed by the fixed ubid rather than a
-      ## generation-scoped id) would otherwise keep describing the previous
-      ## generation's file until a new one is chosen, even though the file
-      ## input itself is now genuinely empty - clear them explicitly here.
       for (i in seq_len(MO_MAX_BLOCKS)) {
         ubid <- mo_block_id(i, "upload")
         output[[paste0(ubid, "_orient_note")]] <- renderUI(NULL)
         output[[paste0(ubid, "_omics_type_note")]] <- renderUI(NULL)
       }
 
-      ## Also recreate the upload/GEO block widgets themselves (fresh
-      ## labels and default orientation) and drop any extra blocks the user
-      ## added, so switching pipelines and switching back starts clean.
       n_upload_blocks(2)
       n_geo_blocks(2)
       block_reset_gen(block_reset_gen() + 1)
 
-      ## Recreating the block markup above (via block_reset_gen()) does NOT,
-      ## by itself, clear an already-chosen file: a browser won't let JS set
-      ## an <input type=file>'s value, and a fresh fileInput bound to the
-      ## *same* inputId as before never re-pushes an "empty" value to the
-      ## server on its own - input$<id> would keep resolving to the previous
-      ## pipeline's uploaded file/temp path indefinitely, and "Validate
-      ## Datasets" would silently re-ingest it even though the widget
-      ## visually looks empty. mo_file_input_id()/mo_meta_file_input_id()
-      ## (see their definitions above mo_block_ui()) solve this at the root
-      ## by suffixing every fileInput's own id with block_reset_gen() - the
-      ## bump just above means every block's file widgets get a genuinely
-      ## new id after this observer runs, one that has never held a value,
-      ## so there is nothing to leak regardless of file-input reset quirks.
-      ## The Sample Matching mapping file is the one other real fileInput
-      ## in this tab (see its definition/reader further below) and gets the
-      ## same generation suffix for the same reason.
-
-      ## The "Reference / Example Dataset" warning box (preloaded_activate_ui)
-      ## gates on this rather than the monotonic load_preloaded_btn click
-      ## count, so it doesn't show a false "could not load" warning just
-      ## because raw$mats was cleared above while an earlier visit's click
-      ## count is still > 0.
       preloaded_load_attempted(FALSE)
     })
 
-    ## =========================================================================
-    ## Upload / GEO shared state - one dataset-block pipeline feeds both, since
-    ## once a block's matrix is read (from a file or from GEO) the rest of the
-    ## pipeline (validate -> match -> preprocess -> batch-diagnose -> activate)
-    ## doesn't care where it came from.
-    ## =========================================================================
     n_upload_blocks <- reactiveVal(2)
     n_geo_blocks <- reactiveVal(2)
     block_reset_gen <- reactiveVal(0)
@@ -575,23 +383,10 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     geo_fetched <- reactiveValues()          # gblockN -> list(mat, meta, platform, accession, collapsed)
     raw <- reactiveValues(mats = list(), validations = list(), labels = list(), provenance = list(), meta = NULL)
     proc <- reactiveValues(filtered_mats = NULL, scaled_mats = NULL, batch_corrected = NULL)
-    ## ubidN -> list(shape, shape_reason, orient_selected, orient_confident_note,
-    ## cols, long_det) - populated once per upload on the file-upload observer
-    ## below, read back by the "_shape_ui" renderUI and by the Validate step.
     block_shape <- reactiveValues()
 
-    ## The Sample Matching Method box lives on the "2. Sample Matching" tab
-    ## itself (not the left-hand upload column) - it's only relevant once
-    ## datasets are validated, and keeping it off the left column keeps that
-    ## column short enough that "Validate Datasets" doesn't need scrolling
-    ## to reach.
     output$pipeline_ui <- renderUI({
       if (length(raw$validations) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
-      ## Generation-suffixed for the same reason as the per-block file
-      ## inputs (see mo_file_input_id()'s comment) - this panel only
-      ## re-renders once raw$validations is non-empty again after a fresh
-      ## Validate, i.e. already in the current generation, so this always
-      ## reads the right one.
       gen <- block_reset_gen()
       tabsetPanel(
         id = ns("pipeline_tabs"), type = "tabs",
@@ -615,15 +410,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )
     })
 
-    ## block_reset_gen() is a dependency (and passed through as `gen`) so
-    ## these re-render with brand new widgets - fresh labels/orientation,
-    ## and, via mo_file_input_id()/mo_meta_file_input_id(), fresh fileInput
-    ## ids - every time the pipeline source is switched, not just when a
-    ## block is added. Without this, uiOutput never re-executes on a source
-    ## switch (it only depends on n_upload_blocks()/n_geo_blocks()), so the
-    ## previous pipeline's already-selected files/labels/orientation stay
-    ## bound to those input IDs and would be silently re-ingested if the
-    ## user clicked "Validate Datasets" again without re-choosing a file.
     output$upload_blocks_ui <- renderUI({
       gen <- block_reset_gen()
       tagList(lapply(seq_len(n_upload_blocks()), function(i) mo_block_ui(ns, i, mode = "upload", gen = gen)))
@@ -645,12 +431,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     observeEvent(input$add_geo_block_btn, n_geo_blocks(min(MO_MAX_BLOCKS, n_geo_blocks() + 1)))
 
-    ## Per-block wiring, registered once for every possible block index in
-    ## both modes - harmless no-ops until that block's UI actually renders
-    ## and the user interacts with it. Orientation auto-detect never applies
-    ## itself without the user confirming (spec section 10); GEO fetch is a
-    ## thin wrapper around the same GEOquery call the Transcriptomics Dataset
-    ## tab already uses (spec section 22).
     lapply(seq_len(MO_MAX_BLOCKS), function(i) {
       ubid <- mo_block_id(i, "upload"); gbid <- mo_block_id(i, "geo")
 
@@ -663,18 +443,9 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         p(class = "submodule-desc", sprintf("Feature identifier: %s", MULTI_LIVE_FEATURE_ID_LABELS[[otype]] %||% "Feature ID"))
       })
 
-      ## Reads the current generation's file id (mo_file_input_id()) so this
-      ## keeps working after a pipeline switch bumps block_reset_gen() and
-      ## the block is recreated with a new fileInput id.
       observeEvent(input[[mo_file_input_id(ubid, block_reset_gen())]], {
         fi <- input[[mo_file_input_id(ubid, block_reset_gen())]]
         req(fi)
-        ## Preview read is XLSX/RDS-safe (multi_live_read_matrix() itself
-        ## handles those at Validate time) - shape/orientation detection only
-        ## needs to work on the common CSV/TSV/TXT case; for XLSX/RDS this
-        ## preview stays NULL and both detectors fall back to their
-        ## non-confident "wide, unconfirmed" default, which is exactly
-        ## today's pre-this-change behavior for those file types.
         ext <- tolower(tools::file_ext(fi$name))
         df <- if (ext %in% c("csv", "tsv", "txt")) tryCatch(as.data.frame(data.table::fread(fi$datapath, showProgress = FALSE, nrows = 200)), error = function(e) NULL) else NULL
 
@@ -690,11 +461,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           output[[paste0(ubid, "_orient_note")]] <- renderUI(NULL)
         }
 
-        ## Structural omics-type hint (spec: detect from the data, not the
-        ## filename) - only advisory here, only meaningful when the user has
-        ## selected RNA-seq/Transcriptomics or Methylation specifically;
-        ## other omics types are never second-guessed. A confirmed rejection
-        ## for a genuine mismatch happens later, at Validate time.
         otype_sel <- input[[paste0(ubid, "_type")]] %||% "other"
         preview_mat <- tryCatch({
           if (is.null(df) || ncol(df) < 2) NULL
@@ -771,10 +537,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         )
       })
 
-      ## Fires once a fetch completes with exactly one platform, or whenever
-      ## the multi-platform selectInput changes - registered once (not
-      ## inside the fetch handler above) so repeated fetches never leak
-      ## observers.
       observe({
         gp <- geo_raw_platforms[[gbid]]
         if (is.null(gp)) return()
@@ -803,7 +565,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       selectInput(ns("patient_id_col"), "Patient ID column", choices = cols, selected = if (length(guess) > 0) guess[1] else cols[1])
     })
 
-    ## ---- 1. Validate ---------------------------------------------------------
     observeEvent(input$validate_btn, {
       mode <- input$dataset_source
       gen <- block_reset_gen()
@@ -848,11 +609,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
             mats[[label]] <- res$mat
             provenance[[label]] <- list(source = "User Upload", detail = fi$name, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           }
-          ## Graceful rejection (spec: don't silently process an unsupported
-          ## or mislabeled omics type). Only enforced when the user has
-          ## specifically claimed RNA-seq/Transcriptomics or Methylation -
-          ## every other omics type in the dropdown is left untouched, since
-          ## this module's structural detector only distinguishes those two.
           if (otype %in% c("rnaseq", "methylation")) {
             det <- multi_live_detect_omics_type(mats[[label]])
             mismatch <- identical(det$detected, "unclassifiable") ||
@@ -905,15 +661,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           validations[[label]] <- v
           labels[[gbid]] <- label
           provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
-          ## Every fetched GEO series' own pData() phenotype/characteristics_ch1
-          ## columns are kept (accumulated below via mo_merge_sample_meta the
-          ## same way Upload's per-block explicit metadata already is) -
-          ## previously only the FIRST series to reach this loop iteration
-          ## ever set raw$meta at all (`if (is.null(raw$meta) ...)`), so every
-          ## subsequent GEO block's own metadata was silently discarded
-          ## whenever 2+ series were fetched (the realistic one-series-per-
-          ## omics-layer case), starving downstream outcome/batch/phenotype
-          ## pickers of columns that legitimately exist only on that series.
           if (!is.null(gf$meta)) geo_meta_dfs[[label]] <- gf$meta
           mfi <- input[[mo_meta_file_input_id(gbid, gen)]]
           m <- mo_read_meta_file(mfi)
@@ -933,22 +680,10 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       raw$provenance <- provenance
       proc$filtered_mats <- NULL; proc$scaled_mats <- NULL; proc$batch_corrected <- NULL
 
-      ## Compose sample metadata rather than one source silently overwriting
-      ## another: any group/condition columns detected from long-format
-      ## layers above, merged first, then each dataset's own explicitly
-      ## uploaded metadata file (already merged in per-block above) can
-      ## still extend/override on a name collision - so a long-format
-      ## file's own Control/Treatment column and every per-dataset metadata
-      ## upload both remain available to every downstream dropdown.
       if (length(long_group_dfs) > 0) {
         merged_groups <- Reduce(mo_merge_sample_meta, long_group_dfs)
         raw$meta <- mo_merge_sample_meta(raw$meta, merged_groups)
       }
-      ## Merge every fetched GEO series' own metadata in - union of sample
-      ## IDs across series, later series winning on a column-name collision
-      ## (matching mo_merge_sample_meta's existing a/b precedence) - before
-      ## any explicitly-uploaded supplementary metadata file, which should
-      ## still be able to override/extend what GEO itself supplied.
       if (length(geo_meta_dfs) > 0) {
         merged_geo <- Reduce(mo_merge_sample_meta, geo_meta_dfs)
         raw$meta <- mo_merge_sample_meta(raw$meta, merged_geo)
@@ -993,7 +728,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       DT::datatable(tbl, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
 
-    ## ---- 2. Sample Matching & Missing Data -----------------------------------
     overlap <- reactive({
       req(length(raw$mats) >= 2)
       mats <- raw$mats
@@ -1009,13 +743,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         res <- mo_apply_matching(mats, "mapping", mapping_df = mapping_df)
         mats <- res$mats
       }
-      ## multi_live_sample_overlap() returns its OWN `mats` (rownames
-      ## canonicalized for any samples it normalized-matched) - previously
-      ## this line clobbered that back to the pre-normalization `mats`,
-      ## which would have silently thrown away the fix below (samples that
-      ## only matched after trimming whitespace/case would revert to their
-      ## original, non-corresponding rownames and drop out of every
-      ## downstream `[shared_ids, ]` subset).
       multi_live_sample_overlap(mats)
     })
 
@@ -1056,7 +783,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     feature_miss_plot_fn <- reactive(multi_live_feature_missingness_plot(multi_live_missingness(raw$mats[[req(input$miss_layer)]])))
     output$feature_miss_plot <- renderPlot(feature_miss_plot_fn())
 
-    ## ---- 3. Preprocessing -----------------------------------------------------
     output$preprocess_ui <- renderUI({
       if (length(raw$mats) < 2) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tagList(
@@ -1146,7 +872,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       }
     })
 
-    ## ---- 4. Batch Diagnostics --------------------------------------------------
     output$batch_ui <- renderUI({
       if (is.null(proc$scaled_mats)) return(multi_empty_state("Apply preprocessing (step 3) first."))
       meta_cols <- if (!is.null(raw$meta)) colnames(raw$meta) else character(0)
@@ -1206,11 +931,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     observeEvent(input$correct_btn, {
       req(proc$scaled_mats, input$batch_layer, input$batch_col, raw$meta)
       confounded <- isTRUE(tryCatch(confounded_now(), error = function(e) FALSE))
-      ## validate(need(...)) renders into the nearest reactive OUTPUT context -
-      ## observeEvent() has none, so it previously failed completely silently
-      ## (a real bug: clicking "Apply batch correction" while blocked gave no
-      ## feedback at all). showNotification() + early return is the same
-      ## pattern already used a few lines below for a failed correction.
       if (confounded && !isTRUE(input$confound_override)) {
         showNotification("Batch correction is blocked because the batch variable appears confounded with the phenotype variable. Check the box above to proceed anyway.", type = "error")
         return()
@@ -1244,17 +964,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     output$corr_after <- renderPlot(corr_after_fn())
 
-    ## Isolated from output$batch_ui on purpose (a real bug, found by testing
-    ## the running app): multi_plot_or_empty() eagerly EVALUATES its plot_fn
-    ## to decide plot-vs-empty-state, so calling it inline inside batch_ui's
-    ## own renderUI made that ENTIRE panel (including the batch_layer/
-    ## batch_col/phenotype_col/color_by selectInputs) reactively depend on
-    ## proc$batch_corrected. The instant correction succeeded, the whole
-    ## panel re-rendered from scratch with no `selected=`, resetting every
-    ## selectInput to blank - which then hid the confound warning, override
-    ## checkbox, success panel, and these very plots via their
-    ## conditionalPanel/req() gates. Keeping this section behind its own
-    ## uiOutput contains that dependency to just this block.
     output$batch_after_ui <- renderUI({
       tagList(
         h5("After correction"),
@@ -1263,16 +972,10 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_after_fn, ns("corr_after"), height = "340px"))
         ),
         uiOutput(ns("variance_diagnostic_ui")),
-        ## Gated on the corrected matrix actually existing, not merely on
-        ## the button having been clicked (a second real bug: the download
-        ## button previously appeared even after a blocked/failed attempt).
         if (!is.null(proc$batch_corrected)) div(class = "table-toolbar", downloadButton(ns("dl_batch_corrected_csv"), "Download corrected data (CSV)", class = "btn-sm"))
       )
     })
 
-    ## Persistent status (spec: "Batch correction completed successfully" +
-    ## dimensions/batch variable/method), replacing reliance on the toast
-    ## notification alone, which disappears and can't be referred back to.
     output$batch_success_panel <- renderUI({
       s <- proc$batch_summary
       if (is.null(s) || !identical(s$layer, input$batch_layer)) return(NULL)
@@ -1316,7 +1019,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
 
-    ## ---- 5. Compatibility and Activate -----------------------------------------
     compat <- reactive({
       req(length(raw$validations) > 0)
       ov <- tryCatch(overlap(), error = function(e) NULL)
@@ -1362,14 +1064,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       bad <- intersect(chosen, names(Filter(function(p) p$status$level == "not_compatible", cmp$per_layer)))
       validate(need(length(bad) == 0, sprintf("\"%s\" is marked Not Compatible and cannot be used for analysis.", paste(bad, collapse = ", "))))
 
-      ## proc$scaled_mats is only ever populated by the "3. Preprocessing"
-      ## step's own button (observeEvent(input$preprocess_btn, ...)), which is
-      ## also where per-layer matrices get restricted to the matched sample
-      ## set (matched <- ov$shared_ids). Falling back to raw$mats here used to
-      ## let Activate silently publish the raw, unmatched, unprocessed
-      ## per-layer data whenever a user skipped step 3 - requiring
-      ## proc$scaled_mats explicitly closes that gap for all three pipelines
-      ## (Upload/GEO/Preloaded all populate it identically).
       validate(need(!is.null(proc$scaled_mats), "Preprocess the selected datasets first (step 3: \"Apply normalization, filtering, and scaling\") before activating them."))
       final_mats <- if (!is.null(proc$batch_corrected) && !is.null(input$batch_layer)) {
         c(proc$scaled_mats[setdiff(names(proc$scaled_mats), input$batch_layer)], setNames(list(proc$batch_corrected), input$batch_layer))
@@ -1401,12 +1095,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
                     format(if (!is.null(ov_now)) ov_now$n_shared else NA, big.mark = ","))))
     })
 
-    ## =========================================================================
-    ## Provenance - only meaningful for an uploaded or GEO-fetched dataset
-    ## (see the UI-side comment above); shown empty until "Use Selected
-    ## Datasets for Multi-Omics Analysis" is clicked. (Dataset Summary table
-    ## itself now renders inside mod_multi_mofa.R.)
-    ## =========================================================================
     output$provenance_ui <- renderUI(mo_provenance_ui(multi_dataset$layer_meta %||% list()))
 
     mod_multi_mofa_server("integrated", multi_dataset, multi_results)

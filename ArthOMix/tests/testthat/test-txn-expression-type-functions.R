@@ -1,17 +1,11 @@
 ## Module 1 (Transcriptomics) - shared expression-matrix scale/type helpers
 ## (R/transcriptomics/functions/expression_type.R): looks_like_raw_counts()/
 ## looks_like_normalized_totals() (promoted out of mod_dge.R, and de-
-## duplicated out of mod_deconvolution.R's own is_linear_counts()), and the
-## declare-then-verify upload validator tx_validate_expr_upload(), mirroring
-## R/methylomics/functions/parse_upload.R's methyl_validate_matrix_upload() and its own
-## test file's structure (test-methyl-parse-upload-functions.R).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
-
-## ---- looks_like_raw_counts() / looks_like_normalized_totals() -------------
 
 raw_counts_matrix <- function(seed = 300, n_genes = 40, n_samples = 8) {
   set.seed(seed)
@@ -23,7 +17,7 @@ raw_counts_matrix <- function(seed = 300, n_genes = 40, n_samples = 8) {
 
 tpm_matrix <- function(seed = 301, n_genes = 40, n_samples = 8) {
   m <- raw_counts_matrix(seed = seed, n_genes = n_genes, n_samples = n_samples)
-  sweep(m, 2, colSums(m), FUN = "/") * 1e6  ## rescale each sample to sum to 1e6 (CPM/TPM-like)
+  sweep(m, 2, colSums(m), FUN = "/") * 1e6
 }
 
 logtransformed_matrix <- function(seed = 302, n_genes = 40, n_samples = 8) {
@@ -44,15 +38,11 @@ test_that("looks_like_normalized_totals() flags per-sample totals tightly pinned
   expect_false(looks_like_normalized_totals(raw_counts_matrix()))
 })
 
-## ---- tx_looks_like_results_table() -----------------------------------------
-
 test_that("tx_looks_like_results_table() flags DE-results-shaped column names and passes ordinary sample matrices", {
   results_like <- matrix(1, 5, 4, dimnames = list(paste0("G", 1:5), c("logFC", "P.Value", "padj", "baseMean")))
   expect_true(tx_looks_like_results_table(results_like))
   expect_false(tx_looks_like_results_table(raw_counts_matrix()))
 })
-
-## ---- tx_validate_expr_upload() ---------------------------------------------
 
 test_that("tx_validate_expr_upload() accepts clean raw counts declared 'raw'", {
   res <- tx_validate_expr_upload(raw_counts_matrix(), declared_type = "raw")
@@ -68,7 +58,7 @@ test_that("tx_validate_expr_upload() blocks TPM-normalized data declared 'raw'",
 
 test_that("tx_validate_expr_upload() blocks negative/non-count values declared 'raw'", {
   m <- logtransformed_matrix()
-  m[1, ] <- -abs(m[1, ]) - 1  ## guarantee at least one negative row regardless of rnorm draw
+  m[1, ] <- -abs(m[1, ]) - 1
   res <- tx_validate_expr_upload(m, declared_type = "raw")
   expect_false(res$ok)
   expect_true(grepl("negative values", res$error))
@@ -103,9 +93,6 @@ test_that("tx_validate_expr_upload() accepts TPM data declared 'normalized' and 
 })
 
 test_that("tx_validate_expr_upload() warns but does not block an ambiguous declared-'raw' matrix with a narrow value range", {
-  ## Small-panel/filtered count-like data: non-negative, but 99th percentile
-  ## <= 100 - doesn't unambiguously look like raw sequencing counts, but
-  ## isn't a clear TPM/FPKM/CPM signature either, so this should only warn.
   set.seed(303)
   m <- matrix(rpois(40 * 6, lambda = 20), 40, 6, dimnames = list(paste0("G", 1:40), paste0("S", 1:6)))
   res <- tx_validate_expr_upload(m, declared_type = "raw")

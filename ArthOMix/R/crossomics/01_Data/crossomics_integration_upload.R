@@ -1,15 +1,9 @@
 ## R/crossomics/01_Data/crossomics_integration_upload.R
 ## Upload parsing for the "Expression and Methylation" Cross-Omics sub-module -
 ## CSV/TSV/TXT via data.table::fread, XLSX via openxlsx (both already
-## installed in this deployment, called by namespace so no global.R library()
-## edit is needed). Same fail-soft list(ok = FALSE, error = <message>)
-## sentinel as R/methylomics/functions/parse_upload.R, so a bad upload shows a clean
-## message instead of a raw Shiny error screen.
 
 CX_UPLOAD_NA_STRINGS <- c("NA", "", "NaN", "null", "NULL", "#N/A")
 
-## Reads a gene/CpG-level table (not a matrix) from any of csv/tsv/txt/xlsx.
-## Returns list(ok, df, error).
 cx_read_table <- function(datapath, filename) {
   ext <- tolower(tools::file_ext(filename))
   if (ext %in% c("csv", "tsv", "txt")) {
@@ -35,8 +29,6 @@ cx_read_table <- function(datapath, filename) {
   list(ok = FALSE, df = NULL, error = sprintf("Unsupported file type \".%s\" - upload CSV, TSV, TXT, or XLSX.", ext))
 }
 
-## Bundles the read + auto-detect steps together, since every call site needs
-## both immediately after a fileInput fires.
 cx_read_and_detect <- function(datapath, filename, kind = c("expression", "methylation")) {
   kind <- match.arg(kind)
   res <- cx_read_table(datapath, filename)

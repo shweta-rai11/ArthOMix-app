@@ -1,39 +1,14 @@
 ## R/methylomics/08_WGCNA_Co_Methylation_Network/mod_methyl_wgcna.R
 ## WGCNA (Co-Methylation Network) submodule. CpGs are network nodes, samples
 ## are observations. mx_wgcna_* helpers here are independent of
-## R/transcriptomics/05_WGCNA/mod_wgcna.R's wgcna_* helpers (gene-expression WGCNA).
-##
-## Pipeline: Data & Filtering -> Sample QC -> Soft Threshold -> Network &
-## Modules -> Module-Trait -> Hub CpGs -> Results & Export. Same live
-## pipeline for both data sources, differing only in defaults:
-##  - Preloaded (GSE42861, Liu et al. 2013): defaults reproduce
-##    script05_wgcna_sexstratified/05_wgcna_sexstratified.R - per-sex
-##    residualization against age+smoking+cell-type composition (minus the
-##    highest-mean cell-type column as implicit reference), top 20,000 CpGs
-##    by residual MAD, signed network, Pearson, auto power selection
-##    (first power reaching the R² cutoff, else best-observed),
-##    minModuleSize=20, mergeCutHeight=0.25, deepSplit=2, maxBlockSize=5000.
-##  - Uploaded: general WGCNA-on-methylation defaults (bicor, signed, auto
-##    power 1-20, minModuleSize=30).
-##
-## Sex stratification (Female/Male/All) is read at the top of Data &
-## Filtering, before residualization/ranking - the published script
-## residualizes and MAD-ranks CpGs separately per sex.
-##
-## Every stage after Data & Filtering is gated behind its own action button:
-## renderUI wraps the eventReactive in tryCatch and shows a "not run yet"
-## message on NULL, same idiom as mod_wgcna.R.
 
 mod_methyl_wgcna_config <- list(
   id = "wgcna", title = "WGCNA (Co-Methylation Network)", icon = "circle-nodes", group = "Network",
   description = "Performs co-methylation network analysis"
 )
 
-## ---- small pure helpers (all mx_wgcna_*-prefixed) --------------------------
-
 mx_wgcna_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
 
-## Row-wise MAD via matrixStats when available (fast path for large probe matrices).
 mx_wgcna_row_mads <- function(m) {
   if (requireNamespace("matrixStats", quietly = TRUE)) {
     matrixStats::rowMads(m, na.rm = TRUE)
@@ -42,8 +17,6 @@ mx_wgcna_row_mads <- function(m) {
   }
 }
 
-## Ranks probes by the chosen variability statistic and keeps the top N.
-## `mat` is probes (rows) x samples (cols).
 mx_wgcna_top_variable <- function(mat, method = c("mad", "variance", "sd", "iqr"), top_n) {
   method <- match.arg(method)
   stat <- switch(method,
@@ -58,9 +31,6 @@ mx_wgcna_top_variable <- function(mat, method = c("mad", "variance", "sd", "iqr"
   list(mat = mat[ord, , drop = FALSE], method = method, top_n = top_n, n_kept = keep_n)
 }
 
-## Encodes a trait column as numeric for module-eigengene correlation:
-## numeric passes through, a two-level column becomes 0/1, anything else
-## is unsupported (correlation is a linear step, not multi-level).
 mx_wgcna_encode_trait <- function(sheet, col) {
   v <- sheet[[col]]
   if (is.numeric(v)) return(list(ok = TRUE, vec = as.numeric(v)))
@@ -72,11 +42,6 @@ mx_wgcna_encode_trait <- function(sheet, col) {
   list(ok = TRUE, vec = as.numeric(factor(as.character(v), levels = lv)) - 1, levels = lv)
 }
 
-## Detects cell-type-composition columns (>=3 numeric columns whose
-## per-row values sum to ~1, the Houseman-style compositional signature)
-## and returns the one with the highest mean fraction, to use as the
-## implicit reference - matches the published script's own choice, without
-## hardcoding column names.
 mx_wgcna_celltype_reference <- function(sheet, candidate_cols) {
   if (length(candidate_cols) < 3) return(NULL)
   is_num <- vapply(candidate_cols, function(cl) is.numeric(sheet[[cl]]), logical(1))
@@ -89,8 +54,6 @@ mx_wgcna_celltype_reference <- function(sheet, candidate_cols) {
   names(which.max(means))
 }
 
-## Guardrail booleans (warn rather than silently force a meaningless
-## analysis through). Any argument left NULL is skipped.
 mx_wgcna_guardrails <- function(n_samples = NULL, n_probes = NULL, max_r_sq = NULL, module_colors = NULL) {
   list(
     low_n_samples = !is.null(n_samples) && n_samples < 15,
@@ -113,8 +76,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     methyl_dataset <- dataset
-
-    ## ==== 0. Shared context reactives ====================================
 
     sex_col <- reactive(mod_methyl_dmp_sex_col(methyl_dataset$sample_sheet))
     sex_choices_r <- reactive(mod_methyl_dmp_sex_choices(methyl_dataset$sample_sheet, sex_col()))
@@ -143,8 +104,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       if (!identical(input$sex_stratum %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
       mod_methyl_dmp_covariate_cols(sheet, exclude)
     })
-    ## Preloaded default: age + smoking + cell-type columns minus the
-    ## auto-detected reference cell type. Uploaded default: nothing pre-ticked.
     covariate_default_selected <- reactive({
       cand <- covariate_choices()
       if (!isTRUE(methyl_dataset$preloaded)) return(character(0))
@@ -157,8 +116,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       sel
     })
 
-    ## ==== Status strip (always visible, no button) ========================
-
     status_ui <- function() {
       if (!is.null(methyl_dataset$beta)) {
         div(class = "empty-note", icon("flask"),
@@ -170,8 +127,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             "Preloaded whole-blood dataset (metadata only) - the live beta matrix isn't available in this deployment, so live computation is disabled here. The Results & Export tab's \"Compare with published results\" panel still works from static reference tables.")
       }
     }
-
-    ## ==== 1. Data & Filtering =============================================
 
     output$orientation_check_ui <- renderUI({
       req(methyl_dataset$beta)
@@ -223,11 +178,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## Sex-stratum subsetting happens first, before residualization/ranking,
-    ## since the published script MAD-ranks CpGs separately per sex.
-    ## Intermediates are rm()'d + gc()'d as soon as unused, and the residual
-    ## subtraction is done in row-chunks - the full ~412K-probe matrix can
-    ## otherwise exceed vector memory limits holding multiple full copies.
     mx_wgcna_filtered <- eventReactive(input$filter_btn, {
       validate(need(!is.null(methyl_dataset$beta), "No live beta matrix available - see the status message above."))
       n_probes_total <- nrow(methyl_dataset$beta)
@@ -343,8 +293,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## ==== 2. Sample QC (read-only, no button - reacts to the filtered matrix) ==
-
     tab_sampleqc_ui <- function() {
       f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
       if (is.null(f)) return(div(class = "empty-note", icon("circle-info"), "Build the filtered matrix on \"Data & Filtering\" first."))
@@ -383,8 +331,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
         labs(x = NULL, y = "Missing (%)") + theme_arthomix() +
         theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
     })
-
-    ## ==== 3. Soft Threshold ================================================
 
     tab_power_ui <- function() {
       f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
@@ -440,8 +386,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       fi <- sft$fitIndices
       max_r_sq <- suppressWarnings(max(fi$SFT.R.sq, na.rm = TRUE))
       reached <- is.finite(max_r_sq) && max_r_sq >= (input$r_sq_cutoff %||% 0.85)
-      ## Same rule the published script uses: first power reaching the
-      ## cutoff, else the single best-observed fit across the tested range.
       auto_power <- if (reached) min(fi$Power[fi$SFT.R.sq >= (input$r_sq_cutoff %||% 0.85)]) else fi$Power[which.max(fi$SFT.R.sq)]
       power <- if (identical(input$power_mode, "manual")) (input$manual_power %||% 6) else auto_power
       list(fit_indices = fi, power = power, auto_power = auto_power, reached_cutoff = reached,
@@ -502,8 +446,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(mx_wgcna_sft()$fit_indices, file, row.names = FALSE)
     )
 
-    ## ==== 4. Network & Modules =============================================
-
     tab_modules_ui <- function() {
       sft <- tryCatch(mx_wgcna_sft(), error = function(e) NULL)
       tagList(
@@ -529,10 +471,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
                 column(3, numericInput(ns("min_kme_to_stay"), "Minimum KME to stay", value = 0.3, min = 0, max = 1, step = 0.01)),
                 column(3, numericInput(ns("min_core_kme"), "Minimum core KME", value = 0.5, min = 0, max = 1, step = 0.01))
               ),
-              ## Seed is fixed at 1234 (matching 05_wgcna_sexstratified.R's CFG$seed) for the
-              ## preloaded dataset, since blockwiseModules() runs live even there and module
-              ## colors (size-rank based) must stay stable to match the published pipeline's
-              ## figures. No such reason applies to an uploaded matrix, so expose it there.
               if (!isTRUE(methyl_dataset$preloaded)) fluidRow(
                 column(3, numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1))
               ),
@@ -551,9 +489,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(sft), "Compute the soft-threshold power first."))
       texpr <- t(f$mat)
       cor_type <- if (identical(sft$cor_method, "bicor")) "bicor" else "pearson"
-      ## Fixed at 1234 for the preloaded dataset to match the published pipeline's
-      ## CFG$seed (module colors are size-rank based and would relabel between runs
-      ## otherwise); user-adjustable for uploaded data, where no such pipeline exists.
       net_seed <- if (isTRUE(methyl_dataset$preloaded)) 1234 else (input$net_seed %||% 1234)
       key_parts <- list(texpr = texpr, power = input$net_power, network_type = sft$network_type, tom_type = input$tom_type,
                          cor_type = cor_type, deep_split = as.integer(input$deep_split), min_module_size = input$min_module_size,
@@ -585,11 +520,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
            stratum_label = f$stratum_label)
     })
 
-    ## Publishes the live module assignment for Candidate CpGs (Module-DMR
-    ## Overlap) to pick up automatically, without a re-upload, once this ran
-    ## against an uploaded/GEO dataset. Skipped for the preloaded dataset since
-    ## Candidate CpGs' own "Use Preloaded Data" path already reproduces the
-    ## published module assignment from static files.
     observeEvent(mx_wgcna_net(), {
       if (!is.null(results) && !isTRUE(dataset$preloaded)) {
         res <- mx_wgcna_net()
@@ -613,12 +543,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
               res$stratum_label, n_real, length(res$module_colors), nrow(res$texpr), res$power)),
             if (gr$all_grey) p(class = "empty-note", icon("triangle-exclamation"), "No real modules were detected - everything fell into the grey (unassigned) module. Try a lower minimum module size, a different power, or less aggressive variability filtering."),
             if (!gr$all_grey && gr$single_module) p(class = "empty-note", icon("triangle-exclamation"), "Only one real module was detected - the network may be under-resolved at these settings."),
-            ## blockwiseModules() splits large CpG sets (e.g. the default
-            ## 20,000-CpG preloaded network) into multiple TOM blocks, each
-            ## with its own dendrogram - only block 1 is actually plotted
-            ## below, so make that explicit rather than letting it look like
-            ## the whole network. Module sizes/hub CpGs/enrichment further
-            ## down this tab are computed across every block, not just this one.
             if (length(res$net$dendrograms) > 1) p(class = "submodule-desc", icon("circle-info"), sprintf(
               "This CpG set was split into %d WGCNA blocks; the dendrogram below shows block 1 of %d only (%s of %s total CpGs). Module sizes, hub CpGs, and enrichment results elsewhere in this tab are computed across all blocks.",
               length(res$net$dendrograms), length(res$net$dendrograms),
@@ -660,16 +584,9 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       }
     )
 
-    ## ==== 5. Module-Trait Analysis =========================================
-
     tab_traits_ui <- function() {
       net <- tryCatch(mx_wgcna_net(), error = function(e) NULL)
       sheet <- methyl_dataset$sample_sheet
-      ## A column already regressed out as a residualization covariate
-      ## (Data & Filtering step) is excluded from the trait choices here -
-      ## picking it as the module-trait target too would compare the
-      ## network against a signal that was already subtracted from it,
-      ## silently producing a near-zero, meaningless correlation.
       f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
       used_covariates <- if (!is.null(f)) f$resid_covariates %||% character(0) else character(0)
       trait_choices <- if (!is.null(sheet)) setdiff(colnames(sheet), used_covariates) else character(0)
@@ -702,9 +619,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(net), "Run WGCNA (Network & Modules) first."))
       sheet <- methyl_dataset$sample_sheet
       validate(need(!is.null(sheet), "No sample sheet available."))
-      ## Belt-and-suspenders guard alongside tab_traits_ui()'s choice-list
-      ## exclusion above - covers the (unlikely but possible) case of a
-      ## stale trait_col selection surviving a rebuilt filtered matrix.
       f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
       used_covariates <- if (!is.null(f)) f$resid_covariates %||% character(0) else character(0)
       validate(need(
@@ -752,11 +666,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
         )
       )
     })
-    ## Two-column heatmap when the trait is a two-level factor: one column
-    ## per level, with the "other" level's column being the exact negative
-    ## correlation (a two-level indicator and its complement are perfectly
-    ## anti-correlated). Falls back to a single column for a numeric trait.
-    ## Label size and plot height both scale with module count to avoid overlap.
     mt_heatmap_df <- reactive({
       res <- tryCatch(mx_wgcna_module_trait(), error = function(e) NULL); req(res)
       df <- res$table[res$table$module != "grey", , drop = FALSE]
@@ -798,8 +707,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(mx_wgcna_module_trait()$table, file, row.names = FALSE)
     )
 
-    ## ==== 6. Hub CpGs =======================================================
-
     tab_hubs_ui <- function() {
       net <- tryCatch(mx_wgcna_net(), error = function(e) NULL)
       tagList(
@@ -820,9 +727,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## Intramodular connectivity needs the whole network's TOM/adjacency, so
-    ## it's expensive - kept as a plain reactive() (computed once per network,
-    ## reused across module switches) rather than recomputed on every click.
     mx_wgcna_intramod_conn <- reactive({
       net <- tryCatch(mx_wgcna_net(), error = function(e) NULL)
       req(net)
@@ -889,8 +793,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       content = function(file) utils::write.csv(mx_wgcna_hubs()$table, file, row.names = FALSE)
     )
 
-    ## ==== 7. Results & Export ===============================================
-
     output$summary_table_ui <- DT::renderDataTable({
       f <- tryCatch(mx_wgcna_filtered(), error = function(e) NULL)
       req(f)
@@ -953,8 +855,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       }
     )
 
-    ## ---- Compare with published results (preloaded dataset only) --------
-
     reference_panel_ui <- function() {
       div(class = "card",
           div(class = "card-title", icon("book"), "Compare with published results"),
@@ -970,10 +870,6 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       validate(need(!is.null(mt), "Published reference tables aren't available in this deployment."))
       DT::datatable(mt, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
-
-    ## ---- Optional Functional Enrichment (Fisher's exact test against the
-    ## DMP/DMR biomarker panel, the published pipeline's own convergent-
-    ## evidence check)
 
     enrichment_ui <- function() {
       mt <- tryCatch(mx_wgcna_module_trait(), error = function(e) NULL)
@@ -1052,15 +948,10 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       )
     }
 
-    ## ==== Top-level assembly ================================================
-
     main_ui <- function() {
       tagList(
         status_ui(),
         div(class = "tx-menu-wrap",
-            ## Each tab body is its own uiOutput/renderUI pair so that
-            ## triggering one stage's eventReactive only invalidates/spins
-            ## that one output, not the whole tabsetPanel.
             tabsetPanel(
               id = ns("subtabs"), type = "tabs", header = tagList(tags$hr()),
               tabPanel(value = "data", title = mx_wgcna_tab_title("filter", "Data & Filtering"), br(), withSpinner(uiOutput(ns("tabout_data")), color = "#2563EB", type = 6)),

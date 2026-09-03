@@ -1,37 +1,7 @@
 ## ui.R
 ## ArthOMix Explorer
 ## Layout follows xOmicsShiny's pattern: no marketing landing page, the app
-## opens directly on Modules (pick an omics layer) -> Transcriptomics. Inside
-## Transcriptomics: a Dataset tab (what's currently loaded), a Sub-modules
-## tab (the grouped analysis picker), and one tab per analysis the user has
-## added. Methylomics and Cross-Omics reuse the same Dataset + Sub-modules
-## layout; Multi-Omics is still a placeholder for later work. ArthOChat is
-## its own top-level tab, after Multi-Omics - one
-## shared assistant for the whole app (sees whatever dataset/results are
-## current, in every module), not a chat instance duplicated per sub-module.
 
-## ---------------------------------------------------------------------------
-## Home page
-## First tab in the navbar, selected on load. Purely descriptive - every
-## control on it hands off to machinery that already exists elsewhere
-## (updateTabsetPanel(session, "sidebar_tabs", ...) in server.R, the same
-## ARTHOCHAT_DRAWER_OPEN_JS every other "Ask ArthOChat" trigger uses) rather
-## than introducing any new reactive logic of its own. Content mirrors the
-## real pipeline: the six SUBMODULE_GROUP_ORDER stages defined below and the
-## MODULE_REGISTRY omics layers from global.R, so it can't drift out of sync
-## with what the app actually does. The hero's search box and quick-jump
-## pills are genuinely functional, not decorative: both just set
-## `header_search_submit`, the exact input R/ui_shell.R's own header search
-## already sets and server.R's existing observeEvent(input$header_search_submit,
-## ...) already handles - no new server-side logic needed. The stat-counter
-## animation and FAQ accordion are pure client-side chrome (an
-## IntersectionObserver count-up and native <details>/<summary>), scoped to
-## this page's own script tag.
-## ---------------------------------------------------------------------------
-
-## detail: short blurb revealed on hover/keyboard-focus (a plain CSS
-## popover - tabindex makes the card itself focusable so :focus-within
-## covers both mouse and keyboard without any JS).
 home_stat_card <- function(value, label, icn, count_to = NULL, detail = NULL) {
   detail_id <- if (!is.null(detail)) paste0("home-stat-detail-", gsub("[^a-z0-9]+", "-", tolower(label))) else NULL
   div(
@@ -50,9 +20,6 @@ home_stat_card <- function(value, label, icn, count_to = NULL, detail = NULL) {
   )
 }
 
-## kicker: optional small uppercase label above the title, used by the
-## "Data-grounded AI assistance" card to surface "ArthOChat, grounded in
-## your data" without every card needing the same treatment.
 home_feature_card <- function(icn, title, desc, kicker = NULL) {
   div(
     class = "info-card home-feature-card",
@@ -63,10 +30,6 @@ home_feature_card <- function(icn, title, desc, kicker = NULL) {
   )
 }
 
-## Splits a heading into one <span> per word, each with a staggered
-## animation-delay, so CSS can pop the words in left-to-right on load
-## (see .home-hero-title-word in custom.css) instead of the whole
-## heading fading in as one block.
 home_hero_title_words <- function(text, step = 0.09) {
   words <- strsplit(text, " ", fixed = TRUE)[[1]]
   tagList(lapply(seq_along(words), function(i) {
@@ -92,11 +55,6 @@ home_meta_chip <- function(icn, label, value) {
   )
 }
 
-## Foreground "what happens when you click an omics module" mini-stepper -
-## opaque cards sitting above the hero's own blurred background canvas
-## (HOME_HERO_CANVAS_JS), connected by a vertical line. Purely descriptive:
-## no reactive logic, matches the real Data -> ... -> Validation pipeline
-## at a glance rather than duplicating SUBMODULE_GROUP_ORDER's six stages.
 home_hero_flow_step <- function(n, icn, title, blurb) {
   div(
     class = "home-hero-flow-step",
@@ -109,10 +67,6 @@ home_hero_flow_step <- function(n, icn, title, blurb) {
   )
 }
 
-## Quick-jump pill: sets the same `header_search_submit` input the hero
-## search box and R/ui_shell.R's header search box set on Enter, so it
-## reuses server.R's existing observeEvent(input$header_search_submit, ...)
-## instead of adding a second navigation path.
 home_hero_pill <- function(label, query = label) {
   tags$a(
     label, href = "#", class = "home-hero-pill",
@@ -131,23 +85,6 @@ home_faq_item <- function(question, answer) {
   )
 }
 
-## Hero background animation: a canvas funnel, entirely synthetic/
-## conceptual (no dataset, gene, result or GEO/PubMed call ever touches it -
-## see the comment on the <canvas> tag above). A wide field of small points
-## on the left (standing for "thousands of raw features") narrows steadily
-## toward the right as most points are dropped at two thinning checkpoints
-## ("feature selection", "computational analysis") and the survivors
-## converge toward the centerline, until only a handful remain, pulsing
-## gently, near the right edge ("potential biomarkers"). Two faint guide
-## curves reinforce the funnel shape. Sits behind the hero's own foreground
-## content (see .home-hero-flow) - CSS blurs and dims it so it always reads
-## as background texture, never competes with the readable text on top.
-## Confined to the Home page's own script tag - nothing here is a Shiny
-## input/output or touches app state. Respects prefers-reduced-motion (a
-## single static frame, no rAF loop) and only runs its animation loop while
-## the canvas is actually on screen (IntersectionObserver start/stop), so
-## switching to any other tab pauses it rather than animating invisibly in
-## the background.
 HOME_HERO_CANVAS_JS <- "
 $(function(){
   var canvas = document.getElementById('home_hero_canvas');
@@ -364,20 +301,6 @@ $(function(){
 });
 "
 
-## Full-page scroll-story background: a single canvas (position:sticky, see
-## .home-story-canvas) pinned behind every section below the hero,
-## cross-fading between seven generic visualization styles as the page
-## scrolls - the same visual language as ArthOMix's real result views
-## (matrices, PCA/clustering, volcano-style ranking, pathway networks,
-## multi-omics layers, biomarker prioritisation, model validation) but
-## entirely synthetic: every layout below is built once from Math.random(),
-## nothing here reads a dataset, gene name, statistic or analysis result.
-## `alpha` is the crossfade weight (0-1) the scroll-position blend below
-## passes in - each drawXxx() is a no-op below a tiny threshold so a fully
-## faded-out stage skips its own drawing work. Respects
-## prefers-reduced-motion (one static frame, no scroll-linked changes at
-## all) and only runs while any part of the wrapper is on screen
-## (IntersectionObserver start/stop), so leaving the Home tab pauses it.
 HOME_STORY_CANVAS_JS <- "
 $(function(){
   var wrapper = document.querySelector('.home-page-root');
@@ -718,18 +641,6 @@ $(function(){
 });
 "
 
-## 'Why ArthOMix' section backdrop: a small canvas that slowly cross-fades
-## between six muted, single-hue (blue only - no teal/violet/amber here)
-## sketches of real ArthOMix output types - an expression heatmap, a PCA/
-## UMAP-style projection, a volcano plot, a pathway/enrichment network, a
-## two-layer multi-omics network, and a model-evaluation curve - each built
-## once from Math.random(), never from an actual dataset, gene, p-value or
-## result. No text labels; CSS applies heavy blur/low opacity so it always
-## reads as atmosphere behind the four opaque feature cards, never as
-## content of its own. Each stage holds, then gradually cross-fades into
-## the next, continuously - never an abrupt cut. Respects prefers-reduced-
-## motion (one static frame, no cycling) and only runs while the section is
-## actually on screen (IntersectionObserver start/stop).
 HOME_FEATURES_CANVAS_JS <- "
 $(function(){
   var canvas = document.getElementById('home_features_canvas');
@@ -990,14 +901,6 @@ homeUI <- function() {
   tagList(
     div(
       class = "home-page-root",
-      ## Full-page scroll-driven story background (see HOME_STORY_CANVAS_JS
-      ## below): a single sticky canvas pinned behind every section below
-      ## the hero, cross-fading between seven generic, dataset-independent
-      ## visualization styles (data matrix -> exploration scatter -> feature
-      ## ranking -> pathway network -> multi-omics network -> biomarker
-      ## thinning -> validation) as the page scrolls. Purely decorative
-      ## (aria-hidden): no dataset, gene, result or API call ever touches
-      ## it - every layout is synthesized once in JS from Math.random().
       tags$canvas(id = "home_story_canvas", class = "home-story-canvas", `aria-hidden` = "true"),
       div(
         class = "home-story-content",
@@ -1006,11 +909,6 @@ homeUI <- function() {
       div(class = "home-hero-pattern"),
       div(class = "home-hero-orb home-hero-orb-1", `aria-hidden` = "true"),
       div(class = "home-hero-orb home-hero-orb-2", `aria-hidden` = "true"),
-      ## Conceptual, dataset-independent animation: raw data -> feature
-      ## selection -> computational analysis -> molecular networks ->
-      ## biomarker candidates -> validation. Purely decorative background
-      ## chrome (aria-hidden, no real data/genes/results ever touch it) -
-      ## see the script tag below for the particle system that draws it.
       tags$canvas(id = "home_hero_canvas", class = "home-hero-canvas", `aria-hidden` = "true"),
       div(
         class = "home-hero-grid",
@@ -1088,10 +986,6 @@ homeUI <- function() {
     ),
     div(
       class = "home-features-section",
-      ## Cycling, monochrome-blue, heavily blurred scientific-visualization
-      ## backdrop (see HOME_FEATURES_CANVAS_JS) - purely atmospheric, aria-
-      ## hidden, no real data/results. Cards below keep their own opaque
-      ## background, so legibility is unaffected regardless.
       tags$canvas(id = "home_features_canvas", class = "home-features-canvas", `aria-hidden` = "true"),
       div(
         class = "page-header",
@@ -1169,19 +1063,6 @@ homeUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Modules landing page
-## ---------------------------------------------------------------------------
-
-## id_prefix distinguishes the "Open module" actionButton's inputId when
-## this card is rendered on more than one tab at once - navbarPage mounts
-## every tabPanel's content into the DOM upfront (not lazily on first
-## visit), so the Modules tab's and Home tab's cards for the same module
-## both exist simultaneously; without distinct ids they'd collide as a
-## duplicate Shiny input id. Left at "" (unprefixed, same id as before) on
-## the Modules tab itself so nothing there changes; homeUI() passes
-## "home_" for its own copy, wired to the same updateTabsetPanel target in
-## server.R.
 moduleCardUI <- function(m, id_prefix = "") {
   is_available <- identical(m$status, "available")
   div(
@@ -1199,9 +1080,6 @@ moduleCardUI <- function(m, id_prefix = "") {
       ),
       p(class = "module-card-tagline", m$tagline),
       if (identical(m$id, "arthochat")) {
-        ## ArthOChat is a slide-out drawer (see ui.R's app shell), not a
-        ## navbarPage tab - open it the same way every other "Ask
-        ## ArthOChat" trigger in the app does, not a server round-trip.
         tags$a("Open module", href = "#", class = "btn btn-primary btn-sm", onclick = ARTHOCHAT_DRAWER_OPEN_JS)
       } else if (is_available) {
         actionButton(paste0(id_prefix, "open_", m$id), "Open module", class = "btn-primary btn-sm")
@@ -1233,13 +1111,6 @@ modulesLandingUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Transcriptomics module: Dataset tab, Sub-modules tab (grouped picker),
-## dynamic analysis tabs inserted/removed by server.R
-## ---------------------------------------------------------------------------
-
-## Order controls the section order on the Sub-modules tab; it follows the
-## order the thesis pipeline actually runs in.
 SUBMODULE_GROUP_ORDER <- c(
   "Data", "Network", "Genetics", "Biomarker modeling", "Validation", "Interpretation"
 )
@@ -1252,12 +1123,6 @@ SUBMODULE_GROUP_BLURB <- c(
   "Interpretation" = "What the panel means biologically and clinically."
 )
 
-## `id_prefix` keeps this card's DOM/input ids ("smcard_wrap_<id>",
-## "sm_toggle_<id>", ...) unique across module registries once more than
-## one exists (TX_MODULES ids and MX_MODULES ids aren't namespaced against
-## each other - these are plain top-level ids, not inside a moduleServer) -
-## same purpose as moduleCardUI()'s own id_prefix above. "" (the default)
-## keeps every existing Transcriptomics id exactly as before.
 submoduleCardUI <- function(cfg, id_prefix = "") {
   div(
     id = paste0(id_prefix, "smcard_wrap_", cfg$id), class = "sm-card-wrap",
@@ -1279,10 +1144,6 @@ submoduleCardUI <- function(cfg, id_prefix = "") {
   )
 }
 
-## Genericized so Methylomics's "Sub-modules" tab (see methylomicsUI() below)
-## can reuse it against MX_MODULES/MX_SUBMODULE_GROUP_ORDER instead of
-## duplicating this - default args keep every existing transcriptomics call
-## site (just build_submodule_grid()) rendering exactly as before.
 build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_GROUP_ORDER, group_blurb = SUBMODULE_GROUP_BLURB, id_prefix = "") {
   by_group <- split(modules, vapply(modules, function(m) m$config$group %||% "Data", character(1)))
   groups <- intersect(group_order, names(by_group))
@@ -1300,16 +1161,6 @@ build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_G
   )
 }
 
-## Left sidebar nav items for the Transcriptomics module (see
-## R/ui_shell.R::omics_sidebar()). `match` is the exact visible tab title
-## each item navigates to / highlights against - "Dataset" is tx_menu's own
-## built-in tab (mod_dataset_ui), always present regardless of which
-## sub-modules have been added. Every actual sub-module (Overview,
-## Preprocessing, Differential Expression, ...) gets its own sidebar
-## shortcut dynamically, only once added from the Sub-modules grid - see
-## "tx_sidebar_dynamic_nav" (server.R), rendered right after this static
-## list by omics_sidebar()'s `dynamic_nav_output_id`. The corresponding
-## "sidebar_nav_transcriptomics_<id>" click observers live in server.R.
 TRANSCRIPTOMICS_SIDEBAR_NAV <- list(
   list(id = "dataset", label = "Datasets", icon = "database", match = "Dataset"),
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
@@ -1354,19 +1205,6 @@ transcriptomicsUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Methylomics module: Dataset tab, Sub-modules tab - same "Dataset +
-## Sub-modules" layout as Transcriptomics above (build_submodule_grid(),
-## omics_sidebar(), the "tx-menu-wrap"/"sm-*"/"card" classes are all
-## presentational and already generic - see their own comments), reused
-## as-is rather than duplicated or restyled.
-## ---------------------------------------------------------------------------
-
-## Order follows the sex-stratified methylomics pipeline scripts
-## (script01-09), same group vocabulary as SUBMODULE_GROUP_ORDER above so
-## the two Sub-modules tabs read consistently; groups with no module yet
-## registered in MX_MODULES are simply skipped by build_submodule_grid()'s
-## intersect().
 MX_SUBMODULE_GROUP_ORDER <- c("Data", "Network", "Genetics", "Biomarker modeling", "Interpretation")
 MX_SUBMODULE_GROUP_BLURB <- c(
   "Data" = "Load, quality-control, and prepare the methylation dataset.",
@@ -1376,13 +1214,6 @@ MX_SUBMODULE_GROUP_BLURB <- c(
   "Interpretation" = "Profile a single candidate biomarker in depth."
 )
 
-## Quality Control/Normalization/Differential Methylation are NOT listed
-## here - same reason TRANSCRIPTOMICS_SIDEBAR_NAV above only has
-## dataset/submodules: those three only get a sidebar shortcut once
-## actually added from the Sub-modules grid, rendered by
-## mx_sidebar_dynamic_nav (server.R), the same dynamic-nav mechanism
-## tx_sidebar_dynamic_nav already uses for every Transcriptomics
-## sub-module - see dynamic_nav_output_id below.
 METHYLOMICS_SIDEBAR_NAV <- list(
   list(id = "dataset", label = "Dataset", icon = "database", match = "Dataset"),
   list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
@@ -1427,17 +1258,6 @@ methylomicsUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Cross-Omics module: Dataset tab, Sub-modules tab - same "Dataset +
-## Sub-modules" layout as Transcriptomics/Methylomics above (build_submodule_
-## grid(), omics_sidebar(), the "tx-menu-wrap"/"sm-*"/"card" classes are all
-## presentational and already generic - see their own comments), reused
-## as-is rather than duplicated or restyled.
-## ---------------------------------------------------------------------------
-
-## Order follows the cross-omics pipeline's own two scripts (01_*, 02_*, see
-## submodules_registry.R's own comment on CX_MODULES); groups with no module
-## yet registered are simply skipped by build_submodule_grid()'s intersect().
 CX_SUBMODULE_GROUP_ORDER <- c("Data", "Genetics")
 CX_SUBMODULE_GROUP_BLURB <- c(
   "Data" = "Join the eQTL-MR/mQTL-MR/DEG/DMP tables into one biomarker-convergence view.",
@@ -1453,10 +1273,6 @@ crossomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
       "crossomics", "Cross-Omics", CROSSOMICS_SIDEBAR_NAV,
-      ## Rendered server-side (uiOutput, not a static call) so the hint text
-      ## can change with input$cx_menu - see server.R's output$cx_arthochat_hint -
-      ## specifically so Cross-Omics MR gets its own hint about selecting MR
-      ## data, instead of every Cross-Omics tab sharing one static blurb.
       extra_sidebar_content = uiOutput("cx_arthochat_hint"),
       dynamic_nav_output_id = "cx_sidebar_dynamic_nav"
     ))),
@@ -1492,16 +1308,6 @@ crossomicsUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Multi-Omics module: Dataset tab, Sub-modules tab - same "Dataset +
-## Sub-modules" layout as Transcriptomics/Methylomics/Cross-Omics above,
-## reused as-is rather than duplicated or restyled.
-## ---------------------------------------------------------------------------
-
-## Order follows Research_05_multiomics_sexstratified's own pipeline stages
-## (see submodules_registry.R's own comment on MULTI_MODULES); groups with
-## no module yet registered are simply skipped by build_submodule_grid()'s
-## intersect().
 MULTI_SUBMODULE_GROUP_ORDER <- c("Data", "Biomarker modeling", "Interpretation")
 MULTI_SUBMODULE_GROUP_BLURB <- c(
   "Data" = "Data preparation.",
@@ -1553,10 +1359,6 @@ multiomicsUI <- function() {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Placeholder modules
-## ---------------------------------------------------------------------------
-
 comingSoonUI <- function(title, blurb) {
   tagList(
     div(class = "page-header", h2(title)),
@@ -1572,40 +1374,12 @@ comingSoonUI <- function(title, blurb) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## App shell
-## Matches xOmicsShiny's actual page structure (github.com/interactivereport/
-## xOmicsShiny, app.R): fluidPage + shinytheme("cerulean") + a plain
-## titlePanel, with navbarPage nested inside for the tab bar - not
-## shinydashboard's AdminLTE chrome. box()/valueBox() (shinydashboard
-## components used throughout the sub-modules) still need AdminLTE's CSS to
-## render correctly; shinydashboard normally attaches that only via
-## dashboardPage(), so it's attached explicitly below. CSS only, not the
-## AdminLTE/shinydashboard JS - that JS expects dashboardHeader/Sidebar DOM
-## (sidebar toggle, box collapse) that doesn't exist here and throws on load;
-## nothing in this app uses box(collapsible = TRUE) or any other bit of that
-## JS, so it's safe to drop.
-## ---------------------------------------------------------------------------
-
 addCssDepsOnly <- function(tag) {
   deps <- htmltools::findDependencies(shinydashboard:::addDeps(tags$div()))
   js_free <- lapply(deps, function(d) { d$script <- character(0); d })
   htmltools::attachDependencies(tag, js_free, append = TRUE)
 }
 
-## Everything the app actually shows once logged in - unchanged from before
-## the auth gate, just relocated into a function so server.R's
-## output$app_shell can render it only after auth$session_info() is
-## non-NULL, instead of it being the page's static content unconditionally.
-## `user_email` is passed straight to app_header() for the account menu.
-## `<<-`, not `<-`: shiny sources ui.R and server.R into two separate
-## environments that only share a common parent (the R/*.R auto-load
-## environment) - every other ui.R-local helper (homeUI(), transcriptomicsUI(),
-## ...) is only ever called from within ui.R itself, so that boundary never
-## mattered before. server.R's output$app_shell needs to call this one, so
-## it has to bind into the global environment instead of ui.R's own - the
-## function's closure (and so its access to homeUI() etc.) is unaffected;
-## only which environment the *name* resolves in changes.
 existing_app_ui <<- function(user_email) {
   addCssDepsOnly(
     fluidPage(
@@ -1619,11 +1393,6 @@ existing_app_ui <<- function(user_email) {
         tabPanel(tagList(icon("circle-nodes"), "Methylomics"), value = "methylomics", methylomicsUI()),
         tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
         tabPanel(tagList(icon("layer-group"), "Multi-Omics"), value = "multiomics", multiomicsUI())
-        ## No "ArthOChat" tabPanel here - see the drawer below. Opening chat
-        ## used to replace whatever module you were looking at with a
-        ## separate full-page tab; it's now a slide-out panel mounted once,
-        ## outside the navbarPage, so it overlays on top of the current page
-        ## instead of navigating away from it.
       ),
       div(
         id = "arthochat_drawer", class = "chat-drawer",
@@ -1645,18 +1414,6 @@ existing_app_ui <<- function(user_email) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Auth gate
-## The actual top-level `ui`. A function(request), not a static object, so
-## it can look the same for every visitor while what's inside uiOutput
-## ("app_shell") depends on that session's own auth state, decided
-## server-side (server.R's output$app_shell) - an unauthenticated browser
-## never receives existing_app_ui()'s markup at all. useShinyjs()/the CSS
-## links/the theme pre-paint script load once here, before login, so the
-## auth screen (R/auth/mod_auth_ui.R) is styled and themed identically to
-## the rest of the app.
-## ---------------------------------------------------------------------------
-
 ui <- function(request) {
   addCssDepsOnly(
     fluidPage(
@@ -1664,10 +1421,6 @@ ui <- function(request) {
       useShinyjs(),
       tags$head(
         tags$title("ArthOMix"),
-        ## Applies any previously-chosen theme before first paint, so
-        ## switching to dark mode and reloading never flashes light mode
-        ## first. Only the theme preference is ever read from localStorage -
-        ## no auth/session data is stored there (see mod_auth_server.R).
         tags$script(HTML(
           "(function(){
              try {
@@ -1676,10 +1429,6 @@ ui <- function(request) {
              } catch (e) {}
            })();"
         )),
-        ## ?v=<mtime> cache-busts these on every app restart - www/ assets have
-        ## no Cache-Control header, so browsers are free to serve a stale copy
-        ## from disk cache on a plain reload; a changing query string forces a
-        ## real refetch without requiring a hard reload from whoever's testing.
         tags$link(rel = "stylesheet", type = "text/css",
                   href = paste0("custom.css?v=", as.integer(file.mtime("www/custom.css")))),
         tags$link(rel = "stylesheet", type = "text/css",

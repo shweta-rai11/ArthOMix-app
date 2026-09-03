@@ -1,42 +1,19 @@
 ## R/methylomics/12_Colocalization/mod_methyl_coloc.R
 ## Bayesian colocalisation (coloc.abf, optionally coloc.susie) between an
 ## mQTL/CpG signal and a GWAS trait signal in one region: shared causal
-## variant (PP.H4) vs distinct LD-linked variants (PP.H3). Methylomics
-## counterpart to R/transcriptomics/08_Colocalization/mod_coloc.R (eQTL colocalisation).
-##
-## Two data routes: Preloaded reproduces script08's completed coloc.abf()
-## run (08d_mr_coloc.R: GoDMC cis-mQTL vs Ishigaki et al. 2022 RA GWAS,
-## CpGs with >=10 candidate SNPs). Only per-CpG PP.H0-H4 summaries are
-## bundled, not per-SNP data, so this route is lookup-only - no SNP-level
-## results, regional plots, or sensitivity analysis. Upload Data runs the
-## full live pipeline (format_data()/harmonise_data(), region/association
-## filters, coloc.abf()/coloc.susie(), plots, sensitivity) on user files.
-##
-## Stage-gated UI: Validate Data -> Run Colocalisation -> Plot/Sensitivity,
-## each behind a has-run flag like mod_methyl_mr.R; changing a stage's
-## inputs invalidates everything downstream.
-
-## ---------------------------------------------------------------------------
-## Small local helpers (not shared with R/transcriptomics/08_Colocalization/mod_coloc.R)
-## ---------------------------------------------------------------------------
 
 .mcol_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
 .mcol_stage_order <- c("validate", "run", "plot", "sensitivity")
 
-## coloc.abf()'s own package defaults; pre-filled for the Upload route,
-## echoed read-only for the Preloaded route.
 MCOL_DEFAULT_P1 <- 1e-4
 MCOL_DEFAULT_P2 <- 1e-4
 MCOL_DEFAULT_P12 <- 1e-5
 MCOL_DEFAULT_P12_SUSIE <- 5e-6
-MCOL_DEFAULT_WINDOW_KB <- 1000 ## 08d_mr_coloc.R's own CIS_WINDOW_BP = 1e6
-MCOL_DEFAULT_MIN_SHARED_SNPS <- 10 ## matches 08d's own ">=10 GoDMC SNPs" cutoff
-MCOL_DEFAULT_PP_THRESHOLD <- 0.8 ## matches 08d's own verdict threshold
+MCOL_DEFAULT_WINDOW_KB <- 1000
+MCOL_DEFAULT_MIN_SHARED_SNPS <- 10
+MCOL_DEFAULT_PP_THRESHOLD <- 0.8
 
-## Aligns an uploaded LD (SNP x SNP correlation) matrix to a target SNP
-## set. Expects first column and header row to both be SNP IDs. Returns
-## NULL if fewer than 2 SNPs from `snp_ids` are found labelled on both axes.
 .mcol_prep_ld <- function(raw_df, snp_ids) {
   if (is.null(raw_df) || nrow(raw_df) == 0 || ncol(raw_df) < 3) return(NULL)
   df <- as.data.frame(raw_df)
@@ -48,8 +25,6 @@ MCOL_DEFAULT_PP_THRESHOLD <- 0.8 ## matches 08d's own verdict threshold
   mat[common, common, drop = FALSE]
 }
 
-## Interpretation panel shared by both routes: five PP.H0-H4 probabilities
-## in, tagList out.
 .mcol_interpret <- function(h0, h1, h2, h3, h4) {
   hs <- c(H0 = h0, H1 = h1, H2 = h2, H3 = h3, H4 = h4)
   strongest <- names(hs)[which.max(hs)]
@@ -84,10 +59,6 @@ mod_methyl_coloc_config <- list(
   description = "Tests whether an mQTL and a GWAS signal at a CpG's region share a causal variant"
 )
 
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
-
 mod_methyl_coloc_ui <- function(id) {
   ns <- NS(id)
   div(
@@ -103,8 +74,6 @@ mod_methyl_coloc_ui <- function(id) {
     )
   )
 }
-
-## ---- Tab 1: Data & Setup ----------------------------------------------------
 
 mcol_data_ui <- function(ns) {
   fluidRow(
@@ -164,8 +133,6 @@ mcol_data_ui <- function(ns) {
     )
   )
 }
-
-## ---- Tab 2: Filters & Parameters --------------------------------------------
 
 mcol_filters_ui <- function(ns) uiOutput(ns("filters_tab_body"))
 
@@ -248,25 +215,13 @@ mcol_filters_controls_upload <- function(ns) {
   )
 }
 
-## ---- Tab 3: Results ----------------------------------------------------------
-
 mcol_results_ui <- function(ns) uiOutput(ns("results_tab_body"))
-
-## ---- Tab 4: Visualisation ------------------------------------------------------
 
 mcol_plots_ui <- function(ns) uiOutput(ns("plots_tab_body"))
 
-## ---- Tab 5: Sensitivity Analysis -------------------------------------------------
-
 mcol_sensitivity_ui <- function(ns) uiOutput(ns("sensitivity_tab_body"))
 
-## ---- Tab 6: Export ---------------------------------------------------------------
-
 mcol_export_ui <- function(ns) uiOutput(ns("export_tab_body"))
-
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
 
 mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
@@ -278,9 +233,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       for (s in .mcol_stage_order[idx:length(.mcol_stage_order)]) stage_flags[[s]] <- FALSE
     }
 
-    ## ------------------------------------------------------------------
-    ## Preloaded route: CpG picker
-    ## ------------------------------------------------------------------
     pre_coloc_tbl <- reactive({
       req(METH_DATA_AVAILABLE)
       tbl <- load_default_meth_coloc_results()
@@ -299,9 +251,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## ------------------------------------------------------------------
-    ## Upload route: column mapping (shared gwas_col_map_ui, global.R)
-    ## ------------------------------------------------------------------
     meth_df_r <- reactive({ req(input$meth_file); read_uploaded_table(input$meth_file$datapath) })
     gwas_df_r <- reactive({ req(input$gwas_file); read_uploaded_table(input$gwas_file$datapath) })
 
@@ -344,14 +293,10 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Any Data-tab defining input change invalidates everything downstream.
     observeEvent(list(input$data_source, input$pre_cpgs, input$meth_file, input$gwas_file,
                        input$meth_cpg, input$meth_target_cpg, input$gwas_label, input$gwas_type, input$case_frac),
                  invalidate_from("validate"), ignoreInit = TRUE, ignoreNULL = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Preview (pre-validation, descriptive only - not the PP.H0-H4 results)
-    ## ------------------------------------------------------------------
     output$preview_ui <- renderUI({
       if (identical(input$data_source, "upload")) {
         tagList(
@@ -399,9 +344,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       DT::datatable(utils::head(df, 20), rownames = FALSE, options = list(scrollX = TRUE, dom = "tp"), class = "stripe hover compact")
     })
 
-    ## ------------------------------------------------------------------
-    ## Stage: Validate Data
-    ## ------------------------------------------------------------------
     validate_state <- reactiveVal(NULL)
 
     build_validate_state_preloaded <- function() {
@@ -539,9 +481,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
     })
     outputOptions(output, "validation_ui", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Filters & Parameters tab body
-    ## ------------------------------------------------------------------
     output$filters_tab_body <- renderUI({
       req(stage_flags$validate)
       vs <- validate_state()
@@ -556,9 +495,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
                        input$pre_min_nsnps),
                  invalidate_from("run"), ignoreInit = TRUE, ignoreNULL = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Stage: Run Colocalisation
-    ## ------------------------------------------------------------------
     run_state <- reactiveVal(NULL)
 
     build_run_state_preloaded <- function() {
@@ -684,8 +620,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         error = function(e) e
       )
       if (inherits(rs, "shiny.silent.error")) {
-        ## validate(need()) failure carries an actionable message - surface
-        ## it rather than failing silently.
         showNotification(conditionMessage(rs), type = "warning", duration = 10)
         return()
       }
@@ -713,9 +647,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       }
     }, ignoreInit = TRUE)
 
-    ## ------------------------------------------------------------------
-    ## Results tab
-    ## ------------------------------------------------------------------
     output$results_tab_body <- renderUI({
       if (!stage_flags$run) {
         return(p(class = "empty-note", icon("circle-info"),
@@ -841,10 +772,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
     })
     outputOptions(output, "susie_table", suspendWhenHidden = FALSE)
 
-    ## ------------------------------------------------------------------
-    ## Visualisation tab (client-side gated via conditionalPanel, same
-    ## idiom as R/transcriptomics/08_Colocalization/mod_coloc.R)
-    ## ------------------------------------------------------------------
     build_pp_bar_plot <- function(h0, h1, h2, h3, h4, title = NULL) {
       df <- data.frame(hypothesis = factor(c("H0", "H1", "H2", "H3", "H4"), levels = c("H0", "H1", "H2", "H3", "H4")),
                         pp = c(h0, h1, h2, h3, h4))
@@ -946,9 +873,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
     output$comparison_plot <- renderPlot({ req(input$plot_btn > 0, run_state()); build_comparison_plot(run_state()) })
     output$posterior_plot <- renderPlot({ req(input$plot_btn > 0, run_state()); build_posterior_plot(run_state()) })
 
-    ## ------------------------------------------------------------------
-    ## Sensitivity Analysis tab
-    ## ------------------------------------------------------------------
     sensitivity_state <- reactiveVal(NULL)
 
     .mcol_rerun_with <- function(h_full, gwas_type, case_frac, p1, p2, p12,
@@ -966,7 +890,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       if (nrow(h) < 6) return(NULL)
       d1 <- list(beta = h$beta.exposure, varbeta = h$se.exposure^2, N = round(stats::median(h$samplesize.exposure, na.rm = TRUE)), type = "quant", snp = h$SNP)
       if (!is.null(h$eaf.exposure)) d1$MAF <- pmin(h$eaf.exposure, 1 - h$eaf.exposure)
-      if (is.null(d1$MAF)) return(NULL) ## coloc.abf needs MAF (or a known sdY) for a quant dataset
+      if (is.null(d1$MAF)) return(NULL)
       d2 <- list(beta = h$beta.outcome, varbeta = h$se.outcome^2, N = round(stats::median(h$samplesize.outcome, na.rm = TRUE)), type = gwas_type, snp = h$SNP)
       if (identical(gwas_type, "cc")) d2$s <- case_frac
       res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = p1, p2 = p2, p12 = p12)), error = function(e) NULL)
@@ -1087,9 +1011,6 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         DT::formatSignif(columns = c("PP.H3", "PP.H4"), digits = 4)
     })
 
-    ## ------------------------------------------------------------------
-    ## Export tab
-    ## ------------------------------------------------------------------
     output$export_tab_body <- renderUI({
       if (!stage_flags$run) {
         return(p(class = "empty-note", icon("circle-info"), "Export becomes available once Run Colocalisation has completed successfully."))

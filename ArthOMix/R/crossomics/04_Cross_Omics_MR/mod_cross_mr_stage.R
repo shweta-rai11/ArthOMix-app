@@ -1,20 +1,6 @@
 ## R/crossomics/04_Cross_Omics_MR/mod_cross_mr_stage.R
 ## Submodule: Cross-Omics MR - loads the pipeline's own already-run
 ## single-instrument mQTL-MR results (Wald ratio, GoDMC exposure -> Ishigaki
-## 2022 RA outcome; cross_Omics_Sexstratified_COPY/results/mr_stage_eqtl_
-## significant_genes_mqtl_mr.csv - see crossomics_mrstage_helpers.R) and
-## INTEGRATES them with the Biomarker Convergence sub-module's DEG/DMP/DMR/
-## eQTL-MR evidence, checking each gene against 5 named evidence
-## combinations (one per tab: DEG-DMP-QTL, DEG-DMR-QTL, DEG-eQTL, DMP-mQTL,
-## DMR-mQTL) - see crossomics_mrstage_helpers.R's CX_MR_CATEGORIES/
-## cx_mr_classify_categories() for the exact rules, shown verbatim in this
-## module's UI. This replaces the module's original Tier 1/2/3 priority
-## ranking - a gene can now match more than one category, since these are
-## independent evidence combinations, not mutually exclusive tiers. No MR
-## statistics are re-run here, and no file outside cross_Omics_
-## Sexstratified_COPY is read - every category is a live relabeling of
-## already-computed values (Biomarker Convergence's own significance
-## flags), so changing the sex selector below updates every tab instantly.
 
 mod_cross_mr_stage_config <- list(
   id = "mrstage", title = "Cross-Omics MR", icon = "arrow-right-arrow-left", group = "Genetics",
@@ -88,24 +74,12 @@ mod_cross_mr_stage_ui <- function(id) {
   )
 }
 
-## `app_session` is the app's own top-level session (from server.R's
-## `function(input, output, session)`), NOT this moduleServer's own
-## `session` - passed in specifically so "Ask ArthOChat for a suggested
-## dataset" can address ArthOChat's real, unnamespaced Shiny id
-## ("arthochat-chat"); using this module's own session there would
-## incorrectly prefix it (e.g. "cx_mrstage-arthochat-chat"). NULL (e.g. in
-## a test harness that doesn't pass it) simply disables that one button.
 mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, app_session = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
     mrs <- reactiveValues(df = NULL, loaded_at = NULL)
 
-    ## Preloaded and Upload are independent pipelines - switching the radio
-    ## clears whatever the other mode had loaded, so stale preloaded MR
-    ## results can't keep showing under "Upload your own data" (or vice
-    ## versa) just because its own Load button hasn't been clicked yet in
-    ## this mode - same fix as Biomarker Convergence's "1. Cohort" panel.
     observeEvent(input$mr_source, {
       mrs$df <- NULL; mrs$loaded_at <- NULL
     }, ignoreInit = TRUE)
@@ -134,13 +108,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
         "%s CpG-instrument results covering %s genes.", format(nrow(mrs$df), big.mark = ","), format(length(unique(mrs$df$gene)), big.mark = ",")))
     })
 
-    ## Opens ArthOChat's own drawer and submits a prompt on the user's
-    ## behalf, so its already-registered gwas_catalog_search()/
-    ## pubmed_search() tools (global.R) can suggest real candidate MR
-    ## exposure/outcome datasets for a trait/disease this project's own
-    ## bundled data doesn't cover. Never fetches data or runs MR itself -
-    ## the reply is a suggestion the user acts on externally, then uploads
-    ## the resulting MR file above via "Upload your own data".
     observeEvent(input$ai_suggest_mr, {
       trait <- trimws(input$ai_trait_query %||% "")
       validate(need(nzchar(trait), "Describe a trait or disease first."))
@@ -163,12 +130,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       showNotification(sprintf("Loaded evidence for %s genes from \"%s\".", format(nrow(res$df), big.mark = ","), input$upload_evidence_file$name), type = "message")
     })
 
-    ## Biomarker Convergence's own table for the selected sex - reused
-    ## directly if that tab has already been loaded in this session (fast
-    ## path), otherwise loaded fresh here via the same shared helpers (no
-    ## dependency on that tab having been opened first) - unless the
-    ## Evidence Source panel is set to "upload", in which case the uploaded
-    ## table (already cx_bc_relabel()'d above) is used instead.
     join_df <- reactive({
       if (identical(input$evidence_source, "upload")) return(uploaded_evidence$df)
       if (!is.null(cross_results) && !is.null(cross_results$biomarkerconv) && identical(cross_results$biomarkerconv$sex, input$sex)) {
@@ -184,12 +145,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       cx_mr_classify_categories(join_df())
     })
 
-    ## mrs$df (the raw per-CpG-instrument MR table) has no MHC-region flag of its own -
-    ## that flag lives on the gene-level evidence table (join_df(), a pipeline-computed
-    ## column, not derived here). Merged in by gene so the Results table and its downloads
-    ## can show it too, not just the category tabs below (which already receive it via
-    ## CX_MR_CATEGORIES$cols). NA (not "FALSE") for any gene the evidence table doesn't
-    ## cover, so "not flagged" and "unknown" stay visually distinct.
     mrs_with_mhc <- reactive({
       df <- mrs$df; req(df)
       jd <- tryCatch(join_df(), error = function(e) NULL)
@@ -202,9 +157,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       df
     })
 
-    ## A single reusable warning line: "N of M genes here sit in the MHC region" -
-    ## used by the Results tab and every eQTL-carrying category tab below. NULL when
-    ## there's nothing to warn about (0 MHC-flagged rows, or the flag isn't available).
     mhc_warning <- function(d, mhc_col = "eQTL_MHC_region", gene_col = "gene") {
       if (is.null(d) || !mhc_col %in% colnames(d)) return(NULL)
       n_mhc <- sum(d[[mhc_col]] %in% TRUE)
@@ -217,12 +169,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
         ))
     }
 
-    ## Shared by the standalone Volcano tab and every category tab below -
-    ## same b-vs--log10(FDR) plot either way, just over whatever rows the
-    ## caller already filtered down to (every loaded instrument for the
-    ## Volcano tab, or just one category's matching genes for its own tab) -
-    ## so "the volcano for this tab" only plots points actually relevant to
-    ## what that tab is about, without duplicating the ggplot chain per tab.
     build_volcano_plot <- function(d, title, cutoff = 0.05) {
       validate(need(nrow(d) > 0, "No MR instrument data to plot here."))
       d$neglog10fdr <- -log10(pmax(d$FDR, 1e-300))
@@ -258,10 +204,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       )
     })
 
-    ## One renderUI/renderDataTable/downloadHandler trio per category tab -
-    ## local() so each closure captures its own `cat` (CX_MR_CATEGORIES'
-    ## lapply loop variable would otherwise be shared/overwritten by the
-    ## time these render, a classic R closure-in-loop pitfall).
     lapply(CX_MR_CATEGORIES, function(cat) {
       local({
         this_cat <- cat
@@ -315,10 +257,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       dt
     })
 
-    ## NULL = every loaded instrument (the tab's default view); a category
-    ## id filters the same plot down to just that category's matching
-    ## genes. Clicking the already-active button toggles back to NULL
-    ## instead of needing a separate 6th "reset" button.
     volcano_cat <- reactiveVal(NULL)
     lapply(CX_MR_CATEGORIES, function(cat) {
       local({
@@ -345,9 +283,6 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
         plotOutput(ns("volcano_plot"), height = "460px")
       )
     })
-    ## Shared by the on-screen plot and the PNG download below, so the
-    ## downloaded file always matches whatever's currently on screen
-    ## (all instruments, or one category's matching genes).
     current_volcano_plot <- reactive({
       df <- mrs$df
       validate(need(!is.null(df) && nrow(df) > 0, "Load MR results first."))

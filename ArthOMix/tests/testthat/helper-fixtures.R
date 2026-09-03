@@ -1,23 +1,7 @@
 ## Deterministic, in-memory test fixtures shared across transcriptomics test
 ## files. Kept as generator functions (not static files) so every test that
 ## needs a "clean" matrix, or one perturbed in one specific way (a duplicate
-## ID, an all-NA row, a zero-variance row, an Ensembl-ID rowname set), gets
-## it from one seeded source instead of hand-rolling slightly different
-## versions per file. A test that specifically wants "a file on disk"
-## (upload-shaped tests) writes fx_expr_meta()'s output to a tempdir with
-## fx_write_expr_csv()/fx_write_meta_csv() rather than reading a committed
-## copy - same convention methylomics/multiomics/crossomics tests use.
-## tests/fixtures/ itself is reserved for things that can't be regenerated
-## this way: tests/fixtures/edge_cases/ (deliberately malformed content).
 
-## Small, deterministic ExpressionSet shaped like a real (messy) GEO series -
-## with decoy pData columns ("status", "characteristics_ch1") that must NOT
-## win guess_col()'s group/sex guess over the real "disease state:ch1"/
-## "Sex:ch1" fields, reproducing the GSE93272 case mod_dataset.R's guess_col()
-## comment describes. Used by the offline GEO-fetch tests via mocked
-## GEOquery::getGEO() - in-memory, same convention as fx_expr_meta() above,
-## rather than a committed .rds (there's nothing in this object that a
-## captured API response would have and a hand-built one wouldn't).
 fx_geo_eset <- function(n_probes = 30, n_samples = 10, seed = 1) {
   set.seed(seed)
   genes <- sprintf("PROBE%d", seq_len(n_probes))
@@ -38,9 +22,6 @@ fx_geo_eset <- function(n_probes = 30, n_samples = 10, seed = 1) {
   eset
 }
 
-## n_genes x n_samples numeric matrix + matching sample metadata data.frame
-## (sample/group/sex/batch columns), balanced group and sex assignment,
-## reproducible for a given seed.
 fx_expr_meta <- function(n_genes = 40, n_samples = 16, seed = 1) {
   set.seed(seed)
   genes <- sprintf("GENE%03d", seq_len(n_genes))
@@ -57,9 +38,6 @@ fx_expr_meta <- function(n_genes = 40, n_samples = 16, seed = 1) {
   list(expr = expr, meta = meta)
 }
 
-## Writes an expr matrix in the exact shape mod_dataset.R's upload path
-## expects for a CSV: first column is the gene/feature ID, one column per
-## sample thereafter (see mod_dataset.R's expr_raw() reactive).
 fx_write_expr_csv <- function(expr, path) {
   df <- data.frame(feature = rownames(expr), expr, check.names = FALSE)
   data.table::fwrite(df, path)
@@ -70,8 +48,6 @@ fx_write_meta_csv <- function(meta, path) {
   data.table::fwrite(meta, path)
   invisible(path)
 }
-
-## Perturbations of the base fixture used by boundary/edge-case tests.
 
 fx_expr_with_duplicate_id <- function(expr) {
   expr2 <- rbind(expr, expr[1, , drop = FALSE])
@@ -95,31 +71,11 @@ fx_expr_ensembl_ids <- function(expr) {
   expr
 }
 
-## Shapes a path into the data.frame a fileInput's `input$x` normally holds
-## (name/size/type/datapath), for feeding into session$setInputs() in a
-## testServer() block - same convention as
-## tests/testthat/test-preprocessing-multi-upload.R's local pp_mkfile().
 fx_mkfile <- function(path, type = "text/csv") {
   data.frame(name = basename(path), size = file.info(path)$size, type = type,
              datapath = path, stringsAsFactors = FALSE)
 }
 
-## Pulls the currently-selected <option> value out of one non-selectize
-## selectInput(id = select_id, ...) inside a block of rendered UI HTML (e.g.
-## a testServer() `output$some_renderUI` string) - used to verify a
-## guess-the-default-column helper (like mod_dataset.R's local guess_col())
-## picked the right column, since testServer() never actually renders a UI
-## into live input defaults - session$setInputs() must be explicit, so the
-## only observable trace of what a selectInput's `selected =` argument
-## computed is in the HTML markup itself.
-## Normalizes a testServer() renderUI output into one plain HTML string.
-## Shiny represents a rendered UI fragment as a bare character string UNLESS
-## it carries an attached html_dependency (e.g. any fontawesome icon()) - in
-## that case output$x becomes list(html = <string>, deps = <list>) instead,
-## so a plain grepl(pattern, output$x) silently coerces the whole list to
-## character (list->character coercion, not the html text) and can compare
-## against the wrong thing without erroring. Route every renderUI output
-## through this before pattern-matching it.
 fx_html_text <- function(output_value) {
   if (is.list(output_value) && !is.null(output_value$html)) return(as.character(output_value$html))
   as.character(output_value)

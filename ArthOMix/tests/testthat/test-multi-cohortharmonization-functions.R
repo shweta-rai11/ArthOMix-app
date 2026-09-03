@@ -1,18 +1,12 @@
 ## Module 3 (Multiomics) - Cohort Harmonization sub-module's pure functions
 ## (cohort_harmonization_helpers.R, used by mod_multi_overview.R): the
 ## per-sample master table, modality descriptors (live matrix-backed vs.
-## preloaded availability-table-only), pairwise overlap, ID harmonization
-## status classification, candidate-column detection, analysis-cell
-## enumeration/readiness, and the leakage-safe nested-CV binary-outcome
-## evaluator (real glmnet/caret/pROC computation - never a fabricated AUC).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
-
-## ---- ch_sample_master_table() ---------------------------------------------
 
 test_that("ch_sample_master_table() marks Present/Missing per modality and counts modalities present", {
   id_sets <- list(Transcriptomics = c("S1", "S2", "S3"), Methylomics = c("S2", "S3", "S4"))
@@ -23,12 +17,12 @@ test_that("ch_sample_master_table() marks Present/Missing per modality and count
   expect_equal(row_s1$Methylomics, "Missing")
   expect_equal(row_s1$`Modalities present`, 1L)
   expect_equal(row_s2$`Modalities present`, 2L)
-  expect_equal(nrow(out), 4L)  ## union of S1-S4
+  expect_equal(nrow(out), 4L)
 })
 
 test_that("ch_sample_master_table() attaches metadata columns by matching rownames, NA for samples absent from meta", {
   id_sets <- list(Transcriptomics = c("S1", "S2"))
-  meta <- data.frame(sex = c("F", "M"), row.names = c("S1", "S3"))  ## S2 has no meta row, S3 isn't in id_sets
+  meta <- data.frame(sex = c("F", "M"), row.names = c("S1", "S3"))
   out <- ch_sample_master_table(id_sets, meta)
   expect_equal(out$sex[out$`Sample ID` == "S1"], "F")
   expect_true(is.na(out$sex[out$`Sample ID` == "S2"]))
@@ -37,8 +31,6 @@ test_that("ch_sample_master_table() attaches metadata columns by matching rownam
 test_that("ch_sample_master_table() returns NULL when every id set is empty", {
   expect_null(ch_sample_master_table(list(Transcriptomics = character(0))))
 })
-
-## ---- ch_value_scale() -------------------------------------------------------
 
 test_that("ch_value_scale() identifies beta-value (0-1) matrices", {
   mat <- matrix(runif(100, 0, 1), 10, 10)
@@ -60,10 +52,8 @@ test_that("ch_value_scale() identifies raw-count-like matrices (non-negative int
 test_that("ch_value_scale() returns 'Unknown' for a non-matrix, NULL, or too-small input, never a guess", {
   expect_equal(ch_value_scale(NULL), "Unknown")
   expect_equal(ch_value_scale(data.frame(a = 1:5)), "Unknown")
-  expect_equal(ch_value_scale(matrix(runif(5), 1, 5)), "Unknown")  ## < 10 finite values
+  expect_equal(ch_value_scale(matrix(runif(5), 1, 5)), "Unknown")
 })
-
-## ---- ch_modality_descriptors_live() / ch_modality_descriptors() -------------
 
 test_that("ch_modality_descriptors_live() builds one descriptor per layer with real matrix-derived n_samples/n_features/value_scale", {
   expr <- matrix(rnorm(60), nrow = 6, ncol = 10, dimnames = list(paste0("S", 1:6), paste0("g", 1:10)))
@@ -89,10 +79,8 @@ test_that("ch_modality_descriptors() dispatches to preloaded vs. live based on m
   skip_if_not(MULTI_DATA_AVAILABLE, "multi-omics preloaded data not available in this deployment")
   out_preloaded <- ch_modality_descriptors(list(active = TRUE, source = "preloaded"))
   expect_true(all(c("Transcriptomics", "Methylomics") %in% names(out_preloaded)))
-  expect_false(out_preloaded$Transcriptomics$has_raw_matrix)  ## no raw matrix bundled for preloaded
+  expect_false(out_preloaded$Transcriptomics$has_raw_matrix)
 })
-
-## ---- ch_modality_descriptors_preloaded() (real registry tables) ------------
 
 test_that("ch_modality_descriptors_preloaded() reports real sample counts from the actual patient matching table", {
   skip_if_not(MULTI_DATA_AVAILABLE, "multi-omics preloaded data not available in this deployment")
@@ -107,14 +95,12 @@ test_that("ch_modality_descriptors_preloaded() reports real sample counts from t
   expect_true(grepl("no raw matrix bundled", out$Transcriptomics$value_scale))
 })
 
-## ---- ch_pairwise_overlap_matrix() -------------------------------------------
-
 test_that("ch_pairwise_overlap_matrix() computes a symmetric NxN intersection-count matrix with correct diagonal", {
   sets <- list(A = c("S1", "S2", "S3"), B = c("S2", "S3", "S4"), C = c("S3"))
   m <- ch_pairwise_overlap_matrix(sets)
-  expect_equal(m["A", "A"], 3L)  ## self-overlap = own size
+  expect_equal(m["A", "A"], 3L)
   expect_equal(m["A", "B"], 2L)
-  expect_equal(m["B", "A"], 2L)  ## symmetric
+  expect_equal(m["B", "A"], 2L)
   expect_equal(m["A", "C"], 1L)
   expect_equal(m["C", "C"], 1L)
 })
@@ -122,8 +108,6 @@ test_that("ch_pairwise_overlap_matrix() computes a symmetric NxN intersection-co
 test_that("ch_pairwise_overlap_matrix() returns NULL when every set is NULL/absent", {
   expect_null(ch_pairwise_overlap_matrix(list(A = NULL, B = NULL)))
 })
-
-## ---- ch_id_harmonization_table() --------------------------------------------
 
 test_that("ch_id_harmonization_table() marks 'Exact match' for identical IDs shared across >=2 modalities", {
   sets <- list(RNA = c("S1", "S2"), Meth = c("S1", "S3"))
@@ -152,12 +136,6 @@ test_that("ch_id_harmonization_table() marks 'Duplicate' (repeated within one mo
   expect_equal(unique(ambiguous$Status[ambiguous$Modality == "RNA"]), "Ambiguous")
 })
 
-## FIXED (was a KNOWN BUG): blank/empty identifiers were silently left with
-## an empty Status instead of "Invalid", because `by_norm[[nrm]]` looked
-## the group up via `[[""]]` - base R's `[[` always returns NULL for a
-## zero-length-string name lookup, even when a list element is genuinely
-## named "". ch_id_harmonization_table() now iterates by_norm by position
-## instead of by name, sidestepping that lookup entirely.
 test_that("ch_id_harmonization_table() marks blank/empty identifiers 'Invalid' (fixed - was silently left blank)", {
   out <- ch_id_harmonization_table(list(RNA = c("", "  ", "S2")))
   blank_rows <- out[out$Original %in% c("", "  "), ]
@@ -169,18 +147,11 @@ test_that("ch_id_harmonization_table() returns NULL when every modality's id set
   expect_null(ch_id_harmonization_table(list(RNA = NULL)))
 })
 
-## ---- ch_classify_column() / ch_classify_metadata_columns() ------------------
-
 test_that("ch_classify_column() flags near-all-unique columns as 'identifier'", {
   expect_equal(ch_classify_column(paste0("ID_", 1:50)), "identifier")
 })
 
 test_that("ch_classify_column() flags high-cardinality numeric columns as 'continuous', but only below the 'near-all-unique' identifier threshold", {
-  ## A column where every value is unique (e.g. rnorm() with no repeats) is
-  ## classified "identifier" instead - the near-all-unique check (>90% of
-  ## values unique) is checked first and fires regardless of numeric type.
-  ## Realistic bounded-range continuous data (e.g. integer ages) has real
-  ## repeats, so it correctly falls through to "continuous".
   set.seed(5)
   v <- sample(20:80, 50, replace = TRUE)
   expect_equal(ch_classify_column(v), "continuous")
@@ -193,7 +164,7 @@ test_that("ch_classify_column() classifies a numeric column with no repeated val
 
 test_that("ch_classify_column() defaults to 'categorical' for low-cardinality columns", {
   expect_equal(ch_classify_column(rep(c("A", "B"), 25)), "categorical")
-  expect_equal(ch_classify_column(character(0)), "categorical")  ## all-empty -> categorical, not an error
+  expect_equal(ch_classify_column(character(0)), "categorical")
 })
 
 test_that("ch_classify_metadata_columns() suggests a keyword-matched column over a plain balanced categorical one", {
@@ -205,7 +176,7 @@ test_that("ch_classify_metadata_columns() suggests a keyword-matched column over
   )
   out <- ch_classify_metadata_columns(meta)
   expect_equal(out$table$type[out$table$column == "patient_id"], "identifier")
-  expect_equal(out$suggested_default, "treatment_response")  ## keyword hit beats plain "batch"
+  expect_equal(out$suggested_default, "treatment_response")
 })
 
 test_that("ch_classify_metadata_columns() falls back to the first balanced categorical column when no keyword column exists", {
@@ -232,8 +203,6 @@ test_that("ch_classify_metadata_columns() returns NULL table/suggestion for empt
   expect_null(out$suggested_default)
 })
 
-## ---- ch_detect_candidate_columns() -------------------------------------------
-
 test_that("ch_detect_candidate_columns('batch') matches batch/cohort/study/platform/site-named columns and excludes ID-like ones", {
   meta <- data.frame(sample_id = 1:5, batch_id = 1:5, study_site = 1:5, age = 1:5)
   out <- ch_detect_candidate_columns(meta, "batch")
@@ -243,10 +212,8 @@ test_that("ch_detect_candidate_columns('batch') matches batch/cohort/study/platf
 test_that("ch_detect_candidate_columns('phenotype') returns only non-ID categorical columns", {
   meta <- data.frame(patient_id = paste0("P", 1:10), sex = rep(c("F", "M"), 5), age = rnorm(10))
   out <- ch_detect_candidate_columns(meta, "phenotype")
-  expect_equal(out, "sex")  ## age is continuous, patient_id is id-like
+  expect_equal(out, "sex")
 })
-
-## ---- ch_matched_sample_summary() ---------------------------------------------
 
 test_that("ch_matched_sample_summary() reports 'Matched' when the intersection equals the smaller modality's full size", {
   out <- ch_matched_sample_summary(list(RNA = c("S1", "S2", "S3"), Meth = c("S1", "S2")))
@@ -274,8 +241,6 @@ test_that("ch_matched_sample_summary() handles zero modalities without fabricati
   expect_equal(out$n_matched, 0L)
 })
 
-## ---- ch_analysis_cells() -------------------------------------------------------
-
 test_that("ch_analysis_cells() enumerates every subset (singles + pairs + full) for <= max_full_subsets modalities", {
   sets <- list(RNA = paste0("S", 1:10), Meth = paste0("S", 6:15))
   out <- ch_analysis_cells(sets, pheno_available = TRUE, min_integration = 3, min_prediction = 6)
@@ -283,13 +248,13 @@ test_that("ch_analysis_cells() enumerates every subset (singles + pairs + full) 
   labels <- vapply(out$cells, `[[`, character(1), "label")
   expect_setequal(labels, c("RNA", "Meth", "RNA + Meth"))
   fused <- out$cells[[which(labels == "RNA + Meth")]]
-  expect_equal(fused$n_matched, 5L)  ## S6-S10
-  expect_true("Unsupervised integration" %in% fused$methods)  ## 5 >= min_integration(3)
-  expect_false("Supervised prediction" %in% fused$methods)  ## 5 < min_prediction(6)
+  expect_equal(fused$n_matched, 5L)
+  expect_true("Unsupervised integration" %in% fused$methods)
+  expect_false("Supervised prediction" %in% fused$methods)
 })
 
 test_that("ch_analysis_cells() reports 'None feasible' when a cell has too few matched samples for any method", {
-  sets <- list(RNA = c("S1", "S2"), Meth = c("S3", "S4"))  ## zero overlap
+  sets <- list(RNA = c("S1", "S2"), Meth = c("S3", "S4"))
   out <- ch_analysis_cells(sets, pheno_available = TRUE)
   fused <- out$cells[[which(vapply(out$cells, `[[`, character(1), "label") == "RNA + Meth")]]
   expect_equal(fused$methods, "None feasible")
@@ -300,7 +265,6 @@ test_that("ch_analysis_cells() caps combinations and states an explicit omitted_
   out <- ch_analysis_cells(sets, max_full_subsets = 4)
   expect_true(!is.null(out$omitted_note))
   expect_true(grepl("omitted for brevity", out$omitted_note))
-  ## Singles (5) + pairs (choose(5,2)=10) + the one full combination = 16, not the full 2^5-1=31.
   expect_equal(length(out$cells), 16L)
 })
 
@@ -309,8 +273,6 @@ test_that("ch_analysis_cells() returns an empty cell list for zero modalities", 
   expect_equal(out$cells, list())
   expect_null(out$omitted_note)
 })
-
-## ---- ch_integration_readiness() -------------------------------------------------
 
 test_that("ch_integration_readiness() classifies single-modality cells as 'single' regardless of sample size", {
   cell <- list(modalities = "RNA", n_matched = 100, label = "RNA")
@@ -328,12 +290,10 @@ test_that("ch_integration_readiness() classifies Ready/Limited/Not suitable by m
   expect_equal(not_suitable$level, "not_suitable")
 })
 
-## ---- ch_fold_predict_view() / ch_evaluate_binary_outcome() (real glmnet/caret/pROC) ----
-
 test_that("ch_fold_predict_view() falls back to 0.5 (no fabricated confidence) when the training fold has a single outcome class", {
   set.seed(10)
   X <- matrix(rnorm(100), 10, 10)
-  y <- factor(rep("A", 10), levels = c("A", "B"))  ## single class in the whole vector
+  y <- factor(rep("A", 10), levels = c("A", "B"))
   out <- ch_fold_predict_view(X, y, train_idx = 1:8, test_idx = 9:10, max_features = 5)
   expect_equal(out, rep(0.5, 2))
 })
@@ -342,8 +302,6 @@ test_that("ch_evaluate_binary_outcome() (real glmnet/caret nested CV) recovers s
   set.seed(42)
   n <- 60
   y <- factor(rep(c("A", "B"), each = n / 2))
-  ## A real, moderately separable signal - not perfectly separable, so glmnet's
-  ## regularization has genuine work to do rather than trivially memorizing.
   X <- matrix(rnorm(n * 30), n, 30, dimnames = list(paste0("S", 1:n), paste0("f", 1:30)))
   X[y == "B", 1:5] <- X[y == "B", 1:5] + 1.5
   rownames(X) <- paste0("S", 1:n)
@@ -352,7 +310,7 @@ test_that("ch_evaluate_binary_outcome() (real glmnet/caret nested CV) recovers s
   out <- ch_evaluate_binary_outcome(list(expression = X), y, k_folds = 5, seed = 1)
   expect_true(out$ok)
   expect_equal(out$n, n)
-  expect_true(out$per_view_auc$expression > 0.6)  ## real signal should beat chance clearly
+  expect_true(out$per_view_auc$expression > 0.6)
   expect_equal(out$majority_baseline, 0.5)
 })
 
@@ -378,15 +336,8 @@ test_that("ch_evaluate_binary_outcome() refuses a non-binary outcome and a too-s
   expect_true(grepl("at least 3 per class", out_imb$error))
 })
 
-## FIXED (was a KNOWN BUG): the function's own documented guard ("Duplicate
-## sample IDs detected across the matched samples - resolve before
-## evaluation.") was unreachable dead code, since `intersect()` always
-## de-duplicates its own output before the old `any(duplicated(common))`
-## check could ever see a duplicate. The check now looks for duplicates in
-## each input's own raw rownames/names (restricted to the matched set)
-## directly, before any intersect() call can hide them.
 test_that("ch_evaluate_binary_outcome() refuses when sample IDs are duplicated (fixed - was silently proceeding)", {
-  ids <- c("S1", rep("S2", 5), paste0("S", 3:15))  ## S2 duplicated 5x, 15 rows total
+  ids <- c("S1", rep("S2", 5), paste0("S", 3:15))
   y <- factor(rep(c("A", "B"), length.out = length(ids))); names(y) <- ids
   X <- matrix(rnorm(length(ids) * 10), length(ids), 10, dimnames = list(ids, paste0("f", 1:10)))
   out <- ch_evaluate_binary_outcome(list(expression = X), y)

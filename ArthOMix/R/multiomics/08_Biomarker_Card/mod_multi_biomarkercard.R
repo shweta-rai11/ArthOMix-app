@@ -1,27 +1,6 @@
 ## R/multiomics/08_Biomarker_Card/mod_multi_biomarkercard.R
 ## Multi-Omics sub-module: Biomarker Card - integrated per-biomarker
 ## interpretation, mirroring the "Select Biomarker" -> "Biomarker Card"
-## pattern of the Transcriptomics/Methylomics Biomarker Cards
-## (mod_biomarkercard.R / mod_methyl_biomarkercard.R), but scoped to what is
-## actually multiomics-specific: does a candidate gene–CpG pair have
-## Transcriptomics-only, Methylomics-only, or Multiomics-supported evidence?
-##
-## Data source: exclusively multi_results$concordance$df (Gene–CpG
-## Concordance, mod_multi_concordance.R) - the one table in this app that
-## already joins a candidate gene's expression evidence to its CpG's
-## methylation evidence, with DIABLO/SNF/Joint cross-omics support flags.
-## Nothing here recomputes statistics or invents a new score; the evidence
-## tier shown is `cx_classify_evidence()` (R/crossomics/
-## crossomics_integration_helpers.R), the exact same classifier Cross-Omics
-## Integration itself uses, applied read-only for display. Patient Evidence
-## (per-sample expression/methylation values) is read directly from
-## multi_dataset$layers when the active dataset is live (not preloaded);
-## preloaded cohorts only have summary statistics, so that tab reports a
-## short "not available" state rather than fabricating sample-level values.
-##
-## This module never writes to multi_results - it is read-only interpretation
-## on top of what Gene–CpG Concordance (and, for DIABLO cross-reference,
-## Biomarker Discovery) has already produced.
 
 mod_multi_biomarkercard_config <- list(
   id = "biomarkercard", title = "Biomarker Card", icon = "id-card", group = "Interpretation",
@@ -39,11 +18,6 @@ mod_multi_biomarkercard_ui <- function(id) {
     )
   )
 }
-
-## ---------------------------------------------------------------------------
-## Small display helpers - shared by every section below. Never silently
-## print "NA"; every missing value reads "Not available".
-## ---------------------------------------------------------------------------
 
 mbc_val <- function(x) {
   if (length(x) == 0 || is.null(x) || (length(x) == 1 && is.na(x))) "Not available" else as.character(x)
@@ -69,18 +43,12 @@ mbc_chip <- function(label, ok) {
        icon(if (isTRUE(ok)) "circle-check" else "circle-minus"), label)
 }
 
-## Evidence tier -> chip color. "Strong"/"Moderate candidate" (both layers
-## significant) get the green "done" treatment; single-layer-only evidence is
-## amber ("pending" - real signal, but only from one omics layer); Discordant/
-## Insufficient are neutral grey - never colored as if they were negative
-## findings, since "no signal at these thresholds" is not an error state.
 MBC_TIER_CLASS <- c(
   "Strong candidate" = "status-done", "Moderate candidate" = "status-done",
   "Expression-only" = "status-pending", "Methylation-only" = "status-pending",
   "Discordant" = "status-neutral", "Insufficient evidence" = "status-neutral"
 )
 
-## Short, direct reason why nothing is analyzed yet - never a long paragraph.
 mbc_missing_data_note <- function(multi_dataset) {
   md <- multi_dataset
   if (!isTRUE(md$active %||% FALSE)) return("No active Multi-Omics dataset. Load one on the Dataset tab.")
@@ -92,27 +60,16 @@ mbc_missing_data_note <- function(multi_dataset) {
   "Not analyzed yet. Run Gene–CpG Concordance (Biomarker modeling) first."
 }
 
-## ---- Server ----------------------------------------------------------------
-
 mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Real Gene–CpG Concordance table, or NULL if it hasn't been run this
-    ## session. Every read of multi_results/multi_dataset below happens
-    ## inside a reactive/render/observe consumer, never at moduleServer
-    ## setup time.
     conc_df <- reactive({
       conc <- multi_results$concordance
       if (is.null(conc) || is.null(conc$df) || nrow(conc$df) == 0) return(NULL)
       conc$df
     })
 
-    ## Adds `evidence_tier` via the app's own cx_classify_evidence()
-    ## (R/crossomics/functions/integration/crossomics_integration_helpers.R) - the same
-    ## Transcriptomics-only / Methylomics-only / Moderate+Strong candidate /
-    ## Discordant / Insufficient evidence classifier Cross-Omics Integration
-    ## already uses. Read-only re-derivation for display; never stored back.
     evidence_df <- reactive({
       df <- conc_df()
       if (is.null(df)) return(NULL)
@@ -124,16 +81,9 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     mbc_selected <- reactiveVal(NULL)  # list(gene_symbol=, cpg=)
     has_card <- reactiveVal(FALSE)
 
-    ## Stale-selection guard: a new dataset, or a re-run of Gene–CpG
-    ## Concordance, can change or remove the pair currently on the card -
-    ## never leave a generated card pointing at results that no longer exist.
     observeEvent(multi_results$concordance, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
     observeEvent(multi_dataset$source, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
     observeEvent(input$mbc_search_mode, { mbc_selected(NULL) }, ignoreInit = TRUE)
-
-    ## ==========================================================================
-    ## Select Biomarker tab
-    ## ==========================================================================
 
     output$select_ui <- renderUI({
       df <- evidence_df()
@@ -236,10 +186,6 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
 
     observeEvent(input$mbc_generate_btn, { if (!is.null(mbc_selected())) has_card(TRUE) }, ignoreInit = TRUE)
 
-    ## ==========================================================================
-    ## Biomarker Card tab
-    ## ==========================================================================
-
     sel_rows <- reactive({
       sel <- mbc_selected(); df <- evidence_df()
       if (is.null(sel) || is.null(df)) return(NULL)
@@ -275,9 +221,6 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
       content = function(file) utils::write.csv(req(sel_rows()), file, row.names = FALSE)
     )
 
-    ## ---- Patient Evidence: real per-sample values from the live active
-    ## dataset only - preloaded cohorts have no sample-level matrix to read,
-    ## and that is disclosed rather than approximated. ----
     patient_data <- reactive({
       rows <- sel_rows()
       if (is.null(rows)) return(list(ok = FALSE, reason = "No biomarker selected."))
@@ -315,13 +258,6 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     outputOptions(output, "mbc_patient_table", suspendWhenHidden = FALSE)
   })
 }
-
-## ---------------------------------------------------------------------------
-## Biomarker Card sub-tab sections - pure functions over one already-resolved
-## concordance row (or, for Dataset, all rows for this pair, e.g. per-sex
-## strata). No reactivity needed here; the card only rebuilds when the
-## selection or the underlying results change (see card_ui above).
-## ---------------------------------------------------------------------------
 
 mbc_section_overview <- function(r) {
   box(width = NULL, title = "Identity", status = "primary", solidHeader = FALSE,

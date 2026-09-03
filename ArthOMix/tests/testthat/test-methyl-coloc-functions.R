@@ -1,19 +1,11 @@
 ## Module 2 (Methylomics) - Colocalization's pure functions: the LD-matrix
 ## alignment helper and the posterior-probability interpretation/verdict
 ## logic (the single source of truth every hypothesis-classification view
-## reads from). Note: methylomics MR (mod_methyl_mr.R) has no isolable
-## top-level pure functions of its own - it calls TwoSampleMR::mr()
-## directly rather than the shared estimate_mr_set() already thoroughly
-## tested for transcriptomics MR (test-mr-functions.R) - and is not
-## separately unit-tested here as a result (documented, not silently
-## skipped).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "methylomics", "12_Colocalization", "mod_methyl_coloc.R"))
-
-## ---- .mcol_prep_ld() -----------------------------------------------------
 
 test_that(".mcol_prep_ld() extracts the requested SNP submatrix from a raw LD table", {
   raw_df <- data.frame(snp = c("rs1", "rs2", "rs3"), rs1 = c(1, 0.8, 0.1), rs2 = c(0.8, 1, 0.2), rs3 = c(0.1, 0.2, 1))
@@ -24,12 +16,10 @@ test_that(".mcol_prep_ld() extracts the requested SNP submatrix from a raw LD ta
 
 test_that(".mcol_prep_ld() returns NULL for malformed input or too few matched SNPs", {
   expect_null(.mcol_prep_ld(NULL, c("rs1")))
-  expect_null(.mcol_prep_ld(data.frame(a = 1), c("rs1")))  ## fewer than 3 columns
+  expect_null(.mcol_prep_ld(data.frame(a = 1), c("rs1")))
   raw_df <- data.frame(snp = c("rs1", "rs2"), rs1 = c(1, 0.5), rs2 = c(0.5, 1))
-  expect_null(.mcol_prep_ld(raw_df, snp_ids = "rs9"))  ## no overlap
+  expect_null(.mcol_prep_ld(raw_df, snp_ids = "rs9"))
 })
-
-## ---- .mcol_verdict() -------------------------------------------------------
 
 test_that(".mcol_verdict() classifies coloc-supported / coloc-refuted / inconclusive by the PP.H4/H3 threshold", {
   expect_equal(.mcol_verdict(h3 = 0.05, h4 = 0.85), "coloc-supported (shared causal variant)")
@@ -41,8 +31,6 @@ test_that(".mcol_verdict() respects a custom threshold", {
   expect_equal(.mcol_verdict(h3 = 0.1, h4 = 0.55, threshold = 0.5), "coloc-supported (shared causal variant)")
   expect_true(grepl("inconclusive", .mcol_verdict(h3 = 0.1, h4 = 0.55, threshold = 0.8)))
 })
-
-## ---- .mcol_interpret() -------------------------------------------------------
 
 test_that(".mcol_interpret() identifies the strongest hypothesis and reports its posterior probability", {
   out <- .mcol_interpret(h0 = 0.01, h1 = 0.02, h2 = 0.02, h3 = 0.05, h4 = 0.9)

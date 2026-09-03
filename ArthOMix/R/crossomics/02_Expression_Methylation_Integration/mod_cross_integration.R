@@ -1,48 +1,16 @@
 ## R/crossomics/02_Expression_Methylation_Integration/mod_cross_integration.R
 ## Cross-Omics sub-module: "Expression and Methylation" - integrates the
 ## Transcriptomics DGE output (gene, log2FC, FDR) and the Methylomics DMP
-## output (CpG, gene, Δβ, FDR) at gene level to answer "how does DNA
-## methylation relate to gene expression" - the four regulatory quadrants
-## (hyper+down, hypo+up, hyper+up, hypo+down) plus a not-significant/
-## discordant bucket. There is no data-input UI in this module: `raw` is a
-## live mirror of whatever the Cross-Omics "Dataset" tab (mod_cross_dataset.R)
-## has published into the shared `cross_dataset` store (its "Example data" or
-## "Upload your own data" mode, both standardized to the same shape) - load,
-## replace, or clear on the Dataset tab and this module reflects it
-## immediately, with no re-upload or manual hand-off step here.
-##
-## Every statistical/biological framing follows the "association, not
-## causality" requirement throughout: category labels say "potential
-## methylation-associated repression/activation", never "causes silencing",
-## and sample-level correlation is only ever computed when a real, paired
-## sample-level match is detected (see cx_detect_sample_pairing()) - never
-## inferred or faked when it isn't. There's no dedicated Correlation tab;
-## the correlation feeds the Evidence Level tier (Strong/Moderate candidate)
-## carried in the Expression data/Methylation data/Export tables instead.
-##
-## No sidebar: everything (setup, thresholds, filters, provenance) lives
-## inside the result tabs themselves. Tabs, in order: Expression data,
-## Methylation data, Integration (setup + Advanced Filters + Run button),
-## Quadrant plot, Heatmap, Network analysis, Export (downloads + provenance).
 
 mod_cross_integration_config <- list(
   id = "integration", title = "Expression and Methylation", icon = "dna", group = "Data",
   description = "Gene-level integration of Transcriptomics differential expression and Methylomics differential methylation."
 )
 
-## Sex stratum for Export's per-group downloads, detected from the loaded
-## data's own source label rather than a dedicated selector - this module has
-## no "Analysis group" input of its own, since that choice already lives on
-## the Dataset tab (whose "Example data" source text carries FEMALE/MALE).
-## Uploaded data with no sex stratification falls back to "all".
 .cx_detect_sex_stratum <- function(expr_source, meth_source) {
   s <- toupper(paste(expr_source %||% "", meth_source %||% ""))
   if (grepl("FEMALE", s)) "female" else if (grepl("MALE", s)) "male" else "all"
 }
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_cross_integration_ui <- function(id) {
   ns <- NS(id)
@@ -57,16 +25,6 @@ mod_cross_integration_ui <- function(id) {
         column(
           7,
           h4("Integration Setup"),
-          ## Defaults calibrated to this app's own preloaded sex-stratified
-          ## data, not picked arbitrarily: 0.585 log2FC = the standard
-          ## 1.5-fold convention (0.05 adj.P.Val alone already flags ~5-6k
-          ## genes here, so a fold-change floor still matters); 0.02 mean Δβ
-          ## is a realistic gene-level EWAS effect-size floor for this data,
-          ## where 0.10 (a single-CpG-scale cutoff) exceeds the largest
-          ## gene-level mean |Δβ| in the entire dataset (~0.083) and so was
-          ## mathematically unreachable - it silently guaranteed zero
-          ## significant DMGs on every run regardless of any other setting.
-          ## Both are still user-editable per run.
           fluidRow(
             column(6, numericInput(ns("expr_thresh"), "Min |log2FC|", value = 0.585, min = 0, step = 0.1)),
             column(6, numericInput(ns("expr_fdr_thresh"), "Max expression FDR", value = 0.05, min = 0, max = 1, step = 0.01))
@@ -107,10 +65,6 @@ mod_cross_integration_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_cross_integration_server <- function(id, cross_dataset, cross_results,
                                           dataset = NULL, results = NULL,
                                           methyl_dataset = NULL, methyl_results = NULL) {
@@ -124,21 +78,10 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     )
     integ <- reactiveValues(df = NULL, params = NULL, pairing = NULL, provenance = NULL, run_at = NULL,
                              universe = NULL, cpg_level = NULL, id_harmonization = NULL, validation = NULL)
-    ## One completed run per stratum (spec sections 13/14/41) - kept
-    ## independent of `integ` above (which always reflects the most recently
-    ## run stratum) so "Sex Comparison" can compare across runs without
-    ## forcing a re-run or a tripled UI.
     integ_by_sex <- reactiveValues(all = NULL, female = NULL, male = NULL)
     active_filter <- reactiveVal("All")
     network_hint <- reactiveVal(NULL)
 
-    ## ---- Data Input: wired directly from the Cross-Omics Dataset tab ------
-    ## No mode picker, no re-upload here: `raw` is a live mirror of whatever
-    ## the Dataset tab (mod_cross_dataset.R) has published into the shared
-    ## `cross_dataset` store (its "Example data" or "Upload your own data"
-    ## mode - both produce the identical standardized shape). Load/replace/
-    ## clear on the Dataset tab and this module picks it up automatically,
-    ## with no separate action required here.
     observe({
       raw$expr_df <- cross_dataset$user_expr_df
       raw$expr_source <- cross_dataset$user_expr_source
@@ -152,8 +95,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       raw$meth_sample_cols <- cross_dataset$user_meth_sample_cols %||% character(0)
       raw$meth_unavailable_reason <- NULL
     })
-
-    ## ---- Status bar (spec section 30) ------------------------------------
 
     output$status_bar <- renderUI({
       tx_ok <- !is.null(raw$expr_df)
@@ -176,18 +117,10 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       )
     })
 
-    ## ---- Run Integration --------------------------------------------------
-
     observeEvent(input$run_integration, withProgress(message = "Running Integration - harmonizing gene identifiers across both panels can take up to a minute for a genome-wide (pooled/ALL) dataset...", value = 0.2, {
       if (is.null(raw$expr_df)) { showNotification("No Transcriptomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
       if (is.null(raw$meth_df)) { showNotification("No Methylomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
 
-      ## Gene identifier harmonization (spec section 7) - applied to both
-      ## sides before the join, so e.g. an Ensembl ID on one side and its
-      ## HGNC symbol on the other still match. Only exact/alias-resolved
-      ## identifiers are rewritten; ambiguous/unmatched ones keep their
-      ## original text (falling back to the previous exact-text join
-      ## behavior for those specific genes rather than dropping them).
       id_harm <- cx_harmonize_gene_ids(c(raw$expr_df$gene, unique(raw$meth_df$gene)))
       integ$id_harmonization <- id_harm
       expr_h <- raw$expr_df
@@ -234,11 +167,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       integ$df <- classified
       integ$pairing <- pairing
       integ$validation <- cx_validate_dataset(raw$expr_df, raw$meth_df, id_harm)
-      ## Sex stratum has no dedicated selector here anymore - it's whatever
-      ## the Dataset tab's "Analysis group" choice already baked into its
-      ## source label (e.g. "Example data (FEMALE, sex-stratified DEG)").
-      ## Detected from that text so per-sex Export downloads still work;
-      ## falls back to "all" for uploaded data with no sex stratification.
       sex_key <- .cx_detect_sex_stratum(raw$expr_source, raw$meth_source)
       integ_by_sex[[sex_key]] <- classified
       integ$universe <- classified$gene
@@ -253,11 +181,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         padj_method = input$padj_method,
         sample_matching = if (isTRUE(pairing$paired)) sprintf("Paired (%d common samples)", pairing$n_common) else "Not available (unpaired datasets)",
         gene_annotation_source = if (isTRUE(id_harm$ok)) "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching" else "Not available - matched on exact provided text only",
-        ## Keyed off the methylation source's own text - the Dataset tab's
-        ## "Example data" mode calls the same cx_load_default_methylation()/
-        ## cx_load_default_dmr() loaders as this project's bundled DMP/DMR
-        ## panels, so its source label carries "bacon-adjusted" (DMP) or
-        ## "DMR" either way; both are annotated against the same array.
         methylation_platform = if (grepl("bacon-adjusted|DMR", raw$meth_source %||% "")) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
         run_at = integ$run_at
       )
@@ -279,15 +202,10 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       showNotification("Integration complete.", type = "message")
     }))
 
-    ## `mapping` (a named char vector, possibly NULL for preloaded data which
-    ## has no upload mapping) -> the gene-ID column name to use when building
-    ## a genes x samples matrix from the original wide upload.
     mapping_gene_col <- function(mapping, wide_df) {
       if (!is.null(mapping) && !is.na(mapping[["gene"]])) return(mapping[["gene"]])
       "gene"
     }
-
-    ## ---- Summary cards (spec section 27) ----------------------------------
 
     output$summary_cards <- renderUI({
       req(integ$df)
@@ -315,11 +233,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     })
     observeEvent(input$card_click, active_filter(input$card_click))
 
-    ## Advanced Filters (spec section 20) applied on top of the category
-    ## quick-filter above - each is a cheap in-memory subset of the already-
-    ## computed integ$df, so these are live/reactive rather than gated behind
-    ## a separate "Apply Filters" button (unlike the genuinely expensive
-    ## Pathway/Network analyses, which do stay behind their own Run buttons).
     filtered_df <- reactive({
       req(integ$df)
       df <- cx_filter_by_category(integ$df, active_filter())
@@ -331,13 +244,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       df <- cx_filter_by_correlation_direction(df, input$filter_cor_direction)
       df
     })
-
-    ## ---- Expression data -----------------------------------------------------
-    ## Pre-integration: whatever is currently loaded into `raw$expr_df` (from
-    ## any of the Data Input modes, including "From Dataset tab"). Once "Run
-    ## Integration" has produced `integ$df`, switches to the expression-side
-    ## columns of the integrated, filtered result (filtered_df()) so this tab
-    ## also reflects the category/advanced filters and the summary-card clicks.
 
     output$expr_data_ui <- renderUI({
       if (is.null(raw$expr_df) && is.null(integ$df)) {
@@ -366,10 +272,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       req(expr_data_display())
       DT::datatable(expr_data_display(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
     })
-
-    ## ---- Methylation data ------------------------------------------------------
-    ## Same pre-/post-integration split as Expression data above, restricted
-    ## to the methylation-side columns.
 
     output$meth_data_ui <- renderUI({
       if (is.null(raw$meth_df) && is.null(integ$df)) {
@@ -401,24 +303,15 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       DT::datatable(meth_data_display(), rownames = FALSE, options = list(scrollX = TRUE, pageLength = 15), class = "stripe hover compact")
     })
 
-    ## Individual CpG rows for one gene, for the detail modal (Level 2 data,
-    ## never collapsed - spec section 17). Still used by the Quadrant plot's
-    ## click-to-open-modal handler below.
     gene_cpg_rows <- function(gene) {
       if (is.null(integ$cpg_level)) return(NULL)
       integ$cpg_level[integ$cpg_level$gene == gene, , drop = FALSE]
     }
 
-    ## ---- Quadrant Plot -------------------------------------------------------
-
     output$quadrant_ui <- renderUI({
       if (is.null(integ$df)) return(cx_empty_state())
       tagList(
         fluidRow(
-          ## Plain text, not a selectizeInput with every gene as a choice -
-          ## see the CpG-Level tab's comment: a client-side choice list this
-          ## large (~19k genes on this app's own real data) reproducibly
-          ## hangs the browser.
           column(6, textInput(ns("quadrant_search"), "Search / label gene(s)", placeholder = "Comma-separated symbols, e.g. TP53, BRCA1")),
           column(6, div(style = "padding-top: 24px;",
                         downloadButton(ns("dl_quadrant_png"), "PNG", class = "btn-sm"),
@@ -457,8 +350,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       validate(need(nrow(row) >= 1, "Gene not found."))
       showModal(cx_gene_detail_modal(row[1, , drop = FALSE], integ$pairing, gene_cpg_rows(row$gene[1])))
     })
-
-    ## ---- Heatmap ---------------------------------------------------------
 
     output$heatmap_ui <- renderUI({
       if (is.null(integ$df)) return(cx_empty_state())
@@ -503,17 +394,11 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
 
     output$heatmap_plot <- renderPlot({
       m <- cx_heatmap_matrix()
-      ## silent = FALSE (the default) is required here - pheatmap only draws
-      ## to the active device when silent is FALSE, and renderPlot's
-      ## recording device needs that draw call to happen inside this block.
       pheatmap::pheatmap(m, cluster_rows = isTRUE(input$heatmap_cluster), cluster_cols = FALSE,
                           scale = input$heatmap_scale %||% "none",
                           color = grDevices::colorRampPalette(c(ARTHOMIX_COLORS$blue, "white", ARTHOMIX_COLORS$red))(100),
                           fontsize_row = if (nrow(m) > 60) 5 else 8)
     })
-
-
-    ## ---- Network (static, best-effort) -------------------------------------
 
     output$network_ui <- renderUI({
       if (is.null(integ$df)) return(cx_empty_state())
@@ -534,8 +419,6 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       validate(need(nrow(sub) >= 2, "Not enough genes in this set to draw a network."))
       cx_gene_cpg_network_plot(sub)
     })
-
-    ## ---- Downloads -----------------------------------------------------------
 
     output$downloads_ui <- renderUI({
       if (is.null(integ$df)) return(cx_empty_state())

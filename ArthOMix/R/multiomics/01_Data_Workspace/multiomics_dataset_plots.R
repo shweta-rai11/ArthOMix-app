@@ -1,14 +1,6 @@
 ## R/multiomics/01_Data_Workspace/multiomics_dataset_plots.R
 ## Plotting helpers for the "Live Analysis (Upload & MOFA2)" sub-module -
 ## same theme_arthomix()/ARTHOMIX_COLORS convention and multi_plot_or_empty()
-## empty-state wrapper as the rest of the Multi-Omics module (see
-## multiomics_plots.R). Every plot here is drawn from a real, live
-## calculation (multiomics_dataset_helpers.R) over data the user uploaded -
-## never a fake/placeholder value.
-
-## ---------------------------------------------------------------------------
-## Missingness (spec Plots 1-3)
-## ---------------------------------------------------------------------------
 
 multi_live_missingness_by_omics_plot <- function(validations) {
   validations <- Filter(function(v) isTRUE(v$ok), validations)
@@ -42,10 +34,6 @@ multi_live_feature_missingness_plot <- function(miss) {
     theme_arthomix()
 }
 
-## ---------------------------------------------------------------------------
-## Before/after normalization distributions (spec Plots 4-7)
-## ---------------------------------------------------------------------------
-
 multi_live_distribution_plot <- function(mat, kind = c("box", "density"), max_samples = 40) {
   kind <- match.arg(kind)
   if (is.null(mat) || nrow(mat) == 0 || ncol(mat) == 0) return(NULL)
@@ -64,10 +52,6 @@ multi_live_distribution_plot <- function(mat, kind = c("box", "density"), max_sa
   }
 }
 
-## ---------------------------------------------------------------------------
-## Feature filtering retention (spec section 10)
-## ---------------------------------------------------------------------------
-
 multi_live_retention_plot <- function(n_before, n_after) {
   if (is.null(n_before) || is.null(n_after)) return(NULL)
   df <- data.frame(stage = factor(c("Before filtering", "After filtering"), levels = c("Before filtering", "After filtering")), n = c(n_before, n_after))
@@ -77,12 +61,6 @@ multi_live_retention_plot <- function(n_before, n_after) {
     ggplot2::scale_fill_manual(values = c("Before filtering" = ARTHOMIX_COLORS$ink_muted, "After filtering" = ARTHOMIX_COLORS$aqua), guide = "none") +
     ggplot2::labs(x = NULL, y = "Features") + theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Cross-omics scale comparison (spec Plots 12-13) - per-layer value-range
-## boxplot before vs. after scaling, so a reader can see layers on wildly
-## different native scales get pulled onto a common one.
-## ---------------------------------------------------------------------------
 
 multi_live_scale_comparison_plot <- function(mat_list, labels) {
   mat_list <- Filter(Negate(is.null), mat_list)
@@ -95,10 +73,6 @@ multi_live_scale_comparison_plot <- function(mat_list, labels) {
     ggplot2::scale_fill_manual(values = arthomix_pair(unique(long$layer))) +
     ggplot2::labs(x = NULL, y = "Value") + theme_arthomix() + ggplot2::theme(legend.position = "none")
 }
-
-## ---------------------------------------------------------------------------
-## PCA (spec Plots 8-9, batch diagnostics)
-## ---------------------------------------------------------------------------
 
 multi_live_pca_plot <- function(pca, meta = NULL, color_by = NULL) {
   if (is.null(pca) || !isTRUE(pca$ok)) return(NULL)
@@ -119,10 +93,6 @@ multi_live_pca_plot <- function(pca, meta = NULL, color_by = NULL) {
   if (is.null(color_by)) p <- p + ggplot2::theme(legend.position = "none")
   p
 }
-
-## ---------------------------------------------------------------------------
-## MOFA2 factor results (spec Plots 14-19)
-## ---------------------------------------------------------------------------
 
 multi_live_mofa_variance_plot <- function(var_df) {
   need <- c("view", "factor", "variance_explained")
@@ -182,10 +152,6 @@ multi_live_loadings_plot <- function(loadings_df, sign = c("both", "positive", "
     ggplot2::labs(x = NULL, y = "Loading", fill = "View (omics)") +
     theme_arthomix()
 }
-
-## ---------------------------------------------------------------------------
-## Cross-omics correlation (spec Plots 20-21)
-## ---------------------------------------------------------------------------
 
 multi_live_correlation_scatter_plot <- function(x, y, xlab, ylab, r, p, n) {
   if (is.null(x) || is.null(y)) return(NULL)

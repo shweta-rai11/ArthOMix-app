@@ -1,79 +1,6 @@
 ## R/transcriptomics/12_Cross_Tissue_Validation/mod_crosstissue.R
 ## Submodule: Cross-Tissue Validation (Section 2.11)
 ## "Your analysis" evaluates a user-chosen gene panel in the independent RA
-## synovium dataset (GSE89408, val_synovium.rds): sex-stratified discovery
-## (synovium log2FC/significance, direction concordance with blood) plus a
-## full four-classifier panel model (logistic regression, elastic net,
-## random forest, SVM) - the SAME four techniques and the SAME box/tab/KPI
-## layout as Diagnostic Model (mod_diagnostic.R), so the two "feel" like one
-## family of tools, but fit on this module's OWN data (synovium, not blood)
-## and against this module's OWN methodology, not a copy of Diagnostic
-## Model's train/test split.
-##
-## WHY THIS ISN'T A TRAIN/TEST SPLIT LIKE DIAGNOSTIC MODEL: this cohort has
-## no natural held-out partition the way the blood training cohort does (see
-## mod_diagnostic.R's header) - it is itself the held-out compartment. This
-## project's own Section 2.11.5 methodology therefore fits each classifier
-## ONCE on the full synovium sex-subset (an "apparent"/resubstitution AUC,
-## reported explicitly as an optimistic upper bound, never as performance -
-## Harrell, Lee and Mark 1996) and separately estimates discrimination by
-## refitting across outer folds, pooling every out-of-fold prediction into
-## ONE ROC curve before computing AUC + a DeLong confidence interval. This
-## module reports BOTH that pooled estimate (this project's own headline
-## number) AND, in the same "CV AUC by fold" bar chart Diagnostic Model
-## uses, the per-fold AUC values themselves - format parity with Diagnostic
-## Model without inventing a train/test split this cohort doesn't have.
-##
-## WHAT'S ALSO NOT COPIED: only the identity of the panel genes transfers
-## from blood - never a blood-fitted model's coefficients (Section 2.11.1).
-## Every classifier here is refit from scratch within synovium. The "Panel
-## genes present in synovium" gene set, the synovium DE table, and the panel
-## consensus lists (val$fsig / val$msig) all come from this module's own
-## bundled val_synovium.rds - not from the blood expression matrix Diagnostic
-## Model reads from `dataset`.
-##
-## THREE analyses, one Run button per sex (mirroring Diagnostic Model's
-## per-sex Run, shared across its two tabs):
-##   "Synovium Discovery & Concordance" - per-gene synovium log2FC/adjP
-##       (sex-adjusted limma-voom DE, already computed and stored in
-##       val_synovium.rds$tt), direction concordance against blood, and
-##       per-gene AUC under BOTH orientation conventions this project's own
-##       script emits explicitly (best-direction: AUC>=0.5 by construction,
-##       "how much information does this gene carry"; train-fixed: oriented
-##       by the blood direction, so AUC<0.5 means the association reversed
-##       out of sample - the only convention valid for cross-dataset
-##       comparison). See METHODS_2.11_crosstissue.md Section 2.11.6.
-##   "Panel Classifier - Full Fit" - the four classifiers, apparent AUC.
-##   "Panel Classifier - Cross-Validated" - the same four classifiers,
-##       scored out-of-fold (pooled ROC + per-fold bar chart).
-## A fourth, read-only tab, "Cross-Dataset Comparison", lines up this
-## module's synovium AUCs against Diagnostic Model's OWN saved blood AUCs
-## for the same sex (results$diagnostic, written by mod_diagnostic.R) when
-## available this session - Section 2.11.7's "presentation across datasets",
-## built from already-computed shared app state rather than any duplicated
-## blood data or re-run blood model.
-##
-## HYPERPARAMETERS: elastic net alpha, random forest mtry and SVM cost are
-## each tuned by an INNER cross-validation grid search on the full synovium
-## sex-subset (identical tuning code to Diagnostic Model's, minus any
-## train/test split) - each model type gets its own advanced-parameters box,
-## switched to whichever model pill was clicked most recently in either
-## sex's Full Fit or Cross-Validated tab. The OUTER cross-validation used for
-## the pooled/per-fold performance estimate is a single, shared setting
-## (fold count + stratification) for all four models at once, set in the
-## "Advanced filters" box on the left - not a per-model choice, because it
-## is what "performance in synovium" means here, independent of which
-## classifier is being scored.
-##
-## FOLD STRATIFICATION: this project's own script (23_crosstissue_biomarker_
-## discovery.R) assigns outer folds by simple random allocation, not
-## stratified by disease status - a documented limitation (Section 2.11.5),
-## since this cohort's disease/control imbalance (Normal is a small minority
-## in both sexes) means an unstratified fold can end up with very few
-## control samples. This module defaults to STRATIFIED folds (a genuine
-## improvement over the published script) but keeps "simple random - matches
-## this project's own script exactly" selectable, so the published numbers
-## remain reproducible on demand.
 
 mod_crosstissue_config <- list(
   id = "crosstissue", group = "Validation",
@@ -81,17 +8,6 @@ mod_crosstissue_config <- list(
   description = "Validation of the diagnostic model based on different tissue type and sex. Four-classifier panel model (logistic regression, elastic net, random forest, SVM). Performs analysis on both preloaded or uploaded data, based on sex.",
   icon = "shuffle"
 )
-
-## ---------------------------------------------------------------------------
-## Shared fitting helpers (pure functions - no `input`/`results`/`session`,
-## same split as mod_diagnostic.R's diag_* helpers vs. its server body).
-## Reuses mod_diagnostic.R's diag_zrows()/diag_auc_ci()/diag_perf_at_cutoff()/
-## diag_hyperparam_value()/diag_separation_note() directly - every mod_*.R
-## file is sourced into the same shared environment (see submodules_
-## registry.R's own header note on this), and none of the calls below happen
-## at source time, only inside function bodies invoked once the whole app
-## has finished loading, so file sourcing order does not matter here.
-## ---------------------------------------------------------------------------
 
 CT_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 
@@ -109,16 +25,6 @@ CT_TECHNIQUES <- list(
   list(key = "svm", label = "SVM")
 )
 
-## pROC::coords(..., "best") returns ONE ROW PER TIED THRESHOLD when several
-## cutpoints share the same maximal Youden index (common with tree/ensemble
-## probabilities, or near-perfect separation on small panels) - verified
-## empirically (pROC 1.19.0.1), same gotcha mod_diagnostic.R's own youden()
-## documents and guards against. Left un-collapsed, every downstream
-## `rr$best$threshold` used as a scalar (data.frame row-building, and
-## diag_perf_at_cutoff()'s vectorised `prob >= threshold`) would silently
-## recycle across a length>1 threshold instead of erroring, corrupting the
-## reported sensitivity/specificity/accuracy without any visible failure.
-## Deterministically keep the first tie so every caller always sees a scalar.
 ct_youden <- function(roc_obj) {
   b <- pROC::coords(roc_obj, "best", best.method = "youden",
                      ret = c("threshold", "sensitivity", "specificity", "accuracy"), transpose = FALSE)
@@ -126,13 +32,6 @@ ct_youden <- function(roc_obj) {
   b
 }
 
-## A panel gene counts as a validated cross-tissue biomarker when all three
-## hold: its direction of effect agrees between blood and synovium, its
-## synovium differential expression is significant at the chosen FDR, and its
-## synovium AUC (best-direction) clears a "more than weak" discrimination bar
-## (Hosmer & Lemeshow 2013's conventional 0.70 cutoff). This is the single
-## definition every KPI tile, plot and table column below reads from, so the
-## three views can never disagree about which genes qualify.
 CT_BIOMARKER_AUC_MIN <- 0.70
 
 ct_biomarker_flag <- function(d, sig_cut) {
@@ -141,8 +40,6 @@ ct_biomarker_flag <- function(d, sig_cut) {
     !is.na(d$auc_bestdir) & d$auc_bestdir >= CT_BIOMARKER_AUC_MIN
 }
 
-## One gene's synovium AUC, best-direction convention (>= 0.5 by
-## construction) - matches 20_testing_synovium_external.R's gene_stat().
 ct_gene_auc <- function(values, y) {
   r <- tryCatch(pROC::roc(y, as.numeric(values), direction = "<", levels = levels(y), quiet = TRUE), error = function(e) NULL)
   if (is.null(r)) return(NA_real_)
@@ -151,12 +48,6 @@ ct_gene_auc <- function(values, y) {
   if (a < 0.5) 1 - a else a
 }
 
-## Per-gene synovium discovery table for one sex: log2FC/adjP from the
-## already-computed, sex-adjusted limma-voom DE (val$tt - every synovium
-## gene, computed once in val_synovium.rds, not recomputed here), direction
-## concordance against `blood_dir`'s logFC for the same gene, and AUC under
-## both orientation conventions (Section 2.11.6). `genes` is the REQUESTED
-## panel (may include genes absent from synovium - flagged via `present`).
 ct_discovery_table <- function(genes, sex_code, val, blood_dir) {
   idx_sex <- if (is.null(sex_code)) seq_along(val$sex) else which(val$sex == sex_code)
   y_sex <- droplevels(val$grp[idx_sex])
@@ -180,17 +71,6 @@ ct_discovery_table <- function(genes, sex_code, val, blood_dir) {
   do.call(rbind, rows)
 }
 
-## Outer cross-validation for the panel classifier: ONE fold assignment
-## drives both (a) a per-fold AUC vector, for the same "CV AUC by fold" bar
-## chart Diagnostic Model uses, and (b) a single pooled ROC/AUC/CI built from
-## every out-of-fold prediction across all folds - this project's own
-## Section 2.11.5 headline estimate (matches 23_crosstissue_biomarker_
-## discovery.R's panel_auc(), generalised from logistic regression to all
-## four classifiers and made fold-stratification-selectable). Re-standardises
-## with the FOLD-TRAIN mean/SD only (leakage-free), same as Diagnostic
-## Model's diag_cv_auc(). `pooled$available/ci_lo/n` deliberately match
-## mod_diagnostic.R's `ev` shape so diag_separation_note() can be reused
-## as-is on the pooled result.
 ct_cv_eval <- function(Xraw, y, n_folds, refit_fn, predict_fn, stratified = TRUE, seed = 1234) {
   nf <- max(2, min(n_folds, min(table(y))))
   set.seed(seed)
@@ -234,20 +114,7 @@ ct_cv_eval <- function(Xraw, y, n_folds, refit_fn, predict_fn, stratified = TRUE
   list(fold_auc = fold_auc, n_folds = length(folds), pooled = pooled_res)
 }
 
-## Fits all four classifiers on one sex's FULL synovium sample pool -
-## `expr_full` is genes x samples for this sex, raw log-CPM (not yet
-## z-scored). No train/test split (see module header): apparent/
-## resubstitution fit + tuning both use the full sex-subset; ct_cv_eval()
-## above supplies the out-of-fold estimate.
 ct_fit_sex <- function(expr_full, y_full, params = list()) {
-  ## caret::train(classProbs = TRUE) below requires factor levels that are
-  ## valid R variable names - it make.names()s them internally to build its
-  ## own predicted-probability column names, so a raw group label with a
-  ## space (e.g. "multiple sclerosis") desyncs from any levels(y)-based
-  ## lookup once caret has already renamed its own columns to
-  ## "multiple.sclerosis". Sanitized once here, up front, matching
-  ## mod_diagnostic.R::diag_fit_sex()'s identical fix; callers keep the real
-  ## group names for their own display text, so nothing user-visible changes.
   levels(y_full) <- make.names(levels(y_full), unique = TRUE)
   params <- utils::modifyList(CT_DEFAULT_PARAMS, params)
   GLOBAL_SEED <- ARTHOMIX_TX_ML_SEED
@@ -262,10 +129,6 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
   Xfull <- t(Zfull); colnames(Xfull) <- safe          # z-scored, sample x gene - apparent fit + hyperparameter tuning
   Xraw <- t(expr_full); colnames(Xraw) <- safe        # raw - re-scaled per fold inside ct_cv_eval() (leakage-free)
 
-  ## -------------------------------------------------------------------
-  ## (1) Elastic net - alpha tuned by minimising CV deviance over a grid,
-  ## lambda by glmnet's own inner CV, exactly as Diagnostic Model's enet fit.
-  ## -------------------------------------------------------------------
   nf_a <- max(2, min(params$enet_cv_folds, min(table(y))))
   best <- NULL; bcv <- Inf
   alpha_search <- data.frame(alpha = numeric(0), cv_deviance = numeric(0))
@@ -295,9 +158,6 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
                pred_full = enet_pred_full, roc_full = enet_roc_full, full_auc = as.numeric(pROC::auc(enet_roc_full)),
                best = enet_best, perf_full = diag_perf_at_cutoff(enet_pred_full, y, enet_best$threshold, levels(y)[2]), cv = enet_cv)
 
-  ## -------------------------------------------------------------------
-  ## (2) Random forest - mtry tuned by CV, ntree fixed, both user-overridable.
-  ## -------------------------------------------------------------------
   p <- ncol(Xfull); ntree <- max(100, round(params$rf_ntree))
   mtry_search <- NULL
   if (identical(params$rf_mtry_mode, "manual") && !is.null(params$rf_mtry_manual)) {
@@ -327,11 +187,6 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
              pred_full = rf_pred_full, roc_full = rf_roc_full, full_auc = as.numeric(pROC::auc(rf_roc_full)),
              best = rf_best, perf_full = diag_perf_at_cutoff(rf_pred_full, y, rf_best$threshold, levels(y)[2]), cv = rf_cv)
 
-  ## -------------------------------------------------------------------
-  ## (3) SVM - cost tuned by CV over a grid, kernel user-selectable.
-  ## scale = FALSE: the data is already gene-wise z-scored, so e1071's own
-  ## internal re-scaling is deliberately skipped rather than double-applied.
-  ## -------------------------------------------------------------------
   kernel <- params$svm_kernel %||% "linear"
   cost_search <- NULL
   if (identical(params$svm_cost_mode, "manual") && !is.null(params$svm_cost_manual)) {
@@ -362,11 +217,6 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
                    pred_full = svm_pred_full, roc_full = svm_roc_full, full_auc = as.numeric(pROC::auc(svm_roc_full)),
                    best = svm_best, perf_full = diag_perf_at_cutoff(svm_pred_full, y, svm_best$threshold, levels(y)[2]), cv = svm_cv)
 
-  ## -------------------------------------------------------------------
-  ## (4) Logistic regression - plain, unpenalized glm(y ~ ., family =
-  ## binomial) on every gene in the panel; the classifier this project's own
-  ## Section 2.11.5 methodology actually fits. No hyperparameters to tune.
-  ## -------------------------------------------------------------------
   lr_predict <- function(m, Znew) as.numeric(predict(m, newdata = data.frame(Znew, check.names = FALSE), type = "response"))
   lr_model <- suppressWarnings(stats::glm(y ~ ., data = data.frame(y, Xfull, check.names = FALSE), family = stats::binomial))
   lr_pred_full <- as.numeric(predict(lr_model, type = "response"))
@@ -385,23 +235,6 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
        n_samples = nrow(Xfull), n_pos = sum(y == levels(y)[2]), n_neg = sum(y == levels(y)[1]))
 }
 
-## ---------------------------------------------------------------------------
-## User-uploaded validation dataset - Option B (Section 5). Builds a
-## val_synovium.rds-shaped object (tt/logcpm/sex/grp; fsig/msig left empty,
-## since that bundled consensus panel is specific to the project's own
-## synovium script) from an uploaded raw-count expression matrix and sample
-## metadata, so ct_build_sex() below can run the IDENTICAL sex-stratified
-## discovery (ct_discovery_table) and panel-classifier (ct_fit_sex) code on
-## either data source - no separate analysis path for uploaded data.
-## ---------------------------------------------------------------------------
-
-## Sex-adjusted limma-voom DE (filterByExpr, TMM, voom, limma, eBayes) - the
-## SAME pipeline already cited in this module's own References box as the
-## provenance of the bundled val_synovium.rds$tt, applied live to an
-## uploaded raw-count matrix rather than invoking a new statistical method.
-## `grp` must be a 2-level factor (reference = level 1, comparison = level
-## 2, matching val_synovium.rds's own Normal/RA convention); `sex` a
-## "F"/"M" character vector, same length as ncol(counts).
 ct_voom_de_table <- function(counts, grp, sex) {
   validate(need(all(counts >= 0, na.rm = TRUE) && all(counts == round(counts), na.rm = TRUE),
                 "The uploaded validation expression matrix must be raw (non-negative, whole-number) RNA-seq counts, not already-normalised or log-scale values."))
@@ -420,13 +253,6 @@ ct_voom_de_table <- function(counts, grp, sex) {
   list(tt = tt, logcpm = v$E)
 }
 
-## Assembles the val_synovium.rds-shaped object for an uploaded cohort.
-## `meta` is the raw uploaded metadata data.frame; `id_col`/`sex_col`/
-## `group_col` are the user's chosen column mappings (same "map your own
-## columns" pattern as Diagnostic Model's External Validation tab);
-## `ref_group`/`comp_group` are the two group values to keep (comp = the
-## positive/disease class, matching val_synovium.rds's own RA-as-level-2
-## convention).
 ct_build_uploaded_val <- function(expr, meta, id_col, sex_col, group_col, ref_group, comp_group) {
   sample_id <- as.character(meta[[id_col]])
   common <- intersect(colnames(expr), sample_id)
@@ -450,30 +276,6 @@ ct_build_uploaded_val <- function(expr, meta, id_col, sex_col, group_col, ref_gr
   list(logcpm = de$logcpm, grp = grp, sex = sex, tt = de$tt, fsig = character(0), msig = character(0))
 }
 
-## ---------------------------------------------------------------------------
-## Tissue-type validation - metadata-aware classification of the training
-## (blood) dataset and the active cross-tissue validation dataset. Pure
-## functions only - no `input`/`session`/`dataset` - so this logic is unit-
-## testable on its own (see test-txn-crosstissue-tissue-validation-
-## functions.R) and reusable from anywhere a raw sample-metadata data.frame
-## or a single tissue string needs to be checked. The server body below (see
-## ct_training_tissue/ct_validation_tissue/ct_cross_tissue_gate) wires these
-## to this module's own data sources; nothing here depends on Shiny beyond
-## `validate()`/`need()`, already used by ct_voom_de_table()/
-## ct_build_uploaded_val() above.
-##
-## The rule (this module's own cross-tissue validation requirement):
-## training = blood + validation = any blood-derived sample -> REJECT;
-## training = blood + validation = non-blood tissue -> ACCEPT; same tissue
-## on both sides (blood or not) -> REJECT (not actually cross-tissue);
-## either side unclassifiable -> REJECT SAFELY ("unknown" is never treated
-## as a pass).
-## ---------------------------------------------------------------------------
-
-## Column names, in priority order, searched for a tissue/sample-type signal
-## on a raw metadata data.frame. Matched case-insensitively after collapsing
-## "_"/"." to a single form, so "Tissue_Type", "tissue.type" and
-## "tissuetype" all hit the same entry.
 TISSUE_META_COLUMNS <- c(
   "tissue", "tissue_type", "tissuetype", "sample_type", "sampletype",
   "source", "source_name", "biomaterial", "bio_material",
@@ -481,20 +283,8 @@ TISSUE_META_COLUMNS <- c(
   "body_site", "specimen", "specimen_type", "tissue_source"
 )
 
-## GEO/GEOquery `pData()` columns carry a tissue signal under names that
-## don't match TISSUE_META_COLUMNS exactly (e.g. "tissue:ch1",
-## "characteristics_ch1", "characteristics_ch1.1", "source_name_ch1") -
-## matched by substring, then gated by the value itself actually looking
-## tissue-related (see tissue_extract_field()) so an unrelated
-## "characteristics_ch1.3" column (e.g. "age: 45") isn't grabbed.
 TISSUE_META_COLUMN_PATTERN <- "tissue|characteristics|source_name|organism_part|organismpart|biomaterial"
 
-## Terms/phrases recognised as blood-derived, checked as whole-word/phrase
-## matches against the NORMALIZED (lowercased, punctuation-collapsed) text -
-## so "blood" alone still catches anything containing it as a standalone
-## word ("cord blood", "circulating blood", ...) while never matching
-## "bloodwork panel" partial-word noise thanks to \\b boundaries. Centralized
-## here as the single list every classification call reads from.
 BLOOD_DERIVED_TERMS <- c(
   "whole blood", "peripheral blood", "pbmc",
   "peripheral blood mononuclear cell", "peripheral blood mononuclear cells",
@@ -503,11 +293,6 @@ BLOOD_DERIVED_TERMS <- c(
   "blood derived", "blood"
 )
 
-## Lowercases, strips a leading GEO-style "label: " prefix (e.g. "tissue:
-## whole blood", "sample type: peripheral blood" -> "whole blood",
-## "peripheral blood"), then normalizes separators/punctuation to single
-## spaces. Returns NA_character_ for anything empty/NA so every downstream
-## check has one "nothing here" sentinel to test against.
 tissue_normalize <- function(x) {
   if (is.null(x) || length(x) == 0) return(NA_character_)
   x <- as.character(x)[1]
@@ -523,18 +308,11 @@ tissue_normalize <- function(x) {
   trimws(x)
 }
 
-## TRUE iff the normalized text contains any BLOOD_DERIVED_TERMS entry as a
-## whole word/phrase - deliberately not a bare grepl("blood", ...), which
-## this module's own spec calls out as too broad/context-blind.
 tissue_is_blood_derived <- function(normalized) {
   if (is.na(normalized) || !nzchar(normalized)) return(FALSE)
   any(vapply(BLOOD_DERIVED_TERMS, function(term) grepl(paste0("\\b", term, "\\b"), normalized), logical(1)))
 }
 
-## Classifies one already-extracted tissue string (not a whole metadata
-## table - see classify_tissue_from_metadata() below for that). `field` is
-## just carried through for the "which metadata field was inspected"
-## transparency requirement; it never affects the classification itself.
 classify_tissue_string <- function(raw_value, field = NA_character_) {
   if (is.null(raw_value) || length(raw_value) == 0) raw_value <- NA_character_
   raw_value <- as.character(raw_value)[1]
@@ -560,14 +338,6 @@ classify_tissue_string <- function(raw_value, field = NA_character_) {
   list(field = field, raw_value = raw_value, normalized = norm, classification = classification, reason = reason)
 }
 
-## Searches a raw metadata data.frame for the first usable tissue/sample-type
-## value: exact-name columns from TISSUE_META_COLUMNS first (highest
-## confidence - a column actually called "tissue"/"tissue_type"/etc.), then
-## GEO-style pattern columns (TISSUE_META_COLUMN_PATTERN), each of THOSE only
-## accepted if its value itself looks tissue-related (so a same-pattern
-## "characteristics_ch1.3" column holding "age: 45" isn't mistaken for
-## tissue). Returns list(field=, value=) with both NA_character_ when
-## nothing usable was found anywhere.
 tissue_extract_field <- function(meta) {
   none <- list(field = NA_character_, value = NA_character_)
   if (is.null(meta) || !is.data.frame(meta) || nrow(meta) == 0 || ncol(meta) == 0) return(none)
@@ -598,10 +368,6 @@ tissue_extract_field <- function(meta) {
   none
 }
 
-## Main entry point for "classify a whole metadata table" - extracts the
-## tissue field, then classifies its value the same way classify_tissue_
-## string() does. Used for both the training dataset's `dataset$meta` and an
-## uploaded validation cohort's raw metadata.
 classify_tissue_from_metadata <- function(meta) {
   ex <- tissue_extract_field(meta)
   if (is.na(ex$value)) {
@@ -612,17 +378,6 @@ classify_tissue_from_metadata <- function(meta) {
   classify_tissue_string(ex$value, field = ex$field)
 }
 
-## Compares a training-dataset classification against a validation-dataset
-## classification (each the list shape returned by classify_tissue_string()/
-## classify_tissue_from_metadata() above) and decides whether the pair
-## qualifies as genuine cross-tissue validation:
-##   - either side "unknown"            -> reject (fail safely, never a pass)
-##   - both sides "blood"               -> reject (blood-derived vs
-##                                          blood-derived is not cross-tissue,
-##                                          regardless of sample-prep detail)
-##   - same normalized tissue text      -> reject (not distinguishable from
-##                                          the training tissue)
-##   - otherwise                        -> accept
 validate_cross_tissue <- function(train, val) {
   if (identical(train$classification, "unknown") || identical(val$classification, "unknown")) {
     return(list(
@@ -661,28 +416,6 @@ validate_cross_tissue <- function(train, val) {
                          val$raw_value, train$raw_value))
 }
 
-## Classifies the shared/"training" blood dataset (`dataset` reactiveValues
-## below). Tries, in order: (1) any tissue-carrying column still present in
-## `dataset$meta` (present for the "geo"/"uploaded" source types, which keep
-## pData()/the user's original columns; stripped for "preloaded", see
-## mod_dataset.R's harmonizers); (2) ONLY for `source_type == "preloaded"`,
-## the dataset's own human-readable `source` label, which for every bundled/
-## preloaded entry in this app already names its tissue (e.g.
-## "sex-stratified RA blood cohort", "Whole Blood Training Cohort A",
-## "Synovial Tissue Validation Cohort" - see mod_dataset.R's
-## INDIVIDUAL_DATASET_LABELS and global.R's load_default_dataset()); (3)
-## this app's own GEO_SOURCES registry, keyed by whichever accession(s) were
-## actually loaded, as a last resort for a preloaded pick whose `source`
-## label happens not to be tissue-worded. Step (2) is deliberately gated to
-## "preloaded" only - for "uploaded"/"geo" the `source` field is a filename
-## or accession/platform string (e.g. "Uploaded dataset: expr.csv +
-## meta.csv"), never a curated tissue description, and classifying THAT
-## would silently derive tissue from a filename, exactly what this feature
-## must not do - those source_types fall straight through to "unknown" when
-## their metadata has no real tissue column. Pure function - `geo_sources`
-## is passed in (this app's GEO_SOURCES list, or a fixture in tests) rather
-## than looked up as a global, so this stays testable without sourcing
-## global.R.
 ct_classify_training_tissue <- function(meta, source = NA_character_, source_type = NA_character_, geo_ids = NULL, geo_sources = NULL) {
   from_meta <- classify_tissue_from_metadata(meta)
   if (!identical(from_meta$classification, "unknown")) return(from_meta)
@@ -707,10 +440,6 @@ ct_classify_training_tissue <- function(meta, source = NA_character_, source_typ
   from_meta
 }
 
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
-
 mod_crosstissue_params_box <- function(ns, prefix, method_label, defaults_desc, body = NULL) {
   box(
     width = 12, title = sprintf("%s parameters", method_label), status = "primary", solidHeader = FALSE,
@@ -719,9 +448,6 @@ mod_crosstissue_params_box <- function(ns, prefix, method_label, defaults_desc, 
   )
 }
 
-## One box, reused for either the "Full Fit" (apparent) or "Cross-Validated"
-## (pooled out-of-fold) view of one model x sex - full width, matching
-## Diagnostic Model's "utilise the entire page" layout.
 mod_crosstissue_fullfit_panel <- function(ns, prefix, roc_height = 250) {
   box(
     width = NULL, status = "primary", solidHeader = FALSE,
@@ -763,18 +489,6 @@ mod_crosstissue_discovery_sex_panel <- function(ns, sex_label) {
         column(6, withSpinner(plotOutput(ns(paste0(sex_label, "_concordance_plot")), height = 380), color = "#2c6fbb", type = 6)),
         column(6, withSpinner(plotOutput(ns(paste0(sex_label, "_geneauc_plot")), height = 380), color = "#2c6fbb", type = 6))
       ),
-      ## Two disclosed limitations of this screening step, neither of which
-      ## changes any threshold or number shown - just makes them visible
-      ## where the table/plots that depend on them are read:
-      ##  1. The synovium AUC>=0.70 "biomarker" bar (CT_BIOMARKER_AUC_MIN) is
-      ##     applied gene-by-gene with no multiple-testing correction, unlike
-      ##     the synovium differential-expression gate above it (syn_adjP),
-      ##     which IS Benjamini-Hochberg adjusted - screening many genes at an
-      ##     uncorrected AUC cutoff can accumulate false positives.
-      ##  2. Blood and synovium were profiled on different platforms/cohorts
-      ##     with no formal batch correction (e.g. ComBat) applied across that
-      ##     boundary, so a direct blood-vs-synovium effect-size/AUC
-      ##     comparison should be read cautiously.
       div(class = "empty-note", style = "font-size: 12.5px; border-left: 3px solid #d97706;",
           icon("triangle-exclamation"),
           "Two screening limitations to keep in mind: the synovium AUC ≥ 0.70 \"biomarker\" cutoff below is applied gene-by-gene with no multiple-testing correction (unlike the synovium adj. P-value gate, which is BH-adjusted), so it can accumulate false positives across many genes screened; and no formal batch/platform correction (e.g. ComBat) is applied between the blood and synovium cohorts, so direct cross-tissue effect-size/AUC comparisons should be interpreted cautiously."),
@@ -845,9 +559,6 @@ mod_crosstissue_crossdata_sex_panel <- function(ns, sex_label) {
 mod_crosstissue_ui <- function(id) {
   ns <- NS(id)
   tagList(
-    ## Scoped to this module only (.ct-module), same defensive floor/wrap as
-    ## Diagnostic Model's own .diag-module rule, so a longer valueBox() value
-    ## (e.g. an AUC ± CI) never overflows its tile.
     tags$style(HTML(".ct-module .small-box h3 { font-size: 20px; white-space: normal; overflow-wrap: break-word; line-height: 1.2; }")),
     div(class = "ct-module",
     fluidRow(
@@ -949,11 +660,6 @@ mod_crosstissue_ui <- function(id) {
                   tabPanel("Male", br(), mod_crosstissue_fullfit_sex_panel(ns, "male"))
                 )
               ),
-              ## Small, right-hand box at the same level as the Female/Male
-              ## tabs above - whichever model pill was clicked most recently
-              ## in either sex's Full Fit or Cross-Validated tab (see
-              ## active_model_pill below), rather than a full-width box
-              ## stacked above the tabs.
               column(3, uiOutput(ns("model_params_ui")))
             )
           ),
@@ -984,30 +690,12 @@ mod_crosstissue_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_crosstissue_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## Independent, read-only validation cohort - loaded once, not from the
-    ## shared `dataset` reactiveValues (unlike every blood-facing submodule),
-    ## since this module's whole point is a compartment `dataset` never
-    ## holds. `tt` converted to a plain data.frame once here so every
-    ## gene == g row lookup below doesn't repeat data.table dispatch.
     val_bundled <- { v <- readRDS(VAL_SYNOVIUM_RDS); v$tt <- as.data.frame(v$tt); v }
     bundled_dge <- tryCatch(readRDS(DGE_RESULTS_RDS), error = function(e) NULL)
-
-    ## -----------------------------------------------------------------
-    ## Validation dataset source - Option A (bundled val_synovium.rds,
-    ## read once above) vs Option B (user upload, Section 5/6). Both sides
-    ## of `val_active()` return the same shape (tt/logcpm/sex/grp/fsig/
-    ## msig), so every downstream function below (ct_project_panel_genes,
-    ## ct_build_sex, ct_discovery_table, ct_fit_sex) is unchanged by which
-    ## source is active.
-    ## -----------------------------------------------------------------
 
     val_meta_raw <- reactive({
       req(input$val_meta_file)
@@ -1062,10 +750,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
     val_uploaded <- reactive({
       req(input$val_map_id, input$val_map_sex, input$val_map_group, input$val_ref_group, input$val_comp_group)
       validate(need(input$val_ref_group != input$val_comp_group, "Reference and comparison group must be different."))
-      ## Tissue-type gate BEFORE ct_build_uploaded_val() (which fits the
-      ## voom/limma DE model - the expensive step) so a rejected upload never
-      ## reaches normalization/DE fitting, matching the mandatory reject-at-
-      ## metadata-stage rule below (see ct_cross_tissue_gate()).
       gate <- ct_cross_tissue_gate()
       validate(need(isTRUE(gate$valid), gate$reason))
       ct_build_uploaded_val(val_expr_raw(), val_meta_raw(), input$val_map_id, input$val_map_sex, input$val_map_group,
@@ -1075,19 +759,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
     val_active <- reactive({
       if (identical(input$val_source %||% "preloaded", "upload")) val_uploaded() else val_bundled
     })
-
-    ## -----------------------------------------------------------------
-    ## Tissue-type validation - metadata-aware check that the active
-    ## validation dataset is genuinely a different tissue from the shared
-    ## blood `dataset` (see this file's own "Tissue-type validation" section
-    ## above, right before the UI section, for the full acceptance/rejection
-    ## rules). Classification logic is pure and lives there; these three
-    ## reactives only wire it to this module's own data sources: the shared
-    ## `dataset` reactiveValues for the training side, and either the
-    ## bundled synovium dataset (always non-blood, keyed off this app's own
-    ## GEO_SOURCES role for GSE89408) or the user's uploaded validation
-    ## metadata for the validation side.
-    ## -----------------------------------------------------------------
 
     ct_training_tissue <- reactive({
       ct_classify_training_tissue(dataset$meta, dataset$source, dataset$source_type, dataset$geo_ids, GEO_SOURCES)
@@ -1106,22 +777,10 @@ mod_crosstissue_server <- function(id, dataset, results) {
       }
     })
 
-    ## Single source of truth every gate below reads from - so the visible
-    ## status panel (tissue_validation_status) and the actual pipeline
-    ## blocks (val_uploaded()/ct_build_sex()) can never disagree.
     ct_cross_tissue_gate <- reactive({
       validate_cross_tissue(ct_training_tissue(), ct_validation_tissue())
     })
 
-    ## A plain bordered div, not box() - this renders inside the "Validation
-    ## dataset" box above (uiOutput(ns("tissue_validation_status")) at
-    ## mod_crosstissue_ui()), and shinydashboard boxes nested inside another
-    ## box's body double up their borders/shadows and misrender (the whole
-    ## reason references_box_ui above uses a plain tags$details rather than
-    ## a nested box too) - so this stays a self-contained card, styled with
-    ## the same "empty-note" left-accent-border convention already used
-    ## throughout this file, just promoted to a full panel with its own
-    ## background tint for a status this consequential to see at a glance.
     output$tissue_validation_status <- renderUI({
       tt <- ct_training_tissue(); vt <- ct_validation_tissue()
       gate <- validate_cross_tissue(tt, vt)
@@ -1157,14 +816,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
         if (!ok) div(class = "empty-note", style = "font-size: 12.5px; margin-top: 6px; border-left: 3px solid #c0392b;", gate$reason) else NULL
       )
     })
-
-    ## -----------------------------------------------------------------
-    ## Gene panel sources - same two-radio-button pattern as Diagnostic
-    ## Model, but the "project pipeline" fallback is va$fsig/va$msig (this
-    ## project's own consensus panels, already the ones the bundled synovium
-    ## validation itself used - empty for an uploaded cohort, which has no
-    ## such bundled panel), not Diagnostic Model's blood FS_input CSVs.
-    ## -----------------------------------------------------------------
 
     ct_project_panel_genes <- function(sex_label) {
       live <- results$featureselection[[sex_label]]$consensus_genes
@@ -1203,15 +854,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
       }
     })
 
-    ## -----------------------------------------------------------------
-    ## Blood direction of effect (for concordance) - live if this session
-    ## has already run Differential Expression for that sex
-    ## (results$dge_runs, same guess_run() pattern mod_candidates.R uses to
-    ## match a contrast label to a sex), else this project's own bundled
-    ## dge_results.rds. Full per-gene logFC (not just sign), so the
-    ## concordance scatter plot can show magnitude, not just direction.
-    ## -----------------------------------------------------------------
-
     ct_blood_direction <- function(sex_label) {
       runs <- results$dge_runs %||% list()
       sex_word_pattern <- "\\b(female|male)\\b|\\bF\\b|\\bM\\b"
@@ -1244,13 +886,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
           icon("arrows-turn-to-dots"), sprintf("Blood direction: Pooled = %s, F = %s, M = %s.", p$note, f$note, m$note))
     })
 
-    ## -----------------------------------------------------------------
-    ## Advanced parameters - live-editable, one box per model type (mirrors
-    ## Diagnostic Model / Feature Selection), plus the shared outer-CV
-    ## controls in the left "Advanced filters" box (fold count/stratification
-    ## apply to all four models at once - see the module header).
-    ## -----------------------------------------------------------------
-
     ct_advanced_params <- function() {
       alpha_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
       alpha_grid <- alpha_grid[!is.na(alpha_grid) & alpha_grid >= 0 & alpha_grid <= 1]
@@ -1274,17 +909,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
       )
     }
 
-    ## -----------------------------------------------------------------
-    ## Run: one Run per sex computes discovery + all four classifiers at
-    ## once (shared trigger across the three Run buttons that sex has, one
-    ## per tab - same fan-in pattern as Diagnostic Model's two buttons).
-    ## -----------------------------------------------------------------
-
     ct_build_sex <- function(sex_label) {
-      ## Tissue-type gate, checked again here (val_uploaded() already blocks
-      ## the uploaded path before its DE fit runs) so the bundled/preloaded
-      ## path's Run button also can't reach discovery-table computation or
-      ## panel-classifier fitting on a non-cross-tissue pair.
       gate <- ct_cross_tissue_gate()
       validate(need(isTRUE(gate$valid), gate$reason))
       va <- val_active()
@@ -1339,8 +964,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
     observeEvent(female_run_trigger(), ct_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(male_run_trigger(), ct_has_run(TRUE), ignoreInit = TRUE)
 
-    ## Which model's params box to show: whichever pill was clicked most
-    ## recently, in any stratum's Full Fit or Cross-Validated tab.
     active_model_pill <- reactiveVal("Logistic Regression")
     lapply(c("pooled_full_model_pills", "female_full_model_pills", "male_full_model_pills",
              "pooled_cv_model_pills", "female_cv_model_pills", "male_cv_model_pills"), function(iid) {
@@ -1354,10 +977,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
       )
     }
 
-    ## Bodies are stacked (no fluidRow/column split) rather than side-by-side
-    ## fields: this box now sits in the narrow right-hand column next to the
-    ## Female/Male tabs (see mod_crosstissue_ui's Full Fit tabPanel), not a
-    ## full-width box, so side-by-side columns would just cramp into slivers.
     enet_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "enet", "Elastic Net",
@@ -1410,14 +1029,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
       )
     })
 
-    ## A plain shinydashboard::box(collapsible = TRUE) never actually opens
-    ## here: AdminLTE's box-widget click handler only binds to boxes present
-    ## at initial page load, not ones inserted later via renderUI/uiOutput
-    ## (this box's entire reason for existing) - so its "+" toggle looks like
-    ## a working collapse but silently does nothing. A native <details>
-    ## disclosure needs no JS at all and always works, dynamically inserted
-    ## or not; box/box-header/box-title/box-body classes are reused purely
-    ## for the visual match to every other box on this page, not their JS.
     output$references_box_ui <- renderUI({
       req(ct_has_run())
       tags$details(
@@ -1439,8 +1050,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
       )
     })
 
-    ## Saved into results$crosstissue independently per sex, as each
-    ## finishes - same save pattern as Diagnostic Model's save_result().
     save_result <- function(sex_label, r) {
       d <- r$discovery
       sig_cut <- input$sig_cutoff %||% 0.05
@@ -1496,17 +1105,9 @@ mod_crosstissue_server <- function(id, dataset, results) {
       tryCatch(fr(), error = function(e) NULL)
     })
 
-    ## -----------------------------------------------------------------
-    ## Discovery & Concordance outputs, per sex.
-    ## -----------------------------------------------------------------
-
     register_discovery_outputs <- function(sex_label, res) {
       not_yet_note <- function() div(class = "empty-note", icon("circle-info"), "Not run yet, or the last run failed validation - check above.")
 
-      ## Single source of truth for "is this gene a cross-tissue biomarker"
-      ## (ct_biomarker_flag(), module header) - the KPI tiles, both plots and
-      ## the table all mark the exact same genes, so a gene highlighted in
-      ## one view is never absent from another.
       disc_marked <- reactive({
         r <- res(); req(r)
         d <- r$discovery
@@ -1529,9 +1130,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
         )
       })
 
-      ## Direction concordance: every present gene plotted, but only
-      ## validated biomarkers get a label and the highlight color - the
-      ## story is which genes cleared the bar, not a wall of gene names.
       output[[paste0(sex_label, "_concordance_plot")]] <- renderPlot({
         d <- disc_marked(); d <- d[d$present & !is.na(d$blood_log2FC), , drop = FALSE]
         req(nrow(d) > 0)
@@ -1549,10 +1147,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
           theme_arthomix(base_size = 12)
       }, alt = sprintf("Scatter plot comparing each %s panel gene's blood log2 fold change against its synovium log2 fold change, with validated cross-tissue biomarkers highlighted and labelled.", sex_label))
 
-      ## Cross-tissue biomarker identification: a ranked lollipop instead of
-      ## a bar chart - thinner marks, only biomarkers labelled with their
-      ## AUC, a reference line at chance (0.5) and at the biomarker cutoff
-      ## (CT_BIOMARKER_AUC_MIN).
       output[[paste0(sex_label, "_geneauc_plot")]] <- renderPlot({
         d <- disc_marked(); d <- d[d$present, , drop = FALSE]
         req(nrow(d) > 0)
@@ -1593,12 +1187,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
         content = function(file) write.csv(res()$discovery, file, row.names = FALSE)
       )
     }
-
-    ## -----------------------------------------------------------------
-    ## Panel classifier outputs (Full Fit + Cross-Validated), per sex x
-    ## technique - same output-name/box structure as Diagnostic Model,
-    ## driven off ct_fit_sex()'s result shape instead of diag_fit_sex()'s.
-    ## -----------------------------------------------------------------
 
     build_full_perf_table <- function(rr) {
       do.call(rbind, list(
@@ -1667,7 +1255,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
       lapply(CT_TECHNIQUES, function(tech) {
         key <- tech$key; prefix <- paste0(sex_label, "_", key)
 
-        ## ---- Full Fit tab ----
         output[[paste0(prefix, "_full_stats")]] <- renderUI({
           r <- res(); if (is.null(r)) return(not_yet_note())
           rr <- r[[key]]
@@ -1739,7 +1326,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
           content = function(file) saveRDS(build_model_bundle(res(), key, sex_label), file)
         )
 
-        ## ---- Cross-Validated tab ----
         output[[paste0(prefix, "_cv_summary")]] <- renderUI({
           r <- res(); if (is.null(r)) return(not_yet_note())
           pooled <- r[[key]]$cv$pooled
@@ -1807,13 +1393,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
                   r$n_input, r$n_present, r$n_samples, r$n_pos, r$n_neg, r$lr$full_auc, r$enet$full_auc, r$rf$full_auc, r$svm$full_auc))
       })
     }
-
-    ## -----------------------------------------------------------------
-    ## Cross-Dataset Comparison outputs, per sex - reads results$diagnostic
-    ## (written by mod_diagnostic.R) rather than recomputing or storing any
-    ## copy of the blood data; absent if Diagnostic Model hasn't been run
-    ## this session for that sex.
-    ## -----------------------------------------------------------------
 
     CROSSDATA_ORDER <- c("Blood train (full fit)", "Blood train (k-fold CV)", "Synovium (apparent)", "Synovium (pooled CV)")
     CROSSDATA_PAL <- c(`Blood train (full fit)` = "#1b6ca8", `Blood train (k-fold CV)` = "#7fb2dd",

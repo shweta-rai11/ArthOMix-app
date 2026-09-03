@@ -1,11 +1,6 @@
 ## Module 1 (Transcriptomics) - Cross-Tissue Validation's metadata-aware
 ## tissue-type validation, exercised through the REAL mod_crosstissue_server
 ## reactive graph via shiny::testServer() (not just the pure functions in
-## test-txn-crosstissue-tissue-validation-functions.R) - proves the gate
-## actually blocks the expensive parts of the pipeline (voom DE fit,
-## discovery table, panel-classifier fitting) for a rejected pair, and that
-## the status output / gate reach the same verdict as validate_cross_tissue()
-## in isolation.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -13,10 +8,6 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "transcriptomics", "10_Diagnostic_Model", "mod_diagnostic.R"))
 source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
 
-## A small synthetic validation cohort (raw counts + metadata), written to
-## disk so it can be fed through the module's real fileInput path via
-## fx_mkfile() - same shape/size as ct_val_fixture() in
-## test-txn-crosstissue-functions.R, but on disk with a real `tissue` column.
 ct_val_upload_fixture <- function(tissue_value, seed = 321, n_per_cell = 4) {
   set.seed(seed)
   n <- n_per_cell * 4
@@ -47,10 +38,6 @@ blood_training_dataset <- function() {
                         source_type = "uploaded", is_bundled_reference = FALSE, geo_ids = character(0))
 }
 
-## ---- Bundled (preloaded) validation dataset: real blood training vs. the ----
-## real bundled synovium dataset (VAL_SYNOVIUM_RDS) - the app's own default
-## pairing, expected to pass the gate every time.
-
 test_that("bundled synovium validation dataset passes the tissue gate against a blood training dataset", {
   dataset <- blood_training_dataset()
   results <- shiny::reactiveValues()
@@ -70,9 +57,6 @@ test_that("bundled synovium validation dataset passes the tissue gate against a 
   })
 })
 
-## ---- Uploaded validation dataset: blood-vs-blood must be rejected BEFORE ----
-## the expensive voom DE fit ever runs (val_uploaded()'s own gate).
-
 test_that("an uploaded blood-derived validation dataset is rejected before any DE fitting runs, and Run produces no result", {
   dataset <- blood_training_dataset()
   results <- shiny::reactiveValues()
@@ -91,16 +75,10 @@ test_that("an uploaded blood-derived validation dataset is rejected before any D
     expect_false(gate$valid)
     expect_match(gate$status, "both datasets are blood-derived")
 
-    ## val_uploaded()/val_active() must themselves refuse (this is what
-    ## keeps ct_build_uploaded_val()'s voom/limma fit from ever running) -
-    ## same tryCatch(..., error=) pattern test-txn-dge-server.R uses to
-    ## assert a validate() failure on a reactive called directly.
     err <- tryCatch(val_active(), error = function(e) e)
     expect_s3_class(err, "validation")
     expect_match(conditionMessage(err), "blood-derived")
 
-    ## Clicking Run must not produce a usable result either (same gate,
-    ## defense in depth inside ct_build_sex()).
     session$setInputs(run_pooled_btn_disc = 0)
     session$flushReact()
     session$setInputs(run_pooled_btn_disc = 1)
@@ -112,9 +90,6 @@ test_that("an uploaded blood-derived validation dataset is rejected before any D
     expect_match(html, "Rejected")
   })
 })
-
-## ---- Uploaded validation dataset: genuinely non-blood tissue must pass, ----
-## and Run must produce a real fitted result.
 
 test_that("an uploaded non-blood-tissue validation dataset passes the gate and Run produces a real fitted result", {
   dataset <- blood_training_dataset()
@@ -135,8 +110,6 @@ test_that("an uploaded non-blood-tissue validation dataset passes the gate and R
     gate <- shiny::isolate(ct_cross_tissue_gate())
     expect_true(gate$valid)
 
-    ## Confirms the DE fit DOES run when the pair is genuinely cross-tissue
-    ## - val_active() resolves to a real val_synovium.rds-shaped object.
     va <- val_active()
     expect_true(all(c("logcpm", "grp", "sex", "tt") %in% names(va)))
 
@@ -145,9 +118,6 @@ test_that("an uploaded non-blood-tissue validation dataset passes the gate and R
     session$setInputs(run_pooled_btn_disc = 1)
     r <- tryCatch(ct_result_pooled(), error = function(e) e)
     if (inherits(r, "shiny.silent.error")) {
-      ## First simulated click landed on testServer's own ignoreInit
-      ## priming edge (see feedback_shiny_testserver_ignoreinit_
-      ## actionbutton_priming) - one more click resolves it.
       session$setInputs(run_pooled_btn_disc = 2)
       r <- tryCatch(ct_result_pooled(), error = function(e) e)
     }

@@ -1,21 +1,12 @@
 ## R/methylomics/10_ML_Feature_Selection/mod_methyl_featureselection.R
 ## CpG feature-selection workflow: filter probes, run Univariate/LASSO/RF/RFE/
 ## Stability selection independently, combine into a weighted Consensus panel
-## (with optional correlation-based reduction), then validate and export.
-##
-## Reuses filter/parsing/annotation/plotting helpers from qc.R / parse_upload.R
-## / annotation.R / global.R without modifying them.
 
 mod_methyl_featureselection_config <- list(
   id = "featureselection", title = "ML Feature Selection", icon = "sliders", group = "Biomarker modeling",
   description = "CpG feature selection using univariate, regularization, tree-based, RFE, and stability selection methods"
 )
 
-## =============================================================================
-## Helpers - data source / scale / grouping
-## =============================================================================
-
-## .rds companion to qc.R's methyl_parse_matrix() (CSV/TSV only); same list(ok, mat, error) shape.
 methyl_fs_parse_matrix_rds <- function(datapath) {
   loaded <- safe_read_rds(datapath)
   if (!isTRUE(loaded$ok)) {
@@ -42,8 +33,6 @@ methyl_fs_parse_matrix_any <- function(datapath, filename) {
   else methyl_parse_matrix(datapath, filename)
 }
 
-## Beta-vs-M-value heuristic: checks whether the 0.1-99.9% quantile of a sample
-## sits inside [-0.05, 1.05]. Only used for uploads; preloaded input_scale is authoritative.
 methyl_fs_detect_scale <- function(mat) {
   v <- mat[is.finite(mat)]
   if (length(v) == 0) return(list(scale = "beta", frac_out_of_range = 0))
@@ -66,7 +55,6 @@ methyl_fs_cap_top_variance <- function(mat, n) {
   mat[sort(top), , drop = FALSE]
 }
 
-## IQR companion to qc.R's methyl_filter_variance()/methyl_filter_sd(); same list(keep, note) shape.
 methyl_fs_filter_iqr <- function(mat, min_iqr = 0) {
   q <- matrixStats::rowQuantiles(mat, probs = c(0.25, 0.75), na.rm = TRUE)
   iqr <- q[, 2] - q[, 1]
@@ -75,15 +63,12 @@ methyl_fs_filter_iqr <- function(mat, min_iqr = 0) {
   list(keep = keep, note = sprintf("%d probe(s) below the IQR threshold (%.4g).", sum(!keep), min_iqr))
 }
 
-## Sample-axis missingness (no equivalent in qc.R, which is probe-axis only).
 methyl_fs_sample_missing_ok <- function(mat, max_na_frac = 1) {
   frac <- colMeans(is.na(mat))
   keep <- frac <= max_na_frac
   list(keep = keep, note = sprintf("%d sample(s) exceed %.0f%% missing probes.", sum(!keep), max_na_frac * 100))
 }
 
-## Per-probe median imputation by default; uses k-NN (impute::impute.knn) when that
-## optional package is installed, falling back to median otherwise.
 methyl_fs_impute <- function(mat, method = "median") {
   if (identical(method, "knn") && requireNamespace("impute", quietly = TRUE)) {
     out <- tryCatch(impute::impute.knn(mat)$data, error = function(e) NULL)
@@ -96,13 +81,6 @@ methyl_fs_impute <- function(mat, method = "median") {
   list(mat = out, method_used = "per-probe median")
 }
 
-## =============================================================================
-## Helpers - Univariate Selection
-## =============================================================================
-
-## Linear-model engine (t-test / moderated t-test / ANOVA / linear regression / Pearson):
-## different design/contrast choices on the same limma::lmFit()/eBayes() fit on M-values,
-## optionally with covariate adjustment.
 methyl_fs_univariate_linear <- function(m_mat, y, covariates = NULL, mode = c("moderated_t", "t_test", "anova", "linear_regression", "pearson")) {
   mode <- match.arg(mode)
   continuous <- mode %in% c("linear_regression", "pearson")
@@ -132,8 +110,6 @@ methyl_fs_univariate_linear <- function(m_mat, y, covariates = NULL, mode = c("m
              row.names = NULL, stringsAsFactors = FALSE)
 }
 
-## Rank-based engine (Wilcoxon / Kruskal-Wallis / Spearman); no covariate adjustment.
-## Base R apply() is fine here since the panel is already capped by Data & Filters.
 methyl_fs_univariate_rank <- function(mat, y, mode = c("wilcoxon", "kruskal", "spearman")) {
   mode <- match.arg(mode)
   if (identical(mode, "spearman")) {
@@ -165,9 +141,6 @@ methyl_fs_univariate_rank <- function(mat, y, mode = c("wilcoxon", "kruskal", "s
   df
 }
 
-## Applies the chosen selection rule (FDR / p-value / |dbeta| / top-N) on top
-## of either engine's ranked table, and attaches mean-Beta/dbeta/direction
-## effect-size columns computed directly from the beta-scale matrix.
 methyl_fs_univariate_select <- function(ranked_df, beta_mat, y, rule = "fdr", threshold = 0.05, dbeta_min = 0, top_n = 50) {
   df <- ranked_df[order(ranked_df$p), , drop = FALSE]
   yf <- suppressWarnings(as.numeric(y))
@@ -184,7 +157,6 @@ methyl_fs_univariate_select <- function(ranked_df, beta_mat, y, rule = "fdr", th
       df$dbeta <- mean2 - mean1
       df$direction <- ifelse(df$dbeta > 0, "hyper", "hypo")
     } else {
-      ## >2 groups: reference-vs-comparison delta-beta isn't well-defined, leave NA.
       df$mean_beta_ref <- NA_real_; df$mean_beta_comp <- NA_real_
       df$dbeta <- NA_real_; df$direction <- NA_character_
     }
@@ -202,10 +174,6 @@ methyl_fs_univariate_select <- function(ranked_df, beta_mat, y, rule = "fdr", th
   if (!is.na(dbeta_min) && dbeta_min > 0 && two_group) keep <- keep & !is.na(df$dbeta) & abs(df$dbeta) >= dbeta_min
   list(ranked = df, selected_ids = df$cpg[keep])
 }
-
-## =============================================================================
-## Helpers - Regularization (LASSO / Elastic Net)
-## =============================================================================
 
 methyl_fs_lasso_fit <- function(X, y, alpha = 1, nfolds = 10, lambda_choice = "lambda.min", nlambda = 100,
                                  standardize = TRUE, weights = NULL, seed = 1234, max_selected = NULL, coef_threshold = 0) {
@@ -229,10 +197,6 @@ methyl_fs_lasso_fit <- function(X, y, alpha = 1, nfolds = 10, lambda_choice = "l
                             rank = seq_along(co), row.names = NULL))
 }
 
-## =============================================================================
-## Helpers - Tree-Based Selection (Random Forest)
-## =============================================================================
-
 methyl_fs_rf_fit <- function(X, y, ntree = 1000, mtry_mode = "auto", mtry_manual = NULL, nodesize = 1,
                               maxnodes = NULL, sample_fraction = NULL, replace = TRUE, classwt = NULL,
                               seed = 1234, importance_type = "gini", rule = "top_n", top_n = 50, threshold = NULL) {
@@ -242,8 +206,6 @@ methyl_fs_rf_fit <- function(X, y, ntree = 1000, mtry_mode = "auto", mtry_manual
   } else {
     mtry <- max(1, floor(sqrt(p)))
   }
-  ## randomForest() errors if sampsize/maxnodes/classwt are passed as explicit NULL,
-  ## so unset optional args are only added to the call when actually provided.
   rf_args <- list(x = X, y = y, importance = TRUE, ntree = max(50, round(ntree)), mtry = mtry,
                    nodesize = max(1, round(nodesize)), replace = replace)
   if (!is.null(maxnodes)) rf_args$maxnodes <- maxnodes
@@ -267,10 +229,6 @@ methyl_fs_rf_fit <- function(X, y, ntree = 1000, mtry_mode = "auto", mtry_manual
        ranked = data.frame(cpg = names(imp), importance = as.numeric(imp), rank = seq_along(imp), row.names = NULL))
 }
 
-## =============================================================================
-## Helpers - RFE / Wrapper Selection
-## =============================================================================
-
 methyl_fs_rfe_sizes <- function(sizes_str, p) {
   sizes <- suppressWarnings(as.integer(trimws(strsplit(sizes_str %||% "", ",")[[1]])))
   sizes <- sort(unique(sizes[!is.na(sizes) & sizes > 0 & sizes <= p]))
@@ -291,8 +249,6 @@ methyl_fs_rfe_run <- function(X, y, sizes, k = 5, flavor = c("rf", "logistic"), 
        perf = perf, ranked = data.frame(cpg = fit$optVariables, rank = seq_along(fit$optVariables), row.names = NULL))
 }
 
-## Ported from the transcriptomics module's SVM-RFE. Backward elimination by
-## smallest squared linear-SVM weight, then a k-fold CV error curve to pick panel size.
 methyl_fs_svm_rfe_rank <- function(X, y, cost = 1, tolerance = 0.001) {
   feats <- colnames(X)
   ranking <- character(0)
@@ -328,12 +284,6 @@ methyl_fs_svm_rfe_run <- function(X, y, cost = 1, tolerance = 0.001, k_folds = 5
        ranked = data.frame(cpg = rank, rank = seq_along(rank), row.names = NULL))
 }
 
-## =============================================================================
-## Helpers - Stability Selection
-## =============================================================================
-
-## Generates resample index sets (bootstrap / repeated k-fold / subsampling) for
-## Meinshausen-Buhlmann stability selection against a fixed reference-lambda LASSO.
 methyl_fs_stability_resample_indices <- function(n, y, type = c("bootstrap", "repeated_kfold", "subsampling"),
                                                    n_resamples = 50, fraction = 0.8, k = 5, repeats = 5, seed = 1234) {
   type <- match.arg(type)
@@ -358,8 +308,6 @@ methyl_fs_stability_run <- function(X, y, type = "bootstrap", n_resamples = 50, 
   idx_sets <- methyl_fs_stability_resample_indices(nrow(X), y, type = type, n_resamples = n_resamples,
                                                      fraction = fraction, k = k, repeats = repeats, seed = seed)
   sel_mat <- matrix(0L, nrow = ncol(X), ncol = length(idx_sets), dimnames = list(colnames(X), NULL))
-  ## Tracks which resamples produced a fit, so failed/degenerate ones are excluded
-  ## from the frequency denominator instead of deflating selection_frequency.
   valid <- rep(FALSE, length(idx_sets))
   for (i in seq_along(idx_sets)) {
     idx <- idx_sets[[i]]
@@ -383,21 +331,12 @@ methyl_fs_stability_run <- function(X, y, type = "bootstrap", n_resamples = 50, 
        selected_ids = ranked$cpg[ranked$selection_frequency >= freq_threshold])
 }
 
-## =============================================================================
-## Helpers - Consensus / Overlap / Correlation reduction
-## =============================================================================
-
 methyl_fs_consensus_table <- function(id_lists, weights = NULL) {
   all_ids <- Reduce(union, id_lists)
   methods <- names(id_lists)
   w <- weights %||% stats::setNames(rep(1, length(methods)), methods)
   w <- w[methods]
   if (length(all_ids) == 0) {
-    ## Every method selected zero CpGs (plausible on a small/noisy panel) -
-    ## still return the full expected column set (one 0/1 column per method,
-    ## n_methods, weighted_score), just with zero rows, so every downstream
-    ## consumer (Venn/UpSet/rank plot/heatmap/table) can keep assuming those
-    ## columns exist instead of special-casing an empty consensus.
     empty <- stats::setNames(data.frame(cpg = character(0), stringsAsFactors = FALSE),
                               "cpg")
     for (m in methods) empty[[m]] <- integer(0)
@@ -420,9 +359,6 @@ methyl_fs_consensus_select <- function(consensus_table, min_methods = 2, min_wei
   consensus_table$cpg[keep]
 }
 
-## Manual UpSet-style plot (dot-matrix intersection panel + intersection-
-## size bar chart, combined via patchwork) - no UpSetR/ComplexUpset
-## dependency needed for up to ~5 sets.
 methyl_fs_upset_plot <- function(id_lists) {
   id_lists <- id_lists[lengths(id_lists) > 0]
   validate(need(length(id_lists) >= 2, "Need at least two non-empty methods for an UpSet plot."))
@@ -477,8 +413,6 @@ methyl_fs_method_heatmap <- function(consensus_table, methods) {
     theme(axis.text.y = element_text(size = 6))
 }
 
-## Greedy pairwise-correlation pruning: repeatedly drops the lower-scoring member
-## of the highest-|r| pair above r_threshold, until no pair exceeds it.
 methyl_fs_correlation_reduce <- function(mat, ids, score, method = "pearson", r_threshold = 0.8) {
   ids <- intersect(ids, rownames(mat))
   if (length(ids) < 2) return(list(reduced_ids = ids, dropped = data.frame(kept = character(0), dropped = character(0), r = numeric(0))))
@@ -501,16 +435,7 @@ methyl_fs_correlation_reduce <- function(mat, ids, score, method = "pearson", r_
   list(reduced_ids = active, dropped = if (length(dropped) > 0) do.call(rbind, dropped) else data.frame(kept = character(0), dropped = character(0), r = numeric(0)))
 }
 
-## =============================================================================
-## Helpers - Selected Features / annotation
-## =============================================================================
-
-## Same chr/pos/gene join pattern as mod_methyl_dmp.R:648-655. CpG-island/genomic-region
-## columns left NA - shared annotation.R only exposes chr/pos/Type/SNP-rs/gene.
 methyl_fs_annotate_panel <- function(ids, anno_result) {
-  ## data.frame() can't recycle a length-1 NA against a length-0 `ids` (a
-  ## legitimate empty panel - e.g. every method selected zero CpGs) without
-  ## an explicit rep(), which throws "differing number of rows: 0, 1" instead.
   n <- length(ids)
   df <- data.frame(cpg = ids, chr = rep(NA_character_, n), pos = rep(NA_real_, n), gene = rep(NA_character_, n),
                     cpg_island = rep(NA_character_, n), genomic_region = rep(NA_character_, n), stringsAsFactors = FALSE)
@@ -523,10 +448,6 @@ methyl_fs_annotate_panel <- function(ids, anno_result) {
   }
   df
 }
-
-## =============================================================================
-## Helpers - Validation
-## =============================================================================
 
 methyl_fs_validate_frozen <- function(X, y, classifier = "glm", k = 5, repeats = 1, seed = 1234) {
   method <- switch(classifier, rf = "rf", svm = "svmLinear", "glm")
@@ -542,8 +463,6 @@ methyl_fs_validate_frozen <- function(X, y, classifier = "glm", k = 5, repeats =
        roc = roc_obj, resample_results = fit$resample)
 }
 
-## Leakage-safe: outer k-fold loop reselecting the panel (Univariate + Regularization
-## only) inside each training fold, mirroring the diagnostic module's CV shape.
 methyl_fs_validate_nested <- function(beta_mat, m_mat, y, uni_params, lasso_params, classifier = "glm",
                                        outer_k = 5, repeats = 1, seed = 1234) {
   set.seed(seed)
@@ -581,10 +500,6 @@ methyl_fs_validate_nested <- function(beta_mat, m_mat, y, uni_params, lasso_para
   list(per_fold = per_fold_df, mean_auc = mean(per_fold_df$auc, na.rm = TRUE), sd_auc = stats::sd(per_fold_df$auc, na.rm = TRUE))
 }
 
-## =============================================================================
-## UI
-## =============================================================================
-
 mod_methyl_featureselection_ui <- function(id) {
   ns <- NS(id)
   div(
@@ -612,16 +527,8 @@ mod_methyl_fs_need_filters_note <- function() {
   div(class = "empty-note", icon("circle-info"), "Run Data & Filters first (see the Data & Filters tab).")
 }
 
-## Sex-stratification: female/male fit separately, pooled always available -
-## mirrors transcriptomics' three-build parallel-panel pattern
-## (R/transcriptomics/09_Feature_Selection/mod_featureselection.R), adapted to this file's own
-## sex-detection helpers (mod_methyl_dmp_sex_col/_choices) and its existing
-## one-Run-button-per-stage pipeline shape.
 FS_SEXES <- c("female", "male", "pooled")
 
-## Arranges up to 3 per-sex result cards: Female + Male side-by-side when both
-## are present, Pooled always full-width below - the methylomics-card-styled
-## analog of transcriptomics' fs-pair-row layout.
 mod_methyl_fs_sex_layout <- function(cards) {
   fm <- cards[intersect(c("female", "male"), names(cards))]
   pooled <- cards[["pooled"]]
@@ -632,18 +539,9 @@ mod_methyl_fs_sex_layout <- function(cards) {
   )
 }
 
-## =============================================================================
-## Server
-## =============================================================================
-
 mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-
-    ## ---------------------------------------------------------------------
-    ## Stage 0: source resolution - always live, never Run-gated; heavy computation
-    ## stays behind explicit Run buttons.
-    ## ---------------------------------------------------------------------
 
     fs_own_matrix <- reactive({
       req(input$fs_matrix_file)
@@ -697,15 +595,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       colnames(src$sheet)
     })
 
-    ## Sex detection reuses this app's own DMP/DMR/WGCNA idiom
-    ## (mod_methyl_dmp_sex_col()/mod_methyl_dmp_sex_choices(), mod_methyl_dmp.R:102-123)
-    ## rather than inventing a bespoke sex-guessing reactive like transcriptomics does.
     fs_sex_col <- reactive({ mod_methyl_dmp_sex_col(fs_active_source()$sheet) })
     fs_sex_choices <- reactive({ mod_methyl_dmp_sex_choices(fs_active_source()$sheet, fs_sex_col()) })
     fs_sex_available <- reactive({ length(fs_sex_choices()) > 1 })
 
-    ## "female"/"male" -> the raw sex-column value to filter on; "pooled" -> NULL
-    ## (skips the sex filter entirely, pooling every sample regardless of sex).
     fs_sex_value_for <- function(sex_label) {
       if (identical(sex_label, "pooled")) return(NULL)
       ch <- fs_sex_choices()
@@ -724,19 +617,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       tools::toTitleCase(sex_label)
     }
 
-    ## ---------------------------------------------------------------------
-    ## Stage 1: Data & Filters
-    ## ---------------------------------------------------------------------
-
     output$filters_ui <- renderUI({
       tagList(
         div(class = "card",
           div(class = "card-title", icon("filter"), "Data source"),
-          ## Gated dynamically on dataset$beta rather than the static
-          ## METH_RAW_DATA_AVAILABLE flag - this choice reads whatever is
-          ## actually loaded on the Methylomics Dataset tab (preloaded,
-          ## uploaded, or GEO-fetched alike), so it should only appear/default
-          ## once something has actually been loaded there.
           radioButtons(ns("fs_source"), NULL,
                        choices = if (!is.null(dataset$beta)) c("Use dataset loaded on the Dataset tab" = "preloaded", "Upload my own" = "upload") else c("Upload my own" = "upload"),
                        selected = if (!is.null(dataset$beta)) "preloaded" else "upload", inline = TRUE),
@@ -862,9 +746,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ## Staleness: every sex's build goes stale when the source dataset changes,
-    ## cleared the moment that sex's own button is clicked again - mirrors
-    ## transcriptomics' fs_stale (R/transcriptomics/09_Feature_Selection/mod_featureselection.R:868-871).
     fs_stale <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
     observeEvent(dataset$beta, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE }, ignoreNULL = TRUE)
     observeEvent(input$fs_source, { fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE })
@@ -872,16 +753,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     observeEvent(input$run_male_btn,   fs_stale$male   <- FALSE, ignoreInit = TRUE)
     observeEvent(input$run_pooled_btn, fs_stale$pooled <- FALSE, ignoreInit = TRUE)
 
-    ## The one filter pipeline (missingness/variance/methylation-specific/
-    ## cross-reactive/MAF/imputation) - unchanged from before sex stratification,
-    ## just parameterized by which sex-value to restrict the sample set to first
-    ## (sex_value = NULL, the "pooled" case, skips that restriction entirely).
     fs_build_filters <- function(sex_label, sex_value) {
       src <- fs_active_source()
       sheet <- src$sheet
       validate(need(!is.null(sheet) && !is.null(input$fs_group_col), "Load phenotype/sample metadata and pick a group column first."))
-      ## Guards factor(..., levels = c(ref, comp)) below against duplicated levels;
-      ## nothing in the UI prevents both selectInputs pointing at the same value.
       validate(need(!is.null(input$fs_ref_group) && !is.null(input$fs_comp_group) && !identical(input$fs_ref_group, input$fs_comp_group),
                     "Reference and comparison group must be two different levels."))
       sample_ids <- methyl_sheet_sample_ids(sheet, colnames(src$mat))
@@ -907,12 +782,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       grp <- factor(grp_raw[keep_s], levels = c(input$fs_ref_group, input$fs_comp_group))
       validate(need(all(table(grp) >= 3), "Each group needs at least 3 samples."))
 
-      ## Train/holdout split - MUST happen before any filtering/selection step
-      ## below. Everything from here through Consensus Selection only ever
-      ## sees the training partition; held-out sample IDs are carried in the
-      ## returned list so the Diagnostic module can evaluate the exported
-      ## panel on samples it never influenced, instead of re-splitting the
-      ## full pool (which would risk re-including a selection-time sample).
       holdout_sample_ids <- character(0)
       if (isTRUE(input$fs_holdout_enabled %||% TRUE)) {
         frac <- min(max(input$fs_holdout_frac %||% 0.3, 0.1), 0.5)
@@ -963,8 +832,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }
       beta_scale <- beta_scale[keep_probe, , drop = FALSE]
 
-      ## Top-variance cap subsets rows rather than producing a keep mask, so it's
-      ## appended to the cascade table as an extra row instead of folded into filters.
       cap <- if (identical(input$fs_max_probes %||% "5000", "custom")) (input$fs_max_probes_custom %||% 5000) else as.numeric(input$fs_max_probes %||% 5000)
       n_before_cap <- nrow(beta_scale)
       beta_scale <- methyl_fs_cap_top_variance(beta_scale, round(cap))
@@ -978,8 +845,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         imp <- methyl_fs_impute(beta_scale, input$fs_impute_method %||% "median")
         beta_scale <- imp$mat
         imputed_method <- imp$method_used
-        ## methyl_fs_impute() silently degrades k-NN -> median when `impute` isn't
-        ## installed - flagged here so the result card can say so explicitly.
         impute_fallback <- identical(input$fs_impute_method, "knn") && !grepl("k-NN", imputed_method, fixed = TRUE)
       }
 
@@ -997,12 +862,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     fs_filter_result_male   <- eventReactive(input$run_male_btn,   { fs_build_filters("male",   fs_sex_value_for("male")) },   ignoreInit = TRUE)
     fs_filter_result_pooled <- eventReactive(input$run_pooled_btn, { fs_build_filters("pooled", NULL) }, ignoreInit = TRUE)
 
-    ## The shared "does this sex currently have a live, non-stale Stage-1
-    ## build?" accessor every downstream stage reads instead of a separate
-    ## has_run flag - mirrors transcriptomics' fs_result_or_null()
-    ## (R/transcriptomics/09_Feature_Selection/mod_featureselection.R:884-899). Calling an
-    ## eventReactive before its button has ever fired just raises a cheap
-    ## req()-style silent stop, caught here as a plain NULL.
     fs_filter_result_for <- function(sex_label) {
       if (isTRUE(fs_stale[[sex_label]])) return(NULL)
       tryCatch(
@@ -1042,15 +901,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       })
     })
 
-    ## ---------------------------------------------------------------------
-    ## Shared technique-stage factory (Stages 2-6) - the technique-layer half
-    ## of transcriptomics' build-layer/technique-layer split
-    ## (register_sex_technique_outputs(), R/transcriptomics/09_Feature_Selection/mod_featureselection.R:1170),
-    ## adapted to this file's existing one-Run-button-per-stage convention:
-    ## clicking a stage's own Run button fits `fit_fn` against every sex Stage 1
-    ## currently has a live build for, instead of tripling every stage's button.
-    ## ---------------------------------------------------------------------
-
     fs_register_technique_stage <- function(run_btn_name, fit_fn) {
       store <- reactiveValues(female = NULL, male = NULL, pooled = NULL)
       lapply(FS_SEXES, function(sx) {
@@ -1065,12 +915,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       store
     }
 
-    ## Renders a technique stage's up-to-3 per-sex cards (or the empty note).
-    ## `card_fn(sx, fit)` builds one sex's `.card` - `fit` may be a caught
-    ## `condition` (a real validate()/error failure) rather than a real result;
-    ## card_fn is expected to check `inherits(fit, "condition")` and show
-    ## conditionMessage(fit) in that case, so a real failure is never confused
-    ## with "not run yet" (mirrors transcriptomics' fs_result_error_msg()).
     fs_render_technique_ui <- function(store, card_fn, need_run_note) {
       present <- Filter(function(sx) !is.null(store[[sx]]), FS_SEXES)
       if (length(present) == 0) return(mod_methyl_fs_empty_note(need_run_note))
@@ -1078,12 +922,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       mod_methyl_fs_sex_layout(cards)
     }
 
-    ## Shared "run this stage first" prompt shown when no sex has been built yet.
     fs_need_build_note <- "Build at least one sex (Female/Male/Run All pooled) in Data & Filters, then Run this stage."
-
-    ## ---------------------------------------------------------------------
-    ## Stage 2: Univariate Selection
-    ## ---------------------------------------------------------------------
 
     output$uni_ui <- renderUI({
       if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
@@ -1120,7 +959,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     })
 
     output$uni_covariate_ui <- renderUI({
-      ## Covariate candidates don't depend on sex - any built stratum's group_col works.
       built <- fs_built_sexes()
       req(length(built) > 0)
       r <- fs_filter_result_for(built[1])
@@ -1130,8 +968,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       checkboxGroupInput(ns("uni_covariates"), "Covariate adjustment (linear-model methods only)", choices = cand, selected = character(0))
     })
 
-    ## r$beta/r$m/r$grp are restricted to the two Reference/Comparison levels, but
-    ## ANOVA/Kruskal-Wallis can use >2; rebuild against the full phenotype column for those.
     fs_uni_multigroup_data <- function(r, method) {
       fallback <- list(beta = r$beta, m = r$m, y = r$grp)
       if (!(method %in% c("anova", "kruskal"))) return(fallback)
@@ -1207,10 +1043,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }, fs_need_build_note)
     })
 
-    ## ---------------------------------------------------------------------
-    ## Stage 3: Regularization (LASSO / Elastic Net)
-    ## ---------------------------------------------------------------------
-
     output$reg_ui <- renderUI({
       if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
@@ -1283,10 +1115,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }, fs_need_build_note)
     })
 
-    ## ---------------------------------------------------------------------
-    ## Stage 4: Tree-Based Selection (Random Forest)
-    ## ---------------------------------------------------------------------
-
     output$rf_ui <- renderUI({
       if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
@@ -1319,7 +1147,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     fs_rf_fit_one <- function(r) {
       X <- t(r$m)
       maxnodes <- if (isTRUE(input$rf_maxnodes_unlimited)) NULL else input$rf_maxnodes
-      ## classwt is one weight per class (named vector), unlike glmnet's per-observation weights.
       classwt <- if (identical(input$rf_class_weight, "balanced")) {
         tb <- table(r$grp); stats::setNames(as.numeric(max(tb) / tb), names(tb))
       } else NULL
@@ -1370,10 +1197,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }, fs_need_build_note)
     })
 
-    ## ---------------------------------------------------------------------
-    ## Stage 5: RFE / Wrapper Selection
-    ## ---------------------------------------------------------------------
-
     output$rfe_ui <- renderUI({
       built <- fs_built_sexes()
       if (length(built) == 0) return(mod_methyl_fs_need_filters_note())
@@ -1402,8 +1225,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     fs_rfe_fit_one <- function(r) {
       X <- t(r$m)
       sizes <- methyl_fs_rfe_sizes(input$rfe_sizes, ncol(X))
-      ## methyl_fs_rfe_sizes() silently drops sizes <= 0 or > ncol(X); surfaced
-      ## here so the result card can flag dropped sizes to the user.
       entered <- suppressWarnings(as.integer(trimws(strsplit(input$rfe_sizes %||% "", ",")[[1]])))
       dropped_sizes <- setdiff(entered[!is.na(entered)], sizes)
       fit <- if (identical(input$rfe_flavor, "svm")) {
@@ -1463,10 +1284,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         )
       }, fs_need_build_note)
     })
-
-    ## ---------------------------------------------------------------------
-    ## Stage 6: Stability Selection
-    ## ---------------------------------------------------------------------
 
     output$stab_ui <- renderUI({
       if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
@@ -1543,13 +1360,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }, fs_need_build_note)
     })
 
-    ## ---------------------------------------------------------------------
-    ## Stage 7: Consensus / Overlap (+ correlation reduction)
-    ## ---------------------------------------------------------------------
-
-    ## Per-sex method availability/ids - the direct analog of transcriptomics'
-    ## "Overlap" tab, computed independently for each sex using only that
-    ## sex's own upstream method results.
     fs_available_methods_for <- function(sx) {
       avail <- c(Univariate = !is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition"),
                  Regularization = !is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition"),
@@ -1567,9 +1377,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       if ("Stability" %in% fs_available_methods_for(sx)) out$Stability <- fs_stab_store[[sx]]$selected_ids
       out
     }
-    ## Union across every currently-built sex, just to populate the shared
-    ## method-picker/weights UI - the actual consensus computed per sex below
-    ## only ever uses whichever of these that specific sex actually has.
     fs_consensus_avail_union <- reactive({
       out <- character(0)
       for (sx in fs_built_sexes()) out <- union(out, fs_available_methods_for(sx))
@@ -1626,9 +1433,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
     })
     observeEvent(input$consensus_run_btn, {
       for (sx in fs_built_sexes()) fs_consensus_store[[sx]] <- tryCatch(fs_consensus_fit_for(sx), error = function(e) e)
-      ## Shares one result with other modules via the app-wide `results` cache -
-      ## prefers pooled (a single-target contract other modules already expect),
-      ## else the first sex that actually produced a result.
       if (!is.null(results)) {
         for (sx in c("pooled", fs_built_sexes())) {
           r <- fs_consensus_store[[sx]]
@@ -1699,14 +1503,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       }, "Run at least one method for at least one sex, then Run Consensus Selection.")
     })
 
-    ## ---------------------------------------------------------------------
-    ## Stage 8: Selected Features
-    ## ---------------------------------------------------------------------
-
-    ## A single trained panel/model is inherently one target - unlike
-    ## transcriptomics, which has no downstream "finalize one model" step, this
-    ## Stratum selector is the methylomics-specific bridge from 3 parallel
-    ## Consensus results down to the one stratum that gets finalized/exported.
     fs_consensus_built_sexes <- reactive({
       Filter(function(sx) !is.null(fs_consensus_store[[sx]]) && !inherits(fs_consensus_store[[sx]], "condition"), FS_SEXES)
     })
@@ -1718,15 +1514,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                   choices = stats::setNames(built, vapply(built, fs_sex_display_label, character(1))), selected = built[1])
     })
 
-    ## req() here (not a silent NA fall-through) is load-bearing: this is read
-    ## by observeEvent(fs_final_panel(), ...) below, which runs eagerly from
-    ## session start regardless of whether this tab's UI has ever been opened.
-    ## Before any stratum is built, `built` is character(0) and `built[1]` is
-    ## NA - indexing fs_consensus_store[[NA_character_]] throws a real R error
-    ## ("key must be not be \"\" or NA"), and an error thrown inside an
-    ## observeEvent gets retried on every reactive flush instead of failing
-    ## once, which looked like the whole app hanging/dimmed (empirically
-    ## verified against a real Playwright-driven upload before this fix).
     fs_selected_stratum <- reactive({
       built <- fs_consensus_built_sexes()
       req(length(built) > 0)
@@ -1870,10 +1657,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       content = function(file) writeLines(fs_final_panel()$ids, file)
     )
 
-    ## ---------------------------------------------------------------------
-    ## Stage 9: Model & Export (validation + save/load)
-    ## ---------------------------------------------------------------------
-
     output$export_ui <- renderUI({
       if (length(fs_consensus_built_sexes()) == 0) return(mod_methyl_fs_empty_note("Run Consensus Selection first."))
       tagList(
@@ -1957,13 +1740,6 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       sx <- fs_selected_stratum()
       r <- fs_filter_result_for(sx); panel <- fs_final_panel(); cr <- fs_consensus_store[[sx]]
 
-      ## Which technique stages actually produced a result for this stratum
-      ## (not just "was clicked" - a caught validate()/error condition in the
-      ## store still counts as not-ran) - computed once and reused both for
-      ## the `methods` block below (unchanged from before) and for the new
-      ## `seed` block, so a method's recorded seed is only ever the seed
-      ## that was ACTUALLY threaded into a computation that produced this
-      ## export's selected_ids, never a UI default nobody's run yet fired on.
       uni_ran <- !is.null(fs_uni_store[[sx]]) && !inherits(fs_uni_store[[sx]], "condition")
       reg_ran <- !is.null(fs_reg_store[[sx]]) && !inherits(fs_reg_store[[sx]], "condition")
       rf_ran  <- !is.null(fs_rf_store[[sx]])  && !inherits(fs_rf_store[[sx]],  "condition")
@@ -1976,19 +1752,9 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                         n_samples = r$n_samples, group_col = r$group_col, reference_level = r$ref_group, comparison_level = r$comp_group),
         holdout_sample_ids = r$holdout_sample_ids %||% character(0), holdout_seed = r$holdout_seed,
         leakage_safe = length(r$holdout_sample_ids %||% character(0)) > 0,
-        ## Content fingerprint of the exact filtered M-value matrix + group
-        ## assignment that fed every technique stage below, plus the
-        ## group/reference/comparison choice - the same digest::digest(...,
-        ## algo = "xxhash64") primitive global.R already uses as a WGCNA
-        ## cache key over matrices this size (R/provenance.R).
         checksum = digest::digest(list(m = r$m, grp = as.character(r$grp),
                                         group_col = r$group_col, ref_group = r$ref_group, comp_group = r$comp_group),
                                    algo = "xxhash64"),
-        ## Every seed ACTUALLY passed into a computation that ran for this
-        ## export - NOT a blanket "the global seed controls everything"
-        ## assumption (each technique stage below takes its own seed=
-        ## input, independently settable in the UI; a stage that never ran
-        ## for this stratum has no seed to report and is left NA).
         seed = list(
           holdout_split = r$holdout_seed,
           regularization = if (reg_ran) input$reg_seed else NA_integer_,

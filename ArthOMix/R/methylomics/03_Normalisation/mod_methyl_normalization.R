@@ -1,23 +1,6 @@
 ## R/methylomics/03_Normalisation/mod_methyl_normalization.R
 ## Methylomics sub-module: Normalization. Reads the shared `methyl_dataset`
 ## reactiveValues (R/methylomics/functions/normalization.R has the method
-## implementations, diagnostics, status-detection, and validation helpers).
-##
-## Both preloaded and uploaded datasets run through the same automatic
-## diagnostics (methyl_norm_diagnostics()) and status detection
-## (methyl_norm_status()). Preloaded whole-blood data was analyzed from its
-## original author-normalized values (see Dataset tab) for comparability
-## with the published beta values, so this tab only shows status for it -
-## no live method picker/filters/Run button. Uploaded data gets the full
-## live workflow: filters, a method picker gated by what's actually
-## available (raw IDAT unlocks Noob/Functional normalization/SWAN/Dasen/
-## Stratified quantile/Noob+SWAN; BMIQ/PBC/Noob+BMIQ need Type I/II
-## manifest annotation - 450K/EPIC only; quantile/none always work), a
-## Compare Methods panel, and progressive before/after results.
-##
-## Same "compute a candidate result, explicit button promotes it to the
-## shared dataset" pattern as mod_preprocessing.R's "Use this as the active
-## dataset" - Run alone never overwrites methyl_dataset$beta.
 
 mod_methyl_normalization_config <- list(
   id = "normalization", title = "Normalization", icon = "wave-square", group = "Data",
@@ -33,10 +16,6 @@ METHYL_NORM_METHODS_UNIVERSAL <- c("No normalization / keep current data" = "non
 METHYL_NORM_METHODS_COMBO_SWAN <- c("Noob + SWAN" = "noob_swan")
 METHYL_NORM_METHODS_COMBO_BMIQ <- c("Noob + BMIQ" = "noob_bmiq")
 
-## Methods operating directly on a beta/M-value matrix apply filters BEFORE
-## running; raw-IDAT methods apply filters AFTER, since minfi/wateRmelon's
-## raw-intensity methods need the array's full probe set from the
-## RGChannelSet, not a pre-filtered matrix.
 METHYL_NORM_MATRIX_METHOD_KEYS <- c("bmiq", "pbc", "quantile", "none")
 
 mod_methyl_normalization_ui <- function(id) {
@@ -47,8 +26,6 @@ mod_methyl_normalization_ui <- function(id) {
   )
 }
 
-## actionLink that toggles a hidden wrapper div - same progressive-reveal
-## affordance as mod_methyl_qc.R's historical-reference toggle.
 .methyl_norm_toggle_ui <- function(ns, id, label) {
   tagList(
     actionLink(ns(paste0(id, "_toggle")),
@@ -60,17 +37,7 @@ mod_methyl_normalization_ui <- function(id) {
   )
 }
 
-## Sub-tab title (icon + label), matching mod_methyl_qc.R's qc_tab_title().
 norm_tab_title <- function(ic, label) tagList(icon(ic), " ", label)
-
-## ---- Pure (non-reactive) run pipeline, for use inside callr::r_bg() ----------------
-## Everything Run Normalization/Compare Methods actually computes is defined here as
-## plain functions over a `ctx` snapshot (built once, synchronously, from reactive
-## inputs) rather than reading input$/methyl_dataset$ directly - a callr::r_bg()
-## worker is a fresh R process with no reactive context and none of this app's loaded
-## packages/sourced files, so these must not touch either. Kept at file scope (not
-## inside moduleServer) so the worker function (see methyl_norm_bg_worker() below) can
-## source just this file plus its two dependencies to get everything it needs.
 
 methyl_norm_sample_scope_ctx <- function(ctx) {
   mat <- ctx$beta
@@ -131,9 +98,6 @@ methyl_norm_group_labels_ctx <- function(sample_ids, ctx) {
   stats::setNames(as.character(sheet[[ctx$group_col_check]]), ids)[sample_ids]
 }
 
-## One end-to-end run: sample filters -> method -> probe filters -> before/after
-## comparison on the shared probe set. Returns a `reason` on failure instead of
-## throwing - `ctx` is a plain snapshot built once by make_norm_ctx() below.
 methyl_norm_run_full_ctx <- function(method_key, ctx) {
   sc <- methyl_norm_sample_scope_ctx(ctx)
   if (ncol(sc$mat) < 2) return(list(ok = FALSE, reason = "Fewer than 2 samples remain after the selected sample filters - relax the thresholds above."))
@@ -169,23 +133,11 @@ methyl_norm_run_full_ctx <- function(method_key, ctx) {
        before = before, after = after, note = res$note,
        removed_probes = removed_probes, removed_samples = sc$removed_samples, filter_notes = filter_notes,
        n_probes_before = nrow(sc$mat), n_samples_before = ncol(sc$mat),
-       ## Only set for bmiq/noob_bmiq (methyl_norm_bmiq()'s per-sample fit
-       ## failure flag, normalization.R) - NULL/absent for every other
-       ## method, where the whole matrix is uniformly transformed by
-       ## definition. See filtered_body renderUI below for where this is
-       ## surfaced.
        bmiq_failed_samples = res$failed_samples, bmiq_sample_ok = res$sample_ok,
        validation = validation, run_at = Sys.time())
 }
 
-## Runs inside a fresh callr::r_bg() process, which starts with none of this app's
-## loaded packages/sourced files - only what's passed via `args` and what this
-## function loads/sources itself. Deliberately narrow (not global.R's full ~30
-## packages/78 files): just what methyl_norm_run_full_ctx() and its callees need.
 methyl_norm_bg_worker <- function(method_key, ctx, app_dir) {
-  ## qc.R has a couple of top-level (not-inside-a-function) constants that reference
-  ## these two global.R color palettes - defining them here is cheaper than sourcing
-  ## the whole of global.R (~30 package library() calls) just to satisfy that.
   assign("%||%", function(a, b) if (is.null(a)) b else a, envir = .GlobalEnv)
   assign("ARTHOMIX_COLORS", list(blue = "#2a78d6", orange = "#eb6834", aqua = "#1baf7a", yellow = "#eda100",
                                   magenta = "#e87ba4", violet = "#4a3aa7", red = "#e34948",
@@ -200,11 +152,7 @@ methyl_norm_bg_worker <- function(method_key, ctx, app_dir) {
   methyl_norm_run_full_ctx(method_key, ctx)
 }
 
-## Same rationale/worker-loading as methyl_norm_bg_worker() above, for Compare Methods.
 methyl_norm_compare_bg_worker <- function(sel, ctx, app_dir) {
-  ## qc.R has a couple of top-level (not-inside-a-function) constants that reference
-  ## these two global.R color palettes - defining them here is cheaper than sourcing
-  ## the whole of global.R (~30 package library() calls) just to satisfy that.
   assign("%||%", function(a, b) if (is.null(a)) b else a, envir = .GlobalEnv)
   assign("ARTHOMIX_COLORS", list(blue = "#2a78d6", orange = "#eb6834", aqua = "#1baf7a", yellow = "#eda100",
                                   magenta = "#e87ba4", violet = "#4a3aa7", red = "#e34948",
@@ -228,8 +176,6 @@ methyl_norm_compare_bg_worker <- function(sel, ctx, app_dir) {
 mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-
-    ## ==== Shared: annotation, diagnostics, status (both pathways) =========
 
     anno_result <- reactive({
       req(methyl_dataset$array_type)
@@ -309,8 +255,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       )
     }
 
-    ## ==== Branch: no dataset loaded at all ==================================
-
     output$body_ui <- renderUI({
       if (isTRUE(methyl_dataset$preloaded)) return(preloaded_ui())
       if (is.null(methyl_dataset$beta)) {
@@ -322,8 +266,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       uploaded_ui()
     })
 
-    ## ==== Branch: preloaded dataset - diagnostics/status only, no live reprocessing ====
-
     preloaded_ui <- function() {
       if (is.null(methyl_dataset$beta)) {
         return(div(class = "card",
@@ -333,12 +275,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         ))
       }
       d <- diag_result(); st <- status_result()
-      ## Deliberately not status_card(st, ...): that badge reflects
-      ## methyl_norm_status()'s narrow Type I/II bias signal, a different
-      ## question from "was this dataset normalized" - the ground-truth
-      ## answer for this cohort is already known (author-normalized before
-      ## GEO deposition). The heuristic's reading is still shown, just
-      ## demoted to a secondary note instead of the headline badge.
       tagList(
         diagnostics_card(d, "Computed automatically from the preloaded whole-blood cohort's bundled beta matrix."),
         div(class = "card",
@@ -353,8 +289,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         )
       )
     }
-
-    ## ==== Branch: uploaded dataset - full live workflow ====================
 
     available_methods <- reactive({
       c(
@@ -378,10 +312,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       methyl_norm_recommendation(methyl_dataset, status_result(), available_methods())
     })
 
-    ## When status is "no_bias_detected", filters/method-picker/compare
-    ## sections stay hidden until the user picks "Re-normalize" or "Compare
-    ## normalization methods"; "Keep current normalization" just confirms
-    ## the status quo. Reset whenever a new dataset is loaded.
     norm_choice <- reactiveVal(NULL)
     observeEvent(methyl_dataset$beta, norm_choice(NULL), ignoreNULL = TRUE)
     observeEvent(input$choice_keep_btn, norm_choice("keep"), ignoreInit = TRUE)
@@ -425,11 +355,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
               p(class = "submodule-desc", recommendation_text()),
               p(class = "empty-note", icon("circle-info"), "This is advisory only - every compatible method below remains selectable regardless of this recommendation.")
           ),
-          ## Filters / Method & Run / Compare Methods as sub-tabs (same
-          ## tabsetPanel convention as mod_methyl_qc.R). tabsetPanel renders
-          ## every tabPanel up front (tab switching is CSS visibility), so
-          ## filters set on the Filters tab stay live for the other tabs
-          ## regardless of which is open.
           div(class = "tx-menu-wrap",
               tabsetPanel(
                 id = ns("config_tabs"), type = "tabs", header = tagList(tags$hr()),
@@ -444,8 +369,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         )
       )
     }
-
-    ## ---- Filters --------------------------------------------------------
 
     filters_ui <- function() {
       sheet <- methyl_dataset$sample_sheet
@@ -521,8 +444,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       if (isTRUE(pl$ok)) pl$ids else NULL
     })
 
-    ## ---- Method picker ----------------------------------------------------
-
     cond_any <- function(input_id, values) paste(sprintf("input['%s'] == '%s'", ns(input_id), values), collapse = " || ")
 
     method_ui <- function() {
@@ -568,8 +489,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
           icon("circle-info"), strong(sprintf(" %s: ", info$category)), info$text)
     })
 
-    ## ---- Compare Methods --------------------------------------------------
-
     compare_methods_ui <- function() {
       am <- available_methods()
       div(class = "card",
@@ -582,10 +501,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
       )
     }
 
-    ## ---- Run Normalization --------------------------------------------
-    ## Snapshot of every reactive value methyl_norm_run_full_ctx()/its callees need -
-    ## built synchronously (fast) right before invoking the actual (potentially slow)
-    ## run in a background process, so that process never has to touch reactive state.
     make_norm_ctx <- function() {
       list(
         beta = methyl_dataset$beta, rg_set = methyl_dataset$rg_set, mset = methyl_dataset$mset,
@@ -607,17 +522,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     norm_has_run <- reactiveVal(FALSE)
     observeEvent(methyl_dataset$beta, norm_has_run(FALSE), ignoreNULL = TRUE)
 
-    ## The actual method fit (esp. BMIQ/PBC/Noob+BMIQ) can take a long time; running it
-    ## synchronously here would block the single-threaded R process for every session on
-    ## this server, not just the one that clicked Run. Run it in a genuinely separate OS
-    ## process via callr::r_bg() (polled from a lightweight observe()/invalidateLater()
-    ## loop) so the rest of the app - including other users - stays responsive while it
-    ## runs. Deliberately callr, not future/ExtendedTask: future's automatic globals
-    ## detection has to walk the calling environment chain to decide what a worker needs,
-    ## and inside this app's large nested moduleServer/session environment that walk was
-    ## measured to block the single-threaded main process for 30s+ per run - as bad as
-    ## the original synchronous bug it was meant to fix. callr serializes the worker
-    ## function/args directly with no environment scanning, so it doesn't have that cost.
     norm_result_state <- reactiveVal(NULL)
     METHYL_NORM_ASYNC_AVAILABLE <- isTRUE(ARTHOMIX_ASYNC_AVAILABLE) && requireNamespace("callr", quietly = TRUE)
 
@@ -679,10 +583,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     observeEvent(input$promote_btn, {
       r <- norm_result()
       methyl_dataset$beta <- r$after
-      ## Every method except quantile/none requires actual beta values, so
-      ## "beta" is safe to stamp for those - but quantile-normalizing (or
-      ## leaving unchanged) an M-value matrix doesn't change its scale, and
-      ## relabeling it "beta" would corrupt input_scale downstream.
       methyl_dataset$input_scale <- if (r$method %in% c("quantile", "none")) methyl_dataset$input_scale else "beta"
       methyl_dataset$source <- sprintf("%s, normalized with %s", methyl_dataset$source %||% "Methylation dataset", r$method_label)
       showNotification(sprintf("The %s-normalized matrix is now the active Methylomics dataset for every sub-module below.", r$method_label), type = "message")
@@ -715,8 +615,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         )), file)
       }
     )
-
-    ## ---- Progressive results -----------------------------------------
 
     output$results_ui <- renderUI({
       req(norm_has_run(), norm_result())
@@ -858,10 +756,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         if (length(r$removed_probes) > 0) DT::dataTableOutput(ns("removed_probes_table")) else p(class = "empty-note", icon("circle-check"), "No probes were removed."),
         h5(sprintf("Removed samples (%d)", length(r$removed_samples))),
         if (length(r$removed_samples) > 0) DT::dataTableOutput(ns("removed_samples_table")) else p(class = "empty-note", icon("circle-check"), "No samples were removed."),
-        ## Per-sample BMIQ (bmiq / noob_bmiq) can fail on individual samples
-        ## and silently fall back to their raw, unnormalized values for just
-        ## that column - flag which samples that happened to, distinct from
-        ## samples removed by a filter above.
         if (length(r$bmiq_failed_samples %||% character(0)) > 0) tagList(
           h5(sprintf("Samples where BMIQ failed - left unnormalized (%d)", length(r$bmiq_failed_samples))),
           p(class = "empty-note", icon("triangle-exclamation"),
@@ -891,10 +785,6 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         ))
       )
     })
-
-    ## ---- Compare Methods ---------------------------------------------
-    ## Same blocking concern as Run Normalization above when BMIQ/PBC/Noob+BMIQ is
-    ## among the selected methods - same callr::r_bg() treatment.
 
     compare_result_state <- reactiveVal(NULL)
     compare_validation_msg <- reactiveVal(NULL)

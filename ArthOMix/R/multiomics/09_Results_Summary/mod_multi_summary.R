@@ -1,9 +1,6 @@
 ## R/multiomics/09_Results_Summary/mod_multi_summary.R
 ## Submodule: Results Summary & Reproducibility - rolls up whatever the
 ## other Multi-Omics sub-modules have published to `multi_results` this
-## session, states plainly what this module does NOT implement (never a
-## fake placeholder), and bundles the loaded results + a provenance report
-## pointing at the real pipeline scripts for download.
 
 mod_multi_summary_config <- list(
   id = "summary", title = "Results Summary & Reproducibility", icon = "clipboard-list", group = "Interpretation",
@@ -105,13 +102,6 @@ mod_multi_summary_server <- function(id, multi_dataset = NULL, multi_results = N
         tmp <- tempfile(); dir.create(tmp)
         res <- if (!is.null(multi_results)) reactiveValuesToList(multi_results) else list()
         write_if_df <- function(x, name) {
-          ## `integration_stratified` (mod_multi_integration.R's Sex-Stratified
-          ## DIABLO panel) is shaped list(cell=, result=list(performance=,
-          ## panels=, panels_wide=)) rather than the flatter $df/$assignments
-          ## shape its sibling `integration` uses - panels_wide (the same
-          ## table its own "Download comparison (CSV)" button exports) is the
-          ## most complete single table, so it is bundled here too instead of
-          ## silently falling through to no CSV at all.
           df <- if (is.list(x) && !is.data.frame(x)) x$df %||% x$assignments %||% x$result$panels_wide %||% NULL else x
           if (is.data.frame(df)) utils::write.csv(df, file.path(tmp, paste0(name, ".csv")), row.names = FALSE)
         }

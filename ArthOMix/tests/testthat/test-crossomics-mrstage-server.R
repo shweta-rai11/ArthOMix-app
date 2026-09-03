@@ -1,9 +1,6 @@
 ## Module 4 (Cross-omics) - Cross-Omics MR sub-module, via testServer():
 ## loading the real precomputed MR-stage instrument results, the upload
 ## paths (MR results + standalone evidence file), the fast-path reuse of
-## Biomarker Convergence's already-published cross_results$biomarkerconv
-## (vs. a fresh load when sexes don't match), and the real 5-category
-## classification end to end. Fully synchronous (no ExtendedTask).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -32,7 +29,7 @@ test_that("join_df() falls back to a fresh cx_bc_load_precomputed() when no matc
   skip_if_not(CX_BC_DATA_AVAILABLE, "Biomarker Convergence source data not available")
   skip_if_not(exists("CX_MR_DATA_AVAILABLE") && isTRUE(CX_MR_DATA_AVAILABLE), "MR-stage source data not available")
   cross_dataset <- shiny::reactiveValues()
-  cross_results <- shiny::reactiveValues()  ## nothing published yet
+  cross_results <- shiny::reactiveValues()
   shiny::testServer(mod_cross_mr_stage_server, args = list(id = "mr", cross_dataset = cross_dataset, cross_results = cross_results), {
     session$setInputs(mr_source = "preloaded", sex = "female", evidence_source = "preloaded")
     session$setInputs(load_mr = 0)
@@ -51,7 +48,7 @@ test_that("join_df() takes the fast path and reuses Biomarker Convergence's alre
   shiny::testServer(mod_cross_mr_stage_server, args = list(id = "mr", cross_dataset = cross_dataset, cross_results = cross_results), {
     session$setInputs(mr_source = "preloaded", sex = "female", evidence_source = "preloaded")
     jd <- join_df()
-    expect_identical(jd, marker_df)  ## reused verbatim, not reloaded from disk
+    expect_identical(jd, marker_df)
   })
 })
 
@@ -94,7 +91,7 @@ test_that("uploading an MR results file and switching mr_source clears any prior
     expect_setequal(mrs$df$gene, c("TP53", "BRCA1"))
 
     session$setInputs(mr_source = "preloaded")
-    expect_null(mrs$df)  ## cleared on source switch
+    expect_null(mrs$df)
   })
 })
 
@@ -111,6 +108,6 @@ test_that("uploading a standalone evidence file computes a real relabeled table 
     expect_false(is.null(uploaded_evidence$df))
     tp53 <- uploaded_evidence$df[uploaded_evidence$df$gene == "TP53", ]
     expect_true(tp53$DEG_significant)
-    expect_true(tp53$eQTL_MR_significant)  ## in_eQTL_MR_panel computed from FDR<0.05 upstream
+    expect_true(tp53$eQTL_MR_significant)
   })
 })

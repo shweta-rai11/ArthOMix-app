@@ -1,8 +1,6 @@
 ## R/transcriptomics/08_Colocalization/mod_coloc.R
 ## Submodule: Colocalization (Section 2.7)
 ## Runs coloc.abf between the bundled eQTL cis-window instrument (33 genes) and
-## either the bundled RA GWAS or an uploaded GWAS for any trait. Uploaded GWAS
-## is harmonised against the eQTL alleles via TwoSampleMR before testing.
 
 mod_coloc_config <- list(
   id = "coloc", group = "Genetics",
@@ -52,7 +50,6 @@ mod_coloc_ui <- function(id) {
             ),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
           ),
-          ## Stays in the DOM (spinners work) but hidden until run_btn is clicked, as in mod_diagnostic.R.
           conditionalPanel(
             condition = sprintf("input['%s'] > 0", ns("run_btn")),
             box(
@@ -99,11 +96,9 @@ mod_coloc_server <- function(id, dataset, results) {
       )
     })
 
-    ## Parse and map the uploaded GWAS file (shared helpers from global.R), plus the sample-size column coloc.abf needs.
     gwas_df_r <- reactive({ req(input$gwas_file); read_uploaded_table(input$gwas_file$datapath) })
     output$gwas_map_ui <- gwas_col_map_ui(ns, reactive(input$gwas_file), gwas_df_r, "gwas", "GWAS file", extra_fields = "n")
 
-    ## Runs coloc.abf on the bundled eQTL/GWAS pair; both sides are pre-aligned so a plain rsid intersection suffices.
     coloc_result_project <- function() {
       req(input$gene)
       r <- coloc_regions[[input$gene]]
@@ -134,8 +129,6 @@ mod_coloc_server <- function(id, dataset, results) {
            snp_df = snp_df, n_snp = length(common), uploaded = FALSE)
     }
 
-    ## Harmonises the bundled eQTL region against the uploaded GWAS via TwoSampleMR (allele alignment, beta-sign
-    ## flipping) before running coloc.abf; output snp_df matches coloc_result_project's shape.
     coloc_result_uploaded <- function() {
       req(input$gene, input$gwas_file)
       req(input$gwas_snp, input$gwas_beta, input$gwas_se, input$gwas_pval, input$gwas_ea, input$gwas_oa, input$gwas_n)

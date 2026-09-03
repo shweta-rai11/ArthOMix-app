@@ -1,27 +1,6 @@
 ## R/methylomics/07_Sex_Interaction_Analysis/mod_methyl_interaction.R
 ## Methylomics sub-module: Sex Interaction Analysis - a genuine disease*sex
 ## interaction limma model, the methylomics port of
-## R/transcriptomics/11_Sex_Interaction_Analysis/mod_interaction.R (see that file's header comment for
-## why this is needed: a "sex-stratified" analysis that just re-runs a
-## disease-only model separately per sex never actually tests whether the
-## disease effect differs by sex - only a group*sex interaction term does).
-##
-## Methylomics-specific differences from the transcriptomics version:
-##  - no fixed "group"/"sex" column names - the group column is picked from
-##    the loaded sample sheet (same input$live_group_col-style pattern as
-##    mod_methyl_dmp.R/mod_methyl_dmr.R), and the sex column is
-##    auto-detected via mod_methyl_dmp_sex_col() (mod_methyl_dmp.R).
-##  - sample IDs are reconciled between the beta matrix and the sample sheet
-##    via methyl_sheet_sample_ids() (R/methylomics/functions/qc.R), not a fixed
-##    "sample" column.
-##  - the model is fit on M-values (logit-transformed beta, or the matrix
-##    as-is when already M-scale), same convention as mod_methyl_dmp.R's
-##    live engine, via the shared memory-safe methyl_chunked_lmfit()
-##    wrapper (mod_methyl_dmp.R) instead of calling limma::lmFit()
-##    directly - a full genome-wide array can be 400k+ probes. A
-##    beta-scale delta-beta for the interaction cells is reported alongside
-##    the M-value-scale logFC for interpretability, mirroring how
-##    mod_methyl_dmp.R reports both scales.
 
 mod_methyl_interaction_config <- list(
   id = "interaction", group = "Biomarker modeling",
@@ -63,8 +42,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    ## ---- Stage 1: sex-column detection + group-column picker ---------------
-
     output$controls <- renderUI({
       validate(need(!is.null(methyl_dataset$beta), "Load a dataset with a beta/M-value matrix on the Methylomics Dataset tab first."))
       sheet <- methyl_dataset$sample_sheet
@@ -82,8 +59,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
       )
     })
 
-    ## ---- Stage 2: group levels, dependent on the chosen group column --------
-
     output$group_level_ui <- renderUI({
       req(input$group_col)
       sheet <- methyl_dataset$sample_sheet
@@ -99,8 +74,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
     int_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, int_has_run(TRUE), ignoreInit = TRUE)
 
-    ## fit_result() is an eventReactive, so it keeps the previous dataset's fit
-    ## until Run is clicked again; clear the gate so nothing stale stays on screen.
     observeEvent(methyl_dataset$source, {
       int_has_run(FALSE)
     }, ignoreInit = TRUE)
@@ -131,9 +104,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
       sx  <- factor(as.character(sheet1[[sc]]), levels = c(input$ref_sex, input$comp_sex))
       validate(need(all(table(grp, sx) >= 2), "Each group-by-sex cell needs at least 2 samples."))
 
-      ## ---- M-value conversion (same convention as mod_methyl_dmp.R's live
-      ## engine): the model is fit on M-values; a beta-scale matrix is kept
-      ## alongside for a delta-beta effect-size column.
       is_m_scale <- identical(methyl_dataset$input_scale, "m")
       beta_scale <- if (is_m_scale) 2^beta1 / (1 + 2^beta1) else beta1
       m <- if (is_m_scale) {
@@ -151,10 +121,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
       rownames(tt) <- NULL
       tt <- tt[, c("cpg", setdiff(colnames(tt), "cpg"))]
 
-      ## Delta-beta companion: the interaction contrast in beta-scale terms -
-      ## (compGroup-refGroup difference in compSex) minus (compGroup-refGroup
-      ## difference in refSex) - for interpretability alongside the
-      ## M-value-scale logFC that the actual statistical test used.
       cell_ref_refsex  <- grp == levels(grp)[1] & sx == levels(sx)[1]
       cell_comp_refsex <- grp == levels(grp)[2] & sx == levels(sx)[1]
       cell_ref_compsex  <- grp == levels(grp)[1] & sx == levels(sx)[2]
@@ -173,11 +139,6 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
       res$table %>% mutate(significant = adj.P.Val < input$padj_cut)
     })
 
-    ## Publishes the fitted interaction model into shared methyl_results$interaction
-    ## so ArthOChat and the biomarker card can see it, same field shape as the
-    ## transcriptomics module's results$interaction contract (contrast label,
-    ## n tested/significant, top hits) - silently skipped if the fit failed
-    ## validation, same as mod_interaction.R.
     observeEvent(input$run_btn, {
       df <- tryCatch(sig_table(), error = function(e) NULL)
       req(df)

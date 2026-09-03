@@ -1,20 +1,15 @@
 ## Module 2 (Methylomics) - Candidate CpGs' pure functions: chromosome-name
 ## normalization, DMR filtering, and the WGCNA-module x DMR genomic overlap
 ## join (real GenomicRanges::findOverlaps() computation, the scientific
-## heart of this submodule).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "methylomics", "09_Candidate_CpGs", "mod_methyl_candidates.R"))
 
-## ---- mcd_norm_chr() ----------------------------------------------------------
-
 test_that("mcd_norm_chr() normalizes bare chromosome numbers/letters and leaves already-prefixed names alone", {
   expect_equal(mcd_norm_chr(c("1", "X", "chr2", "CHR3", "y")), c("chr1", "chrX", "chr2", "chr3", "chrY"))
 })
-
-## ---- mcd_filter_dmrs() -------------------------------------------------------
 
 test_that("mcd_filter_dmrs() applies FDR, delta-beta, CpG-count, direction, and chromosome filters together", {
   dmr <- data.frame(
@@ -27,7 +22,7 @@ test_that("mcd_filter_dmrs() applies FDR, delta-beta, CpG-count, direction, and 
     stringsAsFactors = FALSE
   )
   out <- mcd_filter_dmrs(dmr, fdr_max = 0.05, dbeta_min = 0.1, mincpgs_min = 3, direction = "hyper", chr_restrict = "chr1")
-  expect_equal(out$dmr_id, "d1")  ## d2 fails dbeta, d3 fails cpg count, d4 fails direction+chr, d5 fails fdr
+  expect_equal(out$dmr_id, "d1")
 })
 
 test_that("mcd_filter_dmrs() with no thresholds set is a no-op", {
@@ -36,15 +31,11 @@ test_that("mcd_filter_dmrs() with no thresholds set is a no-op", {
   expect_equal(nrow(out), 2L)
 })
 
-## ---- mcd_compute_overlap() (real GenomicRanges join) --------------------------
-
 test_that("mcd_compute_overlap() correctly joins WGCNA module CpGs to overlapping DMRs by genomic position", {
   module_assign <- data.frame(cpg = c("cg1", "cg2", "cg3", "cg4"), module = c("turquoise", "turquoise", "blue", "blue"),
                                 stringsAsFactors = FALSE)
   annotation <- data.frame(cpg = c("cg1", "cg2", "cg3", "cg4"), chr = c("chr1", "chr1", "chr1", "chr2"),
                              pos = c(1010, 1050, 9999, 1010), stringsAsFactors = FALSE)
-  ## Only one DMR, on chr1:1000-1100 - overlaps cg1/cg2 but not cg3 (outside)
-  ## or cg4 (wrong chromosome).
   dmr_filtered <- data.frame(dmr_id = "d1", chr = "chr1", start = 1000, end = 1100,
                                delta_beta = 0.3, n_cpgs = 5, gene = "TP53", direction = "hyper",
                                stringsAsFactors = FALSE)
@@ -52,12 +43,12 @@ test_that("mcd_compute_overlap() correctly joins WGCNA module CpGs to overlappin
   out <- mcd_compute_overlap(module_assign, annotation, dmr_filtered)
   expect_setequal(out$joined$cpg, c("cg1", "cg2"))
   expect_true(all(out$joined$dmr_gene == "TP53" | out$joined$gene == "TP53"))
-  expect_equal(nrow(out$cpg_universe), 4L)  ## all 4 CpGs have resolvable coordinates
+  expect_equal(nrow(out$cpg_universe), 4L)
 })
 
 test_that("mcd_compute_overlap() respects the flank argument, rescuing a CpG just outside the raw DMR boundary", {
   module_assign <- data.frame(cpg = "cg1", module = "turquoise", stringsAsFactors = FALSE)
-  annotation <- data.frame(cpg = "cg1", chr = "chr1", pos = 1150, stringsAsFactors = FALSE)  ## 50bp past the DMR end
+  annotation <- data.frame(cpg = "cg1", chr = "chr1", pos = 1150, stringsAsFactors = FALSE)
   dmr_filtered <- data.frame(dmr_id = "d1", chr = "chr1", start = 1000, end = 1100,
                                delta_beta = 0.2, n_cpgs = 3, gene = NA_character_, direction = "hyper",
                                stringsAsFactors = FALSE)

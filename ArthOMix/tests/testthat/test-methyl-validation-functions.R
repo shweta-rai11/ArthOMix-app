@@ -7,15 +7,13 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "methylomics", "14_Validation", "mod_methyl_validation.R"))
 
-## ---- vld_feature_alignment() -------------------------------------------------
-
 test_that("vld_feature_alignment() correctly reports matched/missing/extra CpGs and overlap percentage", {
   out <- vld_feature_alignment(required_ids = c("cg1", "cg2", "cg3", "cg4"), available_ids = c("cg1", "cg2", "cg5"))
   expect_equal(out$matched, 2L)
   expect_setequal(out$missing, c("cg3", "cg4"))
   expect_setequal(out$extra, "cg5")
   expect_equal(out$overlap_pct, 50)
-  expect_false(out$ok)  ## missing required CpGs
+  expect_false(out$ok)
 })
 
 test_that("vld_feature_alignment() is ok=TRUE only when every required CpG is present", {
@@ -23,8 +21,6 @@ test_that("vld_feature_alignment() is ok=TRUE only when every required CpG is pr
   expect_true(out$ok)
   expect_equal(out$overlap_pct, 100)
 })
-
-## ---- vld_sample_overlap() -----------------------------------------------------
 
 test_that("vld_sample_overlap() detects shared sample IDs between training and validation cohorts", {
   out <- vld_sample_overlap(c("S1", "S2", "S3"), c("S3", "S4"))
@@ -38,8 +34,6 @@ test_that("vld_sample_overlap() reports 'independent' when there is no shared ID
   unk <- vld_sample_overlap(character(0), c("S3", "S4"))
   expect_equal(unk$status, "unknown")
 })
-
-## ---- vld_compat_table() -------------------------------------------------------
 
 test_that("vld_compat_table() marks the feature/CpG-set row 'Fail' when alignment is incomplete, 'Pass' otherwise", {
   model <- list(feature_ids = c("cg1", "cg2"), threshold = 0.42)
@@ -63,8 +57,6 @@ test_that("vld_compat_table() flags missing values at required CpGs as a Warning
   expect_equal(tbl$Status[tbl$Component == "Missing values"], "Warning")
 })
 
-## ---- vld_bootstrap_ci() -------------------------------------------------------
-
 test_that("vld_bootstrap_ci() produces a valid, deterministic (fixed-seed) CI around sensitivity", {
   set.seed(300)
   y <- factor(rep(c("Class0", "Class1"), each = 30), levels = c("Class0", "Class1"))
@@ -75,12 +67,10 @@ test_that("vld_bootstrap_ci() produces a valid, deterministic (fixed-seed) CI ar
   }
   ci1 <- vld_bootstrap_ci(y, prob, threshold = 0.5, stat_fn = sens_fn, n_boot = 200, seed = 42)
   ci2 <- vld_bootstrap_ci(y, prob, threshold = 0.5, stat_fn = sens_fn, n_boot = 200, seed = 42)
-  expect_identical(ci1, ci2)  ## fixed seed -> reproducible
+  expect_identical(ci1, ci2)
   expect_true(ci1[1] <= ci1[2])
   expect_true(all(ci1 >= 0 & ci1 <= 1))
 })
-
-## ---- Small formatting/lookup helpers -------------------------------------------
 
 test_that("vld_ci_label() formats a valid CI and reports 'NA' for a missing/NULL one", {
   expect_equal(vld_ci_label(c(0.1234, 0.5678)), "0.123-0.568")

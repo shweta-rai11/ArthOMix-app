@@ -1,33 +1,11 @@
 ## R/multiomics/03_DIABLO_SNF_Integration/mod_multi_integration.R
 ## Submodule: Multi-omics Integration - a live, data-adaptive DIABLO
 ## (mixOmics::block.splsda, supervised) and SNF (SNFtool::SNF, unsupervised)
-## engine, plus a head-to-head Compare tab against single-omics performance.
-## Runs on whichever data is actually selected below - the Active
-## Multi-Omics Dataset built on the Dataset Workspace tab, or one preloaded
-## RA anti-TNF analysis cell (recomputed live from that cell's own saved
-## fit - multiomics_integration_helpers.R::mi_preloaded_cell_dataset())
-## - never a fixed template. Every parameter range, tuning grid, and CV
-## fold/repeat count is derived from the data in front of it
-## (multiomics_integration_helpers.R); nothing below renders a result,
-## score, plot, or table until its own blue "Run" button is clicked.
-##
-## DIABLO and SNF keep entirely separate parameter panels and result
-## sections (never mixed) since they answer different questions - "which
-## features discriminate a known outcome" vs. "do patients cluster by
-## molecular similarity, independent of any outcome". "Outcome variable" is
-## the one exception kept in the shared Data Selection panel rather than
-## duplicated per tab: it's a property of the dataset (which metadata
-## column is a usable label), not a DIABLO- or SNF-specific model setting -
-## SNF's own panel never reads it.
 
 mod_multi_integration_config <- list(
   id = "integration", title = "Multi-omics Integration (DIABLO & SNF)", icon = "layer-group", group = "Data",
   description = "DIABLO (supervised) and SNF (unsupervised) integration, with single-omics comparison and sex-stratified analysis."
 )
-
-## ---------------------------------------------------------------------------
-## Small shared UI pieces
-## ---------------------------------------------------------------------------
 
 mi_stat_card <- function(value, label, color = ARTHOMIX_COLORS$blue) {
   div(class = "card", style = "flex:1 1 140px; text-align:center; padding:10px;",
@@ -38,10 +16,6 @@ mi_stat_card <- function(value, label, color = ARTHOMIX_COLORS$blue) {
 mi_warn <- function(...) div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"), " ", ...)
 mi_ok   <- function(...) div(class = "empty-note", icon("circle-check"), " ", ...)
 mi_stop <- function(...) div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), " ", ...)
-
-## ---------------------------------------------------------------------------
-## UI
-## ---------------------------------------------------------------------------
 
 mod_multi_integration_ui <- function(id) {
   ns <- NS(id)
@@ -72,22 +46,12 @@ mod_multi_integration_ui <- function(id) {
   )
 }
 
-## ---------------------------------------------------------------------------
-## Server
-## ---------------------------------------------------------------------------
-
 mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
 
-    ## =========================================================================
-    ## 1. Data selection - one reactive dataset object feeds everything below,
-    ## whether it came from the preloaded-cell adapter or the shared
-    ## multi_dataset (Dataset Workspace's Active Multi-Omics Dataset, already
-    ## N-omics-generic). Never merges the two.
-    ## =========================================================================
     mi_dataset <- reactive({
       if (identical(input$data_source, "preloaded")) {
         req(input$preloaded_cell)
@@ -123,40 +87,14 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       selectInput(ns("outcome_col"), "Outcome variable", choices = cands, selected = cands[1], width = "100%")
     })
 
-    ## =========================================================================
-    ## 2. Common validation (spec section 5) - always visible once a dataset
-    ## is selected, regardless of which subtab is open. Sample matching is
-    ## always by matched sample ID (mi_validate_dataset() -> the shared
-    ## multi_live_sample_overlap()), never by row position.
-    ## =========================================================================
-    ## mi_val() deliberately does NOT depend on input$outcome_col - block
-    ## selection/tuning-mode widgets below are rendered from mi_val() alone,
-    ## so switching the outcome variable never resets a user's in-progress
-    ## parameter choices. The outcome summary is a separate, smaller reactive
-    ## that DOES depend on it.
     mi_val <- reactive({
       d <- mi_dataset()
       if (!isTRUE(d$ok)) return(NULL)
       mi_validate_dataset(d$layers, d$sample_meta, outcome_col = NULL)
     })
-    ## Block-scoped counterpart of mi_val() - eligibility/overlap/"planned
-    ## run" figures for DIABLO and SNF must be computed from only the blocks
-    ## the user actually checked (input$d_blocks/input$s_blocks), not every
-    ## block in the active dataset. Using the whole-dataset mi_val() for
-    ## these meant deselecting a poorly-matched third block never recovered
-    ## the larger sample overlap that the two remaining blocks alone would
-    ## allow, and an unselected block's own missing values could block SNF
-    ## even though the selected blocks were complete. mi_val() itself is
-    ## still used for the dataset-wide "2. Data validation" cards, which are
-    ## deliberately meant to describe the whole active dataset.
     val_for_blocks <- function(blocks) {
       d <- mi_dataset()
       if (!isTRUE(d$ok)) return(NULL)
-      ## NULL covers both "checkboxGroupInput hasn't rendered yet" and "user
-      ## unchecked every block" (Shiny reports both as NULL) - defaulting to
-      ## every block in that case reproduces the old whole-dataset behavior
-      ## for the ambiguous case while still narrowing correctly the moment a
-      ## real (non-empty) selection exists.
       blocks <- if (is.null(blocks)) names(d$layers) else intersect(blocks, names(d$layers))
       if (length(blocks) < 1) return(NULL)
       mi_validate_dataset(d$layers[blocks], d$sample_meta, outcome_col = NULL)
@@ -202,20 +140,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       )
     })
 
-    ## =========================================================================
-    ## 3. DIABLO subtab
-    ## =========================================================================
-    ## `submitted` is set eagerly, synchronously, in the same observer that
-    ## calls diablo_task$invoke() - `future::multisession` worker cold-start
-    ## (spinning up a background R process the first time, loading mixOmics
-    ## in it) can itself take a few real seconds, during which
-    ## diablo_task$status() can still read "initial" rather than "running".
-    ## Without this flag, every render branch below fell through to nothing
-    ## visible during that gap (confirmed directly: an empty/unchanged panel
-    ## for several seconds after clicking "Run DIABLO", not just a briefly
-    ## slow spinner) - `submitted` closes that gap so the spinner appears
-    ## the instant the button is clicked, not once the async machinery
-    ## catches up.
     diablo_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     diablo_elig <- reactive({
@@ -297,13 +221,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     d_params <- reactive({
-      ## The design (block-relationship) and validation sliders/fields are
-      ## now always visible, always real numbers - so this always builds a
-      ## concrete design_custom/validation config rather than choosing
-      ## between an "Automatic" constant and a hidden "Custom" panel. Only
-      ## keepX keeps a real Automatic-vs-Manual distinction, since Automatic
-      ## keepX is a genuine (slow) grid search, not a fixed default like the
-      ## others - driven by the single "Auto-tune keepX instead" checkbox.
       blocks <- input$d_blocks %||% character(0)
       design_custom <- NULL
       if (length(blocks) >= 2) {
@@ -327,11 +244,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         keepx_mode = if (isTRUE(input$d_keepx_auto)) "automatic" else "manual", keepx_manual = keepx_manual,
         validation_mode = "manual", validation_method = input$d_validation_method %||% "mfold",
         folds = input$d_folds, nrepeat = input$d_nrepeat, distance = input$d_distance %||% "automatic",
-        ## Threaded straight into mixOmics::tune.block.splsda()/perf()'s own
-        ## `seed=` argument inside mi_diablo_run() - an external set.seed()
-        ## call around this reactive would NOT work, since both of those
-        ## mixOmics calls unconditionally reseed internally from their own
-        ## `seed` argument (default NULL, which re-randomizes every call).
         seed = input$d_seed %||% 1
       )
     })
@@ -357,12 +269,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     }
 
     if (isTRUE(ARTHOMIX_ASYNC_AVAILABLE)) {
-      ## The "Random seed" field (d_seed) rides along inside `params` itself
-      ## (d_params() above) straight into mi_diablo_run()'s own
-      ## mixOmics::tune.block.splsda()/perf() `seed=` arguments - note
-      ## future_promise()'s own `seed = TRUE` here is unrelated: it only
-      ## asks `future` for a parallel-safe RNG stream for whatever runs
-      ## inside the worker process, not the user-chosen integer in the UI.
       diablo_task <- ExtendedTask$new(function(layers, outcome, ids, params) {
         promises::future_promise(mi_diablo_run(layers, outcome, ids, params), seed = TRUE)
       })
@@ -374,29 +280,10 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         diablo_state$error <- NULL
         diablo_state$result <- NULL
         diablo_state$submitted <- TRUE
-        ## Pinned at invoke time - diablo_results_ui reads this, not
-        ## input$outcome_col live, so changing the outcome dropdown after a
-        ## run never relabels the sample-score plot against the wrong column.
         diablo_state$outcome_used <- outcome
-        ## Pinned alongside outcome_used so the Compare tab can tell whether
-        ## input$outcome_col has since been changed by the user - without
-        ## this, c_supervised() below would silently compare DIABLO's fit
-        ## against a different outcome than it was actually trained on.
         diablo_state$outcome_col_used <- input$outcome_col
         p <- d_params()
         ids <- v$shared_ids
-        ## diablo_task$invoke() calls its ExtendedTask function body
-        ## SYNCHRONOUSLY before returning (confirmed directly by timing it:
-        ## tens of seconds in this app's actual reactive-domain context,
-        ## not the near-instant dispatch its docs describe in isolation) -
-        ## so calling it inline here would block THIS SAME observer, and
-        ## nothing (including the `submitted` flag just set above) can
-        ## flush to the browser until a running observer/render finishes.
-        ## session$onFlushed(..., once = TRUE) defers the actual invoke()
-        ## to the next flush cycle, so the "Running..." spinner state set
-        ## above reaches the browser first. Every argument is snapshotted
-        ## here (not read live inside the deferred callback), since that
-        ## callback runs outside a normal reactive-consumer context.
         session$onFlushed(function() diablo_task$invoke(layers, outcome, ids, p), once = TRUE)
       })
       observe({
@@ -420,11 +307,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       diablo_running <- reactive(FALSE)
     }
 
-    ## Mutates the existing "Run DIABLO" button in place via shinyjs (already
-    ## active app-wide, ui.R::useShinyjs()) rather than recreating it through
-    ## renderUI - recreating an actionButton resets its click counter to 0,
-    ## which would break the "has this been run at least once" gating used
-    ## throughout this tab (input$d_run_btn > 0).
     observe({
       if (isTRUE(diablo_running())) {
         shinyjs::disable(ns("d_run_btn"))
@@ -435,10 +317,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       }
     })
 
-    ## Shown right next to the "Run DIABLO" button itself (not just in the
-    ## results column, which can be out of view or easy to miss while
-    ## automatic tuning genuinely takes real time) - unmistakable feedback at
-    ## the exact point the user just clicked.
     output$d_run_status_ui <- renderUI({
       if (!isTRUE(input$d_run_btn > 0)) return(NULL)
       if (isTRUE(diablo_running())) return(div(class = "empty-note", icon("spinner", class = "fa-spin"), " Running DIABLO - see the results panel once this finishes."))
@@ -509,9 +387,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
     output$d_dl_selected <- downloadHandler(function() "diablo_selected_features.csv", function(file) utils::write.csv(mi_diablo_selected_features_df(diablo_state$result$fit), file, row.names = FALSE))
 
-    ## multi_plot_or_empty() only decides whether to draw the plotOutput
-    ## placeholder or an empty-state message - it does not register the
-    ## render logic. Each placeholder above needs its own renderPlot binding.
     output$d_error_plot <- renderPlot({
       res <- req(diablo_state$result)
       perf_sum <- mi_diablo_performance_summary(res)
@@ -559,10 +434,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       DT::datatable(mi_diablo_stability_df(res, block = res$params$blocks[1], comp = 1), rownames = FALSE, options = list(pageLength = 10), class = "stripe hover compact")
     })
 
-    ## =========================================================================
-    ## 4. SNF subtab
-    ## =========================================================================
-    ## `submitted` - same rationale as diablo_state$submitted above.
     snf_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     snf_elig <- reactive({
@@ -615,12 +486,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         p(class = "submodule-desc", "Partitions the same fused network; does not affect SNF fusion itself."),
         hr(),
         h5("Reproducibility"),
-        ## SNFtool::spectralClustering() (and cluster::pam for the "PAM"
-        ## technique) are k-means-based internally, so identical K/Alpha/T
-        ## settings can still yield different cluster labels run to run
-        ## without a fixed seed - the same reproducibility gap DIABLO's own
-        ## "Random seed" field (d_seed above) already closes for
-        ## mixOmics::tune.block.splsda()/perf().
         numericInput(ns("s_seed"), "Random seed", value = 1, min = 1),
         tags$details(tags$summary("Advanced: network diagnostics"),
                       checkboxInput(ns("s_show_diagnostics"), "Show individual/fused network diagnostics after running", value = TRUE)),
@@ -669,10 +534,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       k = input$s_k, alpha = input$s_alpha, t = input$s_t,
       cluster_mode = if (isTRUE(input$s_cluster_auto)) "automatic" else "manual", n_clusters = input$s_n_clusters,
       cluster_method = input$s_cluster_method %||% "spectral",
-      ## Threaded straight into a set.seed() call inside mi_snf_run() itself
-      ## (multiomics_integration_helpers.R), right before the
-      ## kmeans-based SNFtool::spectralClustering()/cluster::pam() calls -
-      ## same rationale as DIABLO's own d_seed above.
       seed = input$s_seed %||% 1
     ))
 
@@ -692,9 +553,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         snf_state$error <- NULL
         snf_state$result <- NULL
         snf_state$submitted <- TRUE
-        ## Deferred to the next flush cycle - same rationale as the DIABLO
-        ## observer above (snf_task$invoke() blocks this observer
-        ## synchronously in this app's actual reactive-domain context).
         p <- s_params()
         session$onFlushed(function() snf_task$invoke(layers, p), once = TRUE)
       })
@@ -717,8 +575,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       snf_running <- reactive(FALSE)
     }
 
-    ## Same rationale as the DIABLO button observer above - mutate in place,
-    ## never recreate via renderUI (that would reset the click counter).
     observe({
       if (isTRUE(snf_running())) {
         shinyjs::disable(ns("s_run_btn"))
@@ -729,8 +585,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       }
     })
 
-    ## Same rationale as d_run_status_ui above - visible right next to the
-    ## "Run SNF" button itself.
     output$s_run_status_ui <- renderUI({
       if (!isTRUE(input$s_run_btn > 0)) return(NULL)
       if (isTRUE(snf_running())) return(div(class = "empty-note", icon("spinner", class = "fa-spin"), " Running SNF - see the results panel once this finishes."))
@@ -774,12 +628,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       )
     })
 
-    ## multi_plot_or_empty() (in snf_results_ui above) only decides whether to
-    ## draw the plotOutput placeholder or an empty-state message - it does not
-    ## register the render logic itself (same caveat noted above the d_* DIABLO
-    ## renderPlot bindings). These three were missing their bindings, which is
-    ## why Fused network / Cluster visualization / Cluster quality rendered as
-    ## blank boxes even after a successful SNF run.
     output$s_heatmap <- renderPlot({
       res <- req(snf_state$result)
       mi_snf_fused_heatmap(res$W, res$clusters)
@@ -833,10 +681,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
     output$s_posthoc_table <- renderPrint(print(req(snf_posthoc())$table))
 
-    ## =========================================================================
-    ## 5. Compare subtab (spec sections 29-30) - reads whatever DIABLO/SNF
-    ## results have already been computed above; never recomputes them.
-    ## =========================================================================
     output$compare_ui <- renderUI({
       tagList(
         box(width = NULL, title = "Supervised: DIABLO vs. single-omics", status = "primary", solidHeader = FALSE,
@@ -853,18 +697,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
 
     c_supervised <- eventReactive(input$c_run_supervised, {
-      ## The outcome selector is read live at click time, but the fitted
-      ## DIABLO result was trained on whatever outcome was selected back
-      ## when "Run DIABLO" was clicked (diablo_state$outcome_col_used) - if
-      ## the user has since switched the outcome dropdown, comparing against
-      ## the CURRENT selection would silently pit DIABLO's real performance
-      ## against a single-omics baseline fit on a different label, and
-      ## present the mismatch as a head-to-head result. Returned as the same
-      ## fail-soft list(ok, error) shape mi_compare_supervised() itself uses
-      ## (not validate()) - output$c_supervised_ui below wraps this call in
-      ## tryCatch(..., error = function(e) NULL), which would silently
-      ## swallow a validate() condition into a blank panel instead of
-      ## showing the warning.
       if (!identical(input$outcome_col, diablo_state$outcome_col_used)) {
         return(list(ok = FALSE, error = sprintf(
           "The outcome variable has changed since DIABLO was run (fit on \"%s\", now \"%s\" is selected). Re-run DIABLO on the current outcome before comparing.",
@@ -884,10 +716,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         p(class = "submodule-desc", tags$em(res$note))
       )
     })
-    ## Same missing-renderPlot bug as the SNF plots above - the plotOutput
-    ## placeholder existed (260px tall) but nothing ever drew into it, which
-    ## is exactly the "long blank space" between the Run Comparison button
-    ## and the results table.
     output$c_sup_plot <- renderPlot({
       mi_compare_bar_plot(req(c_supervised())$table)
     })
@@ -908,18 +736,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       DT::datatable(req(c_unsupervised())$table, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
 
-    ## =========================================================================
-    ## 6. Sex-Stratified subtab - exact-match port of
-    ## Research_05_multiomics_sexstratified's own nested-CV pipeline
-    ## (multiomics_sexstratified_engine.R::mss_run_stratified()), covering
-    ## both DIABLO and Random Forest, run per sex stratum on whichever
-    ## dataset is selected above (Active or preloaded cell). Kept separate
-    ## from the DIABLO tab above: this engine's feature-selection/CV design
-    ## is fixed (in-fold covariate adjustment, specific top-K/keepX), not the
-    ## freeform tune.block.splsda()-based engine DIABLO users already rely
-    ## on - this is the one place a user's own uploaded data gets the same
-    ## leakage-safe analysis that produced Table34/35/37/39.
-    ## =========================================================================
     ss_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
 
     ss_sex_col <- reactive({
@@ -1022,9 +838,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         d <- req(mi_dataset())
         req(input$outcome_col, input$ss_expr_block, input$ss_meth_block)
         sex_mode <- input$ss_sex_mode %||% "pooled"
-        ## A sex column is only required when actually splitting by sex -
-        ## "All (pooled)" (the default, and the only sensible mode for an
-        ## already-single-sex preloaded cell) runs with no sex column at all.
         validate(need(identical(sex_mode, "pooled") || !is.null(ss_sex_col()), "No Sex/Gender column detected in this dataset's metadata - switch Sex stratification to \"All (pooled)\", or use a dataset with a Sex/Gender column."))
         expr <- d$layers[[input$ss_expr_block]]; meth <- d$layers[[input$ss_meth_block]]
         meta <- d$sample_meta; outcome_col <- input$outcome_col
@@ -1032,8 +845,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         engine <- input$ss_engine %||% "diablo"
         p <- ss_params()
         ss_state$error <- NULL; ss_state$result <- NULL; ss_state$submitted <- TRUE
-        ## Deferred to the next flush cycle - same rationale as the DIABLO/SNF
-        ## observers above (invoke() blocks this observer synchronously).
         session$onFlushed(function() ss_task$invoke(expr, meth, meta, outcome_col, covariate_col, sex_mode, engine, p), once = TRUE)
       })
       observe({
@@ -1124,11 +935,6 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
     output$ss_dl_panel_wide <- downloadHandler(function() "sex_stratified_biomarker_comparison.csv", function(file) utils::write.csv(req(ss_state$result)$panels_wide, file, row.names = FALSE))
 
-    ## =========================================================================
-    ## Publish - kept cell$label-shaped so multi_qc_scorecard()/
-    ## multi_analysis_summary_table() (multiomics_helpers.R) keep working
-    ## unmodified for either data source.
-    ## =========================================================================
     observe({
       if (is.null(multi_results)) return()
       d <- tryCatch(mi_dataset(), error = function(e) NULL)

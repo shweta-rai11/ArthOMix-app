@@ -1,12 +1,6 @@
 ## Regression guard for a gap found in the transcriptomics audit (2026-08-26):
 ## mod_dataset.R's upload message promises that duplicated feature identifiers
 ## keep "only the first occurrence" downstream, but the single-dataset branch
-## of mod_preprocessing.R's merged() reactive returned the raw, un-deduplicated
-## matrix - the multi-dataset merge branch already deduplicated incidentally
-## (expr[common, ] keeps only the first row per name), but a single loaded
-## dataset (the common case: one upload, nothing else selected to merge with)
-## passed duplicates straight through to every downstream row-name-keyed
-## lookup (mod_candidates.R's match(), mod_wgcna.R's column selection, etc.).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

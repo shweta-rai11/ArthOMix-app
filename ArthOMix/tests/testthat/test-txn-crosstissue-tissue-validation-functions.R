@@ -1,13 +1,8 @@
 ## Module 1 (Transcriptomics) - Cross-Tissue Validation's metadata-aware
 ## tissue classification (the "Tissue-type validation" section of
 ## mod_crosstissue.R). Pure functions only, tested independently of the
-## server body: tissue_normalize/tissue_is_blood_derived, tissue_extract_
-## field/classify_tissue_from_metadata/classify_tissue_string, ct_classify_
-## training_tissue, and validate_cross_tissue's accept/reject rules.
 
 source_from_app_root(file.path("R", "transcriptomics", "12_Cross_Tissue_Validation", "mod_crosstissue.R"))
-
-## ---- tissue_normalize() -----------------------------------------------------
 
 test_that("tissue_normalize() collapses common formatting variants to the same string", {
   expect_equal(tissue_normalize("Whole Blood"), "whole blood")
@@ -28,8 +23,6 @@ test_that("tissue_normalize() returns NA for NULL/NA/empty input", {
   expect_true(is.na(tissue_normalize("")))
   expect_true(is.na(tissue_normalize("   ")))
 })
-
-## ---- tissue_is_blood_derived() ----------------------------------------------
 
 test_that("tissue_is_blood_derived() recognizes every documented blood-derived term", {
   terms <- c("whole blood", "peripheral blood", "pbmc", "peripheral blood mononuclear cells",
@@ -52,8 +45,6 @@ test_that("tissue_is_blood_derived() does not flag unrelated tissue names", {
   expect_false(tissue_is_blood_derived(tissue_normalize("liver biopsy")))
 })
 
-## ---- classify_tissue_string() -----------------------------------------------
-
 test_that("classify_tissue_string() classifies a blood-derived value", {
   out <- classify_tissue_string("Whole Blood", field = "tissue")
   expect_equal(out$classification, "blood")
@@ -70,8 +61,6 @@ test_that("classify_tissue_string() returns unknown for NA/empty input", {
   expect_equal(classify_tissue_string("")$classification, "unknown")
   expect_equal(classify_tissue_string(NULL)$classification, "unknown")
 })
-
-## ---- classify_tissue_from_metadata() / tissue_extract_field() --------------
 
 test_that("classify_tissue_from_metadata() reads an exact 'tissue' column", {
   meta <- data.frame(sample = c("S1", "S2"), tissue = c("Whole Blood", "Whole Blood"))
@@ -117,8 +106,6 @@ test_that("classify_tissue_from_metadata() returns unknown for a NULL/empty meta
   expect_equal(classify_tissue_from_metadata(data.frame())$classification, "unknown")
 })
 
-## ---- ct_classify_training_tissue() ------------------------------------------
-
 fake_geo_sources <- list(
   list(gse = "GSE93272",  role = "Training (whole blood)"),
   list(gse = "GSE110169", role = "Training (whole blood)"),
@@ -151,7 +138,7 @@ test_that("ct_classify_training_tissue() falls back to the GEO_SOURCES registry 
 })
 
 test_that("ct_classify_training_tissue() never derives tissue from an uploaded dataset's filename-based source label", {
-  meta <- data.frame(sample = "S1", group = "RA", sex = "F")  ## no tissue column
+  meta <- data.frame(sample = "S1", group = "RA", sex = "F")
   out <- ct_classify_training_tissue(meta, source = "Uploaded dataset: expr.csv + meta.csv",
                                       source_type = "uploaded", geo_ids = character(0),
                                       geo_sources = fake_geo_sources)
@@ -165,8 +152,6 @@ test_that("ct_classify_training_tissue() reads a real metadata column for an upl
                                       geo_sources = fake_geo_sources)
   expect_equal(out$classification, "blood")
 })
-
-## ---- validate_cross_tissue() ------------------------------------------------
 
 blood <- classify_tissue_string("Whole Blood", field = "tissue")
 pbmc <- classify_tissue_string("PBMC", field = "tissue")

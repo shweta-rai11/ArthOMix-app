@@ -1,34 +1,6 @@
 ## data_paths.R
 ## Centralized data-path configuration for ArthOMix.
 ##
-## Every dataset the app reads at runtime lives under ArthOMix/data/ - nothing
-## outside this app directory is required. Layout:
-##   data/preloaded/{transcriptomics,methylomics,cross_omics,multiomics}/
-##   data/reference/     - small standalone reference files (cytoband, ...)
-##   data/annotations/   - curated gene panels etc.
-##   data/examples/      - reserved for a bundled example-upload dataset
-##                          (none currently ships - see dataset_manifest.csv)
-##   data/uploads/       - reserved; NOT written to at runtime. User uploads
-##                          go through Shiny's own per-session tempfile
-##                          mechanism (input$file$datapath), which is already
-##                          correctly isolated per session - redirecting them
-##                          into a shared folder here would only add a
-##                          cross-session leak risk with no benefit.
-##   data/.cache/         - regenerable WGCNA / probe-collapse caches, kept
-##                          out of preloaded/ so they're clearly distinguished
-##                          from bundled, versioned data.
-##
-## This file is sourced explicitly, by path, from the very first line of
-## global.R. It deliberately lives at the app ROOT (sibling of global.R/ui.R/
-## server.R), NOT inside R/ - Shiny's loadSupport() auto-sources every
-## top-level R/*.R file a second time, in its own child environment, and a
-## file in R/ would end up sourced twice.
-##
-## Every constant/registry below keeps its ORIGINAL name (previously defined
-## inline in global.R, pointing at sibling folders one level above ArthOMix/)
-## so every load_default_*() function and every direct-by-name reference
-## elsewhere in this app keeps working unchanged - only the paths they
-## resolve to have moved.
 
 DATA_DIR <- normalizePath(file.path(getwd(), "data"), mustWork = FALSE)
 
@@ -39,9 +11,6 @@ get_annotation_path <- function(...) file.path(DATA_DIR, "annotations", ...)
 get_example_path    <- function(...) file.path(DATA_DIR, "examples", ...)
 get_upload_path      <- function(...) file.path(DATA_DIR, "uploads", ...)
 
-## ---------------------------------------------------------------------------
-## Transcriptomics preloaded data
-## ---------------------------------------------------------------------------
 DATA_ROOT <- get_preloaded_path("transcriptomics")
 
 if (!dir.exists(DATA_ROOT)) {
@@ -72,26 +41,6 @@ MR35_CROSSANCESTRY_MALE_CSV   <- "MR35_crossancestry_male.csv"
 
 PROJECT_CHAPTER_MD <- file.path(DATA_ROOT, "Chapter_2_subchapter2_sexstratified.md")
 
-## Regenerable caches - deliberately outside data/preloaded/. These folders
-## hold derivatives of USER-UPLOADED data (get_collapsed_genes(),
-## get_or_compute_wgcna_blocks()/get_or_compute_meth_wgcna_blocks() in
-## global.R all saveRDS() their result here, keyed by a content digest, with
-## no expiry), so two things matter for a shared/multi-user deployment:
-##   1. Created with owner-only permissions (mode 0700 - ignored on Windows,
-##      a no-op there rather than an error) rather than the process umask
-##      default, so other local accounts on a shared machine can't read
-##      cached derivatives of another user's uploaded expression/methylation
-##      data.
-##   2. Swept for stale files at every app startup (arthomix_cleanup_stale_
-##      cache() below) so this doesn't grow unbounded forever - there is no
-##      other cleanup path anywhere in the app.
-## This is deliberately just a TTL sweep, not a change to the cache
-## key/lookup logic in global.R.
-
-## Best-effort removal of cache files older than `max_age_days`. A single
-## unreadable/unremovable file (permissions, concurrent access from another
-## session) is skipped rather than aborting the whole sweep - this is
-## opportunistic housekeeping, not a correctness-critical path.
 arthomix_cleanup_stale_cache <- function(dir, max_age_days = 14) {
   if (!dir.exists(dir)) return(invisible(NULL))
   files <- list.files(dir, full.names = TRUE, recursive = TRUE, no.. = TRUE)
@@ -114,9 +63,6 @@ WGCNA_CACHE_DIR <- get_data_path(".cache", "transcriptomics", "wgcna")
 dir.create(WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE, mode = "0700")
 arthomix_cleanup_stale_cache(WGCNA_CACHE_DIR)
 
-## ---------------------------------------------------------------------------
-## Methylomics: preloaded pipeline result tables
-## ---------------------------------------------------------------------------
 METH_DATA_ROOT <- get_preloaded_path("methylomics", "tables")
 METH_DATA_AVAILABLE <- dir.exists(METH_DATA_ROOT)
 
@@ -130,10 +76,6 @@ METH_DIAGNOSTIC_VOTES_DIR <- file.path(METH_DATA_ROOT, "script07_ml_feature_sele
 METH_MR_DIR          <- file.path(METH_DATA_ROOT, "script08_mendelian_randomization", "tables")
 METH_DIAGNOSTIC_DIR  <- file.path(METH_DATA_ROOT, "script09_diagnostic_classifier", "tables")
 
-## ---------------------------------------------------------------------------
-## Methylomics: the actual preloaded beta matrix (live QC, not just
-## reproduced tables) + diagnostic-classifier train/test panels
-## ---------------------------------------------------------------------------
 METH_RAW_DATA_ROOT <- normalizePath(
   Sys.getenv("METH_RAW_DATA_ROOT", get_preloaded_path("methylomics", "matrix")),
   mustWork = FALSE
@@ -150,9 +92,6 @@ METH_WGCNA_CACHE_DIR <- get_data_path(".cache", "methylomics", "wgcna")
 dir.create(METH_WGCNA_CACHE_DIR, showWarnings = FALSE, recursive = TRUE, mode = "0700")
 arthomix_cleanup_stale_cache(METH_WGCNA_CACHE_DIR)
 
-## ---------------------------------------------------------------------------
-## Cross-Omics: precomputed biomarker-convergence / cross-omics-MR tables
-## ---------------------------------------------------------------------------
 CX_DATA_ROOT <- get_preloaded_path("cross_omics")
 CX_DATA_AVAILABLE <- dir.exists(CX_DATA_ROOT)
 CX_RESULTS_DIR <- file.path(CX_DATA_ROOT, "tables")
@@ -168,9 +107,6 @@ CX_TABLE_REGISTRY <- list(
   "Cross-omics MR - eQTL-significant genes' mQTL instruments" = file.path(CX_RESULTS_DIR, "mr_stage_eqtl_significant_genes_mqtl_mr.csv")
 )
 
-## ---------------------------------------------------------------------------
-## Multi-Omics: DIABLO/SNF pipeline tables + fits
-## ---------------------------------------------------------------------------
 MULTI_DATA_ROOT <- get_preloaded_path("multiomics")
 MULTI_DATA_AVAILABLE <- dir.exists(MULTI_DATA_ROOT)
 MULTI_RESULTS_ROOT <- file.path(MULTI_DATA_ROOT, "fits")
@@ -193,14 +129,6 @@ MULTI_TABLE_REGISTRY <- list(
   "DIABLO panel - response (drug-pooled)" = file.path(MULTI_RESULTS_DIR, "Table35_diablo_response_sexstratified_panel.csv"),
   "SNF performance - drug x sex" = file.path(MULTI_RESULTS_DIR, "Table22_snf_integration_performance.csv"),
   "Random Forest performance - drug x sex" = file.path(MULTI_RESULTS_DIR, "Table37_rf_drugsex_performance.csv"),
-  ## Table38-41 - the pipeline's own RF/drug-type-DIABLO tables that never
-  ## made it into earlier deployments (raw-CSV browse-only, via the Dataset
-  ## Workspace's registry table picker - the live equivalents are on
-  ## Integration/Biomarker Discovery's "Sex-Stratified" tab). Table40 here
-  ## is deliberately distinctly labeled from the "Candidate multi-omics
-  ## biomarkers" Table40 below - same pipeline table NUMBER, different file,
-  ## different analysis (drug-type-outcome DIABLO vs. candidate-biomarker
-  ## convergence).
   "Random Forest performance - single-omics, sex-pooled" = file.path(MULTI_RESULTS_DIR, "Table38_rf_single_omics_sexpooled_performance.csv"),
   "Random Forest performance - response (drug-pooled, sex-stratified)" = file.path(MULTI_RESULTS_DIR, "Table39_rf_response_sexstratified_performance.csv"),
   "DIABLO performance - drug type (sex-stratified)" = file.path(MULTI_RESULTS_DIR, "Table40_diablo_drugtype_sexstratified_performance.csv"),
@@ -217,13 +145,6 @@ MULTI_TABLE_REGISTRY <- list(
   "Gene <-> CpG concordance - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table42_gene_cpg_concordance_male_female_ETN.csv"),
   "Gene <-> CpG concordance - response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table45_gene_cpg_concordance_male_female_response.csv"),
   "Pathway enrichment - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table43_pathway_enrichment_male_female_ETN_panels.csv"),
-  ## Genome-wide response-driven DEG/DMP (Table3/4, script 05) restricted to
-  ## the gene/CpG IDs that actually appear in the candidate-biomarker/
-  ## concordance tables above - the pipeline's own real per-feature nominal
-  ## p_response/fdr_response (and logFC_response/delta_M_response), not a
-  ## small-panel-recomputed statistic. Table4 full (~1.7M CpG rows, 230MB) is
-  ## never shipped or loaded whole; this is a pre-filtered lookup built once
-  ## against the ~1,600 candidate CpGs/genes actually used by this app.
   "Genome-wide DEG lookup - response-driven, by sex (candidates only)" = file.path(MULTI_SUMMARY_DIR, "Table3_response_driven_DEG_candidates.csv"),
   "Genome-wide DMP lookup - response-driven, by sex (candidates only)" = file.path(MULTI_SUMMARY_DIR, "Table4_response_driven_DMP_candidates.csv")
 )

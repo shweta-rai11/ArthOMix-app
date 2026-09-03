@@ -1,14 +1,11 @@
 ## Module 2 (Methylomics) - Dataset tab's upload-parsing helpers
 ## (parse_upload.R). Every parser here promises "never throws, returns
 ## list(ok=FALSE, error=...)" - both the happy path and that fail-soft
-## contract are tested for each function.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "methylomics", "functions", "parse_upload.R"))
-
-## ---- methyl_parse_matrix() -------------------------------------------------
 
 meth_write_matrix_csv <- function(mat, path) {
   df <- data.frame(probe = rownames(mat), mat, check.names = FALSE)
@@ -42,19 +39,11 @@ test_that("methyl_parse_matrix() rejects a file with fewer than 2 columns or 0 r
 })
 
 test_that("methyl_parse_matrix() never throws on a genuinely unparseable/malformed file", {
-  ## fread's ragged-row recovery can turn this fixture into a technically-
-  ## parseable (if meaningless) single-row matrix rather than failing - the
-  ## only real contract to check is "never throws" (unlike
-  ## mod_preprocessing_explore.R's eda_parse_upload(), this function's
-  ## as.matrix()-based path has no vapply-dimension-collapse bug on a
-  ## single-row input, so this fixture doesn't reproduce that finding here).
   path <- normalizePath(file.path(app_dir, "tests", "fixtures", "edge_cases", "malformed_expr.csv"), mustWork = TRUE)
   res <- tryCatch(methyl_parse_matrix(path, "malformed_expr.csv"), error = function(e) e)
   expect_false(inherits(res, "error"))
   if (isTRUE(res$ok)) expect_true(is.matrix(res$mat)) else expect_true(nzchar(res$error))
 })
-
-## ---- methyl_parse_sample_sheet() -------------------------------------------
 
 test_that("methyl_parse_sample_sheet() parses a well-formed sheet and rejects an empty one", {
   path <- withr::local_tempfile(fileext = ".csv")
@@ -68,13 +57,11 @@ test_that("methyl_parse_sample_sheet() parses a well-formed sheet and rejects an
   expect_false(res2$ok)
 })
 
-## ---- methyl_detect_orientation() / methyl_validate_matrix_upload() --------
-
 test_that("methyl_detect_orientation() correctly identifies a transposed (samples x probes) matrix", {
   mat_correct <- matrix(runif(20), 10, 2, dimnames = list(paste0("cg", 1:10), paste0("S", 1:2)))
   expect_false(methyl_detect_orientation(mat_correct)$transposed)
 
-  mat_transposed <- t(mat_correct)  ## now rownames are samples, colnames are probes
+  mat_transposed <- t(mat_correct)
   expect_true(methyl_detect_orientation(mat_transposed)$transposed)
 })
 
@@ -116,8 +103,6 @@ test_that("methyl_validate_matrix_upload() rejects an all-non-finite matrix", {
   expect_true(grepl("No finite numeric values", res$error))
 })
 
-## ---- methyl_parse_probe_list() ---------------------------------------------
-
 test_that("methyl_parse_probe_list() reads one probe ID per line and dedupes", {
   path <- withr::local_tempfile(fileext = ".txt")
   writeLines(c("cg001", "cg002", "cg001", "cg003"), path)
@@ -140,8 +125,6 @@ test_that("methyl_parse_probe_list() reports failure for an empty file rather th
   res <- methyl_parse_probe_list(path, "empty.txt")
   expect_false(res$ok)
 })
-
-## ---- methyl_read_idat() -----------------------------------------------------
 
 test_that("methyl_read_idat() rejects an upload with no .idat files, and one missing a Grn/Red pair", {
   files_no_idat <- data.frame(name = c("a.csv", "b.txt"), datapath = c("/tmp/a.csv", "/tmp/b.txt"), stringsAsFactors = FALSE)

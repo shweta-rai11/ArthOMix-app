@@ -1,16 +1,10 @@
 ## Sources the real global.R once (all ~25 analysis packages + every
 ## load_default_*() function), then exercises every data-loading path each
 ## of the four omics modules actually uses at runtime - this is the "is
-## every dataset each module needs actually present in data/" check, made
-## repeatable instead of a one-off manual pass. Known-good shapes below were
-## captured by hand against the migrated data and are pinned as regression
-## guards, not just NULL-checks.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
-
-## ---- Transcriptomics ----------------------------------------------------
 
 test_that("default transcriptomics dataset loads with the expected shape", {
   d <- load_default_dataset()
@@ -49,8 +43,6 @@ test_that("transcriptomics results/tables files used across submodules are reada
     expect_true(!is.null(d), info = f)
     expect_gt(nrow(d), 0, label = f)
   }
-  ## Excel exports are passed through via file.copy(), not fread() - just
-  ## confirm the source files the download handler copies actually exist.
   expect_true(file.exists(file.path(TABLES_DIR, "MR_female_all_tables.xlsx")))
   expect_true(file.exists(file.path(TABLES_DIR, "MR_male_all_tables.xlsx")))
 })
@@ -67,8 +59,6 @@ test_that("project methodology lookup (ArthOChat tool) finds real content", {
   expect_true(grepl("WGCNA", txt))
   expect_false(grepl("No module matched", txt))
 })
-
-## ---- Methylomics ----------------------------------------------------
 
 test_that("methylomics DMP (plain + SVA) and DMR load with the expected row counts", {
   dmp_plain <- load_default_dmp("plain", "female")
@@ -135,8 +125,6 @@ test_that("methylomics methodology lookup finds real content", {
   expect_false(grepl("No Methylomics module matched", txt))
 })
 
-## ---- Cross-Omics ----------------------------------------------------
-
 test_that("every cross-omics registry table loads", {
   for (label in names(CX_TABLE_REGISTRY)) {
     d <- load_default_cx_table(label)
@@ -144,13 +132,6 @@ test_that("every cross-omics registry table loads", {
     expect_gt(nrow(d), 0, label = label)
   }
 })
-
-## ---- Multi-Omics ----------------------------------------------------
-## multi_read_registry_table() lives in R/multiomics/ (sourced by Shiny's
-## loadSupport() at app boot, not by global.R alone) - read the registry
-## paths directly here since what's under test is data completeness, not
-## that wrapper's own logic (already covered by the app-smoke/upload tests
-## and the original module audit).
 
 test_that("every multi-omics table registry entry is a readable, non-empty CSV", {
   for (label in names(MULTI_TABLE_REGISTRY)) {

@@ -1,42 +1,7 @@
 ## R/multiomics/04_SNF_Clustering/snf_clustering_helpers.R
 ## Pure data-processing logic for the "SNF Clustering" submodule
 ## (mod_multi_stratification.R) - a live, data-adaptive unsupervised patient
-## stratification workflow (Similarity Network Fusion, Wang et al. 2014).
-##
-## This file deliberately does NOT reimplement SNF itself: the affinity
-## construction / fusion / spectral clustering / eigengap estimation /
-## network concordance / post-hoc outcome evaluation / ARI primitives
-## already exist, tested, in multiomics_integration_helpers.R (the
-## Multi-omics Integration submodule's own live DIABLO/SNF engine) as
-## mi_snf_affinity()/mi_snf_run()/mi_snf_concordance()/mi_snf_posthoc_outcome()/
-## mi_ari()/mi_snf_feasible_k_range()/MI_SNF_ALPHA_RANGE, and are called here
-## directly (every R/ file is sourced into one shared environment - see
-## 0_load_omics_modules.R). This file adds only what that engine does not
-## already provide for a dedicated stratification workflow: single-omics
-## fallback, preprocessing (transform/missing/filter) ahead of clustering,
-## clinical-variable detection + association testing (categorical/continuous/
-## survival), resampling-based stability, parameter sensitivity, and
-## per-feature cluster-association ranking.
-##
-## Every function is fail-soft (list(ok, ..., error)); nothing here ever
-## silently drops samples/features or fabricates a result.
 
-## ---------------------------------------------------------------------------
-## 1. Data-source adapters (spec section 25) - converge on the same shape
-## mi_preloaded_cell_dataset()/mi_dataset() already use: list(ok, layers,
-## sample_meta, label, provenance).
-## ---------------------------------------------------------------------------
-
-## Preloaded RA anti-TNF cohort: reuses mi_preloaded_cell_dataset() (the
-## ONLY per-sample matrices bundled for this cohort - see that function's own
-## header) and additionally merges the pipeline's own richer per-drug
-## clinical table (response/age/RF/anti-CCP/smoking - Table_SNFjoint_cluster_
-## assignments_*), matched by patient ID, for the four drug x sex cells that
-## have one. The OLD precomputed `snf_cluster` column is dropped explicitly -
-## it is a different (precomputed, full-cohort) SNF run and must never be
-## confused with this module's own live-computed clusters. Drug-pooled cells
-## (drug = NA) have no per-drug clinical table to merge and fall back to the
-## base outcome-only metadata.
 sfc_preloaded_dataset <- function(cell_key) {
   base <- mi_preloaded_cell_dataset(cell_key)
   if (!isTRUE(base$ok)) return(base)
@@ -65,10 +30,6 @@ sfc_preloaded_dataset <- function(cell_key) {
   base
 }
 
-## Active Multi-Omics Dataset (Dataset Workspace tab) - identical convergence
-## shape to mi_dataset()'s "active" branch in mod_multi_integration.R; kept
-## as its own small function (rather than inlined per-server) so the Data
-## subtab's reactive stays a one-line dispatch.
 sfc_active_dataset <- function(multi_dataset) {
   if (is.null(multi_dataset) || !isTRUE(multi_dataset$active) || length(multi_dataset$layers %||% list()) < 1) {
     return(list(ok = FALSE, error = "No Active Multi-Omics Dataset yet - build one on the Dataset Workspace tab, or switch to \"Preloaded RA anti-TNF cohort\" above."))
@@ -80,15 +41,6 @@ sfc_active_dataset <- function(multi_dataset) {
     provenance = sprintf("Active Multi-Omics Dataset from the Dataset Workspace tab (source: %s).", multi_dataset$source %||% "unknown")
   )
 }
-
-## ---------------------------------------------------------------------------
-## 2. Validation / matching (spec sections 6-8) - delegates to the existing,
-## tested mi_validate_dataset() for >=2 blocks; adds the single-block case
-## (spec Case C, "Single-Omics Clustering") that mi_validate_dataset() does
-## not handle (it requires >=2 blocks to define an "overlap"). For one block
-## there is nothing to match across - every one of that block's own samples
-## is, trivially, the matched set.
-## ---------------------------------------------------------------------------
 
 sfc_validate_dataset <- function(layers, sample_meta = NULL, outcome_col = NULL) {
   layers <- Filter(Negate(is.null), layers %||% list())
@@ -118,10 +70,6 @@ sfc_validate_dataset <- function(layers, sample_meta = NULL, outcome_col = NULL)
   mi_validate_dataset(layers, sample_meta, outcome_col)
 }
 
-## Eligibility (spec section 26's "honest failure" cases) - single vs.
-## multi-block resolves the analysis "mode" (never silently upgraded from
-## Single-Omics Clustering to a multi-omics claim, and never run at all with
-## unresolved missing values).
 sfc_eligibility <- function(validation) {
   if (is.null(validation) || !isTRUE(validation$ok) || validation$n_blocks < 1) {
     return(list(ok = FALSE, reason = "No compatible omics blocks were detected.", mode = NULL))
@@ -135,18 +83,6 @@ sfc_eligibility <- function(validation) {
   }
   list(ok = TRUE, reason = NULL, mode = if (validation$n_blocks == 1) "single_omics" else "multi_omics_snf")
 }
-
-## ---------------------------------------------------------------------------
-## 3. Data type detection + transformation choices (spec sections 9-10) -
-## when a layer's own declared omics_type is known (Active Multi-Omics
-## Dataset layers carry this in layer_meta from the Dataset Workspace's
-## upload flow), the existing, richer MULTI_LIVE_NORM_CHOICES/
-## multi_live_normalize() (multiomics_dataset_helpers.R) is used as-is. Only
-## when omics_type is unknown (e.g. a preloaded DIABLO-panel block) is a
-## value-shape heuristic used instead, and only to offer transforms that
-## cannot be invalid for the shape actually observed - never a fixed list
-## regardless of data.
-## ---------------------------------------------------------------------------
 
 SFC_TRANSFORM_LABELS <- list(
   count = c("none" = "None (already normalized)", "log2" = "Log2(x + 1)"),
@@ -178,11 +114,6 @@ sfc_transform_choices <- function(mat, omics_type = NULL) {
   list(type = det$type, note = det$note, choices = SFC_TRANSFORM_LABELS[[det$type]] %||% SFC_TRANSFORM_LABELS$unknown)
 }
 
-## Chains the existing missing-value / normalization / feature-filtering
-## primitives (multiomics_dataset_helpers.R) in a fixed, explicit order: resolve
-## missingness first (SNF hard-requires complete data), then transform, then
-## filter. Never silently replaces missing values - `missing_method = "none"`
-## with any remaining NAs is a hard stop, reported plainly (spec section 26).
 sfc_preprocess_block <- function(mat, transform = "none", missing_method = "none", missing_threshold = 50,
                                   filter_criterion = "none", filter_top_n = NULL) {
   log <- character(0)
@@ -209,18 +140,6 @@ sfc_preprocess_block <- function(mat, transform = "none", missing_method = "none
   if (nrow(out) < MI_MIN_MATCHED_SAMPLES || ncol(out) < 2) return(list(ok = FALSE, error = "Too few samples or features remain after preprocessing.", mat = out, log = log))
   list(ok = TRUE, mat = out, error = NULL, log = log)
 }
-
-## ---------------------------------------------------------------------------
-## 4. Clustering (spec sections 4, 12-15) - wraps mi_snf_run() for >=2 blocks
-## unchanged, and adds a single-omics fallback (spec Case C) that reuses the
-## exact same affinity/spectral-clustering/eigengap primitives (never
-## reimplemented) with no fusion step. Both paths return the identical shape
-## mi_snf_run() already does (ok, Wall, W, clusters, cluster_estimate,
-## params) so every downstream plot/concordance/post-hoc/ARI helper works
-## unmodified for either mode - only `params$mode` distinguishes them, so the
-## UI can label results "Single-Omics Clustering" and never call a
-## single-block result "multi-omics integration".
-## ---------------------------------------------------------------------------
 
 sfc_snf_run <- function(layers, params = list()) {
   layers <- Filter(Negate(is.null), layers %||% list())
@@ -251,11 +170,6 @@ sfc_snf_run <- function(layers, params = list()) {
     max(2, min(as.integer(params$n_clusters), max_k_clusters))
   } else if (!is.null(est)) est[["Eigen-gap best"]] else 2
 
-  ## SNFtool::spectralClustering() is k-means-based internally - same
-  ## reproducibility gap as the multi-omics path (mi_snf_run(), which the
-  ## >=2-block branch above delegates to and already seeds); seeded here too
-  ## for the single-omics fallback so both branches of this function are
-  ## equally reproducible for a given `params$seed`.
   seed <- as.integer(params$seed %||% 1)
   set.seed(seed)
   clusters <- tryCatch(SNFtool::spectralClustering(W, K = n_clusters), error = function(e) NULL)
@@ -273,14 +187,6 @@ sfc_snf_run <- function(layers, params = list()) {
     )
   )
 }
-
-## ---------------------------------------------------------------------------
-## 5. Clinical variable detection (spec sections 20, F-I) - inspects whatever
-## sample_meta is actually attached to the selected dataset; never assumes a
-## fixed schema. Survival needs a numeric time-like column PLUS a 2-level
-## event-like column; short of both, survival is reported unavailable rather
-## than guessed at.
-## ---------------------------------------------------------------------------
 
 SFC_TIME_COL_PATTERN <- "(?i)(time|duration|_os$|^os$|survival|pfs)"
 SFC_EVENT_COL_PATTERN <- "(?i)(event|status|censor|death|relapse|progression)"
@@ -310,14 +216,6 @@ sfc_detect_clinical <- function(sample_meta) {
   }
   list(categorical = cat_cols, continuous = cont_cols, survival = survival)
 }
-
-## ---------------------------------------------------------------------------
-## 6. Clinical association tests (spec sections 21-23) - always post-hoc
-## (never used to choose K/alpha/T/cluster count), always report which test
-## and how many matched samples it ran on. `sfc_clinical_run()` BH-corrects
-## across exactly the variables the user selected together, never against a
-## silently larger set.
-## ---------------------------------------------------------------------------
 
 sfc_test_categorical <- function(clusters, x) {
   common <- intersect(names(clusters), names(x))
@@ -391,31 +289,6 @@ sfc_clinical_run <- function(clusters, sample_meta, vars, kind = c("categorical"
   results
 }
 
-## ---------------------------------------------------------------------------
-## 7. Stability (spec section 18, REQUIRED) - repeated subsampling + ARI
-## against the full-cohort ("reference") clustering, using the exact same
-## sfc_snf_run()/mi_ari() this module already computed its headline result
-## with. Thresholds are fixed constants, stated once, applied identically
-## everywhere a verdict is shown (never re-derived per call).
-## ---------------------------------------------------------------------------
-
-## NOTE on the 0.75 cutoff vs. Biomarker Discovery's own stability metric:
-## Biomarker Discovery's MB_STABILITY_THRESHOLDS (multiomics_biomarker_
-## helpers.R) uses a different "stable" cutoff (0.8). This is deliberate,
-## not an oversight - the two are not the same statistic and are not meant
-## to share one bar. SFC_STABILITY_THRESHOLDS classifies a mean Adjusted
-## Rand Index between two full sample-partitions (subsampled SNF clustering
-## vs. the full-cohort reference clustering, sfc_stability_run()/mi_ari()) -
-## ARI is chance-corrected (0 expected under random labelings, 1 at perfect
-## agreement), and conventional cutoffs for "excellent"/"high" clustering
-## agreement by ARI (e.g. Hubert & Arabie 1985; Ben-Hur et al. 2002) sit
-## around 0.75. MB_STABILITY_THRESHOLDS instead classifies a per-feature
-## *selection frequency* - a plain, uncorrected-for-chance proportion of CV
-## repeats that selected a given feature - where the stability-selection
-## literature's typical "reliable" cutoffs run higher, around 0.6-0.9
-## (Meinshausen & Buhlmann 2010), with this app choosing 0.8. Forcing these
-## two constants to match would paper over that the underlying statistics
-## live on different effective scales.
 SFC_STABILITY_THRESHOLDS <- list(stable = 0.75, moderate = 0.5)
 
 sfc_stability_verdict <- function(mean_ari) {
@@ -445,13 +318,6 @@ sfc_stability_run <- function(layers, ref_clusters, params, n_resamples = 20, su
   list(ok = TRUE, ari = ari_vals, mean_ari = mean_ari, sd_ari = sd_ari, n_resamples = length(ari_vals), n_requested = n_resamples,
        n_failed = failures, subsample_frac = subsample_frac, n_sub = n_sub, seed = seed, verdict = sfc_stability_verdict(mean_ari))
 }
-
-## ---------------------------------------------------------------------------
-## 8. Parameter sensitivity (spec section 19, best-effort) - reruns clustering
-## at the feasible low/high end of each tunable parameter and compares each
-## result to the reference clustering by ARI. T is skipped for single-omics
-## (no fusion step exists to vary).
-## ---------------------------------------------------------------------------
 
 sfc_sensitivity_run <- function(layers, base_params, ref_clusters, seed = 1) {
   set.seed(seed)
@@ -483,13 +349,6 @@ sfc_sensitivity_run <- function(layers, base_params, ref_clusters, seed = 1) {
   list(ok = TRUE, detail = df, summary = by_param)
 }
 
-## ---------------------------------------------------------------------------
-## 9. Feature ranking (spec section 24) - per feature, Kruskal-Wallis test
-## across the already-computed clusters (never re-derives clusters). Labeled
-## as association-with-clusters, distinct from "features used to construct
-## the network" (every feature in the selected block was used for that).
-## ---------------------------------------------------------------------------
-
 sfc_feature_ranking <- function(mat, clusters, block_label, top_n = 25) {
   common <- intersect(rownames(mat), names(clusters))
   if (length(common) < 6) return(list(ok = FALSE, error = "Too few matched samples for feature ranking."))
@@ -503,27 +362,12 @@ sfc_feature_ranking <- function(mat, clusters, block_label, top_n = 25) {
   list(ok = TRUE, table = utils::head(df, top_n), n_features_tested = ncol(m))
 }
 
-## ---------------------------------------------------------------------------
-## 10. Async run wrapper - bundles the headline clustering with a default
-## stability check in one call (mod_multi_stratification.R's Run handler).
-## Defined at file scope, not nested inside the module's server closure, so
-## future::future_promise()'s automatic global-variable export resolves it
-## unambiguously - the same reason mi_diablo_run()/mi_snf_run() are called
-## directly (never via a server-local wrapper) inside Multi-omics
-## Integration's own ExtendedTask.
-## ---------------------------------------------------------------------------
-
 sfc_snf_run_with_stability <- function(layers, params) {
   res <- sfc_snf_run(layers, params)
   if (!isTRUE(res$ok)) return(list(ok = FALSE, error = res$error))
   stab <- tryCatch(sfc_stability_run(layers, res$clusters, params, n_resamples = 20, subsample_frac = 0.8, seed = 1), error = function(e) list(ok = FALSE, error = conditionMessage(e)))
   list(ok = TRUE, res = res, stability = stab)
 }
-
-## ---------------------------------------------------------------------------
-## 11. Analysis summary (spec section 27) - short bullet lines only, no
-## fabricated narrative; every value is read back from the actual run.
-## ---------------------------------------------------------------------------
 
 sfc_summary_lines <- function(res, stability = NULL, clinical_note = NULL) {
   p <- res$params

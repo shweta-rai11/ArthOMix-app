@@ -1,14 +1,11 @@
 ## Module 1 (Transcriptomics) - "Data Exploration" tab's pure statistics
 ## helpers (mod_preprocessing_explore.R) - a standalone EDA tool independent
 ## of the shared `dataset` reactiveValues, so every function here is a
-## top-level pure function, unit-testable directly with no reactive context.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "03_Preprocessing_Batch_Correction", "mod_preprocessing_explore.R"))
-
-## ---- eda_parse_upload() ---------------------------------------------------
 
 test_that("eda_parse_upload() parses a well-formed feature x sample CSV", {
   fm <- fx_expr_meta(n_genes = 10, n_samples = 5, seed = 10)
@@ -20,16 +17,6 @@ test_that("eda_parse_upload() parses a well-formed feature x sample CSV", {
 })
 
 test_that("eda_parse_upload() correctly parses a single-feature-row upload with multiple sample columns (fixed - previously crashed)", {
-  ## Found via the malformed_expr.csv edge-case fixture, then reduced to this
-  ## minimal, well-formed repro: any upload with exactly one data row (one
-  ## feature) and >1 sample column. eda_parse_upload()'s is.null(dim(expr))
-  ## fallback branch used to always reshape into an nrow x 1 matrix (correct
-  ## only for the OPPOSITE edge case - one sample column, many feature
-  ## rows), which was wrong here since vapply collapses to a vector whenever
-  ## there is only one ROW, regardless of column count - it then assigned a
-  ## length-1 `ids` vector as rownames on a multi-row matrix and errored.
-  ## Fixed to reshape into ONE row (the single feature) by however many
-  ## real sample columns exist, using vapply's own output names.
   path <- withr::local_tempfile(fileext = ".csv")
   writeLines(c("id,S1,S2,S3,S4,S5", "GENE1,1,2,3,4,5"), path)
   res <- eda_parse_upload(path, "one_row.csv")
@@ -41,11 +28,6 @@ test_that("eda_parse_upload() correctly parses a single-feature-row upload with 
 })
 
 test_that("eda_parse_upload() does not silently succeed with garbage on a genuinely malformed, ragged-row file", {
-  ## This particular malformed fixture happens to collapse to the
-  ## single-row shape covered by the fixed test above, so it now parses
-  ## successfully too rather than raising a raw error - still asserted
-  ## explicitly so a change in fread's own ragged-row recovery is caught
-  ## rather than assumed away.
   path <- normalizePath(file.path(app_dir, "tests", "fixtures", "edge_cases", "malformed_expr.csv"), mustWork = TRUE)
   res <- tryCatch(eda_parse_upload(path, "malformed_expr.csv"), error = function(e) e)
   if (inherits(res, "error")) {
@@ -74,8 +56,6 @@ test_that("eda_parse_upload() rejects a matrix with no numeric sample columns", 
   expect_true(grepl("No numeric sample columns", res$error))
 })
 
-## ---- eda_skewness() / eda_kurtosis() --------------------------------------
-
 test_that("eda_skewness()/eda_kurtosis() return NA below their minimum sample size", {
   expect_true(is.na(eda_skewness(c(1, 2))))
   expect_true(is.na(eda_kurtosis(c(1, 2, 3))))
@@ -99,8 +79,6 @@ test_that("eda_skew_label() buckets by absolute skewness magnitude", {
   expect_equal(eda_skew_label(2), "Strongly skewed")
 })
 
-## ---- eda_robust_z() --------------------------------------------------------
-
 test_that("eda_robust_z() returns all zeros when MAD is zero (a constant/near-constant vector)", {
   expect_equal(eda_robust_z(rep(3, 20)), rep(0, 20))
 })
@@ -111,26 +89,22 @@ test_that("eda_robust_z() flags a genuine outlier with a large modified z-score"
   expect_gt(abs(z[length(z)]), 3.5)
 })
 
-## ---- eda_overview() --------------------------------------------------------
-
 test_that("eda_overview() counts missing/infinite/duplicated/constant features correctly on a crafted matrix", {
   fm <- fx_expr_meta(n_genes = 20, n_samples = 6, seed = 11)
   m <- fm$expr
-  m[1, ] <- NA_real_                 ## fully missing feature
-  m[2, 1] <- Inf                     ## one infinite value
-  m[3, ] <- 7                        ## constant feature
-  rownames(m)[4] <- rownames(m)[5]   ## duplicated feature id
+  m[1, ] <- NA_real_
+  m[2, 1] <- Inf
+  m[3, ] <- 7
+  rownames(m)[4] <- rownames(m)[5]
 
   ov <- eda_overview(list(expr = m, nonnumeric_cols = character(0)))
   expect_equal(ov$n_features, 20L)
   expect_equal(ov$n_samples, 6L)
-  expect_equal(ov$n_missing, 6L)                 ## the 6 samples of row 1
+  expect_equal(ov$n_missing, 6L)
   expect_equal(ov$n_infinite, 1L)
   expect_equal(ov$n_duplicated_features, 1L)
   expect_gte(ov$n_constant_features, 1L)
 })
-
-## ---- eda_normality_summary() ----------------------------------------------
 
 test_that("eda_normality_summary() runs Shapiro-Wilk only at/above 20 finite values", {
   small <- eda_normality_summary(matrix(rnorm(15), nrow = 1))
@@ -140,8 +114,6 @@ test_that("eda_normality_summary() runs Shapiro-Wilk only at/above 20 finite val
   expect_false(is.na(big$shapiro_p))
   expect_true(big$shapiro_p >= 0 && big$shapiro_p <= 1)
 })
-
-## ---- eda_normalization_assessment() ---------------------------------------
 
 test_that("eda_normalization_assessment() classifies raw RNA-seq-like counts as not_normalized", {
   set.seed(20)
@@ -159,11 +131,9 @@ test_that("eda_normalization_assessment() classifies data with negative values a
   expect_true(a$has_negative)
 })
 
-## ---- eda_impute_median() ---------------------------------------------------
-
 test_that("eda_impute_median() fills NA/Inf with the per-row median, and never mutates on a complete matrix", {
   m <- matrix(1:20, 4, 5)
-  expect_equal(eda_impute_median(m), m + 0)  ## +0 to coerce to double, matching fn's output type
+  expect_equal(eda_impute_median(m), m + 0)
 
   m2 <- matrix(c(1, 2, NA, 4, 5), nrow = 1)
   out <- eda_impute_median(m2)
@@ -178,28 +148,23 @@ test_that("eda_impute_median() falls back to the matrix-wide median for a featur
   expect_equal(out[1, 1], stats::median(m, na.rm = TRUE))
 })
 
-## ---- eda_missingness() -----------------------------------------------------
-
 test_that("eda_missingness() buckets feature-level missingness correctly", {
   m <- matrix(0, nrow = 5, ncol = 10, dimnames = list(paste0("G", 1:5), paste0("S", 1:10)))
-  m[1, ] <- NA                 ## 100% missing -> ">50%"
-  m[2, 1:6] <- NA               ## 60% missing -> ">50%"
-  m[3, 1:3] <- NA               ## 30% missing -> ">20-50%"
-  m[4, 1] <- NA                 ## 10% missing -> ">5-20%"
-  ## row 5: 0% missing
+  m[1, ] <- NA
+  m[2, 1:6] <- NA
+  m[3, 1:3] <- NA
+  m[4, 1] <- NA
   mm <- eda_missingness(m)
   expect_equal(sum(mm$by_feature_summary$n_features), 5L)
   expect_equal(mm$by_feature_summary$n_features[mm$by_feature_summary$bucket == "0%"], 1L)
   expect_equal(mm$by_feature_summary$n_features[mm$by_feature_summary$bucket == ">50%"], 2L)
 })
 
-## ---- eda_feature_outliers() ------------------------------------------------
-
 test_that("eda_feature_outliers() flags high missingness and extreme variance features", {
   fm <- fx_expr_meta(n_genes = 30, n_samples = 12, seed = 12)
   m <- fm$expr
-  m[1, 1:10] <- NA                    ## >20% missing (10/12 = 83%)
-  m[2, ] <- m[2, ] * 1 + rnorm(12, sd = 50)  ## inflate variance sharply
+  m[1, 1:10] <- NA
+  m[2, ] <- m[2, ] * 1 + rnorm(12, sd = 50)
 
   desc <- eda_descriptive_stats(m, margin = 1)
   out <- eda_feature_outliers(m, desc)

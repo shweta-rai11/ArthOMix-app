@@ -2,8 +2,6 @@
 ## live dataset evidence, saved DGE/candidate/signature/classifier results,
 ## and opt-in pathway/external-database lookups into one report.
 
-## ---- Gene identity (org.Hs.eg.db - already library()'d in global.R) -------
-
 .tbc_identity_cache <- new.env(parent = emptyenv())
 
 tbc_gene_identity <- function(symbol) {
@@ -27,10 +25,6 @@ tbc_gene_identity <- function(symbol) {
   res
 }
 
-## ---- NCBI Gene summary (basic description) + UniProt protein name --------
-## Both are own small, cached, fail-soft clients on the same list(ok, reason)
-## contract as every other external lookup in this file - identity fields
-## the user can see are "Not available" rather than missing silently.
 .tbc_ncbi_summary_cache <- new.env(parent = emptyenv())
 tbc_ncbi_gene_summary <- function(entrez) {
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, reason = "No NCBI Entrez Gene ID available."))
@@ -77,7 +71,6 @@ tbc_uniprot_protein_name <- function(symbol) {
   res
 }
 
-## Direct links to authoritative gene resources - pure, no network.
 tbc_gene_identity_links <- function(symbol, entrez = NULL, ensembl = NULL) {
   links <- list("NCBI Gene" = if (!is.null(entrez) && !is.na(entrez)) sprintf("https://www.ncbi.nlm.nih.gov/gene/%s", entrez) else NA_character_)
   links[["Ensembl"]] <- if (!is.null(ensembl) && !is.na(ensembl)) sprintf("https://www.ensembl.org/Homo_sapiens/Gene/Summary?g=%s", ensembl) else NA_character_
@@ -86,7 +79,6 @@ tbc_gene_identity_links <- function(symbol, entrez = NULL, ensembl = NULL) {
   links
 }
 
-## Top biological-process GO terms for a gene, with GOID kept for QuickGO links.
 tbc_go_terms <- function(entrez, n = 8) {
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(NULL)
   if (!requireNamespace("GO.db", quietly = TRUE)) return(NULL)
@@ -103,7 +95,6 @@ tbc_go_terms <- function(entrez, n = 8) {
   res
 }
 
-## Process-wide cache of keggList()'s pathway-name table (own copy, not shared with methylation card).
 .tbc_kegg_names_cache <- new.env(parent = emptyenv())
 tbc_kegg_pathway_names <- function() {
   if (!is.null(.tbc_kegg_names_cache$v)) return(.tbc_kegg_names_cache$v)
@@ -127,7 +118,6 @@ tbc_kegg_pathways_for_gene <- function(entrez) {
   list(ok = TRUE, pathways = res, reason = NULL)
 }
 
-## Maps SYMBOL -> UNIPROT (1:many) and tries each ID until one returns Reactome pathways.
 tbc_reactome_pathways_for_gene <- function(symbol) {
   if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, pathways = NULL, reason = "No gene symbol available for Reactome lookup."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, pathways = NULL, reason = "httr2 is not installed in this deployment."))
@@ -151,11 +141,6 @@ tbc_reactome_pathways_for_gene <- function(symbol) {
   list(ok = TRUE, pathways = data.frame(stId = character(0), displayName = character(0)), reason = NULL)
 }
 
-## ---- WikiPathways: pathway membership via the same msigdbr-cached ------
-## term<->gene table the Multi-Omics Pathways module already loads
-## (mp_get_wikipathways_termgene(), R/multiomics/07_Pathways/multiomics_pathway_helpers.R) -
-## no separate client, no separate license. Same "which pathways contain this
-## gene" contract as tbc_kegg_pathways_for_gene / tbc_reactome_pathways_for_gene above.
 tbc_wikipathways_pathways_for_gene <- function(entrez) {
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, pathways = NULL, reason = "No NCBI Gene ID available for WikiPathways lookup."))
   t2g <- tryCatch(mp_get_wikipathways_termgene(), error = function(e) NULL)
@@ -167,7 +152,6 @@ tbc_wikipathways_pathways_for_gene <- function(entrez) {
   list(ok = TRUE, pathways = data.frame(id = ids, name = nm, stringsAsFactors = FALSE), reason = NULL)
 }
 
-## ---- Open Targets: genetic association + druggability tractability ----
 TBC_OT_TRACTABILITY_TIERS <- c("Approved Drug", "Advanced Clinical", "Phase 1 Clinical")
 TBC_OT_MODALITY_LABELS <- c(SM = "Small molecule", AB = "Antibody / biologic", PR = "PROTAC-type degrader", OC = "Other clinical modality")
 
@@ -196,7 +180,6 @@ tbc_opentargets_evidence_for_gene <- function(ensembl, top_n_diseases = 8) {
     if (approved) "Approved drug exists" else if (!is.null(tier)) tier else if (feasible) "Structurally feasible" else "No tractability evidence"
   }), names(TBC_OT_MODALITY_LABELS))
 
-  ## Per-disease datatype-score columns, built dynamically from whatever datatype ids are present.
   dis_rows <- tgt$associatedDiseases$rows %||% list()
   all_datatypes <- unique(unlist(lapply(dis_rows, function(r) vapply(r$datatypeScores, function(x) x$id, character(1)))))
   diseases <- if (length(dis_rows) > 0) {
@@ -212,7 +195,6 @@ tbc_opentargets_evidence_for_gene <- function(ensembl, top_n_diseases = 8) {
   list(ok = TRUE, n_diseases = tgt$associatedDiseases$count %||% 0, diseases = diseases, tractability = modality_summary)
 }
 
-## Human Protein Atlas baseline tissue/blood-lineage RNA expression, keyed by Ensembl ID.
 tbc_hpa_evidence_for_gene <- function(ensembl) {
   if (is.null(ensembl) || is.na(ensembl) || !nzchar(ensembl)) return(list(ok = FALSE, reason = "No Ensembl Gene ID available for Human Protein Atlas lookup."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed in this deployment."))
@@ -223,10 +205,6 @@ tbc_hpa_evidence_for_gene <- function(ensembl) {
   }, error = function(e) NULL)
   if (is.null(res)) return(list(ok = FALSE, reason = sprintf("No Human Protein Atlas entry found for Ensembl ID \"%s\".", ensembl)))
 
-  ## Each per-tissue value is normally a JSON scalar, but is defensively
-  ## collapsed with paste() rather than as.character() so an unexpected
-  ## multi-value entry can't throw inside vapply(FUN.VALUE = character(1)) -
-  ## this parsing step must stay as fail-soft as every other lookup in this file.
   named_list_to_df <- function(x, value_label) {
     if (is.null(x) || length(x) == 0) return(NULL)
     data.frame(Tissue = names(x), Value = vapply(x, function(v) paste(as.character(v %||% NA), collapse = ", "), character(1)), check.names = FALSE, stringsAsFactors = FALSE) %>%
@@ -244,7 +222,6 @@ tbc_hpa_evidence_for_gene <- function(ensembl) {
   parsed
 }
 
-## STRING PPI neighborhood; a 404 means "no partners found", not a request failure.
 tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
   if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, reason = "No gene symbol available for STRING lookup."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed in this deployment."))
@@ -253,7 +230,6 @@ tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
       httr2::req_url_query(identifiers = symbol, species = 9606, limit = top_n, required_score = required_score) %>%
       httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
     if (httr2::resp_status(resp) == 404) list(status = 404, body = NULL)
-    ## check_type = FALSE: STRING serves "text/json", not "application/json".
     else if (httr2::resp_status(resp) == 200) list(status = 200, body = httr2::resp_body_json(resp, check_type = FALSE, simplifyVector = TRUE))
     else list(status = httr2::resp_status(resp), body = NULL)
   }, error = function(e) NULL)
@@ -262,10 +238,6 @@ tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
   if (!identical(out$status, 200)) return(list(ok = FALSE, reason = sprintf("STRING lookup failed (HTTP %s).", out$status)))
   res <- out$body
   if (!is.data.frame(res) || nrow(res) == 0) return(list(ok = TRUE, partners = NULL, reason = NULL))
-  ## STRING's 7 evidence channels: nscore=neighborhood, fscore=fusion, pscore=cooccurrence,
-  ## ascore=coexpression, escore=experimental, dscore=database, tscore=textmining.
-  ## Renamed via a name->label map (not position) so a channel STRING omits from
-  ## the response can never shift a later column into the wrong label.
   chan_labels <- c(score = "Combined", nscore = "Neighborhood", fscore = "Fusion", pscore = "Cooccurrence",
                     ascore = "Coexpression", escore = "Experimental", dscore = "Database", tscore = "Textmining")
   present <- intersect(names(chan_labels), colnames(res))
@@ -276,7 +248,6 @@ tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
   list(ok = TRUE, partners = utils::head(df, top_n), reason = NULL)
 }
 
-## Fetches the actual network diagram PNG STRING renders server-side (not redrawn locally).
 tbc_string_network_image <- function(symbol, top_n = 10, required_score = 400) {
   if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, reason = "No gene symbol available for STRING image."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed in this deployment."))
@@ -291,7 +262,6 @@ tbc_string_network_image <- function(symbol, top_n = 10, required_score = 400) {
   list(ok = TRUE, path = tf, reason = NULL)
 }
 
-## DGIdb drug-gene interactions, sorted by DGIdb's interactionScore (not a p-value).
 tbc_dgidb_drugs_for_gene <- function(symbol, top_n = 12) {
   if (is.null(symbol) || is.na(symbol) || !nzchar(symbol)) return(list(ok = FALSE, reason = "No gene symbol available for DGIdb lookup."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, reason = "httr2 is not installed in this deployment."))
@@ -322,10 +292,6 @@ tbc_dgidb_drugs_for_gene <- function(symbol, top_n = 12) {
   list(ok = TRUE, drugs = utils::head(df, top_n), reason = NULL)
 }
 
-## ---- Literature: PubMed via NCBI E-utilities (free, keyless - the same ----
-## esearch/esummary endpoints ArthOChat's own pubmed_search() tool already
-## calls, see global.R) - kept structured here (title/authors/journal/year/PMID)
-## for table display, rather than pubmed_search()'s flattened citation string.
 tbc_literature_search <- function(query, max_results = 12) {
   if (is.null(query) || !nzchar(trimws(query))) return(list(ok = FALSE, papers = NULL, reason = "No search query given."))
   if (!requireNamespace("httr2", quietly = TRUE)) return(list(ok = FALSE, papers = NULL, reason = "httr2 is not installed in this deployment."))
@@ -357,9 +323,6 @@ tbc_literature_search <- function(query, max_results = 12) {
   list(ok = TRUE, papers = if (is.data.frame(res) && nrow(res) > 0) res else NULL, reason = NULL)
 }
 
-## Preset query templates (spec: gene+biomarker, gene+pathway, gene+sex,
-## gene+transcriptomics, gene+rheumatoid arthritis; "disease" uses whatever
-## case/control context the loaded cohort provides, or free text).
 TBC_LITERATURE_PRESETS <- c(
   "Biomarker" = "%s biomarker", "Pathway" = "%s pathway", "Sex differences" = "%s sex",
   "Transcriptomics" = "%s transcriptomics", "Rheumatoid arthritis" = "%s rheumatoid arthritis"
@@ -373,7 +336,6 @@ tbc_literature_query <- function(gene, preset, custom_disease = NULL) {
   sprintf(tmpl, gene)
 }
 
-## Renders a real KEGG pathway diagram (pathview) with this gene colored by its log2FC.
 tbc_kegg_diagram_for_gene <- function(kegg_id, entrez, log2fc, pathway_name = NULL) {
   if (is.null(kegg_id) || !nzchar(kegg_id)) return(list(ok = FALSE, path = NULL, error = "No KEGG pathway selected."))
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, path = NULL, error = "No NCBI Gene ID available to color onto the pathway map."))
@@ -389,8 +351,6 @@ tbc_reactome_diagram_for_pathway <- function(stable_id, pathway_name = NULL) {
   out <- tryCatch(mp_fetch_reactome_diagram_png(stable_id, out_dir = tempdir()), error = function(e) list(ok = FALSE, path = NULL, error = conditionMessage(e)))
   c(out, list(pathway_id = stable_id, pathway_name = pathway_name))
 }
-
-## ---- Sample-sheet column detection ----
 
 TBC_GROUP_PATTERNS <- c("^group$", "^status$", "^phenotype$", "^disease$", "^condition$", "^diagnosis$", "group")
 TBC_SEX_PATTERNS <- c("^sex$", "^gender$", "sex")
@@ -421,10 +381,6 @@ tbc_pick_case_control <- function(levels) {
   list(case = lv[2], control = lv[1])
 }
 
-## ---- Expression-scale-aware live evidence ----
-
-## Quick single-gene preview only, not a substitute for the DGE tab's limma/DESeq2 model.
-## Raw counts get log2(CPM+1)-transformed (edgeR::cpm()); already-normalised data is used as-is.
 tbc_gene_expr_values <- function(gene, expr) {
   data_type <- detect_expr_data_type(expr)
   row <- expr[gene, ]
@@ -454,8 +410,6 @@ tbc_live_stats <- function(expr_row, group_vec, case_label, control_label) {
        case_label = case_label, control_label = control_label)
 }
 
-## Works identically for the preloaded example cohort or an uploaded one -
-## dataset$expr/$meta is the same shape either way (see mod_dataset.R).
 tbc_dataset_evidence <- function(gene, dataset) {
   expr <- dataset$expr; meta <- dataset$meta
   if (is.null(expr) || is.null(meta)) return(list(ok = FALSE, reason = "No expression matrix / sample metadata is currently loaded on the Dataset tab."))
@@ -493,7 +447,6 @@ tbc_dataset_evidence <- function(gene, dataset) {
        case_label = cc$case, control_label = cc$control, overall = overall, by_sex = by_sex)
 }
 
-## Looks up this gene in every saved DGE run (results$dge_runs, written live by mod_dge.R).
 tbc_dge_matches <- function(gene, results) {
   runs <- results$dge_runs %||% list()
   if (length(runs) == 0) return(NULL)
@@ -510,13 +463,6 @@ tbc_dge_matches <- function(gene, results) {
   do.call(rbind, hits)
 }
 
-## ---- Single-gene diagnostic performance (live, computed here) ------------
-## Answers "is this gene useful alone as a classifier?" using the same
-## statistical primitive (pROC) mod_diagnostic.R already depends on, computed
-## directly on the live per-gene values tbc_dataset_evidence() already reads -
-## no other module's reactives are touched. Training = full-fit on the whole
-## loaded dataset; tbc_single_gene_cv() below is the "Internal Validation"
-## counterpart (pooled out-of-fold predictions from k-fold CV).
 tbc_single_gene_roc <- function(expr_row, group_vec, case_label, control_label) {
   if (!requireNamespace("pROC", quietly = TRUE)) return(list(ok = FALSE, reason = "pROC is not installed in this deployment."))
   keep <- !is.na(expr_row) & !is.na(group_vec) & group_vec %in% c(case_label, control_label)
@@ -539,8 +485,6 @@ tbc_single_gene_roc <- function(expr_row, group_vec, case_label, control_label) 
        threshold = best$threshold, sensitivity = best$sensitivity, specificity = best$specificity,
        accuracy = best$accuracy, ppv = best$ppv, npv = best$npv, balanced_accuracy = (best$sensitivity + best$specificity) / 2,
        n_case = n_case, n_control = n_control,
-       ## Column-major fill: c(tp, fn, fp, tn) so [Predicted=Case, Actual=Control] = fp
-       ## and [Predicted=Control, Actual=Case] = fn (matching the dimnames below).
        confusion = matrix(c(tp, fn, fp, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
        roc_obj = roc_obj, case_label = case_label, control_label = control_label)
 }
@@ -580,14 +524,10 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
   spec <- if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
   list(ok = TRUE, k = k_eff, n_used = sum(usable), auc = auc_pooled, sensitivity = sens, specificity = spec,
        accuracy = (tp + tn) / (tp + tn + fp + fn), balanced_accuracy = (sens + spec) / 2,
-       ## Column-major fill: c(tp, fn, fp, tn) so [Predicted=Case, Actual=Control] = fp
-       ## and [Predicted=Control, Actual=Case] = fn (matching the dimnames below).
        confusion = matrix(c(tp, fn, fp, tn), 2, 2, dimnames = list(Predicted = c("Case", "Control"), Actual = c("Case", "Control"))),
        roc_obj = roc_pooled, case_label = case_label, control_label = control_label)
 }
 
-## Precision-recall from an already-fit pROC ROC object (recall = sensitivity,
-## precision = PPV) - no new package, PR-AUC via trapezoidal integration.
 tbc_pr_from_roc <- function(roc_obj) {
   if (is.null(roc_obj)) return(list(ok = FALSE, reason = "No ROC curve available."))
   co <- tryCatch(pROC::coords(roc_obj, "all", ret = c("recall", "precision"), transpose = FALSE), error = function(e) NULL)
@@ -630,8 +570,6 @@ tbc_confusion_table <- function(cm) {
   DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE, ordering = FALSE), class = "stripe hover compact")
 }
 
-## ---- Candidate Gene Identification / ML Feature Selection membership ----
-
 tbc_candidate_status <- function(gene, results) {
   cand <- results$candidates
   if (is.null(cand)) return(list(any = FALSE, in_female = FALSE, in_male = FALSE, in_final = FALSE, final_selection = NA_character_))
@@ -654,7 +592,6 @@ tbc_signature_membership <- function(gene, results) {
   }), sexes)
 }
 
-## Reads classifier performance verbatim from results$diagnostic for panels containing this gene.
 tbc_diagnostic_lookup <- function(gene, results) {
   diag <- results$diagnostic
   if (is.null(diag)) return(list())
@@ -667,8 +604,6 @@ tbc_diagnostic_lookup <- function(gene, results) {
   }), sexes)
   Filter(function(x) isTRUE(x$in_panel), out)
 }
-
-## ---- Plots -----------------------------------------------------------------
 
 tbc_plot_expression_dist <- function(df, y_label, facet_sex = FALSE) {
   if (isTRUE(facet_sex) && "sex" %in% names(df)) df <- df[!is.na(df$sex), , drop = FALSE]
@@ -684,7 +619,6 @@ tbc_plot_expression_dist <- function(df, y_label, facet_sex = FALSE) {
   p
 }
 
-## Volcano plot from an already-saved DGE run table, highlighting the selected gene.
 tbc_plot_volcano_highlight <- function(tab, gene) {
   validate(need(!is.null(tab) && nrow(tab) > 0, "No Differential Expression run is available to plot."))
   tab$neglog10p <- -log10(pmax(tab$adj.P.Val, 1e-300))
@@ -712,8 +646,6 @@ tbc_ggsave_datauri <- function(plot, width = 8, height = 3.4, dpi = 110) {
   uri
 }
 
-## ---- Display helpers -------------------------------------------------------
-
 tbc_fmt_field <- function(x) {
   if (is.null(x) || length(x) == 0) return("Not available")
   if (length(x) == 1 && is.na(x)) return("Not available")
@@ -725,7 +657,6 @@ tbc_kv_table <- function(pairs) {
   DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE, ordering = FALSE), class = "stripe hover compact")
 }
 
-## Renders a link to the live source page so numbers can be checked against the real database.
 tbc_db_provenance <- function(api_domain, live_url, live_label) {
   div(class = "empty-note", style = "display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;",
       tagList(icon("satellite-dish"), sprintf("Live query to %s - nothing here is precomputed or cached in this app.", api_domain)),
@@ -734,9 +665,6 @@ tbc_db_provenance <- function(api_domain, live_url, live_label) {
   )
 }
 
-## Static light-blue info box for the External Databases tab (spec §9) -
-## reuses the app's existing (previously unused) .data-source-callout class
-## from www/custom.css rather than inventing new CSS/colors.
 TBC_EXTERNAL_DB_NAMES <- c(
   "GO", "KEGG", "Reactome", "WikiPathways", "Disease / Genetics — Open Targets",
   "Drug / Target — DGIdb", "Protein / Interaction — STRING", "Expression — Human Protein Atlas", "Literature — PubMed"
@@ -749,11 +677,6 @@ tbc_external_db_banner <- function() {
   )
 }
 
-## ---- Section builders (plain tags, reused on-screen and in the downloadable report) ----
-
-## Full gene-identity card: local org.Hs.eg.db fields always shown; the two
-## live lookups (NCBI summary, UniProt protein name) degrade to "Not available"
-## independently if either fails, without blocking the rest of the card.
 tbc_section_identity <- function(d) {
   gi <- d$gene_identity
   ncbi <- d$ncbi_summary
@@ -788,13 +711,6 @@ tbc_section_identity <- function(d) {
   )
 }
 
-## Merges what used to be two separate cards (Expression Data Input,
-## Transcriptomic Biomarker Discovery) - same dataset/cohort, so one card.
-## GEO accession / platform are never stored as separate fields anywhere in
-## this app (confirmed: dataset$source is free text, dataset$meta has no
-## platform/tissue/species column) - parsed out of dataset$source only when
-## the exact "NCBI GEO: <acc> (<platform>, ...)" pattern mod_dataset.R writes
-## is actually present, never guessed otherwise.
 tbc_parse_geo_source <- function(source_label) {
   if (is.null(source_label) || !nzchar(source_label)) return(list(accession = NA_character_, platform = NA_character_))
   m <- regmatches(source_label, regexec("NCBI GEO:\\s*(\\S+)\\s*\\(([^,)]+)", source_label))[[1]]
@@ -915,11 +831,6 @@ tbc_section_signature <- function(d) {
   )
 }
 
-## Compact multi-gene panel table: best model per stratum, its stored
-## full-fit ("Training") AUC and cross-validated ("Internal Validation") AUC.
-## Sensitivity/specificity/threshold/confusion matrix are NOT stored in
-## results$diagnostic (mod_diagnostic.R keeps those in its own private
-## reactives) - reported honestly as "Not available" rather than guessed.
 tbc_multi_gene_perf_table <- function(diag) {
   if (length(diag) == 0) return(NULL)
   df <- do.call(rbind, lapply(names(diag), function(s) {
@@ -937,19 +848,12 @@ tbc_multi_gene_perf_table <- function(diag) {
       `.best_cv_auc` = if (is.na(best_key)) NA_real_ else unname(aucs[[best_key]]),
       check.names = FALSE, stringsAsFactors = FALSE)
   }))
-  ## Raw numeric CV AUC kept as an attribute (not a displayed column) so callers
-  ## that need to compare against it don't have to regex-parse the formatted
-  ## "Internal validation AUC (CV)" display string back into a number.
   raw_auc <- df$`.best_cv_auc`
   df$`.best_cv_auc` <- NULL
   attr(df, "best_cv_auc") <- raw_auc
   df
 }
 
-## ---- Single-vs-multi-gene comparison (tab: "Single-Gene vs Multi-Gene ------
-## Signature") - answers "is this gene useful alone?" with a real, live,
-## honestly-labeled single-gene classifier next to whatever multi-gene panel
-## evidence already exists in the shared results store.
 tbc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
   single_body <- if (isTRUE(sgd$ok)) {
     tbc_kv_table(list(
@@ -993,9 +897,6 @@ tbc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
     if (!is.null(comparison)) div(class = "card", div(class = "card-title", icon("scale-balanced"), "Comparison"), comparison) else NULL
   )
 }
-
-## ---- Expression / Diagnostic / Validation evidence cards -------------------
-## (feed the "Biomarker Status" tab; §4/§12 of the spec)
 
 tbc_de_rank <- function(gene, table) {
   if (is.null(table) || nrow(table) == 0) return(list(rank = NA_integer_, n = NA_integer_))
@@ -1062,11 +963,6 @@ tbc_section_validation_evidence <- function(sgd, sgcv) {
       DT::datatable(rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact"))
 }
 
-## ---- Evidence tier classification (pure, unit-testable; §13) --------------
-## Exactly the spec's 3-tier scale, plus an honest 4th "Insufficient evidence"
-## floor for a gene with no significant DE at all (never forced into one of
-## the 3 named tiers). The tier is always returned alongside the literal
-## per-domain checklist that produced it - never a bare, unexplained badge.
 tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
   statistical_ok <- (isTRUE(d$live$ok) && isTRUE(d$live$overall$ok) && !is.na(d$live$overall$p_value) && d$live$overall$p_value <= 0.05) ||
     (!is.null(d$dge_hits) && any(d$dge_hits$direction != "Not significant"))
@@ -1081,7 +977,7 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
   cv_auc_present <- length(d$diagnostic_match %||% list()) > 0 &&
     any(!is.na(unlist(lapply(d$diagnostic_match, function(x) c(x$lr_cv_auc, x$enet_cv_auc, x$rf_cv_auc, x$svm_cv_auc)))))
   validation_internal_ok <- isTRUE(sgcv$ok) || cv_auc_present
-  validation_external_ok <- FALSE ## never persisted to the shared results store in this deployment - see plan/spec notes.
+  validation_external_ok <- FALSE
 
   tier <- if (!statistical_ok) "Insufficient evidence"
           else if (validation_external_ok) "Strong candidate"
@@ -1104,7 +1000,6 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
 TBC_TIER_CLASS <- c("Strong candidate" = "status-done", "Supported candidate" = "status-pending",
                     "Candidate biomarker" = "status-pending", "Insufficient evidence" = "status-neutral")
 
-## ---- "Biomarker Status" tab: the main evidence summary (§4) ---------------
 tbc_section_evidence_glance <- function(d, ext, sgd, sgcv) {
   cl <- tbc_evidence_classification(d, ext, sgd, sgcv)
   n_met <- sum(vapply(cl$checklist, function(it) isTRUE(it$met), logical(1)))
@@ -1128,8 +1023,6 @@ tbc_section_evidence_glance <- function(d, ext, sgd, sgcv) {
   )
 }
 
-## ---- Biomarker Performance tab: Training / Internal / External kept -------
-## visibly separate throughout, never overwritten or combined (§8).
 tbc_section_biomarker_performance <- function(d, sgd, sgcv, train_roc_widget = NULL, train_pr_widget = NULL, internal_roc_widget = NULL) {
   train_body <- if (isTRUE(sgd$ok)) {
     tagList(
@@ -1173,20 +1066,13 @@ tbc_section_biomarker_performance <- function(d, sgd, sgcv, train_roc_widget = N
   )
 }
 
-## ---- Gene Ontology (biological process) -----------------------------------
 tbc_section_go <- function(ext) {
   if (is.null(ext)) return(div(class = "card", div(class = "card-title", icon("circle-nodes"), "Gene Ontology"),
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   go_body <- if (!is.null(ext$go) && nrow(ext$go) > 0) {
     go_df <- ext$go
-    ## htmlEscape() on the external ID before hand-building this raw <a> string -
-    ## this column is later rendered with escape = -1, so an unescaped ID would
-    ## be inserted into the page verbatim.
     safe_id <- htmltools::htmlEscape(go_df$GOID)
     go_df$Link <- sprintf('<a href="https://www.ebi.ac.uk/QuickGO/term/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
-    ## escape = -1: leave only column 1 (the hand-built <a> link) unescaped;
-    ## column 2 (TERM, raw external GO.db text) stays HTML-escaped instead of
-    ## being rendered as-is, unlike the previous whole-table escape = FALSE.
     DT::datatable(go_df[, c("Link", "TERM")], colnames = c("GO ID", "Biological process"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), "No Gene Ontology (biological process) terms found, or GO.db is not installed in this deployment.")
@@ -1195,17 +1081,13 @@ tbc_section_go <- function(ext) {
       go_body)
 }
 
-## ---- KEGG ------------------------------------------------------------------
 tbc_section_kegg <- function(ext, kegg_map = NULL) {
   if (is.null(ext)) return(div(class = "card", div(class = "card-title", icon("diagram-project"), "KEGG Pathways"),
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   kegg_body <- if (isTRUE(ext$kegg$ok) && nrow(ext$kegg$pathways) > 0) {
     kdf <- ext$kegg$pathways
-    ## htmlEscape() before hand-building this raw <a> string - see GO section above.
     safe_id <- htmltools::htmlEscape(kdf$id)
     kdf$Link <- sprintf('<a href="https://www.kegg.jp/pathway/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
-    ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
-    ## KEGG pathway name text) stays HTML-escaped.
     DT::datatable(kdf[, c("Link", "name")], colnames = c("KEGG ID", "Pathway"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), if (isTRUE(ext$kegg$ok)) "No KEGG pathways found for this gene." else (ext$kegg$reason %||% "KEGG lookup unavailable."))
@@ -1218,17 +1100,13 @@ tbc_section_kegg <- function(ext, kegg_map = NULL) {
   div(class = "card", div(class = "card-title", icon("diagram-project"), "KEGG Pathways"), kegg_body, kegg_map_body)
 }
 
-## ---- Reactome ---------------------------------------------------------------
 tbc_section_reactome <- function(ext, reactome_map = NULL) {
   if (is.null(ext)) return(div(class = "card", div(class = "card-title", icon("route"), "Reactome Pathways"),
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
   reactome_body <- if (isTRUE(ext$reactome$ok) && nrow(ext$reactome$pathways) > 0) {
     rdf <- ext$reactome$pathways
-    ## htmlEscape() before hand-building this raw <a> string - see GO section above.
     safe_id <- htmltools::htmlEscape(rdf$stId)
     rdf$Link <- sprintf('<a href="https://reactome.org/PathwayBrowser/#/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
-    ## escape = -1: leave only column 1 (the link) unescaped; column 2 (raw
-    ## Reactome pathway name text) stays HTML-escaped.
     DT::datatable(rdf[, c("Link", "displayName")], colnames = c("Reactome ID", "Pathway"), rownames = FALSE, escape = -1,
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), if (isTRUE(ext$reactome$ok)) "No Reactome pathways found for this gene." else (ext$reactome$reason %||% "Reactome lookup unavailable."))
@@ -1241,7 +1119,6 @@ tbc_section_reactome <- function(ext, reactome_map = NULL) {
   div(class = "card", div(class = "card-title", icon("route"), "Reactome Pathways"), reactome_body, reactome_map_body)
 }
 
-## ---- WikiPathways -----------------------------------------------------------
 tbc_section_wikipathways <- function(ext) {
   if (is.null(ext)) return(div(class = "card", div(class = "card-title", icon("map"), "WikiPathways"),
                                 div(class = "empty-note", icon("circle-info"), "Not yet looked up - click Run below.")))
@@ -1250,11 +1127,8 @@ tbc_section_wikipathways <- function(ext) {
           else if (is.null(wp$pathways) || nrow(wp$pathways) == 0) div(class = "empty-note", icon("circle-info"), "No WikiPathways pathways found for this gene.")
           else {
             wdf <- wp$pathways
-            ## htmlEscape() before hand-building this raw <a> string - see GO section above.
             safe_id <- htmltools::htmlEscape(wdf$id)
             wdf$Link <- sprintf('<a href="https://www.wikipathways.org/instance/%s" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
-            ## escape = -1: leave only column 1 (the link) unescaped; column 2
-            ## (raw WikiPathways pathway name text) stays HTML-escaped.
             DT::datatable(wdf[, c("Link", "name")], colnames = c("WikiPathways ID", "Pathway"), rownames = FALSE, escape = -1,
                           options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
           }
@@ -1263,7 +1137,6 @@ tbc_section_wikipathways <- function(ext) {
       body)
 }
 
-## ---- Literature (PubMed) -----------------------------------------------------
 tbc_section_literature <- function(lit, gene = NULL, query_used = NULL) {
   if (is.null(lit)) return(div(class = "card", div(class = "card-title", icon("book-open"), "Literature (PubMed)"),
                                 div(class = "empty-note", icon("circle-info"), "Not yet searched - pick a query below and click Run.")))
@@ -1272,12 +1145,8 @@ tbc_section_literature <- function(lit, gene = NULL, query_used = NULL) {
           else if (is.null(lit$papers)) div(class = "empty-note", icon("circle-info"), "No matching PubMed records were returned for this query.")
           else {
             df <- lit$papers
-            ## htmlEscape() before hand-building this raw <a> string - see GO section above.
             safe_id <- htmltools::htmlEscape(df$PMID)
             df$Link <- sprintf('<a href="https://pubmed.ncbi.nlm.nih.gov/%s/" target="_blank" rel="noopener">%s</a>', safe_id, safe_id)
-            ## escape = -5: leave only column 5 (the PMID link) unescaped;
-            ## columns 1-4 (raw PubMed title/authors/journal/year text) stay
-            ## HTML-escaped instead of being rendered as-is.
             DT::datatable(df[, c("Title", "Authors", "Journal", "Year", "Link")], colnames = c("Title", "Authors", "Journal", "Year", "PMID"),
                           rownames = FALSE, escape = -5, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
           }
@@ -1287,13 +1156,10 @@ tbc_section_literature <- function(lit, gene = NULL, query_used = NULL) {
       body)
 }
 
-## Combined view for the downloadable report only (screen UI uses the standalone
-## sections above, one per database button, per spec's organized-buttons request).
 tbc_section_pathways <- function(ext, kegg_map = NULL, reactome_map = NULL) {
   tagList(tbc_section_go(ext), tbc_section_kegg(ext, kegg_map), tbc_section_reactome(ext, reactome_map), tbc_section_wikipathways(ext))
 }
 
-## ---- Genetic association + tractability (Open Targets) -------------------
 tbc_section_genetics <- function(gen, gene = NULL, ensembl = NULL) {
   if (is.null(gen)) return(NULL)
   prov <- tbc_db_provenance("api.platform.opentargets.org", sprintf("https://platform.opentargets.org/target/%s", ensembl %||% ""), "on Open Targets")
@@ -1316,7 +1182,6 @@ tbc_section_genetics <- function(gen, gene = NULL, ensembl = NULL) {
   )
 }
 
-## ---- Baseline tissue / blood-lineage expression (Human Protein Atlas) ----
 tbc_section_tissue <- function(hpa, gene = NULL, ensembl = NULL) {
   if (is.null(hpa)) return(NULL)
   prov <- tbc_db_provenance("www.proteinatlas.org", sprintf("https://www.proteinatlas.org/%s-%s", ensembl %||% "", gene %||% ""), "on Human Protein Atlas")
@@ -1343,8 +1208,6 @@ tbc_section_tissue <- function(hpa, gene = NULL, ensembl = NULL) {
   )
 }
 
-## ---- PPI neighborhood (STRING) - includes the actual diagram STRING
-## itself renders, not just the parsed partner table. -----------------------
 tbc_section_string <- function(net, image_path = NULL, gene = NULL) {
   if (is.null(net)) return(NULL)
   prov <- tbc_db_provenance("string-db.org", sprintf("https://string-db.org/cgi/network?identifiers=%s&species=9606", gene %||% ""), "on STRING")
@@ -1362,11 +1225,8 @@ tbc_section_string <- function(net, image_path = NULL, gene = NULL) {
   )
 }
 
-## ---- Drug-gene interactions (DGIdb) --------------------------------------
 tbc_section_dgidb <- function(drg, gene = NULL) {
   if (is.null(drg)) return(NULL)
-  ## DGIdb is a client-rendered SPA; /genes/<symbol> looks valid but 404s client-side,
-  ## so /results with these query params is the confirmed-working gene page URL.
   prov <- tbc_db_provenance("dgidb.org", sprintf("https://dgidb.org/results?searchType=gene&searchTerms=%s", gene %||% ""), "on DGIdb")
   drg_body <- if (!isTRUE(drg$ok)) div(class = "empty-note", icon("circle-info"), drg$reason %||% "DGIdb lookup unavailable.")
               else if (is.null(drg$drugs)) div(class = "empty-note", icon("circle-info"), "No known drug interactions found in DGIdb for this gene.")
@@ -1378,8 +1238,6 @@ tbc_section_dgidb <- function(drg, gene = NULL) {
   )
 }
 
-## ---- Evidence Summary / Database Coverage (spec: honest per-database ------
-## status, never a checkmark just because a database exists) ----------------
 tbc_evidence_status <- function(res, result_field) {
   if (is.null(res)) return("Not yet run")
   if (!isTRUE(res$ok)) return("Failed")
@@ -1399,7 +1257,6 @@ TBC_EVIDENCE_DBS <- list(
   list(key = "literature", label = "Literature (PubMed)", field = "papers")
 )
 
-## ---- Database Comparison (spec: compare independent resources side by side) --
 tbc_section_db_comparison <- function(ext) {
   if (is.null(ext)) return(NULL)
   rows <- list()
@@ -1440,9 +1297,6 @@ tbc_report_css <- function() {
    .pipeline-status-chip.status-neutral{background:#EEF1F4; color:#5A6472; border-color:#DDE2E7;}"
 }
 
-## Mirrors the on-screen 9-tab structure exactly (spec §11: "downloads contain
-## the actual displayed evidence") - same section-builder functions, plots
-## flattened to static images since a downloaded HTML file has no live Shiny outputs.
 tbc_build_report_tags <- function(d, dataset, ext = NULL) {
   sgd <- d$single_gene_diag; sgcv <- d$single_gene_cv
   dist_plot <- if (isTRUE(d$live$ok) && isTRUE(d$live$overall$ok))
@@ -1472,8 +1326,6 @@ tbc_build_report_tags <- function(d, dataset, ext = NULL) {
     tags$h3("7. External Databases"), tbc_external_db_banner(),
     tbc_section_genetics(ext$genetics, d$gene, d$gene_identity$ensembl),
     tbc_section_tissue(ext$tissue, d$gene, d$gene_identity$ensembl),
-    ## Network image not re-fetched for the static report (would require a
-    ## fresh network call at download time); the live card shows it.
     tbc_section_string(ext$network, NULL, d$gene),
     tbc_section_dgidb(ext$drugs, d$gene),
     tbc_section_pathways(ext),
@@ -1485,15 +1337,6 @@ tbc_build_report_tags <- function(d, dataset, ext = NULL) {
   )
 }
 
-## =============================================================================
-## Gene Panel mode: identity resolution, panel-level enrichment/network/
-## convergence, and the section builders + report that present them.
-## =============================================================================
-
-## ---- Identifier resolution (spec: never silently drop an unresolved gene) --
-## Reuses the app's shared harmonizer (cx_harmonize_gene_ids(),
-## R/crossomics/functions/integration/crossomics_integration_helpers.R) - the same one
-## mod_enrichment.R's own gene-list flow already uses.
 tbc_panel_identity <- function(genes_raw) {
   genes_raw <- unique(trimws(as.character(genes_raw)))
   genes_raw <- genes_raw[nzchar(genes_raw)]
@@ -1509,9 +1352,6 @@ tbc_panel_identity <- function(genes_raw) {
   list(ok = TRUE, reason = NULL, df = df, n_submitted = length(genes_raw), n_resolved = sum(df$resolved), n_unresolved = sum(!df$resolved))
 }
 
-## ---- Per-gene status rows, reusing the exact same single-gene helpers ------
-## this file already uses for the single-gene card (no recomputation logic
-## duplicated - only looped across the panel).
 tbc_panel_gene_rows <- function(symbols, dataset, results) {
   if (length(symbols) == 0) return(NULL)
   do.call(rbind, lapply(symbols, function(g) {
@@ -1533,10 +1373,6 @@ tbc_panel_gene_rows <- function(symbols, dataset, results) {
   }))
 }
 
-## ---- Panel-level enrichment: GO(BP/MF/CC)/KEGG/Reactome/WikiPathways -------
-## Reuses the Multi-Omics Pathways module's own ORA runners
-## (mp_run_ora_go/kegg/reactome/wikipathways(), multiomics_pathway_helpers.R)
-## rather than re-implementing clusterProfiler/ReactomePA calls a second time.
 tbc_panel_enrichment <- function(genes_entrez, universe_entrez) {
   list(
     go_bp = mp_run_ora_go(genes_entrez, universe_entrez, "BP"),
@@ -1548,9 +1384,6 @@ tbc_panel_enrichment <- function(genes_entrez, universe_entrez) {
   )
 }
 
-## ---- Panel network/hubs: reuses mod_enrichment.R's own top-level helpers ---
-## (fetch_string_degrees/fetch_string_network_png/build_wgcna_hub_lookup -
-## globally callable functions defined outside its moduleServer) unmodified.
 tbc_panel_network <- function(genes) {
   degrees <- tryCatch(fetch_string_degrees(genes), error = function(e) list())
   hub_lookup <- tryCatch(build_wgcna_hub_lookup(), error = function(e) NULL)
@@ -1567,14 +1400,8 @@ tbc_panel_network <- function(genes) {
   list(ok = TRUE, hub_table = hub_table, image_path = png)
 }
 
-## ---- Panel disease/drug convergence: loops the existing single-gene --------
-## Open Targets / DGIdb calls (unmodified) and aggregates locally - no new
-## external client. The aggregation step itself is a separate pure function
-## (tbc_aggregate_convergence) so it's unit-testable without a live network call.
 tbc_aggregate_convergence <- function(long_df, item_col) {
   if (is.null(long_df) || nrow(long_df) == 0) return(NULL)
-  ## Gene ~ <item_col>: groups by the item (e.g. Disease/Drug) and collapses
-  ## the Gene column - one row per item, listing which genes share it.
   agg <- stats::aggregate(stats::reformulate(item_col, response = "Gene"), long_df, function(x) paste(sort(unique(x)), collapse = ", "))
   agg$`Gene count` <- vapply(strsplit(agg$Gene, ", "), length, integer(1))
   agg <- agg[order(-agg$`Gene count`), , drop = FALSE]
@@ -1603,8 +1430,6 @@ tbc_panel_drug_convergence <- function(genes) {
   if (length(per_gene) == 0) return(list(ok = FALSE, reason = "No DGIdb drug interactions were found for any resolved gene in this panel.", table = NULL))
   list(ok = TRUE, reason = NULL, table = tbc_aggregate_convergence(do.call(rbind, per_gene), "Drug"))
 }
-
-## ---- Panel section builders -------------------------------------------------
 
 tbc_section_panel_identity <- function(pid) {
   if (is.null(pid) || !isTRUE(pid$ok)) {
@@ -1768,14 +1593,10 @@ tbc_build_panel_report_tags <- function(pid, gene_rows, genrich, net, dc_disease
   )
 }
 
-## ---- Free-text gene list parsing (same token rule as mod_enrichment.R's
-## own gene_list textarea: split on comma/newline/tab/space, dedupe, drop blanks).
 tbc_split_gene_text <- function(text) {
   toks <- trimws(unlist(strsplit(text %||% "", "[,\n\t ]+")))
   unique(toks[nzchar(toks)])
 }
-
-## ---- Config / UI -----------------------------------------------------
 
 mod_biomarkercard_config <- list(
   id = "biomarkercard", group = "Interpretation",
@@ -1795,8 +1616,6 @@ mod_biomarkercard_ui <- function(id) {
     )
   )
 }
-
-## ---- Server ------------------------------------------------------------
 
 mod_biomarkercard_server <- function(id, dataset, results) {
   moduleServer(id, function(input, output, session) {
@@ -1873,12 +1692,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
     observeEvent(input$bmc_search_mode, { bmc_picked_gene(NULL); bmc_panel_genes(character(0)) }, ignoreInit = TRUE)
     observeEvent(input$bmc_mode, { bmc_picked_gene(NULL); bmc_panel_genes(character(0)) }, ignoreInit = TRUE)
 
-    ## card_data()/panel_card_data() are eventReactives, so they keep the
-    ## previous dataset's evidence cached until Generate is clicked again;
-    ## clear both "has run" gates on a dataset switch so the card/panel
-    ## report falls back to its empty/prompt state instead of silently
-    ## continuing to show the prior cohort's evidence - same reset pattern
-    ## as mod_interaction.R's int_has_run / mod_wgcna.R's cache invalidation.
     observeEvent(dataset$source, {
       has_card(FALSE)
       has_panel_card(FALSE)
@@ -1904,7 +1717,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       }
     })
 
-    ## ---- Browse a saved Differential Expression run ----
     output$bmc_dge_results_ui <- renderUI({
       req(input$bmc_dge_run)
       tagList(p(class = "submodule-desc", "Click a row to select that gene, then click \"Generate Biomarker Card\"."),
@@ -1931,7 +1743,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       bmc_panel_genes(utils::head(df, 500)$gene)
     }, ignoreInit = TRUE)
 
-    ## ---- Browse Candidate Gene Identification output ----
     output$bmc_cand_results_ui <- renderUI({
       req(input$bmc_cand_set)
       tagList(p(class = "submodule-desc", "Click a row to select that gene, then click \"Generate Biomarker Card\"."),
@@ -1952,7 +1763,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       bmc_panel_genes(set$genes)
     }, ignoreInit = TRUE)
 
-    ## ---- Browse a feature-selected consensus signature ----
     output$bmc_sig_results_ui <- renderUI({
       req(input$bmc_sig_sex)
       tagList(p(class = "submodule-desc", "Click a row to select that gene, then click \"Generate Biomarker Card\"."),
@@ -1973,7 +1783,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       bmc_panel_genes(s$consensus_genes)
     }, ignoreInit = TRUE)
 
-    ## ---- Upload a gene list, or a Diagnostic Classifier RDS export ($genes/$model_type) ----
     upload_table <- eventReactive(input$bmc_upload_load_btn, {
       validate(need(!is.null(input$bmc_upload_file), "Upload a .csv, .txt, or .rds file first."))
       path <- input$bmc_upload_file$datapath; name <- input$bmc_upload_file$name
@@ -1999,9 +1808,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       df
     }, ignoreInit = TRUE)
 
-    ## Identifier resolution for the uploaded list (spec: report resolution
-    ## status per identifier, never silently drop one) - reuses tbc_panel_identity(),
-    ## the same harmonizer the Gene Panel mode uses.
     upload_resolution <- reactive({
       df <- upload_table(); req(df)
       tbc_panel_identity(df$gene)
@@ -2037,7 +1843,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       bmc_panel_genes(df$gene)
     }, ignoreInit = TRUE)
 
-    ## ---- Generate ----
     observeEvent(input$bmc_generate_btn, {
       has_card(TRUE)
       updateTabsetPanel(session, "bmc_subtabs", selected = "Biomarker Card")
@@ -2073,12 +1878,9 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       signature_membership <- tbc_signature_membership(gene, results)
       diagnostic_match <- tbc_diagnostic_lookup(gene, results)
 
-      ## Gene-identity enrichment (§3) - own small, cached, fail-soft lookups.
       ncbi_summary <- if (isTRUE(gene_identity$ok)) tbc_ncbi_gene_summary(gene_identity$entrez) else list(ok = FALSE, reason = "Gene identity unresolved.")
       uniprot_name <- tbc_uniprot_protein_name(gene)
 
-      ## Single-gene diagnostic performance (§7/§8) - live, computed here on
-      ## the currently loaded dataset; NULL/ok=FALSE if no clean case/control split exists.
       single_gene_diag <- if (isTRUE(live$ok) && isTRUE(live$overall$ok)) {
         tbc_single_gene_roc(live$values, live$group_vec, live$case_label, live$control_label)
       } else list(ok = FALSE, reason = "No usable case/control split in the currently loaded dataset for this gene (see Dataset tab).")
@@ -2104,7 +1906,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       )
     }, ignoreInit = TRUE)
 
-    ## ---- Generate (Gene Panel mode) ----
     observeEvent(input$bmc_generate_panel_btn, {
       has_panel_card(TRUE)
       updateTabsetPanel(session, "bmc_subtabs", selected = "Biomarker Card")
@@ -2125,8 +1926,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       resolved_symbols <- unique(pid$df$canonical_symbol[pid$df$resolved])
       gene_rows <- tbc_panel_gene_rows(resolved_symbols, dataset, results)
 
-      ## Universe = genes measured in the currently loaded dataset, same
-      ## convention mod_enrichment.R's own panel-enrichment flow already uses.
       universe_symbols <- tryCatch(rownames(dataset$expr), error = function(e) character(0))
       universe_map <- if (length(universe_symbols) > 0) suppressMessages(AnnotationDbi::select(org.Hs.eg.db::org.Hs.eg.db, keys = universe_symbols, keytype = "SYMBOL", columns = "ENTREZID")) else NULL
       universe_entrez <- if (!is.null(universe_map)) unique(stats::na.omit(universe_map$ENTREZID)) else character(0)
@@ -2170,15 +1969,11 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       panel_drug_data(tbc_panel_drug_convergence(pcd$resolved_symbols))
     }, ignoreInit = TRUE)
 
-    ## Each external database is its own independent, user-triggered live API call.
     ot_data <- reactiveVal(NULL)
     hpa_data <- reactiveVal(NULL)
     string_data <- reactiveVal(NULL)
     string_image_path <- reactiveVal(NULL)
     dgidb_data <- reactiveVal(NULL)
-    ## GO/KEGG/Reactome/WikiPathways are each their own independent, opt-in
-    ## lookup - one Run button per database (matching Open Targets/DGIdb/
-    ## STRING/HPA/PubMed below), not one combined query for all four.
     go_data <- reactiveVal(NULL)
     kegg_data <- reactiveVal(NULL)
     reactome_data <- reactiveVal(NULL)
@@ -2239,8 +2034,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       wikipathways_data(tbc_wikipathways_pathways_for_gene(d$gene_identity$entrez %||% NA_character_))
     }, ignoreInit = TRUE)
 
-    ## Diagram rendering is opt-in per pathway; KEGG map is colored by whichever
-    ## log2FC evidence is already on the card (live preview, else saved DGE logFC).
     observeEvent(input$render_kegg_map, {
       d <- card_data(); req(d)
       kd <- kegg_data(); req(kd); req(input$kegg_map_pick)
@@ -2263,7 +2056,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       literature_data(tbc_literature_search(q, max_results = input$literature_topn %||% 12))
     }, ignoreInit = TRUE)
 
-    ## Combined view of whichever per-database results have been run so far this session.
     ext_data <- reactive({
       list(kegg = kegg_data(), reactome = reactome_data(), wikipathways = wikipathways_data(), go = go_data(),
            genetics = ot_data(), tissue = hpa_data(), network = string_data(), drugs = dgidb_data(),
@@ -2386,9 +2178,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
           numericInput(ns("literature_topn"), "Max results", value = 12, min = 1, max = 30, step = 1),
           actionButton(ns("run_literature"), "Run PubMed Query", icon = icon("play"), class = "btn-primary btn-sm")
         ),
-        ## GO/KEGG/Reactome/WikiPathways are each independent, opt-in lookups -
-        ## selecting one shows only that database's own Run button, exactly
-        ## like Open Targets/DGIdb/STRING/HPA/PubMed above.
         go = tagList(
           p(class = "submodule-desc", "Gene Ontology (Biological Process) terms for this gene."),
           actionButton(ns("run_go"), "Run GO Query", icon = icon("play"), class = "btn-primary btn-sm")
@@ -2447,12 +2236,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       )
     })
 
-    ## These two live in their own renderUI (not inline in bmc_card_ui) so
-    ## that running an external-database lookup only re-renders this one tab's
-    ## content, instead of rebuilding the whole bmc_result_tabs tabsetPanel and
-    ## resetting the user back to its first tab (regression found during live
-    ## Playwright verification - ext_data() must never be read directly inside
-    ## the tabsetPanel-building renderUI).
     output$bmc_evidence_glance_ui <- renderUI({
       d <- card_data(); req(d)
       tbc_section_evidence_glance(d, ext_data(), d$single_gene_diag, d$single_gene_cv)
@@ -2506,10 +2289,6 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       plotly::ggplotly(tbc_plot_expression_dist(df, y_lab, facet_sex = TRUE))
     })
 
-    ## Single-gene ROC/PR plots (Training = full-fit, Internal Validation =
-    ## pooled out-of-fold CV) - the same plot data is shown on both the
-    ## Single-Gene vs Multi-Gene Signature tab and the Biomarker Performance
-    ## tab's Training block, via two output ids (bmc_sg_train_roc_plot/plot2).
     output$bmc_sg_train_roc_plot <- renderPlot({
       d <- card_data(); req(d); sgd <- d$single_gene_diag
       validate(need(isTRUE(sgd$ok), sgd$reason %||% "Single-gene ROC unavailable."))

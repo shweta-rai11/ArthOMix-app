@@ -1,29 +1,9 @@
 ## ArthOChat: chat assistant (ellmer + shinychat) over a local Ollama server,
 ## living in its own app-wide slide-out drawer (ui.R) rather than nested in
 ## any one module. Grounded via four global.R tools: project_methods(),
-## project_methods_methylomics(), pubmed_search(), gwas_catalog_search() -
-## plus one tool defined below, other_module_context(), for an explicit
-## cross-module lookup.
-##
-## Context is module-scoped: `current_context` (passed in from server.R,
-## itself a plain reactive() over the existing input$sidebar_tabs/tx_menu/
-## mx_menu/cx_menu/mo_menu navigation inputs - no second navigation system)
-## tells this module which of the four omics verticals, and which sub-module
-## within it, the user is actually looking at right now. system_prompt_r()
-## below rebuilds the context block from that plus the matching
-## dataset/results reactiveValues via R/submodules_registry.R's
-## build_scoped_assistant_context() - a plain reactive(), so Shiny's own
-## dependency tracking caches it and only recomputes when the active module/
-## sub-module or the data it actually reads changes, not on every chat
-## message (see the observeEvent below, which now just reads the cached
-## reactive instead of rebuilding the whole context string from scratch).
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
-## Per-session cap on agent-triggered analysis runs (propose_run_dge ->
-## execute_confirmed_run below), independent of ARTHOCHAT_MAX_TURNS - a
-## chat-turn cap doesn't limit how many real (slow, state-mutating)
-## computations a single session can trigger.
 ARTHOCHAT_MAX_EXECUTIONS <- 5L
 
 ARTHOCHAT_SYSTEM_PROMPT <- paste(
@@ -144,9 +124,6 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   sep = "\n"
 )
 
-## Builds the full system prompt for one module-scoped `view` - a list(module=,
-## view_label=, submodule_id=) as produced by server.R's `current_context`
-## reactive - via R/submodules_registry.R's build_scoped_assistant_context().
 build_arthochat_system_prompt <- function(view, dataset, results,
                                            methyl_dataset, methyl_results,
                                            cross_dataset, cross_results,
@@ -159,7 +136,6 @@ build_arthochat_system_prompt <- function(view, dataset, results,
   paste(ARTHOCHAT_SYSTEM_PROMPT, "", sprintf("## Current view: %s", view$view_label), "", ctx, sep = "\n")
 }
 
-## Drawer body UI; the drawer's own header (ui.R) already shows the title and close button.
 mod_arthochat_ui <- function(id) {
   ns <- NS(id)
   if (!ollama_available()) {
@@ -186,17 +162,6 @@ mod_arthochat_ui <- function(id) {
   )
 }
 
-## `current_context` is a reactive (server.R's `current_module_context`)
-## returning list(module=, view_label=, submodule_id=) for whichever
-## sidebar_tabs/tx_menu/mx_menu/cx_menu/mo_menu selection is live right now.
-## The methyl_*/cross_*/multi_* reactiveValues are optional so any existing
-## call site that only passes dataset/results still works, falling back to
-## build_assistant_context()'s whole-app view for every module.
-## `run_hooks` is an optional environment (server.R's `agent_run_hooks`)
-## exposing agent-executable sub-module closures, e.g.
-## run_hooks$transcriptomics$dge - see propose_run_dge/execute_confirmed_run
-## below. Defaults to an empty environment so this module stays usable
-## standalone/in tests without agent-execution wired up.
 mod_arthochat_server <- function(id, dataset, results = NULL,
                                   methyl_dataset = NULL, methyl_results = NULL,
                                   cross_dataset = NULL, cross_results = NULL,
@@ -207,19 +172,12 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     ns <- session$ns
     if (!ollama_available()) return(invisible(NULL))
 
-    ## Falls back to a fixed "whole app" view when no navigation-aware caller
-    ## passed current_context (keeps this module usable standalone/in tests).
     view_r <- if (is.null(current_context)) {
       reactive(list(module = "app", view_label = "ArthOMix", submodule_id = NULL))
     } else {
       current_context
     }
 
-    ## Plain reactive(): Shiny caches its value and only recomputes when the
-    ## active module/sub-module (view_r()) or the specific dataset/results
-    ## fields the matching build_*_context() actually reads change - not on
-    ## every chat message, and not because of an unrelated module's results
-    ## changing while the user is looking at a different one.
     system_prompt_r <- reactive({
       build_arthochat_system_prompt(
         view_r(), dataset, results,
@@ -236,9 +194,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           model = ARTHOMIX_OLLAMA_MODEL,
           base_url = ollama_base_url(),
           system_prompt = system_prompt_r(),
-          ## qwen3's reasoning mode is ~15x slower with little benefit here - see the
-          ## ARTHOMIX_OLLAMA_MODEL/ollama_available() comments in global.R for the
-          ## model-selection testing this was decided from.
           api_args = list(think = FALSE)
         )
         cl$register_tool(ellmer::tool(
@@ -297,10 +252,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
             max_results = ellmer::type_integer("Number of datasets to return (1-25). Defaults to 10.", required = FALSE)
           )
         ))
-        ## Explicit escape hatch for a cross-module question - isolate()d
-        ## since ellmer may invoke this outside a reactive tick; reads the
-        ## same reactiveValues build_arthochat_system_prompt() does, just
-        ## unscoped (focus_id = NULL) for whichever module is named.
         cl$register_tool(ellmer::tool(
           function(module) {
             isolate(build_scoped_assistant_context(
@@ -321,15 +272,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           ),
           name = "other_module_context"
         ))
-        ## Agent execution (proof of concept, Differential Expression only -
-        ## see R/transcriptomics/04_Differential_Expression/mod_dge.R's
-        ## run_dge_now() and server.R's agent_run_hooks). propose_run_dge
-        ## records params + a summary in `pending_action` without running
-        ## anything; execute_confirmed_run only runs what was actually
-        ## proposed, never what the model merely claims was proposed - the
-        ## enforcement is this server-side reactiveVal, not the model's own
-        ## judgment (the system prompt's confirm-before-executing rule is the
-        ## first line of defense, this is the real one).
         cl$register_tool(ellmer::tool(
           function(contrast_col, ref_group, comp_group, method,
                    covariate_col = NULL, covariate_mode = NULL, covariate_level = NULL,
@@ -427,8 +369,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     n_turns <- reactiveVal(0L)
     last_module <- NULL
 
-    ## Agent-execution state (proof of concept, Differential Expression only
-    ## - see propose_run_dge/execute_confirmed_run registered above).
     pending_action <- reactiveVal(NULL)
     n_executions <- reactiveVal(0L)
 
@@ -440,22 +380,8 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       n_turns(n_turns() + 1L)
 
       view <- view_r()
-      ## Crossing into a different top-level module (not just a different
-      ## sub-module of the same one) drops the ellmer client so get_client()
-      ## rebuilds a fresh conversation grounded only in the new context -
-      ## observed live (qwen3, think=FALSE) to sometimes keep answering from
-      ## a previous module's turns even after set_system_prompt() below
-      ## updates the context text. The visible chat_ui transcript is
-      ## untouched (chat_append() below just keeps appending to it), so the
-      ## user still sees continuous history - only the model's own backend
-      ## turn history resets, per this app's "correct current-module answers
-      ## over stale conversation context" priority.
       if (!is.null(last_module) && !identical(last_module, view$module)) {
         client <<- NULL
-        ## A pending propose_run_dge belongs to the conversation that's about
-        ## to be dropped above - clearing it here (not just at execute time)
-        ## means a stale confirmation from a different module/conversation
-        ## can never be silently executed later.
         pending_action(NULL)
       }
       last_module <<- view$module
