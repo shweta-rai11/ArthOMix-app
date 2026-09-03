@@ -3,14 +3,12 @@
 </p>
 
 
-**ArthOMix** is a Shiny application for multi-omics analysis of Rheumatoid Arthritis data — transcriptomics, methylomics, cross-omics integration, and multi-omics (MOFA2/DIABLO/SNF) workflows in one interactive tool.
+**ArthOMix** is a Shiny application for both single and multi--omics analysis — transcriptomics, methylomics, cross-omics integration, and multi-omics ArthOChatin one interactive tool. 
 
-[![R Tests](https://github.com/shweta-rai11/ArthOMix-app/actions/workflows/r-tests.yml/badge.svg)](https://github.com/shweta-rai11/ArthOMix-app/actions/workflows/r-tests.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
 
-ArthOMix lets a researcher take Rheumatoid Arthritis omics data — uploaded files, a GEO accession, or one of the app's bundled reference datasets — through a full analysis pipeline entirely inside the browser: differential expression / methylation, WGCNA co-expression modules, cross-omics concordance, and multi-omics integration (MOFA2, DIABLO, similarity network fusion), with an AI assistant ("ArthOChat") that can summarize results from any stage.
+ArthOMix lets a researcher take omics data — to either uploaded files, fetch GEO accession, or use the pre-loaded reference datasets — through a full analysis pipeline entirely inside the browser: sex-specific, sex-pooled differential expression, methylation, WGCNA co-expression modules, cross-omics concordance, and multi-omics integration (MOFA2, DIABLO, similarity network fusion), with an AI assistant ("ArthOChat") that can summarize results from any stage.
 
 
 ## Features
