@@ -389,24 +389,26 @@ mod_dge_server <- function(id, dataset, results) {
     ## mod_dataset.R's/this module's own upload validators, and
     ## mod_deconvolution.R's run gate too) rather than local closures here.
 
-    fit_result <- eventReactive(input$run_btn, {
-      req(input$contrast_col, input$ref_group, input$comp_group)
-      validate(need(input$ref_group != input$comp_group, "Reference and comparison level must be different."))
+    ## Pure compute - reads its own arguments only (no input$...), so it can be
+    ## called either from the eventReactive below (button path, unchanged
+    ## behavior) or directly by ArthOChat's agent-execution tools (see
+    ## run_dge_now() further down and R/shared/mod_arthochat.R) with
+    ## LLM-supplied arguments instead of live UI state.
+    compute_dge_fit <- function(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method) {
+      validate(need(ref_group != comp_group, "Reference and comparison level must be different."))
 
-      contrast_col <- input$contrast_col
       cs <- cur_source()
       meta <- cs$meta
-      meta <- meta[!is.na(meta[[contrast_col]]) & as.character(meta[[contrast_col]]) %in% c(input$ref_group, input$comp_group), , drop = FALSE]
+      meta <- meta[!is.na(meta[[contrast_col]]) & as.character(meta[[contrast_col]]) %in% c(ref_group, comp_group), , drop = FALSE]
 
-      use_covariate <- !is.null(input$covariate_col) && !identical(input$covariate_col, "(none)")
-      covariate_mode <- input$covariate_mode %||% "filter"
+      use_covariate <- !is.null(covariate_col) && !identical(covariate_col, "(none)")
       covariate_label <- ""
       if (use_covariate) {
-        meta <- meta[!is.na(meta[[input$covariate_col]]), , drop = FALSE]
+        meta <- meta[!is.na(meta[[covariate_col]]), , drop = FALSE]
         if (identical(covariate_mode, "filter")) {
-          req(input$covariate_level)
-          meta <- meta[as.character(meta[[input$covariate_col]]) == input$covariate_level, , drop = FALSE]
-          covariate_label <- sprintf(" (%s = %s)", input$covariate_col, input$covariate_level)
+          req(covariate_level)
+          meta <- meta[as.character(meta[[covariate_col]]) == covariate_level, , drop = FALSE]
+          covariate_label <- sprintf(" (%s = %s)", covariate_col, covariate_level)
         }
       }
 
@@ -415,18 +417,18 @@ mod_dge_server <- function(id, dataset, results) {
       meta <- meta[match(common, meta$sample), , drop = FALSE]
       expr <- cs$expr[, common, drop = FALSE]
 
-      grp <- factor(as.character(meta[[contrast_col]]), levels = c(input$ref_group, input$comp_group))
+      grp <- factor(as.character(meta[[contrast_col]]), levels = c(ref_group, comp_group))
       validate(need(all(table(grp) >= 3), "Each level needs at least 3 samples in this contrast to fit a model."))
 
       adjust_for_covariate <- use_covariate && identical(covariate_mode, "adjust")
       covar <- NULL
       if (adjust_for_covariate) {
-        covar <- factor(as.character(meta[[input$covariate_col]]))
+        covar <- factor(as.character(meta[[covariate_col]]))
         validate(need(length(unique(covar)) >= 2, "The covariate column has only one level left in this contrast. Pick \"Filter\" instead, or a different column."))
-        covariate_label <- sprintf(" adjusted for %s", input$covariate_col)
+        covariate_label <- sprintf(" adjusted for %s", covariate_col)
       }
 
-      used_method <- input$method
+      used_method <- method
       ## Prefer the user's own upload-time declaration (dataset$declared_data_type
       ## for the Dataset Pipeline path, input$dge_declared_data_type for this
       ## module's own decoupled upload path - both funnelled into cs$declared_type
@@ -499,9 +501,9 @@ mod_dge_server <- function(id, dataset, results) {
 
       ## Exact design formula/test for this run, shown in summary_ui below.
       design_formula <- if (identical(used_method, "deseq2")) {
-        if (adjust_for_covariate) sprintf("~ %s + %s", input$covariate_col, contrast_col) else sprintf("~ %s", contrast_col)
+        if (adjust_for_covariate) sprintf("~ %s + %s", covariate_col, contrast_col) else sprintf("~ %s", contrast_col)
       } else {
-        if (adjust_for_covariate) sprintf("~0 + %s + %s", contrast_col, input$covariate_col) else sprintf("~0 + %s", contrast_col)
+        if (adjust_for_covariate) sprintf("~0 + %s + %s", contrast_col, covariate_col) else sprintf("~0 + %s", contrast_col)
       }
       test_label <- switch(used_method,
         limma = "moderated t-test (limma eBayes, array-quality-weighted)",
@@ -515,7 +517,16 @@ mod_dge_server <- function(id, dataset, results) {
         expr = expr, grp = grp,
         design_formula = design_formula, test_label = test_label,
         n_ref = sum(grp == levels(grp)[1]), n_comp = sum(grp == levels(grp)[2]),
-        label = paste0(input$comp_group, " vs ", input$ref_group, " (", contrast_col, ")", covariate_label)
+        label = paste0(comp_group, " vs ", ref_group, " (", contrast_col, ")", covariate_label)
+      )
+    }
+
+    fit_result <- eventReactive(input$run_btn, {
+      req(input$contrast_col, input$ref_group, input$comp_group)
+      compute_dge_fit(
+        input$contrast_col, input$ref_group, input$comp_group,
+        input$covariate_col %||% "(none)", input$covariate_mode %||% "filter", input$covariate_level,
+        input$method
       )
     }, ignoreInit = TRUE)
 
@@ -534,27 +545,29 @@ mod_dge_server <- function(id, dataset, results) {
       dge_has_run(FALSE)
     }, ignoreInit = TRUE)
 
-    sig_table <- reactive({
-      res <- fit_result()
-      req(res)
-      res$table %>%
+    ## Pure - takes a fit (compute_dge_fit()'s return value) plus cutoffs,
+    ## used by both the rendering reactive below and run_dge_now().
+    compute_dge_significance <- function(fit, padj_cut, lfc_cut) {
+      fit$table %>%
         mutate(
-          significant = !is.na(adj.P.Val) & adj.P.Val < input$padj_cut & abs(logFC) > input$lfc_cut,
+          significant = !is.na(adj.P.Val) & adj.P.Val < padj_cut & abs(logFC) > lfc_cut,
           direction = case_when(
             !significant ~ "Not significant",
             logFC > 0 ~ "Up",
             TRUE ~ "Down"
           )
         )
+    }
+
+    sig_table <- reactive({
+      req(fit_result())
+      compute_dge_significance(fit_result(), input$padj_cut, input$lfc_cut)
     })
 
-    ## Saves the fit into shared results$dge/dge_runs; silently skipped if
-    ## the fit failed validation.
-    observeEvent(input$run_btn, {
-      df <- tryCatch(sig_table(), error = function(e) NULL)
-      req(df)
-      res <- fit_result()
-      results$dge <- list(
+    ## Saves the fit into shared results$dge/dge_runs and returns that same
+    ## summary list (used by run_dge_now() to report back to ArthOChat).
+    save_dge_result <- function(res, df) {
+      out <- list(
         contrast = res$label,
         method = res$method,
         n_samples = res$n_ref + res$n_comp,
@@ -564,6 +577,7 @@ mod_dge_server <- function(id, dataset, results) {
         n_down = sum(df$direction == "Down"),
         top_hits = head(df$gene[order(df$adj.P.Val)], 10)
       )
+      results$dge <- out
 
       ## Appended, not overwritten, so Candidate Gene Identification can pick
       ## from any run this session; capped at 8 most recent.
@@ -584,7 +598,29 @@ mod_dge_server <- function(id, dataset, results) {
                 res$label, length(runs), length(runs)),
         type = "message", duration = 6
       )
+      out
+    }
+
+    observeEvent(input$run_btn, {
+      df <- tryCatch(sig_table(), error = function(e) NULL)
+      req(df)
+      save_dge_result(fit_result(), df)
     })
+
+    ## Agent-execution entry point (see R/shared/mod_arthochat.R's
+    ## propose_run_dge/execute_confirmed_run tools, and server.R's
+    ## agent_run_hooks wiring): runs the exact same compute_dge_fit ->
+    ## compute_dge_significance -> save_dge_result chain the Run button
+    ## triggers, but with explicit arguments instead of input$... values, so
+    ## ArthOChat can trigger a real run from the chat drawer with no UI
+    ## changes. Returned via mod_dge_server's return(list(run = ...)) below.
+    run_dge_now <- function(contrast_col, ref_group, comp_group, method,
+                             covariate_col = "(none)", covariate_mode = "filter", covariate_level = NULL,
+                             padj_cut = 0.05, lfc_cut = 0.1) {
+      fit <- compute_dge_fit(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method)
+      df <- compute_dge_significance(fit, padj_cut, lfc_cut)
+      save_dge_result(fit, df)
+    }
 
     ## Finds the most recent saved run whose label matches a sex pattern;
     ## mirrors mod_candidates.R's guess_run() so status stays consistent.
@@ -847,5 +883,9 @@ mod_dge_server <- function(id, dataset, results) {
     })
 
     output$download_provenance <- arthomix_provenance_download_handler(dge_provenance_record, "mod_dge_provenance")
+
+    ## Exposes run_dge_now() to server.R so it can be registered as an
+    ## ArthOChat agent-execution hook - see the comment on run_dge_now() above.
+    list(run = run_dge_now)
   })
 }

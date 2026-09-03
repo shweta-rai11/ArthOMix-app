@@ -20,6 +20,12 @@
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
+## Per-session cap on agent-triggered analysis runs (propose_run_dge ->
+## execute_confirmed_run below), independent of ARTHOCHAT_MAX_TURNS - a
+## chat-turn cap doesn't limit how many real (slow, state-mutating)
+## computations a single session can trigger.
+ARTHOCHAT_MAX_EXECUTIONS <- 5L
+
 ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "You are ArthOChat, the assistant embedded in the ArthOMix Shiny app",
   "for rheumatoid arthritis multi-omics analysis. Answer anything the user",
@@ -32,7 +38,8 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "plainly when a sub-module hasn't been run yet instead of inventing",
   "results. You cannot run analyses yourself - if the user needs a result",
   "that isn't in the context, tell them which sub-module to run and what to",
-  "set.",
+  "set - except Differential Expression, which you CAN run yourself via the",
+  "propose_run_dge/execute_confirmed_run tools described below.",
   "",
   "The context below is scoped to whichever module and sub-module the user",
   "currently has open (shown under \"## Current view\") - it refreshes",
@@ -64,7 +71,7 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "correct answer is that it hasn't been run yet, never a number borrowed",
   "from the methodology write-up or literature.",
   "",
-  "You have five tools:",
+  "You have eight tools:",
   "",
   "- project_methods(module): looks up THIS project's own written methodology",
   "  for a specific transcriptomics sub-module (e.g. \"WGCNA\", \"Mendelian",
@@ -101,6 +108,27 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "  user explicitly asks about a module they aren't currently viewing; don't",
   "  call it just to pad an answer, and never invent what it would return",
   "  without calling it.",
+  "- propose_run_dge(...): proposes a live Differential Expression run",
+  "  (contrast_col, ref_group, comp_group, method, plus optional covariate/",
+  "  cutoff settings) and returns a plain-language summary of exactly what",
+  "  would run - it does NOT run anything yet. Relay that summary to the",
+  "  user verbatim (or close to it) and wait for their next message.",
+  "- execute_confirmed_run(): actually runs whatever propose_run_dge most",
+  "  recently proposed, and reports back real numbers (genes tested,",
+  "  significant, up/down, top hits). Only call this if propose_run_dge was",
+  "  called earlier in THIS conversation and the user's most recent message",
+  "  clearly agrees to proceed - never call it on an assumption, and never",
+  "  call it before proposing. If their reply is ambiguous, declines, or",
+  "  changes the subject, call cancel_pending_action instead of executing.",
+  "- cancel_pending_action(): discards a pending propose_run_dge proposal",
+  "  without running it - call this when the user declines or the",
+  "  conversation moves on before they confirm.",
+  "",
+  "For all three: contrast_col/ref_group/comp_group must be values that",
+  "actually appear in the dataset context below (e.g. the \"Groups:\" line) -",
+  "never invent a column or group name that isn't shown there; if the user",
+  "names something not in that context, say so and point them at the Dataset",
+  "tab instead of guessing. method must be \"limma\" or \"deseq2\".",
   "",
   "Search before answering, not after. When you cite a paper, give its author,",
   "year, title, journal and PMID (linking to",
@@ -164,11 +192,17 @@ mod_arthochat_ui <- function(id) {
 ## The methyl_*/cross_*/multi_* reactiveValues are optional so any existing
 ## call site that only passes dataset/results still works, falling back to
 ## build_assistant_context()'s whole-app view for every module.
+## `run_hooks` is an optional environment (server.R's `agent_run_hooks`)
+## exposing agent-executable sub-module closures, e.g.
+## run_hooks$transcriptomics$dge - see propose_run_dge/execute_confirmed_run
+## below. Defaults to an empty environment so this module stays usable
+## standalone/in tests without agent-execution wired up.
 mod_arthochat_server <- function(id, dataset, results = NULL,
                                   methyl_dataset = NULL, methyl_results = NULL,
                                   cross_dataset = NULL, cross_results = NULL,
                                   multi_dataset = NULL, multi_results = NULL,
-                                  current_context = NULL) {
+                                  current_context = NULL,
+                                  run_hooks = new.env(parent = emptyenv())) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     if (!ollama_available()) return(invisible(NULL))
@@ -287,6 +321,104 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           ),
           name = "other_module_context"
         ))
+        ## Agent execution (proof of concept, Differential Expression only -
+        ## see R/transcriptomics/04_Differential_Expression/mod_dge.R's
+        ## run_dge_now() and server.R's agent_run_hooks). propose_run_dge
+        ## records params + a summary in `pending_action` without running
+        ## anything; execute_confirmed_run only runs what was actually
+        ## proposed, never what the model merely claims was proposed - the
+        ## enforcement is this server-side reactiveVal, not the model's own
+        ## judgment (the system prompt's confirm-before-executing rule is the
+        ## first line of defense, this is the real one).
+        cl$register_tool(ellmer::tool(
+          function(contrast_col, ref_group, comp_group, method,
+                   covariate_col = NULL, covariate_mode = NULL, covariate_level = NULL,
+                   padj_cut = NULL, lfc_cut = NULL) {
+            params <- list(
+              contrast_col = contrast_col, ref_group = ref_group, comp_group = comp_group, method = method,
+              covariate_col = covariate_col %||% "(none)", covariate_mode = covariate_mode %||% "filter",
+              covariate_level = covariate_level,
+              padj_cut = padj_cut %||% 0.05, lfc_cut = lfc_cut %||% 0.1
+            )
+            summary_txt <- sprintf(
+              "Run Differential Expression: %s vs %s on \"%s\"%s, method = %s, adj.P cutoff = %s, |log2FC| cutoff = %s.",
+              params$comp_group, params$ref_group, params$contrast_col,
+              if (!identical(params$covariate_col, "(none)")) sprintf(", covariate %s (%s)", params$covariate_col, params$covariate_mode) else "",
+              params$method, params$padj_cut, params$lfc_cut
+            )
+            pending_action(list(params = params, summary = summary_txt))
+            sprintf("Proposed but NOT run yet. Relay this to the user and wait for their explicit agreement before calling execute_confirmed_run: \"%s\"", summary_txt)
+          },
+          paste(
+            "Proposes a live Differential Expression run with the given",
+            "contrast/method (and optional covariate/cutoff settings) and",
+            "returns a plain-language summary of exactly what would run -",
+            "does NOT run anything. Relay the summary to the user and wait",
+            "for their next message before ever calling execute_confirmed_run."
+          ),
+          arguments = list(
+            contrast_col = ellmer::type_string("Metadata column defining the two groups to compare, e.g. \"group\" - must appear in the dataset context."),
+            ref_group = ellmer::type_string("Reference (baseline) level of contrast_col."),
+            comp_group = ellmer::type_string("Comparison level of contrast_col."),
+            method = ellmer::type_string("\"limma\" or \"deseq2\"."),
+            covariate_col = ellmer::type_string("Metadata column to filter/adjust for, or omit for none.", required = FALSE),
+            covariate_mode = ellmer::type_string("\"filter\" or \"adjust\" - required if covariate_col is set.", required = FALSE),
+            covariate_level = ellmer::type_string("Level to filter covariate_col to - required if covariate_mode is \"filter\".", required = FALSE),
+            padj_cut = ellmer::type_number("Adjusted p-value cutoff for significance. Defaults to 0.05.", required = FALSE),
+            lfc_cut = ellmer::type_number("Absolute log2 fold-change cutoff. Defaults to 0.1.", required = FALSE)
+          ),
+          name = "propose_run_dge"
+        ))
+        cl$register_tool(ellmer::tool(
+          function() {
+            isolate({
+              pa <- pending_action()
+              if (is.null(pa)) {
+                return("Nothing is pending confirmation. Call propose_run_dge first, relay it to the user, and only call this after they clearly agree.")
+              }
+              if (n_executions() >= ARTHOCHAT_MAX_EXECUTIONS) {
+                return("This session's limit for agent-triggered analysis runs has been reached. Tell the user to use the Differential Expression tab directly, or reload the app to reset the limit.")
+              }
+              run_fn <- run_hooks$transcriptomics$dge
+              if (is.null(run_fn)) {
+                return("Differential Expression isn't available to run from chat in this deployment.")
+              }
+              result <- tryCatch(do.call(run_fn, pa$params), error = function(e) conditionMessage(e))
+              pending_action(NULL)
+              if (is.character(result)) {
+                return(paste("Could not run it:", result))
+              }
+              n_executions(n_executions() + 1L)
+              sprintf(
+                "Done. %s: %d genes tested, %d significant (%d up, %d down). Top hits: %s. Saved as this session's results - visible in Differential Expression's Result panel and Candidate Gene Identification's contrast picker.",
+                result$contrast, result$n_tested, result$n_significant, result$n_up, result$n_down, paste(result$top_hits, collapse = ", ")
+              )
+            })
+          },
+          paste(
+            "Actually runs whatever propose_run_dge most recently proposed,",
+            "and reports back real numbers. Only call this if propose_run_dge",
+            "was called earlier in this conversation and the user's most",
+            "recent message clearly agrees to proceed - never on an",
+            "assumption. Takes no arguments; it runs exactly what was",
+            "proposed, not a new guess at the params."
+          ),
+          arguments = list(),
+          name = "execute_confirmed_run"
+        ))
+        cl$register_tool(ellmer::tool(
+          function() {
+            pending_action(NULL)
+            "Pending run cancelled - nothing was executed."
+          },
+          paste(
+            "Discards a pending propose_run_dge proposal without running it.",
+            "Call this when the user declines, or the conversation moves on",
+            "before they confirm."
+          ),
+          arguments = list(),
+          name = "cancel_pending_action"
+        ))
         client <<- cl
       }
       client
@@ -294,6 +426,11 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
 
     n_turns <- reactiveVal(0L)
     last_module <- NULL
+
+    ## Agent-execution state (proof of concept, Differential Expression only
+    ## - see propose_run_dge/execute_confirmed_run registered above).
+    pending_action <- reactiveVal(NULL)
+    n_executions <- reactiveVal(0L)
 
     observeEvent(input$chat_user_input, {
       if (n_turns() >= ARTHOCHAT_MAX_TURNS) {
@@ -315,6 +452,11 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       ## over stale conversation context" priority.
       if (!is.null(last_module) && !identical(last_module, view$module)) {
         client <<- NULL
+        ## A pending propose_run_dge belongs to the conversation that's about
+        ## to be dropped above - clearing it here (not just at execute time)
+        ## means a stale confirmation from a different module/conversation
+        ## can never be silently executed later.
+        pending_action(NULL)
       }
       last_module <<- view$module
 

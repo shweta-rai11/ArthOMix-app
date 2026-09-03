@@ -171,6 +171,17 @@ existing_app_server <- function(input, output, session, auth) {
   ## sub-module - context-scoped to whichever module/sub-module is currently
   ## open, via `current_module_context` below.
   ##
+  ## agent_run_hooks: a mutable holder (environment, not a list, so it can be
+  ## captured by reference before it's populated) for the "run this
+  ## sub-module for real" closures ArthOChat's agent-execution tools call -
+  ## see R/shared/mod_arthochat.R's propose_run_dge/execute_confirmed_run.
+  ## Populated below once TX_MODULES' servers are instantiated (each one
+  ## still runs exactly once, in the same lapply() as before); read only at
+  ## chat time, always after every lapply() in this function has completed,
+  ## so the read-before-write order here doesn't matter.
+  agent_run_hooks <- new.env(parent = emptyenv())
+  agent_run_hooks$transcriptomics <- list()
+  ##
   ## Resolves a tx_menu/mx_menu/cx_menu/mo_menu tab title (an existing input
   ## these tabsetPanels already produce - see the sidebar nav observers
   ## above) back to that vertical's own config$id, or NULL when the title
@@ -234,12 +245,20 @@ existing_app_server <- function(input, output, session, auth) {
     methyl_dataset, methyl_results,
     cross_dataset, cross_results,
     multi_dataset, multi_results,
-    current_context = current_module_context
+    current_context = current_module_context,
+    run_hooks = agent_run_hooks
   )
 
   ## ---- Instantiate every submodule server once; visibility is controlled --
   ## by insertTab()/removeTab() below, not by when the server is created.
-  lapply(TX_MODULES, function(m) m$server(paste0("tx_", m$config$id), dataset, results))
+  ## Captures each server's return value (most return NULL - only mod_dge's
+  ## exposes list(run = ...), see mod_dge.R) so run_dge_now can be handed to
+  ## ArthOChat's agent-execution tools via agent_run_hooks above.
+  tx_server_hooks <- setNames(
+    lapply(TX_MODULES, function(m) m$server(paste0("tx_", m$config$id), dataset, results)),
+    vapply(TX_MODULES, function(m) m$config$id, character(1))
+  )
+  agent_run_hooks$transcriptomics$dge <- tx_server_hooks$dge$run
 
   ## ---- Sub-modules tab: card Add/Remove toggles ----------------------------
   added <- reactiveValues(ids = character(0))

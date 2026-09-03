@@ -230,6 +230,40 @@ test_that("declaring the wrong data type on this module's own upload path blocks
   })
 })
 
+test_that("run_dge_now() runs a contrast directly (no run_btn click) and writes the same results$dge/dge_runs as the button path", {
+  ## Proves the ArthOChat agent-execution hook (server.R's agent_run_hooks,
+  ## R/shared/mod_arthochat.R's execute_confirmed_run) can trigger a real run
+  ## without ever touching input$run_btn.
+  dataset <- dge_fixture_dataset()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "pipeline")
+    out <- run_dge_now(contrast_col = "group", ref_group = "HC", comp_group = "RA", method = "limma",
+                        padj_cut = 0.05, lfc_cut = 0.1)
+
+    expect_null(session$input$run_btn)  ## the button was never clicked
+    expect_false(is.null(results$dge))
+    expect_equal(results$dge$method, "limma")
+    expect_length(results$dge_runs, 1)
+    expect_equal(out, results$dge)  ## return value matches what was saved, for the tool to report back
+  })
+})
+
+test_that("run_dge_now() propagates a validate() failure as a plain catchable error, same message as the button path", {
+  dataset <- dge_fixture_dataset()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "pipeline")
+    err <- tryCatch(
+      run_dge_now(contrast_col = "group", ref_group = "HC", comp_group = "HC", method = "limma"),
+      error = function(e) conditionMessage(e)
+    )
+    expect_true(is.character(err))
+    expect_true(grepl("must be different", err))
+    expect_null(results$dge)  ## nothing saved on failure
+  })
+})
+
 test_that("uploading its own expr+meta pair (bypassing the shared dataset) runs a fit against the uploaded data", {
   fm <- fx_expr_meta(n_genes = 40, n_samples = 12, seed = 72)
   dir <- withr::local_tempdir()
