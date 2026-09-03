@@ -536,6 +536,14 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       validate(need(all(h$se.exposure > 0) && all(h$se.outcome > 0), "Some retained variants have a zero or negative standard error - cannot compute a Bayes factor for them."))
 
       p1 <- input$p1 %||% MCOL_DEFAULT_P1; p2 <- input$p2 %||% MCOL_DEFAULT_P2; p12 <- input$p12 %||% MCOL_DEFAULT_P12
+      validate(need(is.numeric(p1) && length(p1) == 1 && !is.na(p1) && p1 > 0 && p1 < 1,
+                    "p1 must be a probability strictly between 0 and 1."))
+      validate(need(is.numeric(p2) && length(p2) == 1 && !is.na(p2) && p2 > 0 && p2 < 1,
+                    "p2 must be a probability strictly between 0 and 1."))
+      validate(need(is.numeric(p12) && length(p12) == 1 && !is.na(p12) && p12 > 0 && p12 < 1,
+                    "p12 must be a probability strictly between 0 and 1."))
+      validate(need(p12 <= min(p1, p2),
+                    "p12 (probability a SNP affects both the methylation signal and the GWAS trait) cannot exceed p1 or p2 (probability it affects only one) - this is a coloc sanity convention. Lower p12, or raise p1/p2."))
       d1 <- list(beta = h$beta.exposure, varbeta = h$se.exposure^2,
                  N = round(stats::median(h$samplesize.exposure, na.rm = TRUE)), type = "quant", snp = h$SNP)
       if (!is.null(h$eaf.exposure)) d1$MAF <- pmin(h$eaf.exposure, 1 - h$eaf.exposure)
