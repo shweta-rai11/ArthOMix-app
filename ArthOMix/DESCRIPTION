@@ -2,7 +2,7 @@ Package: ArthOMixShinyApp
 Type: Project
 Title: ArthOMix Multi-Omics Rheumatoid Arthritis Shiny Application
 Version: 0.1.0
-Description: A hand-rolled classic-Shiny app (ui.R/server.R/global.R + R/
+Description: A classic-Shiny app (ui.R/server.R/global.R + R/
     submodules) implementing Transcriptomics, Methylomics, Cross-Omics and
     Multi-Omics analysis workflows. This DESCRIPTION documents the package
     dependency surface for reproducibility; it is not used to build an R

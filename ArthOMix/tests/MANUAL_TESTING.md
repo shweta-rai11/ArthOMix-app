@@ -13,23 +13,23 @@ Manual test Log:
 
 
 ================================================================================
-TRANSCRIPTOMICS  (default cohort: GSE93272 + GSE110169 merged, RA whole blood)
+TRANSCRIPTOMICS  (default cohort: GSE93272 and GSE110169 merged, RA whole blood)
 ================================================================================
 
 1) Dataset (01_Data)
 objectives
-- confirm all three load paths work and gate correctly
-test 1 — Preloaded                                                    [ ] PASS  [ ] FAIL
-- input: open Dataset tab, pick a cohort from dropdown (GSE93272 "Whole Blood Training
-  Cohort A", GSE110169 "Whole Blood Training Cohort B", GSE15573 "PBMC Validation Cohort",
-  or GSE89408 "Synovial Tissue Validation Cohort"), click "Load this dataset"
+- confirm all three load paths work 
+test 1 — Preloaded                                                    [ ] PASS  
+- input: open Dataset tab, pick a cohort from dropdown (Merged, "Whole Blood Training Cohort A", "Whole Blood Training Cohort B","PBMC Validation Cohort", "Synovial Tissue Validation Cohort","PBMC Validation Cohort"), click "Load this dataset"
 - output: dataset loads, downstream tabs unlock
-- notes:
+- Status: Passed 
+- Time taken to load - 1-3 second.
 
-test 2 — GEO fetch                                                    [ ] PASS  [ ] FAIL
+test 2 — GEO fetch                                                    [ ] PASS 
 - input: enter a GSE accession in the textbox, click "Fetch", then "Load this dataset"
 - output: dataset fetched from NCBI GEO and loads same as preloaded path
-- notes:
+- Status: Passed 
+- Time taken to load - 1-3 second.
 
 test 3 — Upload                                                       [ ] PASS  [ ] FAIL
 - input: use example files in ArthOMix/data/examples/transcriptomics_upload/merged/

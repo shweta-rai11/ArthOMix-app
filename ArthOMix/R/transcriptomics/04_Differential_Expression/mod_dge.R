@@ -468,13 +468,14 @@ mod_dge_server <- function(id, dataset, results) {
     }
 
     fit_result <- eventReactive(input$run_btn, {
+      req(isTRUE(input$run_btn > 0))
       req(input$contrast_col, input$ref_group, input$comp_group)
       compute_dge_fit(
         input$contrast_col, input$ref_group, input$comp_group,
         input$covariate_col %||% "(none)", input$covariate_mode %||% "filter", input$covariate_level,
         input$method
       )
-    }, ignoreInit = TRUE)
+    })
 
     dge_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, dge_has_run(TRUE), ignoreInit = TRUE)
