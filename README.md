@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="ArthOMix logo" width="220">
+</p>
+
 # ArthOMix
 
 **ArthOMix** is a Shiny application for multi-omics analysis of Rheumatoid Arthritis data — transcriptomics, methylomics, cross-omics integration, and multi-omics (MOFA2/DIABLO/SNF) workflows in one interactive tool.
