@@ -93,3 +93,73 @@ test_that("Run Integration computes a REAL per-gene sample-level correlation whe
     expect_equal(as.character(a_row$evidence_level), "Strong candidate")
   })
 })
+
+test_that("Selecting \"Use live Transcriptomics/Methylomics session results\" builds expr/meth data via the live adapters and reuses the exact same classification/evidence pipeline as the hand-worked Dataset-tab case", {
+  ## Same hand-worked gene set as the very first test in this file (fx$expr_df/fx$meth_df),
+  ## but arriving as live results$dge_runs / methyl_results$dmp_table objects instead of
+  ## cross_dataset$user_expr_df/user_meth_df set directly - proving cx_build_live_expr_df()/
+  ## cx_build_live_meth_df() feed the SAME unmodified "Run Integration" code path.
+  fx <- cx_dataset_fixture()
+  dge_run <- list(
+    contrast = "RA vs HC (female)", method = "limma", n_samples = 20,
+    table = data.frame(gene = fx$expr_df$gene, logFC = fx$expr_df$log2fc, adj.P.Val = fx$expr_df$fdr,
+                        direction = c("Down", "Up", "Up", "Not significant"), stringsAsFactors = FALSE)
+  )
+  dmp_table <- data.frame(
+    cpg = fx$meth_df$cpg, gene = fx$meth_df$gene, dbeta = fx$meth_df$dbeta,
+    p_raw = fx$meth_df$pvalue, fdr = fx$meth_df$fdr, chr = "chr1", pos = seq_len(nrow(fx$meth_df)),
+    direction = ifelse(fx$meth_df$dbeta > 0, "hyper", "hypo"), stringsAsFactors = FALSE
+  )
+
+  results <- shiny::reactiveValues(dge_runs = list(run1 = dge_run))
+  methyl_results <- shiny::reactiveValues(
+    dmp = list(comparison = "RA vs HC (female)", n_probes = nrow(dmp_table), n_sig = 2L),
+    dmp_table = dmp_table
+  )
+  cross_dataset <- shiny::reactiveValues()
+  cross_results <- shiny::reactiveValues()
+
+  shiny::testServer(
+    mod_cross_integration_server,
+    args = list(id = "ci", cross_dataset = cross_dataset, cross_results = cross_results,
+                dataset = NULL, results = results, methyl_dataset = NULL, methyl_results = methyl_results),
+    {
+      session$setInputs(cx_source_mode = "live")
+      session$setInputs(live_dge_run = "run1")
+      session$setInputs(use_live_btn = 0)
+      session$setInputs(use_live_btn = 1)
+
+      expect_false(is.null(cross_dataset$user_expr_df))
+      expect_setequal(cross_dataset$user_expr_df$gene, c("A", "B", "C", "D"))
+      expect_true(grepl("^Live Transcriptomics DGE run", cross_dataset$user_expr_source))
+      expect_true(grepl("^Live Methylomics DMP run", cross_dataset$user_meth_source))
+
+      session$setInputs(expr_thresh = 1, expr_fdr_thresh = 0.05, meth_thresh = 0.1, meth_fdr_thresh = 0.05,
+                          agg_method = "mean", cor_method = "pearson", padj_method = "BH")
+      session$setInputs(run_integration = 0)
+      session$setInputs(run_integration = 1)
+
+      df <- integ$df
+      expect_false(is.null(df))
+      expect_equal(as.character(df$category[df$gene == "A"]), "Hyper + Down")
+      expect_equal(as.character(df$category[df$gene == "B"]), "Hypo + Up")
+      expect_equal(as.character(df$category[df$gene == "C"]), "Not significant")
+      expect_equal(as.character(df$category[df$gene == "D"]), "Not significant")
+      ## No per-sample matrices flow through the live adapters (results$dge_runs/
+      ## methyl_results$dmp_table are gene/CpG-level summary tables, not sample-level
+      ## matrices), so sample-level correlation is unavailable here - "Moderate candidate"
+      ## is the correct, real evidence-level ceiling for this scenario (both layers
+      ## significant, inverse direction, correlation not computed), exactly matching
+      ## what cx_classify_evidence(has_correlation = FALSE) would say for this same
+      ## data via the Dataset-tab path.
+      expect_equal(as.character(df$evidence_level[df$gene == "A"]), "Moderate candidate")
+      expect_equal(as.character(df$evidence_level[df$gene == "B"]), "Moderate candidate")
+
+      expect_equal(integ$params$input_mode, "Live Transcriptomics/Methylomics session results")
+      expect_true(grepl("^Live Transcriptomics DGE run", integ$params$expr_source))
+
+      expect_false(is.null(cross_results$integration))
+      expect_equal(cross_results$integration$summary$n_integrated, 2L)
+    }
+  )
+})
