@@ -18,6 +18,11 @@
       "Version": "1.68.0",
       "Source": "Bioconductor"
     },
+    "bacon": {
+      "Package": "bacon",
+      "Version": "1.34.0",
+      "Source": "Bioconductor"
+    },
     "base64enc": {
       "Package": "base64enc",
       "Version": "0.1-6",
