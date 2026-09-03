@@ -71,6 +71,41 @@ fx_expr_ensembl_ids <- function(expr) {
   expr
 }
 
+## A balanced 2 (batch) x 2 (group) design with a KNOWN, injected batch offset
+## on every gene and a KNOWN, injected biological group effect on a subset of
+## "signal" genes. Batch and group are orthogonal (equal group split within
+## each batch), so averaging across all samples isolates the batch effect,
+## and averaging within signal genes isolates the group effect - letting
+## batch-correction tests assert both "batch effect shrinks" and "biological
+## signal survives" against exact injected effect sizes, not just smoke checks.
+fx_batch_signal_data <- function(n_genes = 60, n_signal_genes = 10, n_per_cell = 5,
+                                  batch_effect = 3, group_effect = 2, sd = 1, seed = 1) {
+  set.seed(seed)
+  genes <- sprintf("GENE%03d", seq_len(n_genes))
+  design <- expand.grid(batch = c("batch1", "batch2"), group = c("HC", "RA"),
+                         stringsAsFactors = FALSE)
+  design <- design[rep(seq_len(nrow(design)), each = n_per_cell), ]
+  n_samples <- nrow(design)
+  samples <- sprintf("S%02d", seq_len(n_samples))
+  design$sample <- samples
+
+  expr <- matrix(stats::rnorm(n_genes * n_samples, mean = 8, sd = sd), n_genes, n_samples,
+                 dimnames = list(genes, samples))
+
+  batch2_idx <- which(design$batch == "batch2")
+  expr[, batch2_idx] <- expr[, batch2_idx] + batch_effect
+
+  signal_genes <- genes[seq_len(n_signal_genes)]
+  ra_idx <- which(design$group == "RA")
+  expr[signal_genes, ra_idx] <- expr[signal_genes, ra_idx] + group_effect
+
+  meta <- data.frame(sample = samples, group = design$group, batch = design$batch,
+                      stringsAsFactors = FALSE)
+
+  list(expr = expr, meta = meta, signal_genes = signal_genes,
+       batch_effect = batch_effect, group_effect = group_effect)
+}
+
 fx_mkfile <- function(path, type = "text/csv") {
   data.frame(name = basename(path), size = file.info(path)$size, type = type,
              datapath = path, stringsAsFactors = FALSE)
