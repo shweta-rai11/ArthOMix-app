@@ -74,7 +74,12 @@ MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m)
   }
   kv <- vapply(names(res), function(nm) {
     v <- res[[nm]]
-    sprintf("- %s: %s", nm, paste(utils::head(as.character(v), 20), collapse = ", "))
+    if (is.matrix(v) || is.data.frame(v)) {
+      sprintf("- %s: %d x %d table (columns: %s)", nm, nrow(v), ncol(v),
+              paste(utils::head(colnames(v), 10), collapse = ", "))
+    } else {
+      sprintf("- %s: %s", nm, paste(utils::head(as.character(v), 20), collapse = ", "))
+    }
   }, character(1))
   c(sprintf("### %s", title), kv)
 }

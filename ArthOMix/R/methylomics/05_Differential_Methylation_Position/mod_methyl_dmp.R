@@ -73,7 +73,8 @@ methyl_chunked_lmfit <- function(m, design, chunk_size = 20000) {
 
 mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_name,
                                             group_col, ref, comp, covariate_cols,
-                                            min_valid_pct, min_variance, snp_filter, anno) {
+                                            min_valid_pct, min_variance, snp_filter, anno,
+                                            celltype_fractions = NULL) {
   sheet <- methyl_dataset$sample_sheet
   validate(need(!is.null(methyl_dataset$beta), "Load a dataset first."))
   validate(need(!is.null(sheet), "No sample sheet loaded."))
@@ -86,6 +87,7 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   validate(need(length(common) >= 6, "Fewer than 6 samples match between the matrix and the sample sheet."))
   beta0 <- methyl_dataset$beta[, common, drop = FALSE]
   ph0 <- as.data.frame(sheet)[match(common, sample_ids), , drop = FALSE]
+  ids0 <- common
 
   sex_label <- "All samples"
   if (!identical(sex_choice, "__all__")) {
@@ -94,6 +96,7 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
     validate(need(sum(keep_sex) >= 6, sprintf("Fewer than 6 samples remain after restricting to sex = \"%s\".", sex_choice)))
     beta0 <- beta0[, keep_sex, drop = FALSE]
     ph0 <- ph0[keep_sex, , drop = FALSE]
+    ids0 <- ids0[keep_sex]
     sex_label <- sex_choice
   }
   n_after_sex <- ncol(beta0)
@@ -102,19 +105,64 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
   keep_grp <- !is.na(grp_raw) & grp_raw %in% c(ref, comp)
   beta1 <- beta0[, keep_grp, drop = FALSE]
   ph1 <- ph0[keep_grp, , drop = FALSE]
+  ids1 <- ids0[keep_grp]
   grp <- factor(grp_raw[keep_grp], levels = c(ref, comp))
   rm(beta0)
 
+  cov_split <- mod_methyl_dmp_split_covariates(covariate_cols)
+  sheet_cov_cols <- cov_split$sheet_cols
+  ct_cov_names <- cov_split$celltype_names
+  celltype_note <- NULL
+
+  if (length(ct_cov_names) > 0) {
+    validate(need(!is.null(celltype_fractions),
+      "One or more selected covariates are estimated cell-type fractions, but none are available in this session - run Cell-Type Deconvolution first."))
+    all_ct <- colnames(celltype_fractions)
+    validate(need(all(ct_cov_names %in% all_ct),
+      "One or more selected cell-type covariates are no longer present in the computed fractions - re-check the Cell-Type Deconvolution results and reselect."))
+    # Cell-type fractions sum to ~1 per sample, so selecting every available cell type as a
+    # covariate would make the design matrix perfectly collinear (rank-deficient) - drop one
+    # (used as the implicit reference cell type) rather than let the generic rank-deficiency
+    # check downstream report a confusing, non-specific error for this very common case.
+    if (length(all_ct) >= 2 && length(ct_cov_names) == length(all_ct)) {
+      dropped <- sort(ct_cov_names)[length(ct_cov_names)]
+      ct_cov_names <- setdiff(ct_cov_names, dropped)
+      celltype_note <- sprintf(
+        paste0("All %d estimated cell-type fractions were selected as covariates. Cell-type fractions sum to ~1 per sample, ",
+               "so including every one of them together would make the design matrix perfectly collinear (rank-deficient). ",
+               "\"%s\" was automatically dropped and left as the implicit reference cell type - its effect is absorbed into ",
+               "the model intercept/group terms, the same way a reference level of a factor works."),
+        length(all_ct), dropped)
+    }
+  }
+
   cov_df <- NULL
-  if (length(covariate_cols) > 0) {
-    cc <- ph1[, covariate_cols, drop = FALSE]
+  if (length(sheet_cov_cols) > 0 || length(ct_cov_names) > 0) {
+    pieces <- list()
+    if (length(sheet_cov_cols) > 0) {
+      validate(need(all(sheet_cov_cols %in% colnames(ph1)), "One or more selected covariate columns are not present in the sample sheet."))
+      pieces[["sheet"]] <- ph1[, sheet_cov_cols, drop = FALSE]
+    }
+    if (length(ct_cov_names) > 0) {
+      # Explicit sample-ID alignment: the cell-type fractions were computed against whatever
+      # matrix was loaded in the Cell-Type Deconvolution tab, which need not be in the same row
+      # order (or even contain exactly the same samples) as this DMP subset - never assume
+      # identical order, always match() by sample ID. A sample with no match becomes NA here and
+      # is dropped below by the same complete-cases logic used for sheet covariates.
+      idx <- match(ids1, rownames(celltype_fractions))
+      ct_block <- as.data.frame(celltype_fractions[idx, ct_cov_names, drop = FALSE])
+      colnames(ct_block) <- paste0(MOD_METHYL_DMP_CT_COLNAME_PREFIX, ct_cov_names)
+      pieces[["celltype"]] <- ct_block
+    }
+    cc <- do.call(cbind, pieces)
     complete <- stats::complete.cases(cc)
-    validate(need(sum(complete) >= 6, "Fewer than 6 samples have no missing values in the selected covariates. Deselect a covariate, or pick different ones."))
+    validate(need(sum(complete) >= 6,
+      "Fewer than 6 samples have no missing values in the selected covariates (a cell-type covariate counts as missing for any sample whose ID doesn't match the computed fractions). Deselect a covariate, or pick different ones."))
     beta1 <- beta1[, complete, drop = FALSE]
     ph1 <- ph1[complete, , drop = FALSE]
     grp <- grp[complete]
-    cov_df <- ph1[, covariate_cols, drop = FALSE]
-    for (cl in covariate_cols) if (!is.numeric(cov_df[[cl]])) cov_df[[cl]] <- factor(as.character(cov_df[[cl]]))
+    cov_df <- cc[complete, , drop = FALSE]
+    for (cl in colnames(cov_df)) if (!is.numeric(cov_df[[cl]])) cov_df[[cl]] <- factor(as.character(cov_df[[cl]]))
   }
 
   n_ref <- sum(grp == ref, na.rm = TRUE)
@@ -153,7 +201,8 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
     m = m, beta_scale = beta_scale, grp = grp, cov_df = cov_df,
     sex_label = sex_label, n_after_sex = n_after_sex, n_ref = n_ref, n_comp = n_comp,
     n_probes_before_filter = nrow(beta1),
-    missing_note = f_miss$note, variance_note = f_var$note, snp_note = snp_note
+    missing_note = f_miss$note, variance_note = f_var$note, snp_note = snp_note,
+    celltype_note = celltype_note
   )
 }
 
@@ -233,6 +282,38 @@ mod_methyl_dmp_covariate_cols <- function(sheet, exclude) {
     TRUE
   }, logical(1))
   cols[keep]
+}
+
+## Cell-type-fraction covariates (from Cell-Type Deconvolution's methyl_results$celltype$fractions)
+## are exposed in the same covariate picker as sample-sheet columns. Two distinct prefixes keep
+## them unambiguous end-to-end:
+##  - MOD_METHYL_DMP_CT_CHOICE_PREFIX tags the checkboxGroupInput *choice value* so a selected
+##    covariate can be routed back to the fractions matrix instead of the sample sheet.
+##  - MOD_METHYL_DMP_CT_COLNAME_PREFIX names the resulting column inside the covariate data.frame
+##    actually handed to model.matrix()/sva::sva(), so it can never collide with a sheet column
+##    of the same name as a cell type (e.g. a phenotype column literally called "CD4T").
+MOD_METHYL_DMP_CT_CHOICE_PREFIX <- "celltype__"
+MOD_METHYL_DMP_CT_COLNAME_PREFIX <- "celltype_"
+
+mod_methyl_dmp_celltype_choices <- function(fractions) {
+  if (is.null(fractions) || length(dim(fractions)) != 2 || ncol(fractions) == 0) return(character(0))
+  cts <- colnames(fractions)
+  stats::setNames(paste0(MOD_METHYL_DMP_CT_CHOICE_PREFIX, cts), sprintf("Estimated cell-type: %s", cts))
+}
+
+mod_methyl_dmp_split_covariates <- function(covariate_cols) {
+  covariate_cols <- covariate_cols %||% character(0)
+  is_ct <- startsWith(covariate_cols, MOD_METHYL_DMP_CT_CHOICE_PREFIX)
+  list(sheet_cols = covariate_cols[!is_ct],
+       celltype_names = sub(paste0("^", MOD_METHYL_DMP_CT_CHOICE_PREFIX), "", covariate_cols[is_ct]))
+}
+
+## Maps internal covariate-matrix column names back to a human-readable label for display
+## (design formula text, "Covariates:" summary, CSV/JSON export) - never used for the actual
+## model.matrix()/sva::sva() calls, which must keep using the real column names.
+mod_methyl_dmp_covariate_display <- function(cov_names) {
+  is_ct <- startsWith(cov_names, MOD_METHYL_DMP_CT_COLNAME_PREFIX)
+  ifelse(is_ct, paste0("Estimated cell-type: ", sub(paste0("^", MOD_METHYL_DMP_CT_COLNAME_PREFIX), "", cov_names)), cov_names)
 }
 
 mod_methyl_dmp_manhattan <- function(df, fdr_max = 0.05) {
@@ -485,10 +566,16 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       exclude <- c(id_cols(), input$svalive_group_col)
       if (!identical(input$svalive_sex %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
       cand <- mod_methyl_dmp_covariate_cols(sheet, exclude)
-      if (length(cand) == 0) {
+      ct_choices <- mod_methyl_dmp_celltype_choices(methyl_results$celltype$fractions)
+      all_choices <- c(cand, ct_choices)
+      if (length(all_choices) == 0) {
         return(p(class = "empty-note", icon("circle-info"), "No additional phenotype columns are available to use as covariates."))
       }
-      checkboxGroupInput(ns("svalive_covariates"), NULL, choices = cand, selected = character(0))
+      tagList(
+        checkboxGroupInput(ns("svalive_covariates"), NULL, choices = all_choices, selected = character(0)),
+        if (length(ct_choices) > 0) p(class = "empty-note", icon("circle-info"),
+          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample - selecting all of them together will automatically drop one to avoid a rank-deficient design.")
+      )
     })
 
     svalive_has_run <- reactiveVal(FALSE)
@@ -502,7 +589,8 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
           input$svalive_group_col, input$svalive_ref, input$svalive_comp,
           input$svalive_covariates %||% character(0),
           input$svalive_min_valid_pct, input$svalive_min_variance,
-          isTRUE(input$svalive_snp_filter), anno_result()
+          isTRUE(input$svalive_snp_filter), anno_result(),
+          celltype_fractions = methyl_results$celltype$fractions
         )
         m <- sub$m; beta_scale <- sub$beta_scale; grp <- sub$grp; cov_df <- sub$cov_df
 
@@ -548,19 +636,20 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
         df$direction <- ifelse(df$dbeta > 0, "hyper", "hypo")
 
         cov_names <- if (!is.null(cov_df)) colnames(cov_df) else character(0)
+        cov_names_display <- mod_methyl_dmp_covariate_display(cov_names)
         design_formula <- sprintf("Methylation ~ %s%s + %d surrogate variable(s)", input$svalive_group_col,
-                                   if (length(cov_names) > 0) paste0(" + ", paste(cov_names, collapse = " + ")) else "",
+                                   if (length(cov_names_display) > 0) paste0(" + ", paste(cov_names_display, collapse = " + ")) else "",
                                    sv_fit$n_sv)
 
         list(
           df = df, ref = input$svalive_ref, comp = input$svalive_comp,
           group_col = input$svalive_group_col, sex_label = sub$sex_label, sex_col = sex_col(),
-          covariates = cov_names, n_sv = sv_fit$n_sv, design_formula = design_formula,
+          covariates = cov_names_display, n_sv = sv_fit$n_sv, design_formula = design_formula,
           n_after_sex = sub$n_after_sex, n_ref = sub$n_ref, n_comp = sub$n_comp,
           n_probes_tested = nrow(df), n_probes_before_filter = sub$n_probes_before_filter,
           min_valid_pct = input$svalive_min_valid_pct %||% 80, min_variance = input$svalive_min_variance %||% 0,
           snp_filter = isTRUE(input$svalive_snp_filter), snp_note = sub$snp_note,
-          missing_note = sub$missing_note, variance_note = sub$variance_note,
+          missing_note = sub$missing_note, variance_note = sub$variance_note, celltype_note = sub$celltype_note,
           anno_ok = isTRUE(ar$ok), norm_status = dataset_norm_status(),
           dataset_source = methyl_dataset$source %||% "(unnamed)",
           beta_scale = beta_scale, grp = grp,
@@ -599,6 +688,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
               " | ", strong("Comparison: "), r$comp, sprintf(" (n=%d)", r$n_comp),
               " | ", strong("Total analyzed: "), r$n_ref + r$n_comp),
             if (length(r$covariates) > 0) p(strong("Covariates: "), paste(r$covariates, collapse = ", ")) else p(class = "submodule-desc", "No covariates selected."),
+            if (!is.null(r$celltype_note)) p(class = "empty-note", icon("circle-info"), r$celltype_note),
             p(strong("Surrogate variables: "), r$n_sv,
               if (r$n_sv == 0) " - none were estimated for this cohort; results below are bacon-corrected but not SVA-adjusted." else ""),
             if ((r$n_ref < 10 || r$n_comp < 10))
@@ -821,10 +911,16 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       exclude <- c(id_cols(), input$live_group_col)
       if (!identical(input$live_sex %||% "__all__", "__all__") && !is.null(sex_col())) exclude <- c(exclude, sex_col())
       cand <- mod_methyl_dmp_covariate_cols(sheet, exclude)
-      if (length(cand) == 0) {
+      ct_choices <- mod_methyl_dmp_celltype_choices(methyl_results$celltype$fractions)
+      all_choices <- c(cand, ct_choices)
+      if (length(all_choices) == 0) {
         return(p(class = "empty-note", icon("circle-info"), "No additional phenotype columns are available to use as covariates."))
       }
-      checkboxGroupInput(ns("live_covariates"), NULL, choices = cand, selected = character(0))
+      tagList(
+        checkboxGroupInput(ns("live_covariates"), NULL, choices = all_choices, selected = character(0)),
+        if (length(ct_choices) > 0) p(class = "empty-note", icon("circle-info"),
+          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample - selecting all of them together will automatically drop one to avoid a rank-deficient design.")
+      )
     })
 
     live_has_run <- reactiveVal(FALSE)
@@ -836,7 +932,8 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
         input$live_group_col, input$live_ref, input$live_comp,
         input$live_covariates %||% character(0),
         input$live_min_valid_pct, input$live_min_variance,
-        isTRUE(input$live_snp_filter), anno_result()
+        isTRUE(input$live_snp_filter), anno_result(),
+        celltype_fractions = methyl_results$celltype$fractions
       )
       m <- sub$m; beta_scale <- sub$beta_scale; grp <- sub$grp; cov_df <- sub$cov_df
 
@@ -883,18 +980,19 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       }
       df$direction <- ifelse(df$dbeta > 0, "hyper", "hypo")
 
+      cov_names_display <- mod_methyl_dmp_covariate_display(cov_names)
       design_formula <- sprintf("Methylation ~ %s%s", input$live_group_col,
-                                 if (length(cov_names) > 0) paste0(" + ", paste(cov_names, collapse = " + ")) else "")
+                                 if (length(cov_names_display) > 0) paste0(" + ", paste(cov_names_display, collapse = " + ")) else "")
 
       list(
         df = df, ref = input$live_ref, comp = input$live_comp,
         group_col = input$live_group_col, sex_label = sub$sex_label, sex_col = sex_col(),
-        covariates = cov_names, design_formula = design_formula,
+        covariates = cov_names_display, design_formula = design_formula,
         n_after_sex = sub$n_after_sex, n_ref = sub$n_ref, n_comp = sub$n_comp,
         n_probes_tested = nrow(df), n_probes_before_filter = sub$n_probes_before_filter,
         min_valid_pct = input$live_min_valid_pct %||% 80, min_variance = input$live_min_variance %||% 0,
         snp_filter = isTRUE(input$live_snp_filter), snp_note = sub$snp_note,
-        missing_note = sub$missing_note, variance_note = sub$variance_note,
+        missing_note = sub$missing_note, variance_note = sub$variance_note, celltype_note = sub$celltype_note,
         anno_ok = isTRUE(ar$ok), norm_status = dataset_norm_status(),
         dataset_source = methyl_dataset$source %||% "(unnamed)", preloaded = isTRUE(methyl_dataset$preloaded),
         beta_scale = beta_scale, grp = grp,
@@ -939,6 +1037,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
               " | ", strong("Comparison: "), r$comp, sprintf(" (n=%d)", r$n_comp),
               " | ", strong("Total analyzed: "), r$n_ref + r$n_comp),
             if (length(r$covariates) > 0) p(strong("Covariates: "), paste(r$covariates, collapse = ", ")) else p(class = "submodule-desc", "No covariates selected."),
+            if (!is.null(r$celltype_note)) p(class = "empty-note", icon("circle-info"), r$celltype_note),
             p(class = "submodule-desc", r$norm_status$message),
             if ((r$n_ref < 10 || r$n_comp < 10))
               p(class = "empty-note", icon("triangle-exclamation"), "One or both groups have fewer than 10 samples - results may be underpowered."),
