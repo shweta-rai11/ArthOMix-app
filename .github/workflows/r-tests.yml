@@ -124,9 +124,17 @@ jobs:
           dir.create(lib, recursive = TRUE, showWarnings = FALSE)
           .libPaths(c(lib, .libPaths()))
           if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes", lib = lib)
+          ## ref must be "master" (not the pinned SHA) - renv.lock's own
+          ## MCPcounter record has RemoteRef "master", and confirmed live:
+          ## renv compares the installed package's own recorded RemoteRef
+          ## against the lockfile's, not just RemoteSha - installing with
+          ## the SHA as ref records that SHA as RemoteRef instead, which
+          ## renv then treats as a mismatch needing reinstall (right back
+          ## into the same buggy path this step exists to avoid). master
+          ## currently resolves to the exact same commit either way.
           remotes::install_github(
             "ebecht/MCPcounter", subdir = "Source",
-            ref = "b6eac73e91c246fcff0bb1a5c68a816cd588fc48",
+            ref = "master",
             upgrade = "never", lib = lib
           )
         shell: Rscript {0}
