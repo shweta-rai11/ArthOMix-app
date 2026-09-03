@@ -27,7 +27,7 @@ mx <- list(
 cx <- list(integration="Expression and Methylation", biomarkerconv="Biomarker Convergence", mrstage="Cross-Omics MR")
 mo <- list(
   overview="Cohort Harmonization", integration="Multi-omics Integration (DIABLO & SNF)", stratification="SNF Clustering",
-  biomarker="Biomarker Discovery", concordance="Gene-CpG Concordance", pathway="Pathways",
+  biomarker="Biomarker Discovery", mapping="Gene-CpG Mapping", pathway="Pathways",
   biomarkercard="Biomarker Card", summary="Results Summary & Reproducibility"
 )
 

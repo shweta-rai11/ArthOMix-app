@@ -1,6 +1,6 @@
-## R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_helpers.R
-## Data-adaptive engine for the "Gene-CpG Concordance" submodule
-## (mod_multi_concordance.R). Pure functions only, no Shiny reactives here.
+## R/multiomics/06_Gene_CpG_Mapping/multiomics_mapping_helpers.R
+## Data-adaptive engine for the "Gene-CpG Mapping" submodule
+## (mod_multi_mapping.R). Pure functions only, no Shiny reactives here.
 
 MCC_REGION_PROMOTER <- c("TSS200", "TSS1500", "5'UTR")
 MCC_REGION_BODY <- c("Body", "3'UTR", "1stExon", "ExonBnd")

@@ -142,8 +142,8 @@ MULTI_TABLE_REGISTRY <- list(
   "Master six-part summary (integrated vs single-omics)" = file.path(MULTI_SUMMARY_DIR, "Table36_master_six_part_summary.csv"),
   "Candidate multi-omics biomarkers - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table40_candidate_multiomics_biomarkers_male_female.csv"),
   "Candidate multi-omics biomarkers - response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table44b_candidate_multiomics_biomarkers_response_male_female.csv"),
-  "Gene <-> CpG concordance - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table42_gene_cpg_concordance_male_female_ETN.csv"),
-  "Gene <-> CpG concordance - response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table45_gene_cpg_concordance_male_female_response.csv"),
+  "Gene <-> CpG mapping - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table42_gene_cpg_concordance_male_female_ETN.csv"),
+  "Gene <-> CpG mapping - response (drug-pooled)" = file.path(MULTI_SUMMARY_DIR, "Table45_gene_cpg_concordance_male_female_response.csv"),
   "Pathway enrichment - drug x sex (Etanercept panel)" = file.path(MULTI_SUMMARY_DIR, "Table43_pathway_enrichment_male_female_ETN_panels.csv"),
   "Genome-wide DEG lookup - response-driven, by sex (candidates only)" = file.path(MULTI_SUMMARY_DIR, "Table3_response_driven_DEG_candidates.csv"),
   "Genome-wide DMP lookup - response-driven, by sex (candidates only)" = file.path(MULTI_SUMMARY_DIR, "Table4_response_driven_DMP_candidates.csv")

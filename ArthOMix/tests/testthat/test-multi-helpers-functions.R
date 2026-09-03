@@ -1,6 +1,6 @@
 ## Module 3 (Multiomics) - multiomics_helpers.R's pure functions: the shared
 ## table/fit loaders, the six analysis-cell lookup, the sex-normalization/
-## filtering primitives every live sub-module (Concordance's
+## filtering primitives every live sub-module (Mapping's
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -228,19 +228,19 @@ test_that("multi_analysis_summary_table() reports 'DIABLO + SNF' once snf_perf i
   expect_equal(by_param[["Integration method(s)"]], "DIABLO + SNF")
 })
 
-test_that("multi_concordance_add_fdr() adds BH-adjusted FDR columns for whichever raw p-value columns are present", {
+test_that("multi_mapping_add_fdr() adds BH-adjusted FDR columns for whichever raw p-value columns are present", {
   df <- data.frame(gene = c("g1", "g2", "g3"), expr_p = c(0.001, 0.04, 0.5), meth_p = c(0.002, 0.03, 0.6))
-  out <- multi_concordance_add_fdr(df)
+  out <- multi_mapping_add_fdr(df)
   expect_equal(out$expr_fdr, stats::p.adjust(df$expr_p, method = "BH"))
   expect_equal(out$meth_fdr, stats::p.adjust(df$meth_p, method = "BH"))
 })
 
-test_that("multi_concordance_add_fdr() leaves df untouched (no fabricated columns) when the raw p-value columns are absent, and passes NULL through", {
+test_that("multi_mapping_add_fdr() leaves df untouched (no fabricated columns) when the raw p-value columns are absent, and passes NULL through", {
   df <- data.frame(gene = c("g1", "g2"), score = c(1, 2))
-  out <- multi_concordance_add_fdr(df)
+  out <- multi_mapping_add_fdr(df)
   expect_false("expr_fdr" %in% colnames(out))
   expect_false("meth_fdr" %in% colnames(out))
-  expect_null(multi_concordance_add_fdr(NULL))
+  expect_null(multi_mapping_add_fdr(NULL))
 })
 
 test_that("multi_active_dataset_banner() shows the 'no active dataset' note when nothing is active", {

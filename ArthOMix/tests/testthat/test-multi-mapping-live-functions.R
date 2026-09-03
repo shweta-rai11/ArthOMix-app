@@ -1,5 +1,5 @@
-## Module 3 (Multiomics) - Gene-CpG Concordance's own pure functions
-## (multiomics_concordance_helpers.R): layer-role guessing, the data
+## Module 3 (Multiomics) - Gene-CpG Mapping's own pure functions
+## (multiomics_mapping_helpers.R): layer-role guessing, the data
 ## status panel, sample matching (thin wrapper), the candidate-biomarker
 
 suppressWarnings(suppressMessages(
@@ -14,7 +14,7 @@ source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integ
 source_from_app_root(file.path("R", "methylomics", "04_Cell_Type_Deconvolution", "mod_methyl_celltype.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
 source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "snf_clustering_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "multiomics_mapping_helpers.R"))
 
 test_that("mcc_layer_candidates() picks layers by recorded omics_type metadata first", {
   md <- list(layers = list(A = matrix(1, 2, 2), B = matrix(1, 2, 2)),

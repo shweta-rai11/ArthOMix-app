@@ -14,7 +14,7 @@ Code backing the app's **Cross-Omics** tab (`ui.R`'s `crossomicsUI()`, mounted a
 04_Cross_Omics_MR  (Mendelian Randomization on convergent hits)
 ```
 
-This mirrors the 3 real analytical stages registered in `R/submodules_registry.R`'s `CX_MODULES` (`integration`, `biomarkerconv`, `mrstage`), plus the Dataset tab (`01_Data/`, not itself a `CX_MODULES` entry — see `R/multiomics/README.md` for why dataset tabs are structured this way in every vertical).
+This mirrors the 3 real analytical stages registered in `R/modules_index.R`'s `CX_MODULES` (`integration`, `biomarkerconv`, `mrstage`), plus the Dataset tab (`01_Data/`, not itself a `CX_MODULES` entry — see `R/multiomics/README.md` for why dataset tabs are structured this way in every vertical).
 
 ## Folders
 
@@ -27,13 +27,13 @@ This mirrors the 3 real analytical stages registered in `R/submodules_registry.R
 
 ## Dependencies outside this folder
 
-- `R/submodules_registry.R` assembles `CX_MODULES`/`CX_MODULES_BY_ID` from each stage's `mod_cross_*_config/_ui/_server` trio, and `build_cx_context()` for ArthOChat.
+- `R/modules_index.R` assembles `CX_MODULES`/`CX_MODULES_BY_ID` from each stage's `mod_cross_*_config/_ui/_server` trio, and `build_cx_context()` for ArthOChat.
 - `server.R` mounts `mod_cross_dataset_server` directly, then loops `CX_MODULES` (the `integration`/`mrstage` entries take extra arguments — see `server.R`'s special-cased calls).
 - Reads Transcriptomics (`results$dge`) and Methylomics (`methyl_results$dmp`/`dmr`) results directly, passed in from `server.R`.
 
 ## Known cross-vertical reuse (not moved here, referenced from elsewhere)
 
 - `R/transcriptomics/mod_biomarkercard.R` and `R/multiomics/mod_multi_biomarkercard.R` call `cx_classify_evidence()`/`cx_harmonize_gene_ids()` from `functions/integration/crossomics_integration_helpers.R`.
-- `R/multiomics/multiomics_concordance_plots.R` reuses `cx_gene_cpg_network_plot()` from `functions/integration/crossomics_integration_plots.R`.
+- `R/multiomics/multiomics_mapping_plots.R` reuses `cx_gene_cpg_network_plot()` from `functions/integration/crossomics_integration_plots.R`.
 
 See `../../CODE_MAP.md` for the full app-wide code map and `../../PUBLICATION_PIPELINE.md` for how this stage sequence maps to the broader scientific workflow.

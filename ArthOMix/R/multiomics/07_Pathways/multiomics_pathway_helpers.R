@@ -33,8 +33,8 @@ MP_FIELD_PATTERNS <- list(
 )
 
 MP_PRELOADED_COHORTS <- c(
-  "Drug x sex (Etanercept panel)" = "Gene <-> CpG concordance - drug x sex (Etanercept panel)",
-  "Response (drug-pooled)" = "Gene <-> CpG concordance - response (drug-pooled)"
+  "Drug x sex (Etanercept panel)" = "Gene <-> CpG mapping - drug x sex (Etanercept panel)",
+  "Response (drug-pooled)" = "Gene <-> CpG mapping - response (drug-pooled)"
 )
 
 mp_build_preloaded_input <- function(multi_results, multi_dataset, expr_layer, meth_layer, cohort_label, sex,
@@ -273,7 +273,7 @@ mp_resolve_universe <- function(background_choice, multi_dataset, expr_layer, me
     },
     "uploaded_background" = uploaded_universe_ids,
     "preloaded_universe" = {
-      reg <- multi_read_registry_table("Gene <-> CpG concordance - drug x sex (Etanercept panel)")
+      reg <- multi_read_registry_table("Gene <-> CpG mapping - drug x sex (Etanercept panel)")
       if (isTRUE(reg$ok)) unique(reg$df$SYMBOL) else character(0)
     },
     "entire_database" = NULL,
@@ -564,7 +564,7 @@ mp_build_evidence_tracks <- function(enrichment_df, input_df) {
   df
 }
 
-mp_concordance_direction <- function(row) {
+mp_mapping_direction <- function(row) {
   bp <- row$biological_pattern
   if (!is.null(bp) && !is.na(bp) && nzchar(bp)) {
     if (grepl("^concordant", bp, ignore.case = TRUE)) return("Directionally consistent (region-aware)")

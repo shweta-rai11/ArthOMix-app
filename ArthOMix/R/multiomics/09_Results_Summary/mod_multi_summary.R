@@ -27,7 +27,7 @@ mod_multi_summary_ui <- function(id) {
           tags$li("DIABLO variance explained per component, per omics block - from that same live run"),
           tags$li("SNF integration and patient clustering (unsupervised, SNFtool::SNF) - likewise run live on either data source"),
           tags$li("SNF per-omics NMI contribution to the fused network - from that same live run"),
-          tags$li("Gene <-> CpG concordance with genomic-region awareness - a precomputed browse of the pipeline's own Table42/45 tables when \"Preloaded\" is selected, or a live data-adaptive analysis over the Active Multi-Omics Dataset when \"Active\" is selected; optional BH-FDR recompute over retained raw p-values either way"),
+          tags$li("Gene <-> CpG mapping with genomic-region awareness - a precomputed browse of the pipeline's own Table42/45 tables when \"Preloaded\" is selected, or a live data-adaptive analysis over the Active Multi-Omics Dataset when \"Active\" is selected; optional BH-FDR recompute over retained raw p-values either way"),
           tags$li("Pathway enrichment (GO/KEGG/Reactome) - run live on click, over the preloaded candidate panel or your own upload"),
           tags$li("Joint biomarker candidate ranking (live DIABLO feature selection) - feature-selection stability is a fixed-threshold evidence label from real cross-validation, never a user-adjustable confidence score")
         ),
@@ -70,14 +70,14 @@ mod_multi_summary_server <- function(id, multi_dataset = NULL, multi_results = N
       integration <- res$integration
       strat <- res$stratification
       biomarker <- res$biomarker
-      concordance <- res$concordance
+      mapping <- res$mapping
       pathway <- res$pathway
 
       cards <- list(
         list(label = "Matched samples", value = if (!is.null(overview)) overview$harmonization$n_matched else NA, color = "blue"),
         list(label = "Loaded integration cell", value = if (!is.null(integration)) integration$cell$label else "None loaded", color = "aqua"),
         list(label = "Candidate biomarker features", value = if (!is.null(biomarker)) length(unique(biomarker$df$feature)) else NA, color = "violet"),
-        list(label = "Gene-CpG pairs (concordance)", value = if (!is.null(concordance)) nrow(concordance$df) else NA, color = "orange"),
+        list(label = "Gene-CpG pairs (mapping)", value = if (!is.null(mapping)) nrow(mapping$df) else NA, color = "orange"),
         list(label = "Enriched pathway terms", value = if (!is.null(pathway)) nrow(pathway$df) else NA, color = "red"),
         list(label = "SNF clusters loaded", value = if (!is.null(strat)) length(unique(strat$assignments$snf_cluster)) else NA, color = "magenta")
       )

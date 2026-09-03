@@ -124,7 +124,7 @@ multi_analysis_summary_table <- function(multi_dataset, multi_results) {
   )
 }
 
-multi_concordance_add_fdr <- function(df) {
+multi_mapping_add_fdr <- function(df) {
   if (is.null(df)) return(df)
   out <- df
   if ("expr_p" %in% colnames(out)) out$expr_fdr <- stats::p.adjust(out$expr_p, method = "BH")
@@ -178,20 +178,20 @@ MULTI_REPRODUCIBILITY_SCRIPTS <- c(
   "Shared upstream (sample matching, QC, normalization, annotation, genome-wide discovery, leakage-safe nested-CV benchmark): analyses/data_preparation/scripts/01-06_*.R",
   "SNF integration (classifier + unsupervised joint-biomarker discovery): analyses/01_female_male_adalimumab/scripts/07*.R, analyses/02_female_male_etanercept/scripts/07*.R",
   "DIABLO integration (drug x sex, response, drug-type): analyses/01_female_male_adalimumab/scripts/08_*.R, analyses/07_cross_analysis_summary/scripts/11_*.R, 14_*.R",
-  "Gene<->CpG concordance: analyses/07_cross_analysis_summary/scripts/15_*.R, 18_*.R",
+  "Gene<->CpG mapping: analyses/07_cross_analysis_summary/scripts/15_*.R, 18_*.R",
   "Pathway enrichment: analyses/07_cross_analysis_summary/scripts/16_*.R",
   "Cross-cell summary assembly: analyses/07_cross_analysis_summary/scripts/09_*.R, 12_*.R",
   "Independent audit (methodology, leakage findings/fixes, honest AUROC verdicts per cell): AUDIT.md",
-  "Live-computation code (this app, not the source pipeline): R/multiomics/01_Data_Workspace/multiomics_dataset_helpers.R, R/multiomics/functions/multiomics_integration_helpers.R, R/multiomics/02_Cohort_Harmonization/cohort_harmonization_helpers.R, R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_helpers.R, R/multiomics/functions/multiomics_sexstratified_engine.R"
+  "Live-computation code (this app, not the source pipeline): R/multiomics/01_Data_Workspace/multiomics_dataset_helpers.R, R/multiomics/functions/multiomics_integration_helpers.R, R/multiomics/02_Cohort_Harmonization/cohort_harmonization_helpers.R, R/multiomics/06_Gene_CpG_Mapping/multiomics_mapping_helpers.R, R/multiomics/functions/multiomics_sexstratified_engine.R"
 )
 
 multi_build_report <- function(multi_results) {
-  ids <- c("overview", "integration", "integration_stratified", "stratification", "biomarker", "concordance", "pathway", "live_qc", "live_mofa")
+  ids <- c("overview", "integration", "integration_stratified", "stratification", "biomarker", "mapping", "pathway", "live_qc", "live_mofa")
   lines <- c(
     "# ArthOMix Multi-Omics module - session report",
     sprintf("Generated: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
     "",
-    "This report lists which sub-modules had results loaded this session. Precomputed-cohort tabs browse Research_05_multiomics_sexstratified's own saved DIABLO/SNF/concordance/pathway output; Dataset Workspace/Live Analysis results are computed in this app from the currently active dataset.",
+    "This report lists which sub-modules had results loaded this session. Precomputed-cohort tabs browse Research_05_multiomics_sexstratified's own saved DIABLO/SNF/mapping/pathway output; Dataset Workspace/Live Analysis results are computed in this app from the currently active dataset.",
     ""
   )
   for (i in ids) {

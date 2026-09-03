@@ -239,11 +239,11 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         tab$significant <- !is.na(tab$p.adjust) & tab$p.adjust < fdr_thresh
         n_sig <- sum(tab$significant)
         tab_show <- mp_build_evidence_tracks(tab, df)
-        tab_show$concordance <- vapply(seq_len(nrow(tab_show)), function(i) {
+        tab_show$mapping <- vapply(seq_len(nrow(tab_show)), function(i) {
           overlap <- unique(trimws(unlist(strsplit(tab_show$geneID[i] %||% "", "/"))))
           sub <- df[toupper(df$gene_symbol) %in% toupper(overlap) | toupper(df$feature) %in% toupper(overlap), , drop = FALSE]
           if (nrow(sub) == 0) return("Insufficient information")
-          mp_concordance_direction(as.list(sub[1, , drop = FALSE]))
+          mp_mapping_direction(as.list(sub[1, , drop = FALSE]))
         }, character(1))
 
         meta <- mp_build_metadata(input$database, input$method, "Homo sapiens", univ$universe_label, if (identical(input$method, "GSEA")) input$ranking_method else NULL,
@@ -302,7 +302,7 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     output$enrich_table <- DT::renderDataTable({
       r <- req(res_ok())
       cols <- intersect(c("source", "ID", "Description", "significant", "GeneRatio", "Count", "pvalue", "p.adjust", "qvalue", "NES", "ES", "geneID",
-                           "transcript_gene_count", "meth_cpg_count", "integration_label", "concordance"), colnames(r$table))
+                           "transcript_gene_count", "meth_cpg_count", "integration_label", "mapping"), colnames(r$table))
       DT::datatable(r$table[, cols, drop = FALSE], rownames = FALSE, filter = "top", options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
     output$dl_enrich_csv <- downloadHandler(function() "pathway_enrichment.csv", function(file) utils::write.csv(req(res_ok())$table, file, row.names = FALSE))

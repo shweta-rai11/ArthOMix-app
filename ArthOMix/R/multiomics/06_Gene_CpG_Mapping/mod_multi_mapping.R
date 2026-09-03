@@ -1,20 +1,20 @@
-## R/multiomics/06_Gene_CpG_Concordance/mod_multi_concordance.R
-## Submodule: Gene–CpG Concordance - connects transcriptomics gene-level
+## R/multiomics/06_Gene_CpG_Mapping/mod_multi_mapping.R
+## Submodule: Gene–CpG Mapping - connects transcriptomics gene-level
 ## changes to methylation CpG-level changes for the candidate multi-omics
 
-mod_multi_concordance_config <- list(
-  id = "concordance", title = "Gene–CpG Concordance", icon = "arrows-left-right", group = "Biomarker modeling",
+mod_multi_mapping_config <- list(
+  id = "mapping", title = "Gene–CpG Mapping", icon = "arrows-left-right", group = "Biomarker modeling",
   description = "Links candidate gene expression to CpG methylation changes, with direction classification and sex-specific analysis."
 )
 
-MULTI_CONCORDANCE_COHORTS <- c(
-  "Drug x sex (Etanercept panel)" = "Gene <-> CpG concordance - drug x sex (Etanercept panel)",
-  "Response (drug-pooled)" = "Gene <-> CpG concordance - response (drug-pooled)"
+MULTI_MAPPING_COHORTS <- c(
+  "Drug x sex (Etanercept panel)" = "Gene <-> CpG mapping - drug x sex (Etanercept panel)",
+  "Response (drug-pooled)" = "Gene <-> CpG mapping - response (drug-pooled)"
 )
 
 MCC_PRELOADED_DIABLO_PANEL <- c(
-  "Gene <-> CpG concordance - drug x sex (Etanercept panel)" = "Candidate multi-omics biomarkers - drug x sex (Etanercept panel)",
-  "Gene <-> CpG concordance - response (drug-pooled)" = "Candidate multi-omics biomarkers - response (drug-pooled)"
+  "Gene <-> CpG mapping - drug x sex (Etanercept panel)" = "Candidate multi-omics biomarkers - drug x sex (Etanercept panel)",
+  "Gene <-> CpG mapping - response (drug-pooled)" = "Candidate multi-omics biomarkers - response (drug-pooled)"
 )
 
 MCC_BIOMARKER_SOURCES <- c(
@@ -25,7 +25,7 @@ MCC_BIOMARKER_SOURCES <- c(
 
 MCC_SEX_CHOICES <- c("All (pooled)" = "all", "Female" = "female", "Male" = "male", "Sex-specific (Female and Male separately)" = "sex_specific")
 
-mod_multi_concordance_ui <- function(id) {
+mod_multi_mapping_ui <- function(id) {
   ns <- NS(id)
   tagList(uiOutput(ns("active_dataset_banner")), fluidRow(
     column(
@@ -36,7 +36,7 @@ mod_multi_concordance_ui <- function(id) {
                      choices = c("Preloaded (Table42/45)" = "preloaded", "Active Multi-Omics Dataset (Dataset Workspace)" = "active"),
                      selected = "preloaded"),
         conditionalPanel(condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
-                          selectInput(ns("cohort"), "Cohort", choices = MULTI_CONCORDANCE_COHORTS, width = "100%")),
+                          selectInput(ns("cohort"), "Cohort", choices = MULTI_MAPPING_COHORTS, width = "100%")),
         conditionalPanel(condition = sprintf("input['%s'] == 'active'", ns("data_source")), uiOutput(ns("layer_pick_ui")))
       ),
       box(width = NULL, title = "2. Data status", status = "primary", solidHeader = FALSE, collapsible = TRUE,
@@ -96,7 +96,7 @@ mod_multi_concordance_ui <- function(id) {
   ))
 }
 
-mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
+mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
@@ -130,7 +130,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
     output$status_ui <- renderUI({
       if (identical(input$data_source, "preloaded")) {
         return(div(class = "empty-note", icon("circle-check"),
-                    sprintf("Preloaded cohort table: %s. Counts are shown after Run.", names(MULTI_CONCORDANCE_COHORTS)[MULTI_CONCORDANCE_COHORTS == input$cohort])))
+                    sprintf("Preloaded cohort table: %s. Counts are shown after Run.", names(MULTI_MAPPING_COHORTS)[MULTI_MAPPING_COHORTS == input$cohort])))
       }
       status <- tryCatch(mcc_data_status(multi_dataset, multi_results, input$expr_layer, input$meth_layer, input$array_type %||% "450K"), error = function(e) NULL)
       if (is.null(status)) return(multi_empty_state("Select an Active Multi-Omics Dataset to see data status."))
@@ -152,7 +152,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
 
     output$overview_ui <- renderUI({
       tagList(
-        p(class = "submodule-desc", mod_multi_concordance_config$description),
+        p(class = "submodule-desc", mod_multi_mapping_config$description),
         div(class = "empty-note", icon("circle-info"), MCC_CANONICAL_RULE_TEXT),
         if (is.null(state$result)) multi_empty_state("Set filters, then click \"Run Gene–CpG Analysis\".")
         else if (!isTRUE(state$result$ok)) div(class = "empty-note", style = "border-color: var(--color-danger, #e34948);", icon("circle-xmark"), state$result$error)
@@ -181,9 +181,9 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
                            "direction_classification", "canonical_label", "diablo", "diablo_status", "snf", "joint", "sex", "dataset"), colnames(r$pairs_df))
       DT::datatable(r$pairs_df[, cols, drop = FALSE], rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
-    output$dl_pairs_csv <- downloadHandler(function() "concordance_gene_cpg_results.csv",
+    output$dl_pairs_csv <- downloadHandler(function() "mapping_gene_cpg_results.csv",
                                             function(file) utils::write.csv(req(mcc_ok(state$result))$pairs_df, file, row.names = FALSE))
-    output$dl_annotation_csv <- downloadHandler(function() "concordance_annotation.csv", function(file) {
+    output$dl_annotation_csv <- downloadHandler(function() "mapping_annotation.csv", function(file) {
       r <- req(mcc_ok(state$result))
       cols <- intersect(c("gene_symbol", "gene_id", "transcript_id", "chr", "pos", "strand", "cpg", "region_raw", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
       utils::write.csv(r$pairs_df[, cols, drop = FALSE], file, row.names = FALSE)
@@ -246,7 +246,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
                     options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
     output$dl_direction_significant_csv <- downloadHandler(
-      function() "concordance_significant_genome_wide.csv",
+      function() "mapping_significant_genome_wide.csv",
       function(file) utils::write.csv(direction_significant_df(), file, row.names = FALSE)
     )
 
@@ -278,7 +278,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
                            "correlation_r", "correlation_fdr", "diablo", "diablo_status", "snf", "joint", "priority_score", "evidence_label"), colnames(r$pairs_df))
       DT::datatable(r$pairs_df[, cols, drop = FALSE], rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
-    output$dl_candidates_csv <- downloadHandler(function() "concordance_candidate_biomarkers.csv", function(file) {
+    output$dl_candidates_csv <- downloadHandler(function() "mapping_candidate_biomarkers.csv", function(file) {
       r <- req(mcc_ok(state$result))
       utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker"), , drop = FALSE], file, row.names = FALSE)
     })
@@ -286,7 +286,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
     output$plots_ui <- renderUI({
       r <- req(mcc_ok(state$result))
       tagList(
-        box(width = NULL, title = "Gene–CpG Concordance Scatter", status = "primary", solidHeader = FALSE,
+        box(width = NULL, title = "Gene–CpG Mapping Scatter", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() mcc_plot_scatter(r$pairs_df), ns("plot_scatter"), height = "380px"),
             downloadButton(ns("dl_scatter_png"), "Download (PNG)", class = "btn-sm")),
         box(width = NULL, title = "Direction Quadrant", status = "primary", solidHeader = FALSE,
@@ -303,12 +303,12 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       )
     })
     output$plot_scatter <- renderPlot(mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df))
-    output$dl_scatter_png <- multi_png_download(function() mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df), function() "concordance_scatter.png")
+    output$dl_scatter_png <- multi_png_download(function() mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df), function() "mapping_scatter.png")
     output$plot_quadrant <- renderPlot(mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df))
-    output$dl_quadrant_png <- multi_png_download(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df), function() "concordance_quadrant.png")
+    output$dl_quadrant_png <- multi_png_download(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df), function() "mapping_quadrant.png")
     output$plot_heatmap <- renderPlot(mcc_plot_evidence_heatmap(req(mcc_ok(state$result))$pairs_df))
     output$plot_network <- renderPlot(mcc_plot_network(req(mcc_ok(state$result))$pairs_df))
-    output$dl_network_png <- multi_png_download(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df), function() "concordance_network.png")
+    output$dl_network_png <- multi_png_download(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df), function() "mapping_network.png")
 
     output$pair_picker_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -352,12 +352,12 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
       r <- req(mcc_ok(state$result))
       DT::datatable(r$settings_snapshot, rownames = FALSE, options = list(dom = "t", pageLength = 30), class = "stripe hover compact")
     })
-    output$dl_pairs_csv2 <- downloadHandler(function() "concordance_gene_cpg_results.csv", function(file) utils::write.csv(req(mcc_ok(state$result))$pairs_df, file, row.names = FALSE))
-    output$dl_candidates_csv2 <- downloadHandler(function() "concordance_candidate_biomarkers.csv", function(file) {
+    output$dl_pairs_csv2 <- downloadHandler(function() "mapping_gene_cpg_results.csv", function(file) utils::write.csv(req(mcc_ok(state$result))$pairs_df, file, row.names = FALSE))
+    output$dl_candidates_csv2 <- downloadHandler(function() "mapping_candidate_biomarkers.csv", function(file) {
       r <- req(mcc_ok(state$result))
       utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker"), , drop = FALSE], file, row.names = FALSE)
     })
-    output$dl_annotation_csv2 <- downloadHandler(function() "concordance_annotation.csv", function(file) {
+    output$dl_annotation_csv2 <- downloadHandler(function() "mapping_annotation.csv", function(file) {
       r <- req(mcc_ok(state$result))
       cols <- intersect(c("gene_symbol", "gene_id", "transcript_id", "chr", "pos", "strand", "cpg", "region_raw", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
       utils::write.csv(r$pairs_df[, cols, drop = FALSE], file, row.names = FALSE)
@@ -366,7 +366,7 @@ mod_multi_concordance_server <- function(id, multi_dataset = NULL, multi_results
     observe({
       r <- mcc_ok(state$result)
       if (is.null(r) || is.null(multi_results)) return()
-      multi_results$concordance <- list(df = r$pairs_df, cohort = r$label)
+      multi_results$mapping <- list(df = r$pairs_df, cohort = r$label)
     })
   })
 }
@@ -376,7 +376,7 @@ mcc_ok <- function(result) if (!is.null(result) && isTRUE(result$ok)) result els
 mcc_build_preloaded <- function(input, multi_results) {
   res <- multi_read_registry_table(input$cohort)
   if (!isTRUE(res$ok)) return(list(ok = FALSE, error = res$error))
-  df <- multi_concordance_add_fdr(res$df)
+  df <- multi_mapping_add_fdr(res$df)
   df$gene_symbol <- df$SYMBOL
   df$cpg <- df$CpG
   df$log2fc <- df$expr_logFC
@@ -392,7 +392,7 @@ mcc_build_preloaded <- function(input, multi_results) {
   df$gene_id <- df$ENSEMBL %||% NA_character_
   df$transcript_id <- NA_character_; df$strand <- NA_character_; df$tss_distance <- NA_real_
   df$correlation_r <- NA_real_; df$correlation_p <- NA_real_; df$correlation_fdr <- NA_real_; df$correlation_n <- NA_integer_
-  df$dataset <- names(MULTI_CONCORDANCE_COHORTS)[MULTI_CONCORDANCE_COHORTS == input$cohort]
+  df$dataset <- names(MULTI_MAPPING_COHORTS)[MULTI_MAPPING_COHORTS == input$cohort]
 
   if (length(input$sex) == 1 && input$sex %in% c("female", "male") && "sex" %in% colnames(df)) df <- df[tolower(df$sex) == input$sex, , drop = FALSE]
   if (length(input$region) > 0) df <- df[df$region_fine %in% input$region, , drop = FALSE]

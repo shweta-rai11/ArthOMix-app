@@ -404,10 +404,10 @@ test 1                                                                 [ ] PASS 
 - output: sex-stratified multi-omic biomarker candidates table renders
 - notes:
 
-6) Gene-CpG Concordance (06_Gene_CpG_Concordance)
+6) Gene-CpG Mapping (06_Gene_CpG_Mapping)
 test 1                                                                 [ ] PASS  [ ] FAIL
 - input: click "Run Gene-CpG Analysis"
-- output: gene-expression vs CpG-methylation concordance table/plot renders (feeds the
+- output: gene-expression vs CpG-methylation mapping table/plot renders (feeds the
   read-only Biomarker Card evidence view)
 - notes:
 

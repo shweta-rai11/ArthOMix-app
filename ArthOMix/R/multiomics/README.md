@@ -1,6 +1,6 @@
 # Multiomics
 
-Code backing the app's **Multiomics** tab. Distinct from **Cross-Omics** (`R/crossomics/`): Multiomics jointly models raw multi-layer data (DIABLO/SNF/MOFA2 on matched expression+methylation+other layers), while Cross-Omics correlates two already-computed single-omics result sets. Every stage's config/UI/server trio is registered in `R/submodules_registry.R`'s `MULTI_MODULES` list (8 entries), consumed generically by `ui.R`'s `multiomicsUI()`/`build_submodule_grid()` and `server.R`'s `lapply(MULTI_MODULES, ...)` loop.
+Code backing the app's **Multiomics** tab. Distinct from **Cross-Omics** (`R/crossomics/`): Multiomics jointly models raw multi-layer data (DIABLO/SNF/MOFA2 on matched expression+methylation+other layers), while Cross-Omics correlates two already-computed single-omics result sets. Every stage's config/UI/server trio is registered in `R/modules_index.R`'s `MULTI_MODULES` list (8 entries), consumed generically by `ui.R`'s `multiomicsUI()`/`build_submodule_grid()` and `server.R`'s `lapply(MULTI_MODULES, ...)` loop.
 
 ## Pipeline
 
@@ -15,7 +15,7 @@ Code backing the app's **Multiomics** tab. Distinct from **Cross-Omics** (`R/cro
    ↓
 05_Biomarker_Discovery  (joint cross-layer biomarker discovery, sex-stratified)
    ↓
-06_Gene_CpG_Concordance  (per gene-CpG pair expression/methylation correlation)
+06_Gene_CpG_Mapping  (per gene-CpG pair expression/methylation correlation)
    ↓
 07_Pathways  (pathway-level integration over discovered biomarkers)
    ↓
@@ -33,9 +33,9 @@ Code backing the app's **Multiomics** tab. Distinct from **Cross-Omics** (`R/cro
 | `03_DIABLO_SNF_Integration/` | `integration` / "Multi-omics Integration (DIABLO & SNF)" | `mod_multi_integration.R` | `multiomics_integration_helpers.R`, `multiomics_integration_plots.R`, `multiomics_plots.R`, `multiomics_sexstratified_engine.R` |
 | `04_SNF_Clustering/` | `stratification` / "SNF Clustering" | `mod_multi_stratification.R`, `snf_clustering_helpers.R`, `snf_clustering_plots.R` | `multiomics_integration_helpers.R`/`_plots.R` (see duplicate-SNF-logic note below) |
 | `05_Biomarker_Discovery/` | `biomarker` / "Biomarker Discovery" | `mod_multi_biomarker.R`, `multiomics_biomarker_helpers.R`, `multiomics_biomarker_plots.R` | `multiomics_sexstratified_engine.R` |
-| `06_Gene_CpG_Concordance/` | `concordance` / "Gene–CpG Concordance" | `mod_multi_concordance.R`, `multiomics_concordance_helpers.R`, `multiomics_concordance_plots.R` | — (reuses a plotting technique from `R/crossomics/functions/integration/crossomics_integration_plots.R::cx_gene_cpg_network_plot()`) |
+| `06_Gene_CpG_Mapping/` | `mapping` / "Gene–CpG Mapping" | `mod_multi_mapping.R`, `multiomics_mapping_helpers.R`, `multiomics_mapping_plots.R` | — (reuses a plotting technique from `R/crossomics/functions/integration/crossomics_integration_plots.R::cx_gene_cpg_network_plot()`) |
 | `07_Pathways/` | `pathway` / "Pathways" | `mod_multi_pathway.R`, `multiomics_pathway_helpers.R`, `multiomics_pathway_plots.R` | — |
-| `08_Biomarker_Card/` | `biomarkercard` / "Biomarker Card" | `mod_multi_biomarkercard.R` | reads `multi_results$concordance$df`; calls `cx_classify_evidence()` (Cross-Omics) |
+| `08_Biomarker_Card/` | `biomarkercard` / "Biomarker Card" | `mod_multi_biomarkercard.R` | reads `multi_results$mapping$df`; calls `cx_classify_evidence()` (Cross-Omics) |
 | `09_Results_Summary/` | `summary` / "Results Summary & Reproducibility" | `mod_multi_summary.R` | `multiomics_helpers.R` (`multi_package_versions`, `multi_analysis_summary_table`) |
 
 ## `functions/` (shared across multiple stages)

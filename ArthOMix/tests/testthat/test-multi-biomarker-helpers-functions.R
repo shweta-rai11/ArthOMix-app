@@ -8,7 +8,7 @@ suppressWarnings(suppressMessages(
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "multiomics_mapping_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "05_Biomarker_Discovery", "multiomics_biomarker_helpers.R"))

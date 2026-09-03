@@ -19,7 +19,7 @@ tx_ids <- c("overview", "preprocessing", "dge", "wgcna", "candidates", "mr", "co
 mx_ids <- c("qc", "normalization", "celltype", "dmp", "dmr", "interaction", "wgcna", "candidates",
             "featureselection", "mr", "coloc", "diagnostic", "validation", "biomarkercard")
 cx_ids <- c("integration", "biomarkerconv", "mrstage")
-mo_ids <- c("overview", "integration", "stratification", "biomarker", "concordance", "pathway", "biomarkercard", "summary")
+mo_ids <- c("overview", "integration", "stratification", "biomarker", "mapping", "pathway", "biomarkercard", "summary")
 
 tx_dataset <- list(expr = matrix(1:20, nrow = 5, dimnames = list(paste0("g", 1:5), paste0("s", 1:4))),
                     meta = data.frame(sample = paste0("s", 1:4), group = c("RA", "RA", "HC", "HC"), sex = c("F", "M", "F", "M")),

@@ -1,6 +1,6 @@
 ## Module 3 (Multiomics) - Biomarker Card sub-module, via testServer(): a
 ## fully synchronous, read-only interpretation layer over
-## multi_results$concordance$df. Verifies the real evidence-tier
+## multi_results$mapping$df. Verifies the real evidence-tier
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -27,7 +27,7 @@ mbc_conc_fixture <- function() {
 
 test_that("evidence_df() classifies a real inverse-direction, negatively-correlated pair as 'Strong candidate' via the real cx_classify_evidence()", {
   multi_dataset <- shiny::reactiveValues(active = TRUE, source = "upload")
-  multi_results <- shiny::reactiveValues(concordance = list(df = mbc_conc_fixture()))
+  multi_results <- shiny::reactiveValues(mapping = list(df = mbc_conc_fixture()))
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {
     df <- evidence_df()
     expect_equal(df$evidence_tier[df$gene_symbol == "TP53"], "Strong candidate")
@@ -38,7 +38,7 @@ test_that("evidence_df() classifies a real inverse-direction, negatively-correla
 
 test_that("selecting a row in the browse table sets mbc_selected(), and clicking Generate flips has_card() to TRUE", {
   multi_dataset <- shiny::reactiveValues(active = TRUE, source = "upload")
-  multi_results <- shiny::reactiveValues(concordance = list(df = mbc_conc_fixture()))
+  multi_results <- shiny::reactiveValues(mapping = list(df = mbc_conc_fixture()))
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(mbc_browse_table_rows_selected = 1)
     sel <- mbc_selected()
@@ -53,7 +53,7 @@ test_that("selecting a row in the browse table sets mbc_selected(), and clicking
 
 test_that("text search finds a real case-insensitive match by gene symbol or CpG ID, and reports no match honestly otherwise", {
   multi_dataset <- shiny::reactiveValues(active = TRUE, source = "upload")
-  multi_results <- shiny::reactiveValues(concordance = list(df = mbc_conc_fixture()))
+  multi_results <- shiny::reactiveValues(mapping = list(df = mbc_conc_fixture()))
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(mbc_search_mode = "type", mbc_text_input = "tp53")
     hits <- mbc_text_hits()
@@ -68,9 +68,9 @@ test_that("text search finds a real case-insensitive match by gene symbol or CpG
   })
 })
 
-test_that("the stale-selection guard clears mbc_selected()/has_card() when Concordance is re-run or the dataset source changes", {
+test_that("the stale-selection guard clears mbc_selected()/has_card() when Mapping is re-run or the dataset source changes", {
   multi_dataset <- shiny::reactiveValues(active = TRUE, source = "upload")
-  multi_results <- shiny::reactiveValues(concordance = list(df = mbc_conc_fixture()))
+  multi_results <- shiny::reactiveValues(mapping = list(df = mbc_conc_fixture()))
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(mbc_browse_table_rows_selected = 1)
     session$setInputs(mbc_generate_btn = 0)
@@ -78,16 +78,16 @@ test_that("the stale-selection guard clears mbc_selected()/has_card() when Conco
     expect_true(has_card())
 
     nudge <- mbc_conc_fixture(); nudge$priority_score <- nudge$priority_score + 1
-    multi_results$concordance <- list(df = nudge)
+    multi_results$mapping <- list(df = nudge)
     session$flushReact()
-    multi_results$concordance <- list(df = mbc_conc_fixture())
+    multi_results$mapping <- list(df = mbc_conc_fixture())
     session$flushReact()
     expect_null(mbc_selected())
     expect_false(has_card())
   })
 })
 
-test_that("evidence_df()/conc_df() return NULL honestly when Gene-CpG Concordance hasn't been run this session", {
+test_that("evidence_df()/conc_df() return NULL honestly when Gene-CpG Mapping hasn't been run this session", {
   multi_dataset <- shiny::reactiveValues(active = FALSE, source = NULL)
   multi_results <- shiny::reactiveValues()
   shiny::testServer(mod_multi_biomarkercard_server, args = list(id = "bc", multi_dataset = multi_dataset, multi_results = multi_results), {

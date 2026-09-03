@@ -1,6 +1,6 @@
 # Methylomics
 
-Code backing the app's **Methylomics** tab. Every stage's config/UI/server trio is registered in `R/submodules_registry.R`'s `MX_MODULES` list (14 entries, in pipeline order), which `ui.R`'s `methylomicsUI()`/`build_submodule_grid()` and `server.R`'s generic `lapply(MX_MODULES, ...)` loop consume without hardcoding any one stage by name.
+Code backing the app's **Methylomics** tab. Every stage's config/UI/server trio is registered in `R/modules_index.R`'s `MX_MODULES` list (14 entries, in pipeline order), which `ui.R`'s `methylomicsUI()`/`build_submodule_grid()` and `server.R`'s generic `lapply(MX_MODULES, ...)` loop consume without hardcoding any one stage by name.
 
 ## Pipeline
 

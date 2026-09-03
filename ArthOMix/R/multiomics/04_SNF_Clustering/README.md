@@ -1,6 +1,6 @@
 # 04_SNF_Clustering
 
-`MULTI_MODULES` stage `id = "stratification"`, title **"SNF Clustering"** (the task template guessed "Patient Stratification" — this is the real title from `R/submodules_registry.R`).
+`MULTI_MODULES` stage `id = "stratification"`, title **"SNF Clustering"** (the task template guessed "Patient Stratification" — this is the real title from `R/modules_index.R`).
 
 - **Files**: `mod_multi_stratification.R`, `snf_clustering_helpers.R` (`sfc_*`), `snf_clustering_plots.R`.
 - **Input**: `multi_results$integration`'s fused SNF network from `../03_DIABLO_SNF_Integration/`.

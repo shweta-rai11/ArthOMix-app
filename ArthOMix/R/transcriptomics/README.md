@@ -1,6 +1,6 @@
 # Transcriptomics
 
-Code backing the app's **Transcriptomics** tab. Every stage's config/UI/server trio is registered in `R/submodules_registry.R`'s `TX_MODULES` list (16 entries, in pipeline order), consumed generically by `ui.R`'s `build_submodule_grid()` and `server.R`'s `lapply(TX_MODULES, ...)` loop.
+Code backing the app's **Transcriptomics** tab. Every stage's config/UI/server trio is registered in `R/modules_index.R`'s `TX_MODULES` list (16 entries, in pipeline order), consumed generically by `ui.R`'s `build_submodule_grid()` and `server.R`'s `lapply(TX_MODULES, ...)` loop.
 
 Unlike Cross-Omics/Methylomics/Multiomics, this vertical is the oldest in the app and was never split into per-stage `<stage>_helpers.R`/`<stage>_plots.R` files — each `mod_<id>.R` bundles config+UI+server+statistics+plots in one file (several 1500-2500+ lines). Per this reorganization's own rule ("organization, not rewriting"), **files were moved as-is, not split** — splitting a working file into multiple scripts is a functional-risk change with no organizational necessity once each stage already has its own numbered folder.
 

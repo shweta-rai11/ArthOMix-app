@@ -57,7 +57,7 @@ mbc_missing_data_note <- function(multi_dataset) {
     if (!"Transcriptomics" %in% layers) return("Missing Transcriptomics data in the active dataset.")
     if (!"Methylomics" %in% layers) return("Missing Methylomics data in the active dataset.")
   }
-  "Not analyzed yet. Run Gene–CpG Concordance (Biomarker modeling) first."
+  "Not analyzed yet. Run Gene–CpG Mapping (Biomarker modeling) first."
 }
 
 mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
@@ -65,7 +65,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     ns <- session$ns
 
     conc_df <- reactive({
-      conc <- multi_results$concordance
+      conc <- multi_results$mapping
       if (is.null(conc) || is.null(conc$df) || nrow(conc$df) == 0) return(NULL)
       conc$df
     })
@@ -81,7 +81,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
     mbc_selected <- reactiveVal(NULL)  # list(gene_symbol=, cpg=)
     has_card <- reactiveVal(FALSE)
 
-    observeEvent(multi_results$concordance, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
+    observeEvent(multi_results$mapping, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
     observeEvent(multi_dataset$source, { mbc_selected(NULL); has_card(FALSE) }, ignoreInit = TRUE)
     observeEvent(input$mbc_search_mode, { mbc_selected(NULL) }, ignoreInit = TRUE)
 
@@ -96,7 +96,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
       n_meaningful <- sum(df$evidence_tier != "Insufficient evidence", na.rm = TRUE)
       tagList(
         multi_active_dataset_banner(multi_dataset),
-        if (n_meaningful == 0) div(class = "empty-note", icon("circle-info"), tags$b("No integrated biomarkers found."), " All gene–CpG pairs are below the significance thresholds used by Gene–CpG Concordance."),
+        if (n_meaningful == 0) div(class = "empty-note", icon("circle-info"), tags$b("No integrated biomarkers found."), " All gene–CpG pairs are below the significance thresholds used by Gene–CpG Mapping."),
         div(
           class = "card",
           div(class = "card-title", icon("magnifying-glass"), "Find a Biomarker"),
@@ -159,7 +159,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
       q <- trimws(input$mbc_text_input %||% "")
       if (!nzchar(q)) return(div(class = "empty-note", icon("circle-info"), "Type a gene symbol or CpG ID above."))
       sub <- mbc_text_hits()
-      if (is.null(sub)) return(div(class = "empty-note", icon("circle-info"), sprintf("No match for \"%s\" in the current Gene–CpG Concordance results.", q)))
+      if (is.null(sub)) return(div(class = "empty-note", icon("circle-info"), sprintf("No match for \"%s\" in the current Gene–CpG Mapping results.", q)))
       tagList(
         p(class = "submodule-desc", sprintf("%d matching pair(s) - click a row to select.", nrow(sub))),
         DT::dataTableOutput(ns("mbc_text_table"))
@@ -210,7 +210,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
           tabPanel("Integrated Evidence", br(), mbc_section_integrated(r)),
           tabPanel("Patient Evidence", br(), box(width = NULL, title = "Patient Evidence", status = "primary", solidHeader = FALSE, uiOutput(ns("mbc_patient_ui")))),
           tabPanel("Download", br(), box(width = NULL, title = "Download", status = "primary", solidHeader = FALSE,
-                                          p(class = "submodule-desc", "Full annotated row(s) for this gene–CpG pair, as computed by Gene–CpG Concordance."),
+                                          p(class = "submodule-desc", "Full annotated row(s) for this gene–CpG pair, as computed by Gene–CpG Mapping."),
                                           downloadButton(ns("mbc_dl"), "Download CSV", class = "btn-sm")))
         )
       )

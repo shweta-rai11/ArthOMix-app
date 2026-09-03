@@ -1,4 +1,4 @@
-## Module 3 (Multiomics) - Gene-CpG Concordance sub-module, via testServer():
+## Module 3 (Multiomics) - Gene-CpG Mapping sub-module, via testServer():
 ## the "Run Gene-CpG Analysis" pipeline is SYNCHRONOUS (no ExtendedTask,
 ## unlike Integration/Stratification/Biomarker Discovery) - so this drives
 
@@ -13,10 +13,10 @@ source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "co
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
 source_from_app_root(file.path("R", "methylomics", "04_Cell_Type_Deconvolution", "mod_methyl_celltype.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_plots.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "multiomics_mapping_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "multiomics_mapping_plots.R"))
 source_from_app_root(file.path("R", "multiomics", "04_SNF_Clustering", "snf_clustering_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "mod_multi_concordance.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "mod_multi_mapping.R"))
 
 test_that("clicking 'Run Gene-CpG Analysis' on a real live dataset computes a real end-to-end pooled result (real annotation, real stats, real correlation)", {
   skip_if_not(requireNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19", quietly = TRUE), "450K annotation not installed")
@@ -43,7 +43,7 @@ test_that("clicking 'Run Gene-CpG Analysis' on a real live dataset computes a re
   )
   multi_results <- shiny::reactiveValues()
 
-  shiny::testServer(mod_multi_concordance_server, args = list(id = "cc", multi_dataset = multi_dataset, multi_results = multi_results), {
+  shiny::testServer(mod_multi_mapping_server, args = list(id = "cc", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(
       data_source = "active", expr_layer = "Transcriptomics", meth_layer = "Methylomics",
       source = "All candidates", sex = "all", array_type = "450K",
@@ -76,7 +76,7 @@ test_that("the Run handler reports a clear, non-crashing error when no 2-class d
   )
   multi_results <- shiny::reactiveValues()
 
-  shiny::testServer(mod_multi_concordance_server, args = list(id = "cc", multi_dataset = multi_dataset, multi_results = multi_results), {
+  shiny::testServer(mod_multi_mapping_server, args = list(id = "cc", multi_dataset = multi_dataset, multi_results = multi_results), {
     session$setInputs(
       data_source = "active", expr_layer = "Transcriptomics", meth_layer = "Methylomics",
       source = "All candidates", sex = "all", array_type = "450K",

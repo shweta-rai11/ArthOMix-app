@@ -11,7 +11,7 @@ source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_plots
 source_from_app_root(file.path("R", "multiomics", "01_Data_Workspace", "multiomics_dataset_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "02_Cohort_Harmonization", "cohort_harmonization_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "functions", "multiomics_integration_helpers.R"))
-source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Concordance", "multiomics_concordance_helpers.R"))
+source_from_app_root(file.path("R", "multiomics", "06_Gene_CpG_Mapping", "multiomics_mapping_helpers.R"))
 source_from_app_root(file.path("R", "multiomics", "07_Pathways", "multiomics_pathway_helpers.R"))
 
 test_that("mp_detect_upload() detects id/effect/pvalue/fdr columns by name and flags a ranked (signed) effect column", {
@@ -107,15 +107,15 @@ test_that("mp_build_ranked_vector() signed_neglog10p ranking matches sign(logFC)
   expect_false(out$ok)
 })
 
-test_that("mp_concordance_direction() defers to a preloaded row's audited biological_pattern when present", {
-  expect_equal(mp_concordance_direction(list(biological_pattern = "Concordant (gene-body hypermethylation)")), "Directionally consistent (region-aware)")
-  expect_equal(mp_concordance_direction(list(biological_pattern = "Non-canonical")), "Directionally opposite (region-aware)")
+test_that("mp_mapping_direction() defers to a preloaded row's audited biological_pattern when present", {
+  expect_equal(mp_mapping_direction(list(biological_pattern = "Concordant (gene-body hypermethylation)")), "Directionally consistent (region-aware)")
+  expect_equal(mp_mapping_direction(list(biological_pattern = "Non-canonical")), "Directionally opposite (region-aware)")
 })
 
-test_that("mp_concordance_direction() classifies uploaded data by direct sign concordance when no biological_pattern is present", {
-  expect_equal(mp_concordance_direction(list(biological_pattern = NA, expr_direction = "Up", meth_direction = "Hyper")), "Directionally consistent")
-  expect_equal(mp_concordance_direction(list(biological_pattern = NA, expr_direction = "Up", meth_direction = "Hypo")), "Directionally opposite")
-  expect_equal(mp_concordance_direction(list(biological_pattern = NA, expr_direction = NA, meth_direction = "Hypo")), "Insufficient information")
+test_that("mp_mapping_direction() classifies uploaded data by direct sign mapping when no biological_pattern is present", {
+  expect_equal(mp_mapping_direction(list(biological_pattern = NA, expr_direction = "Up", meth_direction = "Hyper")), "Directionally consistent")
+  expect_equal(mp_mapping_direction(list(biological_pattern = NA, expr_direction = "Up", meth_direction = "Hypo")), "Directionally opposite")
+  expect_equal(mp_mapping_direction(list(biological_pattern = NA, expr_direction = NA, meth_direction = "Hypo")), "Insufficient information")
 })
 
 test_that("mp_build_evidence_tracks() summarizes overlapping-gene transcript/methylation evidence per pathway from the enrichment table's own geneID list", {

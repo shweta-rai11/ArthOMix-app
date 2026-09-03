@@ -20,7 +20,7 @@ test_that("every Multiomics sub-module tab opens and renders with no output erro
   app$set_inputs(sidebar_tabs = "multiomics")
   app$wait_for_idle(timeout = 20 * 1000)
 
-  mo_ids <- c("overview", "integration", "stratification", "biomarker", "concordance", "pathway", "biomarkercard")
+  mo_ids <- c("overview", "integration", "stratification", "biomarker", "mapping", "pathway", "biomarkercard")
 
   app$set_inputs(mo_menu = "Sub-modules")
   app$wait_for_idle(timeout = 20 * 1000)

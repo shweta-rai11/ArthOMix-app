@@ -1,5 +1,5 @@
-## R/multiomics/06_Gene_CpG_Concordance/multiomics_concordance_plots.R
-## Plots 1-6 for the "Gene-CpG Concordance" submodule (spec section 20).
+## R/multiomics/06_Gene_CpG_Mapping/multiomics_mapping_plots.R
+## Plots 1-6 for the "Gene-CpG Mapping" submodule (spec section 20).
 ## Every function returns NULL (never a placeholder/fake plot) when its
 
 mcc_plot_scatter <- function(df, color_by = "region_fine", meth_value = c("dbeta", "delta_beta")) {

@@ -69,7 +69,7 @@ real `5001`. Investigated directly rather than assumed:
 
 **Root cause: the test question, not the app.** Cross-Omics' `integration`
 id is the one sub-module rendered by a bespoke formatter
-(`.format_cx_integration()` in `submodules_registry.R`) instead of the
+(`.format_cx_integration()` in `modules_index.R`) instead of the
 generic key/value block every other sub-module uses — so it has no field
 literally named `check_value`, unlike the other 40. Asking for a field name
 that was never shown to it is not a fair grounding test for this one
@@ -157,7 +157,7 @@ provide the specific values"). One fabricated wrong answer, one honest
 refusal, same underlying cause.
 
 **Cause 2 — the generic Cross-Omics formatter never renders a dataset line at all.**
-Checked directly in `submodules_registry.R`: `build_cx_context()` has no
+Checked directly in `modules_index.R`: `build_cx_context()` has no
 "currently loaded dataset" text for any id except `integration` (whose
 bespoke formatter has its own `Dataset: ...` line). For `biomarkerconv` and
 `mrstage`, Q2 asks a question the context structurally cannot answer. Both
