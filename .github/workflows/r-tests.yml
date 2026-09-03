@@ -146,6 +146,21 @@ jobs:
         with:
           working-directory: ArthOMix
 
+      # testthat/shinytest2/chromote are correctly listed under DESCRIPTION's
+      # Suggests: (test-only, not real app runtime deps) - renv.lock only
+      # snapshots the app's own dependency graph, so they were never in it
+      # to restore. Installed here, into the same renv project library
+      # renv::restore() just populated, rather than added to the lockfile.
+      - name: Install test-only packages (testthat/shinytest2/chromote)
+        working-directory: ArthOMix
+        run: |
+          renv::activate()
+          renv::install(c("testthat", "shinytest2", "chromote"), prompt = FALSE)
+        shell: Rscript {0}
+
       - name: Run testthat suite
         working-directory: ArthOMix
-        run: Rscript -e 'testthat::test_dir("tests/testthat")'
+        run: |
+          renv::activate()
+          testthat::test_dir("tests/testthat")
+        shell: Rscript {0}
