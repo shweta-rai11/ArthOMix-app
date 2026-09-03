@@ -468,6 +468,20 @@ ollama_available <- function() {
   }, error = function(e) FALSE)
 }
 
+ARTHOCHAT_ANTHROPIC_MODEL <- "claude-sonnet-5"
+anthropic_available <- function() nzchar(Sys.getenv("ANTHROPIC_API_KEY", ""))
+
+## ArthOChat prefers a hosted Anthropic model when ANTHROPIC_API_KEY is set -
+## this is what a deployed app (e.g. shinyapps.io) uses, since it has no
+## local Ollama server reachable and needs to work for any visitor with
+## nothing left running on a developer's own machine. It falls back to local
+## Ollama for offline development where no API key is configured.
+arthochat_backend <- function() {
+  if (anthropic_available()) "anthropic"
+  else if (ollama_available()) "ollama"
+  else "none"
+}
+
 pubmed_search <- function(query, max_results = 5) {
   max_results <- min(max(as.integer(max_results %||% 5), 1L), 10L)
   esearch <- httr2::request("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi") %>%

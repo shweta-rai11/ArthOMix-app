@@ -1,6 +1,8 @@
-## ArthOChat: chat assistant (ellmer + shinychat) over a local Ollama server,
-## living in its own app-wide slide-out drawer (ui.R) rather than nested in
-## any one module. Grounded via four global.R tools: project_methods(),
+## ArthOChat: chat assistant (ellmer + shinychat), living in its own app-wide
+## slide-out drawer (ui.R) rather than nested in any one module. Uses a
+## hosted Anthropic model when ANTHROPIC_API_KEY is set (arthochat_backend()
+## in global.R), falling back to a local Ollama server for offline dev.
+## Grounded via four global.R tools: project_methods(),
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
@@ -228,10 +230,9 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "result - never fabricate a paper, PMID, or finding. Plain conversational or",
   "app-navigation questions don't need either tool.",
   "",
-  "You're running on local hardware with limited generation speed, so keep",
-  "answers focused: lead with the direct answer, then only the caveats or",
-  "citations that actually matter. Two or three references are usually enough",
-  "- don't pad the answer with every result a tool returned.",
+  "Keep answers focused: lead with the direct answer, then only the caveats",
+  "or citations that actually matter. Two or three references are usually",
+  "enough - don't pad the answer with every result a tool returned.",
   sep = "\n"
 )
 
@@ -249,15 +250,15 @@ build_arthochat_system_prompt <- function(view, dataset, results,
 
 mod_arthochat_ui <- function(id) {
   ns <- NS(id)
-  if (!ollama_available()) {
+  if (identical(arthochat_backend(), "none")) {
     return(
       div(
         class = "coming-soon",
         icon("robot", class = "coming-soon-icon"),
-        h4("Ollama isn't reachable"),
+        h4("ArthOChat isn't reachable"),
         p(sprintf(
-          "Couldn't reach %s at %s. Install Ollama, run \"ollama pull %s\", make sure the Ollama app/server is running, then reload this page.",
-          ARTHOMIX_OLLAMA_MODEL, ollama_base_url(), ARTHOMIX_OLLAMA_MODEL
+          "No AI backend is configured. Either set ANTHROPIC_API_KEY, or run a local Ollama server (install Ollama, run \"ollama pull %s\", make sure it's running at %s), then reload this page.",
+          ARTHOMIX_OLLAMA_MODEL, ollama_base_url()
         ))
       )
     )
@@ -281,7 +282,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
                                   run_hooks = new.env(parent = emptyenv())) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    if (!ollama_available()) return(invisible(NULL))
+    if (identical(arthochat_backend(), "none")) return(invisible(NULL))
 
     view_r <- if (is.null(current_context)) {
       reactive(list(module = "app", view_label = "ArthOMix", submodule_id = NULL))
@@ -301,13 +302,21 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     client <- NULL
     get_client <- function() {
       if (is.null(client)) {
-        cl <- ellmer::chat_ollama(
-          model = ARTHOMIX_OLLAMA_MODEL,
-          base_url = ollama_base_url(),
-          system_prompt = system_prompt_r(),
-          params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE, seed = ARTHOCHAT_SEED),
-          api_args = list(think = FALSE)
-        )
+        cl <- if (identical(arthochat_backend(), "anthropic")) {
+          ellmer::chat_anthropic(
+            model = ARTHOCHAT_ANTHROPIC_MODEL,
+            system_prompt = system_prompt_r(),
+            params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE)
+          )
+        } else {
+          ellmer::chat_ollama(
+            model = ARTHOMIX_OLLAMA_MODEL,
+            base_url = ollama_base_url(),
+            system_prompt = system_prompt_r(),
+            params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE, seed = ARTHOCHAT_SEED),
+            api_args = list(think = FALSE)
+          )
+        }
         cl$register_tool(ellmer::tool(
           pubmed_search,
           paste(
@@ -479,7 +488,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     }
 
     n_turns <- reactiveVal(0L)
-    last_module <- NULL
+    last_view_key <- NULL
 
     pending_action <- reactiveVal(NULL)
     n_executions <- reactiveVal(0L)
@@ -492,11 +501,13 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       n_turns(n_turns() + 1L)
 
       view <- view_r()
-      if (!is.null(last_module) && !identical(last_module, view$module)) {
+      view_key <- paste(view$module, view$submodule_id %||% "")
+      if (!is.null(last_view_key) && !identical(last_view_key, view_key)) {
         client <<- NULL
         pending_action(NULL)
+        shinychat::chat_clear("chat", session = session)
       }
-      last_module <<- view$module
+      last_view_key <<- view_key
 
       cl <- get_client()
       ctx_text <- system_prompt_r()
@@ -528,14 +539,14 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           }
         }
       })
-      ## Error handling: if Ollama becomes unreachable mid-session (after the
-      ## initial ollama_available() check passed) or the stream otherwise
-      ## fails, show a clear chat message instead of an unhandled/silent
-      ## failure.
+      ## Error handling: if the backend becomes unreachable mid-session (after
+      ## the initial arthochat_backend() check passed) or the stream
+      ## otherwise fails, show a clear chat message instead of an
+      ## unhandled/silent failure.
       promises::catch(p, function(e) {
         shinychat::chat_append(
           "chat",
-          "The AI assistant hit an error while responding - check that Ollama is running, then try again.",
+          "The AI assistant hit an error while responding - please try again.",
           session = session
         )
       })
