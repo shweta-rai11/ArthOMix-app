@@ -122,6 +122,7 @@ jobs:
           ## this package where it looks for it.
           lib <- renv::paths$library()
           dir.create(lib, recursive = TRUE, showWarnings = FALSE)
+          .libPaths(c(lib, .libPaths()))
           if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes", lib = lib)
           remotes::install_github(
             "ebecht/MCPcounter", subdir = "Source",
