@@ -90,8 +90,17 @@ suppressPackageStartupMessages({
   library(ggraph)
 })
 
+## parallel::detectCores() can return NA in restricted/containerized
+## environments (confirmed on GitHub Actions' runner), which propagates
+## through max() and fails WGCNA's own "must be numeric and at least 2"
+## check - so NA needs an explicit fallback. Separately, WGCNA requires
+## nThreads >= 2, so the floor here must be max(2, ...), not max(1, ...):
+## on any machine with 3 or fewer cores, detectCores() - 2 is 0 or 1,
+## which would fail that check even with a valid, non-NA core count.
+n_wgcna_cores <- parallel::detectCores()
+if (is.na(n_wgcna_cores)) n_wgcna_cores <- 2L
 suppressMessages(
-  WGCNA::enableWGCNAThreads(nThreads = max(1, parallel::detectCores() - 2))
+  WGCNA::enableWGCNAThreads(nThreads = max(2, n_wgcna_cores - 2))
 )
 
 library(ellmer)
