@@ -63,6 +63,24 @@ jobs:
       SUPABASE_ANON_KEY: ""
 
     steps:
+      # Confirmed live: adding lfs: true below (real bundled reference data,
+      # gigabytes across transcriptomics/methylomics/multiomics) on top of
+      # ~95+ Bioconductor/CRAN packages (several individually large - e.g.
+      # ChAMPdata alone is ~700MB) exhausts ubuntu-latest's disk mid-restore
+      # ("No space left on device" compiling/unpacking packages). This is
+      # the standard, well-established mitigation for R/Bioconductor CI on
+      # GitHub-hosted runners: reclaim the ~20-30GB of large toolchains
+      # (Android SDK, .NET, Haskell, CodeQL, etc.) the runner image ships
+      # with by default that this workflow never touches. Affects only this
+      # disposable runner VM, nothing persistent.
+      - name: Free up disk space (Bioconductor + LFS data need more than default)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+            /usr/local/share/powershell /usr/local/share/chromium \
+            /usr/local/lib/node_modules || true
+          df -h /
+
       # .gitattributes tracks *.rds/*.RData/*.rda via Git LFS. actions/checkout
       # doesn't fetch LFS content by default - confirmed live: every one of
       # 78 real test failures traced to the exact same root cause,
