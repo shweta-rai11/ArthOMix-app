@@ -1174,7 +1174,11 @@ mod_methyl_celltype_server <- function(id, dataset, results = NULL) {
       if (!is.null(results)) {
         results$celltype <- list(
           method = r$method, cell_types = colnames(r$fractions), n_samples = nrow(r$fractions),
-          n_markers_used = r$n_markers_used, mean_fraction = round(colMeans(r$fractions), 4)
+          n_markers_used = r$n_markers_used, mean_fraction = round(colMeans(r$fractions), 4),
+          # Per-sample fractions (rows = sample IDs matching the working matrix's column names,
+          # columns = cell types) - the actual usable covariate matrix for downstream modules
+          # (e.g. DMP covariate adjustment), not just the summary stats above.
+          fractions = r$fractions
         )
       }
     })
