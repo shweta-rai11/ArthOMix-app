@@ -48,6 +48,20 @@ mod_coloc_ui <- function(id) {
               p(class = "submodule-desc",
                 "Quantitative trait selected: coloc.abf needs an effect-allele-frequency column for this GWAS to analyse it without a directly-known phenotype SD - map one below (the optional \"Effect allele frequency\" field).")
             ),
+            tags$details(
+              class = "box box-primary", style = "margin-top: 10px;",
+              tags$summary(class = "box-header", style = "cursor: pointer;", tags$h3(class = "box-title", "Advanced: colocalisation priors")),
+              div(class = "box-body",
+                p(class = "submodule-desc",
+                  "coloc.abf's Bayesian priors: the probability a given SNP is associated with the eQTL only (p1), the GWAS trait only (p2), or both (p12). These drive the PP.H4 (shared causal variant) conclusion, so it's worth sensitivity-testing them rather than trusting the package defaults blindly. Defaults below are coloc's own documented conventions and leave existing results unchanged unless you edit them."),
+                fluidRow(
+                  column(4, numericInput(ns("p1"), "p1 (eQTL only)", value = 1e-4, min = 1e-8, max = 1e-2, step = 1e-6, width = "100%")),
+                  column(4, numericInput(ns("p2"), "p2 (GWAS only)", value = 1e-4, min = 1e-8, max = 1e-2, step = 1e-6, width = "100%")),
+                  column(4, numericInput(ns("p12"), "p12 (both)", value = 1e-5, min = 1e-8, max = 1e-2, step = 1e-7, width = "100%"))
+                ),
+                helpText("coloc's conventional defaults: p1 = 1e-4, p2 = 1e-4, p12 = 1e-5. p12 should not exceed either p1 or p2 (a SNP can't be more likely to affect both traits than it is to affect either one alone).")
+              )
+            ),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
           ),
           conditionalPanel(
@@ -99,6 +113,21 @@ mod_coloc_server <- function(id, dataset, results) {
     gwas_df_r <- reactive({ req(input$gwas_file); read_uploaded_table(input$gwas_file$datapath) })
     output$gwas_map_ui <- gwas_col_map_ui(ns, reactive(input$gwas_file), gwas_df_r, "gwas", "GWAS file", extra_fields = "n")
 
+    validated_priors <- function() {
+      p1 <- input$p1 %||% 1e-4
+      p2 <- input$p2 %||% 1e-4
+      p12 <- input$p12 %||% 1e-5
+      validate(need(is.numeric(p1) && length(p1) == 1 && !is.na(p1) && p1 > 0 && p1 < 1,
+                    "p1 must be a probability strictly between 0 and 1."))
+      validate(need(is.numeric(p2) && length(p2) == 1 && !is.na(p2) && p2 > 0 && p2 < 1,
+                    "p2 must be a probability strictly between 0 and 1."))
+      validate(need(is.numeric(p12) && length(p12) == 1 && !is.na(p12) && p12 > 0 && p12 < 1,
+                    "p12 must be a probability strictly between 0 and 1."))
+      validate(need(p12 <= min(p1, p2),
+                    "p12 (probability a SNP affects both the eQTL and the GWAS trait) cannot exceed p1 or p2 (probability it affects only one) - this is a coloc sanity convention. Lower p12, or raise p1/p2."))
+      list(p1 = p1, p2 = p2, p12 = p12)
+    }
+
     coloc_result_project <- function() {
       req(input$gene)
       r <- coloc_regions[[input$gene]]
@@ -115,9 +144,10 @@ mod_coloc_server <- function(id, dataset, results) {
       validate(need(sum(ok) >= 10, "Fewer than 10 SNPs have complete summary statistics for this region."))
       common <- common[ok]; e <- e[ok, ]; g <- g[ok, ]
 
+      priors <- validated_priors()
       d1 <- list(beta = e$beta, varbeta = e$se^2, N = round(median(e$n)), MAF = pmin(e$eaf, 1 - e$eaf), type = "quant", snp = common)
       d2 <- list(beta = g$beta, varbeta = g$se^2, N = round(median(g$n)), type = "cc", s = input$case_frac, snp = common)
-      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2)), error = function(e) e)
+      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
       validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
@@ -126,7 +156,7 @@ mod_coloc_server <- function(id, dataset, results) {
       )
 
       list(gene = input$gene, gwas_label = "Bundled RA GWAS (Okada 2014)", gwas_type = "cc", summary = res$summary,
-           snp_df = snp_df, n_snp = length(common), uploaded = FALSE)
+           snp_df = snp_df, n_snp = length(common), uploaded = FALSE, priors = priors)
     }
 
     coloc_result_uploaded <- function() {
@@ -176,6 +206,7 @@ mod_coloc_server <- function(id, dataset, results) {
         "Fewer than 10 SNPs have complete, harmonised summary statistics (with a valid sample size on both sides) for this region."))
       dat_up <- dat_up[ok, , drop = FALSE]
 
+      priors <- validated_priors()
       d1 <- list(beta = dat_up$beta.exposure, varbeta = dat_up$se.exposure^2,
                  N = round(median(dat_up$samplesize.exposure)), MAF = pmin(dat_up$eaf.exposure, 1 - dat_up$eaf.exposure),
                  type = "quant", snp = dat_up$SNP)
@@ -186,7 +217,7 @@ mod_coloc_server <- function(id, dataset, results) {
         list(beta = dat_up$beta.outcome, varbeta = dat_up$se.outcome^2,
              N = round(median(dat_up$samplesize.outcome)), type = "cc", s = input$case_frac, snp = dat_up$SNP)
       }
-      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2)), error = function(e) e)
+      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
       validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
@@ -196,7 +227,7 @@ mod_coloc_server <- function(id, dataset, results) {
       )
 
       list(gene = input$gene, gwas_label = label, gwas_type = gwas_type, summary = res$summary,
-           snp_df = snp_df, n_snp = nrow(dat_up), uploaded = TRUE)
+           snp_df = snp_df, n_snp = nrow(dat_up), uploaded = TRUE, priors = priors)
     }
 
     coloc_result <- eventReactive(input$run_btn, {
@@ -227,6 +258,8 @@ mod_coloc_server <- function(id, dataset, results) {
           sprintf("Tested against your uploaded %s GWAS (%s), harmonised against the bundled eQTL region - no bundled reference estimate applies to custom data.",
                   if (identical(res$gwas_type, "quant")) "quantitative-trait" else "case/control", res$gwas_label)),
         p(strong(res$gene), ": ", strong(res$n_snp), " shared SNPs tested against ", res$gwas_label, "."),
+        p(class = "submodule-desc", style = "font-size:12px;",
+          sprintf("Priors used: p1 = %.3g, p2 = %.3g, p12 = %.3g.", res$priors$p1, res$priors$p2, res$priors$p12)),
         p("Posterior probability of a shared causal variant (PP.H4): ", strong(sprintf("%.1f%%", 100 * pp4))),
         if (pp4 > 0.8) p(class = "empty-note", icon("circle-check"), "Strong support for colocalisation at this locus.")
         else if (pp4 > 0.5) p(class = "empty-note", icon("circle-info"), "Moderate support for colocalisation at this locus.")
@@ -271,7 +304,14 @@ mod_coloc_server <- function(id, dataset, results) {
 
     output$download_coloc <- downloadHandler(
       filename = function() paste0("coloc_", coloc_result()$gene, ".csv"),
-      content = function(file) write.csv(coloc_result()$snp_df, file, row.names = FALSE)
+      content = function(file) {
+        res <- coloc_result()
+        df <- res$snp_df
+        df$prior_p1 <- res$priors$p1
+        df$prior_p2 <- res$priors$p2
+        df$prior_p12 <- res$priors$p12
+        write.csv(df, file, row.names = FALSE)
+      }
     )
   })
 }

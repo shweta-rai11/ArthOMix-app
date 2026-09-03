@@ -149,3 +149,83 @@ test_that("duplicated SNP rows in the uploaded GWAS file are removed before colo
     expect_false(any(duplicated(res$snp_df$snp)))
   })
 })
+
+run_project_coloc_with_priors <- function(gene, p1 = NULL, p2 = NULL, p12 = NULL) {
+  dataset <- shiny::reactiveValues()
+  results <- shiny::reactiveValues()
+  out <- NULL
+  shiny::testServer(mod_coloc_server, args = list(id = "coloc", dataset = dataset, results = results), {
+    inputs <- list(data_source = "project", gene = gene, case_frac = 0.33)
+    if (!is.null(p1)) inputs$p1 <- p1
+    if (!is.null(p2)) inputs$p2 <- p2
+    if (!is.null(p12)) inputs$p12 <- p12
+    do.call(session$setInputs, inputs)
+    session$setInputs(run_btn = 1)
+    out <<- coloc_result()
+  })
+  out
+}
+
+test_that("changing p1/p2/p12 inputs away from coloc's defaults actually changes the reported posterior probabilities", {
+  coloc_regions <- readRDS(COLOC_REGIONS_RDS)
+  ## Use a bundled region whose PP.H4 sits in a moderate, non-saturated range
+  ## (~0.22) rather than the alphabetically-first gene, whose real bundled
+  ## data happens to give overwhelming (~1.0) support for H4 regardless of a
+  ## 10x change in p12 - a saturated posterior would make this assertion
+  ## vacuous (the priors are still genuinely wired through in that case, just
+  ## not observably so at this prior-swing size).
+  gene <- if ("HLA-DRB1" %in% names(coloc_regions)) "HLA-DRB1" else sort(names(coloc_regions))[1]
+
+  res_default <- run_project_coloc_with_priors(gene, p1 = 1e-4, p2 = 1e-4, p12 = 1e-5)
+  res_diff <- run_project_coloc_with_priors(gene, p1 = 1e-4, p2 = 1e-4, p12 = 1e-4)
+
+  pp4_default <- unname(res_default$summary["PP.H4.abf"])
+  pp4_diff <- unname(res_diff$summary["PP.H4.abf"])
+  expect_false(isTRUE(all.equal(pp4_default, pp4_diff)))
+  expect_equal(res_default$priors, list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5))
+  expect_equal(res_diff$priors, list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-4))
+})
+
+test_that("omitting the prior inputs entirely (pre-existing behaviour) reproduces coloc's own conventional defaults exactly", {
+  coloc_regions <- readRDS(COLOC_REGIONS_RDS)
+  gene <- sort(names(coloc_regions))[1]
+
+  res_no_input <- run_project_coloc_with_priors(gene)
+  res_explicit_default <- run_project_coloc_with_priors(gene, p1 = 1e-4, p2 = 1e-4, p12 = 1e-5)
+
+  expect_equal(res_no_input$priors, list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5))
+  expect_equal(unname(res_no_input$summary), unname(res_explicit_default$summary), tolerance = 1e-12)
+  expect_equal(res_no_input$snp_df$snp_pp_h4, res_explicit_default$snp_df$snp_pp_h4, tolerance = 1e-12)
+})
+
+test_that("an out-of-range prior (p12 = 0.5) fails with a clear validate() message, not a raw coloc.abf crash", {
+  coloc_regions <- readRDS(COLOC_REGIONS_RDS)
+  gene <- sort(names(coloc_regions))[1]
+
+  dataset <- shiny::reactiveValues()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_coloc_server, args = list(id = "coloc", dataset = dataset, results = results), {
+    session$setInputs(data_source = "project", gene = gene, case_frac = 0.33, p1 = 1e-4, p2 = 1e-4, p12 = 0.5)
+    session$setInputs(run_btn = 1)
+
+    err <- tryCatch(coloc_result(), error = function(e) e)
+    expect_true(inherits(err, "shiny.silent.error"))
+    expect_match(conditionMessage(err), "p12", fixed = TRUE)
+  })
+})
+
+test_that("a prior outside (0,1) (e.g. p1 = 0) fails with a clear validate() message", {
+  coloc_regions <- readRDS(COLOC_REGIONS_RDS)
+  gene <- sort(names(coloc_regions))[1]
+
+  dataset <- shiny::reactiveValues()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_coloc_server, args = list(id = "coloc", dataset = dataset, results = results), {
+    session$setInputs(data_source = "project", gene = gene, case_frac = 0.33, p1 = 0, p2 = 1e-4, p12 = 1e-5)
+    session$setInputs(run_btn = 1)
+
+    err <- tryCatch(coloc_result(), error = function(e) e)
+    expect_true(inherits(err, "shiny.silent.error"))
+    expect_match(conditionMessage(err), "p1", fixed = TRUE)
+  })
+})
