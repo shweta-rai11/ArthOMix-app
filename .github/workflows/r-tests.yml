@@ -114,11 +114,19 @@ jobs:
         run: |
           if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv")
           renv::activate()
-          if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
+          ## Confirmed live: install.packages()/remotes just use the first
+          ## writable .libPaths() entry, which is R_LIBS_USER (a generic
+          ## runner temp dir set by an earlier step) - NOT the renv project
+          ## library - regardless of renv::activate() having run. Target
+          ## the project library explicitly so restore() actually finds
+          ## this package where it looks for it.
+          lib <- renv::paths$library()
+          dir.create(lib, recursive = TRUE, showWarnings = FALSE)
+          if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes", lib = lib)
           remotes::install_github(
             "ebecht/MCPcounter", subdir = "Source",
             ref = "b6eac73e91c246fcff0bb1a5c68a816cd588fc48",
-            upgrade = "never"
+            upgrade = "never", lib = lib
           )
         shell: Rscript {0}
         env:
