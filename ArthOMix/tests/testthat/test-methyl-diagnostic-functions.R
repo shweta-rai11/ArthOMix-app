@@ -100,3 +100,105 @@ test_that("dxm_overfitting_note() flags a large train-vs-test AUC gap as possibl
   expect_true(grepl("no strong evidence of overfitting", note_ok))
   expect_equal(dxm_overfitting_note(NA_real_, 0.8, 0.8), "Not enough completed evaluations yet to assess overfitting.")
 })
+
+## dxm_validate_nested() / dxm_attach_headline(): the leakage-safe headline
+## metric added for the Diagnostic Classifier's default (no genuine held-out
+## split) path. X is samples (rows) x CpGs (columns), matching dxm$full_X's
+## own orientation in this module (the opposite of transcriptomics' expr
+## matrix, which is genes x samples).
+dxm_noise_leakage_fixture <- function(fixture_seed = 2, n = 60, n_cpgs = 400) {
+  set.seed(fixture_seed)
+  y <- factor(rep(c(DXM_NEG, DXM_POS), each = n / 2), levels = c(DXM_NEG, DXM_POS))
+  m <- matrix(rnorm(n_cpgs * n), n, n_cpgs,
+              dimnames = list(paste0("S", seq_len(n)), paste0("cg", seq_len(n_cpgs))))
+  list(X = as.data.frame(m), y = y)
+}
+
+dxm_leaky_frozen_panel_cv_auc <- function(X, y, uni_top_n = 100, seed = 1234) {
+  m_mat <- t(as.matrix(X))
+  design <- stats::model.matrix(~y)
+  uni_fit <- limma::eBayes(limma::lmFit(m_mat, design))
+  tt <- limma::topTable(uni_fit, coef = 2, number = Inf, sort.by = "P")
+  uni_cpgs <- rownames(tt)[seq_len(min(uni_top_n, nrow(tt)))]
+  Xall <- as.matrix(X[, uni_cpgs, drop = FALSE])
+  cv <- glmnet::cv.glmnet(Xall, y, family = "binomial", alpha = 1, nfolds = 5)
+  co <- stats::coef(cv, s = "lambda.min")[-1, 1, drop = TRUE]
+  panel <- names(co)[co != 0]
+  if (length(panel) < 1) panel <- utils::head(uni_cpgs, 5)
+
+  set.seed(seed)
+  folds <- caret::createFolds(y, k = 5)
+  aucs <- vapply(folds, function(te) {
+    tr <- setdiff(seq_along(y), te)
+    fit_df <- data.frame(y = y[tr], X[tr, panel, drop = FALSE], check.names = FALSE)
+    model <- suppressWarnings(stats::glm(y ~ ., data = fit_df, family = stats::binomial))
+    pred <- as.numeric(stats::predict(model, newdata = data.frame(X[te, panel, drop = FALSE], check.names = FALSE), type = "response"))
+    rb <- dxm_roc_bundle(y[te], pred)
+    if (is.null(rb)) NA_real_ else rb$auc
+  }, numeric(1))
+  mean(aucs, na.rm = TRUE)
+}
+
+test_that("dxm_validate_nested() scores a pure-noise CpG panel close to chance, well below the leaky frozen-panel CV-AUC", {
+  fx <- dxm_noise_leakage_fixture()
+  frozen_auc <- dxm_leaky_frozen_panel_cv_auc(fx$X, fx$y)
+  nested <- dxm_validate_nested(fx$X, fx$y, outer_k = 5)
+
+  expect_true(isTRUE(nested$pooled$available))
+  nested_auc <- nested$pooled$auc
+
+  expect_gt(frozen_auc, 0.65)
+  expect_lt(nested_auc, 0.75)
+  expect_gt(frozen_auc - nested_auc, 0.15)
+})
+
+test_that("dxm_validate_nested() is deterministic given a fixed seed", {
+  fx <- dxm_noise_leakage_fixture(fixture_seed = 100)
+  r1 <- dxm_validate_nested(fx$X, fx$y, outer_k = 5, seed = 4242)
+  r2 <- dxm_validate_nested(fx$X, fx$y, outer_k = 5, seed = 4242)
+  expect_identical(r1$pooled$auc, r2$pooled$auc)
+  expect_identical(r1$per_fold, r2$per_fold)
+})
+
+test_that("dxm_validate_nested() fold-specific feature selection only ever sees that fold's training samples", {
+  fx <- dxm_noise_leakage_fixture(fixture_seed = 7, n = 40, n_cpgs = 60)
+  seen_cols <- new.env()
+  seen_cols$calls <- list()
+  real_lmFit <- limma::lmFit
+  testthat::local_mocked_bindings(
+    lmFit = function(object, ...) {
+      seen_cols$calls[[length(seen_cols$calls) + 1]] <- colnames(object)
+      real_lmFit(object, ...)
+    },
+    .package = "limma"
+  )
+  invisible(dxm_validate_nested(fx$X, fx$y, outer_k = 4, seed = 55))
+  expect_gt(length(seen_cols$calls), 0)
+  full_pool <- rownames(fx$X)
+  for (cols in seen_cols$calls) {
+    expect_lt(length(cols), length(full_pool))
+    expect_true(all(cols %in% full_pool))
+  }
+})
+
+test_that("dxm_attach_headline() marks the automatic nested-CV AUC as primary only when not leakage-safe and nested-CV succeeded", {
+  nested_ok <- list(pooled = list(available = TRUE, auc = 0.55, ci_lo = 0.4, ci_hi = 0.7, n = 40),
+                     per_fold = data.frame(), outer_k = 5, n_folds_completed = 5)
+
+  out1 <- dxm_attach_headline(FALSE, nested_ok)
+  expect_equal(out1$headline_metric, "nested_cv")
+  expect_identical(out1$nested_cv, nested_ok)
+
+  nested_unavailable <- list(pooled = list(available = FALSE, reason = "not enough CpGs"), per_fold = data.frame(), outer_k = NA_integer_)
+  out2 <- dxm_attach_headline(FALSE, nested_unavailable)
+  expect_equal(out2$headline_metric, "test_split")
+  expect_identical(out2$nested_cv, nested_unavailable)
+
+  out3 <- dxm_attach_headline(FALSE, NULL)
+  expect_equal(out3$headline_metric, "test_split")
+  expect_null(out3$nested_cv)
+
+  out4 <- dxm_attach_headline(TRUE, nested_ok)
+  expect_equal(out4$headline_metric, "test_split")
+  expect_null(out4$nested_cv)
+})
