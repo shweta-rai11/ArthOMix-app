@@ -704,3 +704,99 @@ cx_validate_dataset <- function(expr_df, meth_df, id_harmonization = NULL) {
   }
   list(transcriptomics = tx_checks, methylomics = mx_checks, compatibility = compat, ready = tx_ok && mx_ok)
 }
+
+## ---- Live-session adapters ---------------------------------------------
+## Pure, testable bridges from the LIVE Transcriptomics (results$dge_runs)
+## and Methylomics (methyl_results$dmp_table) session objects into exactly
+## the same expr_df/meth_df column contract already produced by
+## cx_standardize_expression()/cx_standardize_methylation() - the same
+## functions cx_load_default_deg()+mod_cross_dataset.R and
+## cx_load_default_methylation() use to build the "Example data" and
+## "Upload your own data" paths. cx_aggregate_methylation(), cx_gene_correlation()
+## and cx_classify_evidence() are untouched - these adapters only shape input
+## for them, they never run downstream of that boundary.
+
+CX_LIVE_EMPTY_EXPR_DF <- data.frame(
+  gene = character(0), log2fc = numeric(0), pvalue = numeric(0), fdr = numeric(0),
+  stringsAsFactors = FALSE
+)
+
+CX_LIVE_EMPTY_METH_DF <- data.frame(
+  cpg = character(0), gene = character(0), dbeta = numeric(0), pvalue = numeric(0), fdr = numeric(0),
+  chr = character(0), pos = numeric(0), end = numeric(0), n_cpgs = numeric(0),
+  region_id = character(0), region_raw = character(0), island_context = character(0),
+  region = character(0), region_fine = character(0), stringsAsFactors = FALSE
+)
+
+#' Build a cx_standardize_expression()-shaped expr_df from a live Transcriptomics
+#' DGE run.
+#'
+#' @param dge_run One element of `results$dge_runs` (as saved by
+#'   `save_dge_result()` in mod_dge.R): a list with `$contrast` and a `$table`
+#'   data.frame of columns `gene`, `logFC`, `adj.P.Val`, `direction`.
+#' @return `list(ok, df, error)` - `df` has exactly the `gene`/`log2fc`/`pvalue`/`fdr`
+#'   columns cx_standardize_expression() produces (plus any extras it binds).
+#'   `pvalue` is NA (the saved DGE run keeps only the adjusted p-value); `fdr`
+#'   is the DGE run's own `adj.P.Val`, so downstream thresholding uses the
+#'   exact FDR limma already computed - it is not recomputed here.
+cx_build_live_expr_df <- function(dge_run) {
+  if (is.null(dge_run) || is.null(dge_run$table) || !is.data.frame(dge_run$table)) {
+    return(list(ok = FALSE, error = "No live Differential Expression run selected/available - run Differential Expression in Transcriptomics first.", df = NULL))
+  }
+  tbl <- dge_run$table
+  required <- c("gene", "logFC", "adj.P.Val")
+  missing_cols <- setdiff(required, colnames(tbl))
+  if (length(missing_cols) > 0) {
+    return(list(ok = FALSE, error = sprintf(
+      "The live Differential Expression run is missing expected column(s): %s.",
+      paste(missing_cols, collapse = ", ")), df = NULL))
+  }
+  if (nrow(tbl) == 0) {
+    return(list(ok = TRUE, df = CX_LIVE_EMPTY_EXPR_DF, error = NULL))
+  }
+  mapping <- c(gene = "gene", log2fc = "logFC", pvalue = NA_character_, fdr = "adj.P.Val")
+  std <- cx_standardize_expression(tbl, mapping)
+  if (!std$ok) return(list(ok = FALSE, error = std$error, df = NULL))
+  list(ok = TRUE, df = std$df, error = NULL)
+}
+
+#' Build a cx_standardize_methylation()-shaped meth_df from a live Methylomics
+#' DMP run.
+#'
+#' @param dmp_run A list with a `$table` data.frame - the per-CpG live DMP
+#'   result as exposed on `methyl_results$dmp_table` by mod_methyl_dmp.R:
+#'   columns `cpg`, `gene`, `dbeta`, `p_raw`, `fdr`, `chr`, `pos`, `direction`
+#'   (gene/chr/pos from the array manifest annotation attached during the run).
+#' @return `list(ok, df, error)` - `df` has exactly the columns
+#'   cx_standardize_methylation() produces (cpg, gene, dbeta, pvalue, fdr,
+#'   chr, pos, end, n_cpgs, region_id, region_raw, island_context, region,
+#'   region_fine). Rows with no gene annotation are dropped, exactly as the
+#'   preloaded cx_load_default_methylation() path already does.
+cx_build_live_meth_df <- function(dmp_run) {
+  if (is.null(dmp_run) || is.null(dmp_run$table) || !is.data.frame(dmp_run$table)) {
+    return(list(ok = FALSE, error = "No live Methylomics DMP run available - run DMP Analysis in Methylomics first.", df = NULL))
+  }
+  tbl <- dmp_run$table
+  required <- c("cpg", "gene", "dbeta")
+  missing_cols <- setdiff(required, colnames(tbl))
+  if (length(missing_cols) > 0) {
+    return(list(ok = FALSE, error = sprintf(
+      "The live Methylomics DMP run is missing expected column(s): %s.",
+      paste(missing_cols, collapse = ", ")), df = NULL))
+  }
+  if (nrow(tbl) == 0) {
+    return(list(ok = TRUE, df = CX_LIVE_EMPTY_METH_DF, error = NULL))
+  }
+  mapping <- c(
+    cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
+    pvalue = if ("p_raw" %in% colnames(tbl)) "p_raw" else NA_character_,
+    fdr = if ("fdr" %in% colnames(tbl)) "fdr" else NA_character_,
+    chr = if ("chr" %in% colnames(tbl)) "chr" else NA_character_,
+    pos = if ("pos" %in% colnames(tbl)) "pos" else NA_character_,
+    end = NA_character_, n_cpgs = NA_character_, region_id = NA_character_,
+    region = NA_character_, island = NA_character_, sample_id = NA_character_
+  )
+  std <- cx_standardize_methylation(tbl, mapping)
+  if (!std$ok) return(list(ok = FALSE, error = std$error, df = NULL))
+  list(ok = TRUE, df = std$df, error = NULL)
+}

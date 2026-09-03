@@ -15,6 +15,7 @@ mod_cross_integration_config <- list(
 mod_cross_integration_ui <- function(id) {
   ns <- NS(id)
   tagList(
+    uiOutput(ns("live_source_ui")),
     uiOutput(ns("status_bar")),
     uiOutput(ns("summary_cards")),
     tabsetPanel(
@@ -96,6 +97,85 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       raw$meth_unavailable_reason <- NULL
     })
 
+    ## ---- "Use live session results" data source ------------------------
+    ## dataset/results/methyl_dataset/methyl_results are the live Transcriptomics
+    ## and Methylomics reactiveValues, passed in directly from server.R. This is
+    ## the ONLY place in this module that reads results/methyl_results; it writes
+    ## the adapted tables into the shared cross_dataset store exactly like
+    ## mod_cross_dataset_server's "Use this data" button does, so everything
+    ## downstream (the `raw` sync above, "Run Integration", cx_aggregate_methylation(),
+    ## cx_gene_correlation(), cx_classify_evidence()) runs completely unmodified.
+    live_dge_choices <- reactive({
+      runs <- (results %||% list())$dge_runs %||% list()
+      if (length(runs) == 0) return(NULL)
+      stats::setNames(names(runs), vapply(runs, function(r) r$contrast %||% "(unnamed run)", character(1)))
+    })
+
+    live_dmp_run <- reactive({
+      tbl <- (methyl_results %||% list())$dmp_table
+      if (is.null(tbl) || !is.data.frame(tbl) || nrow(tbl) == 0) return(NULL)
+      list(comparison = ((methyl_results %||% list())$dmp %||% list())$comparison %||% "Live Methylomics DMP run", table = tbl)
+    })
+
+    output$live_source_ui <- renderUI({
+      ch <- live_dge_choices()
+      dmp <- live_dmp_run()
+      div(
+        class = "card", style = "margin-bottom: 10px;",
+        div(class = "card-title", icon("bolt"), "Data source"),
+        radioButtons(ns("cx_source_mode"), NULL,
+                     choices = c("From the Cross-Omics Dataset tab (example/uploaded)" = "dataset_tab",
+                                 "Use live Transcriptomics/Methylomics session results" = "live"),
+                     selected = "dataset_tab"),
+        conditionalPanel(
+          condition = sprintf("input['%s'] == 'live'", ns("cx_source_mode")),
+          if (is.null(ch) && is.null(dmp)) {
+            div(class = "empty-note", icon("triangle-exclamation"),
+                "Run Differential Expression in Transcriptomics and DMP Analysis in Methylomics first.")
+          } else if (is.null(ch)) {
+            div(class = "empty-note", icon("triangle-exclamation"), "Run Differential Expression in Transcriptomics first.")
+          } else if (is.null(dmp)) {
+            div(class = "empty-note", icon("triangle-exclamation"), "Run DMP Analysis in Methylomics first.")
+          } else {
+            tagList(
+              selectInput(ns("live_dge_run"), "Transcriptomics DGE run", choices = ch, selected = unname(utils::tail(ch, 1))),
+              p(class = "submodule-desc", sprintf("Methylomics: \"%s\" (latest live DMP run this session).", dmp$comparison)),
+              actionButton(ns("use_live_btn"), "Use live results", icon = icon("bolt"), class = "btn-primary btn-sm")
+            )
+          }
+        )
+      )
+    })
+
+    observeEvent(input$use_live_btn, {
+      req(input$live_dge_run)
+      runs <- (results %||% list())$dge_runs %||% list()
+      dge_run <- runs[[input$live_dge_run]]
+      dmp_run <- live_dmp_run()
+      if (is.null(dge_run) || is.null(dmp_run)) {
+        showNotification("Live Transcriptomics/Methylomics results are not both available.", type = "error")
+        return()
+      }
+      expr_res <- cx_build_live_expr_df(dge_run)
+      if (!expr_res$ok) { showNotification(expr_res$error, type = "error"); return() }
+      meth_res <- cx_build_live_meth_df(dmp_run)
+      if (!meth_res$ok) { showNotification(meth_res$error, type = "error"); return() }
+
+      cross_dataset$user_expr_df <- expr_res$df
+      cross_dataset$user_expr_source <- sprintf("Live Transcriptomics DGE run \"%s\"", dge_run$contrast %||% input$live_dge_run)
+      cross_dataset$user_expr_wide <- NULL
+      cross_dataset$user_expr_mapping <- NULL
+      cross_dataset$user_expr_sample_cols <- character(0)
+
+      cross_dataset$user_meth_df <- meth_res$df
+      cross_dataset$user_meth_source <- sprintf("Live Methylomics DMP run (%s)", dmp_run$comparison)
+      cross_dataset$user_meth_wide <- NULL
+      cross_dataset$user_meth_mapping <- NULL
+      cross_dataset$user_meth_sample_cols <- character(0)
+
+      showNotification("Live session results loaded - ready to Run Integration.", type = "message")
+    }, ignoreInit = TRUE)
+
     output$status_bar <- renderUI({
       tx_ok <- !is.null(raw$expr_df)
       mx_ok <- !is.null(raw$meth_df)
@@ -173,7 +253,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       integ$run_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       integ$params <- list(
         sex_stratum = toupper(sex_key),
-        input_mode = "From Dataset tab",
+        input_mode = if (grepl("^Live Transcriptomics DGE run", raw$expr_source %||% "")) "Live Transcriptomics/Methylomics session results" else "From Dataset tab",
         expr_source = raw$expr_source, meth_source = raw$meth_source,
         expr_thresh = input$expr_thresh, expr_fdr_thresh = input$expr_fdr_thresh,
         meth_thresh = input$meth_thresh, meth_fdr_thresh = input$meth_fdr_thresh,

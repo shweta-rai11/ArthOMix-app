@@ -298,3 +298,99 @@ test_that("cx_validate_dataset() reports real per-check pass/fail and readiness 
   expect_false(out_none$ready)
   expect_false(out_none$transcriptomics[[1]]$ok)
 })
+
+## ---- cx_build_live_expr_df() / cx_build_live_meth_df() -----------------
+## The "Use live Transcriptomics/Methylomics session results" adapters -
+## these must produce output matching cx_standardize_expression()/
+## cx_standardize_methylation()'s real contract, not a superficial rename.
+
+fx_live_dge_run <- function(genes, logfc, adjp, contrast = "RA vs HC (female)") {
+  list(contrast = contrast, method = "limma", n_samples = 20,
+       table = data.frame(gene = genes, logFC = logfc, adj.P.Val = adjp,
+                            direction = ifelse(adjp < 0.05 & logfc > 0, "Up", ifelse(adjp < 0.05 & logfc < 0, "Down", "Not significant")),
+                            stringsAsFactors = FALSE))
+}
+
+fx_live_dmp_run <- function(cpgs, genes, dbeta, p_raw, fdr, comparison = "RA vs HC (female)") {
+  list(comparison = comparison,
+       table = data.frame(cpg = cpgs, gene = genes, dbeta = dbeta, p_raw = p_raw, fdr = fdr,
+                            chr = rep("chr1", length(cpgs)), pos = seq_along(cpgs),
+                            direction = ifelse(dbeta > 0, "hyper", "hypo"),
+                            stringsAsFactors = FALSE))
+}
+
+test_that("cx_build_live_expr_df() maps a real DGE run's table (gene/logFC/adj.P.Val) onto the standard gene/log2fc/pvalue/fdr contract", {
+  run <- fx_live_dge_run(c("A", "B", "C", "D"), c(-2, 2, 3, 0.1), c(0.001, 0.001, 0.001, 0.5))
+  out <- cx_build_live_expr_df(run)
+  expect_true(out$ok)
+  expect_setequal(colnames(out$df), c("gene", "log2fc", "pvalue", "fdr", "direction"))
+  expect_equal(out$df$gene, c("A", "B", "C", "D"))
+  expect_equal(out$df$log2fc, c(-2, 2, 3, 0.1))
+  expect_equal(out$df$fdr, c(0.001, 0.001, 0.001, 0.5))
+  expect_true(all(is.na(out$df$pvalue)))
+})
+
+test_that("cx_build_live_expr_df() carries a subset of significant genes through untouched (no pre-filtering)", {
+  run <- fx_live_dge_run(c("SIG1", "NS1", "NS2"), c(3, 0.05, -0.02), c(0.001, 0.9, 0.95))
+  out <- cx_build_live_expr_df(run)
+  expect_true(out$ok)
+  expect_equal(nrow(out$df), 3L)
+  expect_setequal(out$df$gene, c("SIG1", "NS1", "NS2"))
+})
+
+test_that("cx_build_live_expr_df() returns a clean, correctly-shaped empty df (not a crash) for a zero-row DGE run", {
+  run <- fx_live_dge_run(character(0), numeric(0), numeric(0))
+  out <- cx_build_live_expr_df(run)
+  expect_true(out$ok)
+  expect_equal(nrow(out$df), 0L)
+  expect_setequal(c("gene", "log2fc", "pvalue", "fdr"), intersect(c("gene", "log2fc", "pvalue", "fdr"), colnames(out$df)))
+})
+
+test_that("cx_build_live_expr_df() fails cleanly (no crash) when the run is NULL or missing required columns", {
+  out_null <- cx_build_live_expr_df(NULL)
+  expect_false(out_null$ok)
+  expect_true(nzchar(out_null$error))
+
+  bad_run <- list(contrast = "x", table = data.frame(gene = "A", logFC = 1))
+  out_bad <- cx_build_live_expr_df(bad_run)
+  expect_false(out_bad$ok)
+  expect_true(grepl("adj.P.Val", out_bad$error, fixed = TRUE))
+})
+
+test_that("cx_build_live_meth_df() maps a real live DMP run's table onto the standard cpg/gene/dbeta/pvalue/fdr contract", {
+  run <- fx_live_dmp_run(c("cg1", "cg2", "cg3", "cg4"), c("A", "B", "C", "D"),
+                          c(0.3, -0.3, 0.01, 0.01), c(0.0005, 0.0005, 0.8, 0.8), c(0.001, 0.001, 0.9, 0.9))
+  out <- cx_build_live_meth_df(run)
+  expect_true(out$ok)
+  expect_true(all(c("cpg", "gene", "dbeta", "pvalue", "fdr", "chr", "pos", "region") %in% colnames(out$df)))
+  expect_equal(out$df$gene, c("A", "B", "C", "D"))
+  expect_equal(out$df$dbeta, c(0.3, -0.3, 0.01, 0.01))
+  expect_equal(out$df$fdr, c(0.001, 0.001, 0.9, 0.9))
+})
+
+test_that("cx_build_live_meth_df() drops CpGs with no gene annotation, keeping the rest (subset of significant CpGs)", {
+  run <- fx_live_dmp_run(c("cg1", "cg2", "cg3"), c("A", NA_character_, "B"), c(0.3, 0.4, -0.01), c(0.001, 0.001, 0.9), c(0.001, 0.001, 0.9))
+  out <- cx_build_live_meth_df(run)
+  expect_true(out$ok)
+  expect_equal(nrow(out$df), 2L)
+  expect_setequal(out$df$gene, c("A", "B"))
+})
+
+test_that("cx_build_live_meth_df() returns a clean, correctly-shaped empty df (not a crash) for a zero-row DMP run", {
+  run <- fx_live_dmp_run(character(0), character(0), numeric(0), numeric(0), numeric(0))
+  out <- cx_build_live_meth_df(run)
+  expect_true(out$ok)
+  expect_equal(nrow(out$df), 0L)
+  expect_true(all(c("cpg", "gene", "dbeta", "pvalue", "fdr") %in% colnames(out$df)))
+})
+
+test_that("cx_build_live_meth_df() fails cleanly (no crash) when the run is NULL or missing required columns", {
+  out_null <- cx_build_live_meth_df(NULL)
+  expect_false(out_null$ok)
+  expect_true(nzchar(out_null$error))
+
+  bad_run <- list(comparison = "x", table = data.frame(cpg = "cg1", gene = "A"))
+  out_bad <- cx_build_live_meth_df(bad_run)
+  expect_false(out_bad$ok)
+  expect_true(grepl("dbeta", out_bad$error, fixed = TRUE))
+})
