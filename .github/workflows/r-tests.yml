@@ -95,6 +95,35 @@ jobs:
           r-version: "4.4.2"
           use-public-rspm: true
 
+      # renv's own parallel graph installer has a reproducible bug for this
+      # one package specifically: "Failed to prepare 'MCPcounter': target
+      # file '.../MCPcounter' already exists" (confirmed live, twice,
+      # deterministic - not a timeout/parallelism artifact, since renv's
+      # "prepare" step runs sequentially in the controller process, not in
+      # a worker). MCPcounter is the only one of this lockfile's 6
+      # GitHub-sourced packages that needs RemoteSubdir (its R package
+      # lives in a Source/ subfolder, not the repo root - see its own
+      # README's install instructions) - the other 5 (no subdir) all
+      # install cleanly, pointing at renv's subdir-remote handling
+      # specifically. Pre-installing it via the independent `remotes`
+      # package - a different GitHub-install code path entirely - before
+      # renv::restore() runs means restore() finds it already present and
+      # matching the lockfile record, and never touches the buggy path.
+      - name: Pre-install MCPcounter (works around a renv subdir-remote bug)
+        working-directory: ArthOMix
+        run: |
+          if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv")
+          renv::activate()
+          if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes")
+          remotes::install_github(
+            "ebecht/MCPcounter", subdir = "Source",
+            ref = "b6eac73e91c246fcff0bb1a5c68a816cd588fc48",
+            upgrade = "never"
+          )
+        shell: Rscript {0}
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up renv + restore ArthOMix/renv.lock
         uses: r-lib/actions/setup-renv@v2
         with:
