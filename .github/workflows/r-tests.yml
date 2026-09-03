@@ -28,7 +28,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A from-scratch renv::restore() compiles ~95 direct (many more
+    # transitive) Bioconductor/CRAN packages from source with no cache yet
+    # to draw from - confirmed live: still steadily progressing with zero
+    # errors at the original 60-minute cutoff, several minutes per package
+    # for the larger methylation/annotation packages (Gviz, lumi,
+    # wateRmelon, etc.). actions/cache (via r-lib/actions/setup-renv)
+    # should make subsequent runs much faster once a cache exists.
+    timeout-minutes: 120
     env:
       RENV_PATHS_ROOT: ~/.local/share/renv
       # renv.lock pins several GitHub-only packages (ggtree/ieugwasr/
