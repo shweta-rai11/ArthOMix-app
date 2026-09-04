@@ -3,7 +3,7 @@
 </p>
 
 
-**ArthOMix** is a Shiny application for both single and multi--omics analysis — transcriptomics, methylomics, cross-omics integration, and multi-omics ArthOChatin one interactive tool. 
+**ArthOMix** is a Shiny application for both single and multi--omics analysis — transcriptomics, methylomics, cross-omics integration, and multi-omics ArthOChat in one interactive tool. 
 
 **Live app:** [https://arthomix-differential-methylation-multiomics.serveousercontent.com/](https://arthomix-differential-methylation-multiomics.serveousercontent.com/)
 
