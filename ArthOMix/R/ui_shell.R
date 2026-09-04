@@ -72,9 +72,7 @@ omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_cont
     tags$div(
       class = "sidebar-quicklinks",
       tags$a(href = "#", icon("book"), "Documentation"),
-      tags$a(href = "#", icon("graduation-cap"), "Tutorials"),
-      tags$a(href = "#", icon("code"), "API Reference"),
-      tags$a(href = "#", icon("clipboard-list"), "Release Notes")
+      tags$a(href = "#", icon("graduation-cap"), "Tutorials")
     ),
     extra_sidebar_content
   )
