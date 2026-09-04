@@ -28,8 +28,11 @@ mod_cross_dataset_ui <- function(id) {
             radioButtons(ns("meth_level"), "Methylation data",
                          choices = c("CpG-level (DMP)" = "dmp", "Region-level (DMR)" = "dmr"),
                          selected = "dmp", inline = TRUE),
-            p(class = "submodule-desc", "Female/Male Transcriptomics (DEG) and Methylomics (DMP or DMR) example data, in the same format as \"Upload your own data.\""),
-            actionButton(ns("load_example_btn"), "Load example data", icon = icon("database"), class = "btn-primary btn-sm")
+            tags$div(style = "font-weight:600; margin-bottom:2px;", "Transcriptomics"),
+            p(class = "empty-note", icon("circle-info"), "Differentially Expressed Genes (DEG) format, for the analysis group selected above - included automatically."),
+            tags$div(style = "font-weight:600; margin-bottom:2px;", "Methylomics"),
+            p(class = "empty-note", icon("circle-info"), "Differentially Methylated Position/Region (DMP/DMR) format, for the analysis group and methylation level selected above - included automatically."),
+            actionButton(ns("load_example_btn"), "Load example data (Transcriptomics + Methylomics)", icon = icon("database"), class = "btn-primary btn-sm")
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'upload'", ns("source_mode")),
@@ -149,7 +152,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
     output$preview_ui <- renderUI({
       if (is.null(expr_data()) && is.null(meth_data())) {
         msg <- if (identical(input$source_mode, "upload")) "Upload a Transcriptomics and/or Methylomics file to preview it here."
-               else "Click \"Load example data\" to preview it here."
+               else "Click \"Load example data\" to preview both the Transcriptomics (DEG) and Methylomics (DMP/DMR) tables here."
         return(div(class = "empty-note", icon("circle-info"), msg))
       }
       tagList(

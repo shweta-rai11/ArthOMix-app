@@ -101,8 +101,7 @@ mod_crossancestry_ui <- function(id) {
           tabPanel("Male", br(), mod_crossancestry_sex_panel(ns, "male"))
         )
       )
-    ),
-    uiOutput(ns("references_box_ui"))
+    )
     )
   )
 }
@@ -312,24 +311,5 @@ mod_crossancestry_server <- function(id, dataset, results) {
 
     register_sex_outputs("female", result_female)
     register_sex_outputs("male", result_male)
-
-    output$references_box_ui <- renderUI({
-      tags$details(
-        class = "box box-primary",
-        tags$summary(class = "box-header", style = "cursor: pointer;", tags$h3(class = "box-title", "References")),
-        div(class = "box-body",
-        tags$ul(
-          class = "dge-ref-list",
-          tags$li(strong("Discovery / replication / transfer GWAS: "), "Okada Y, et al. (2014). Genetics of rheumatoid arthritis contributes to biology and drug discovery. ", tags$em("Nature"), ", 506(7488), 376-381; Stahl EA, et al. (2010). ", tags$em("Nat Genet"), ", 42(6), 508-514; Ishigaki K, et al. (2020). ", tags$em("Nat Genet"), ", 52(7), 669-679."),
-          tags$li(strong("Instrument construction & strength: "), "Võsa U, et al. (2021). ", tags$em("Nat Genet"), ", 53(9), 1300-1310; Burgess S, Thompson SG (2011). ", tags$em("Int J Epidemiol"), ", 40(3), 755-764."),
-          tags$li(strong("MR estimators: "), "Burgess S, Butterworth A, Thompson SG (2013). ", tags$em("Genet Epidemiol"), ", 37(7), 658-665; Bowden J, Davey Smith G, Burgess S (2015). ", tags$em("Int J Epidemiol"), ", 44(2), 512-525; Bowden J, et al. (2016). ", tags$em("Genet Epidemiol"), ", 40(4), 304-314."),
-          tags$li(strong("MR-Base / TwoSampleMR / OpenGWAS: "), "Hemani G, et al. (2018). ", tags$em("eLife"), ", 7, e34408; Elsworth B, et al. (2020). ", tags$em("bioRxiv"), "."),
-          tags$li(strong("Cross-ancestry portability caveat: "), "Martin AR, et al. (2019). Clinical use of current polygenic risk scores may exacerbate health disparities. ", tags$em("Nat Genet"), ", 51(4), 584-591."),
-          tags$li(strong("Multiple-testing correction (gene set entry, Section 2.6): "), "Benjamini Y, Hochberg Y (1995). ", tags$em("J R Stat Soc B"), ", 57(1), 289-300.")
-        ),
-        p(class = "submodule-desc", strong("Ask ArthOChat"), " for a plain-language walkthrough or a live citation.")
-        )
-      )
-    })
   })
 }

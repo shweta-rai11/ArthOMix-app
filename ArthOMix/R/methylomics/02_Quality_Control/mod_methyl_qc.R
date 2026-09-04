@@ -802,16 +802,49 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
                         choices = c(if (length(batch_cols) > 0) c("ComBat" = "combat"), if (ruvm_ok) c("RUVm" = "ruvm")),
                         selected = if (length(batch_cols) > 0) "combat" else "ruvm"),
             conditionalPanel(condition = sprintf("input['%s'] == 'combat'", ns("batch_method")),
-              if (length(batch_cols) > 0) selectInput(ns("batch_col"), "Batch / chip column", choices = batch_cols, selected = batch_cols[1])),
+              if (length(batch_cols) > 0) selectInput(ns("batch_col"), "Batch / chip column", choices = batch_cols, selected = batch_cols[1]),
+              if (length(batch_cols) > 0 && !is.null(sheet)) selectInput(
+                ns("batch_phenotype_col"), "Phenotype/group column to check for confounding",
+                choices = colnames(sheet),
+                selected = intersect(c("group", "Group", "disease", "Disease"), colnames(sheet))[1] %||% colnames(sheet)[1]),
+              if (length(batch_cols) > 0) uiOutput(ns("meth_confound_ui"))),
             conditionalPanel(condition = sprintf("input['%s'] == 'ruvm'", ns("batch_method")),
               if (!is.null(sheet)) selectInput(ns("ruvm_group_col"), "Factor of interest to protect (e.g. disease/control)", choices = colnames(sheet), selected = colnames(sheet)[1])
               else p(class = "empty-note", icon("triangle-exclamation"), "No sample sheet - RUVm needs a factor-of-interest column."),
               numericInput(ns("ruvm_k"), "Unwanted-variation factors (k)", value = 1, min = 1, max = 10, step = 1),
               p(class = "submodule-desc", "RUVm (Maksimovic et al. 2015) estimates unwanted variation from the array's own internal negative-control probes, conditioned on the factor above - it doesn't need a batch label the way ComBat does.")),
+            conditionalPanel(condition = sprintf("input['%s'] == 'combat'", ns("batch_method")), uiOutput(ns("meth_confound_override_ui"))),
             actionButton(ns("run_batch_btn"), "Run Batch QC", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         uiOutput(ns("batch_qc_gate"))
       )
+    })
+
+    meth_confounded_now <- reactive({
+      sheet <- methyl_dataset$sample_sheet
+      req(sheet, input$batch_col, input$batch_phenotype_col,
+          input$batch_col %in% colnames(sheet), input$batch_phenotype_col %in% colnames(sheet))
+      cc <- multi_live_confounding_check(sheet, input$batch_col, input$batch_phenotype_col)
+      isTRUE(cc$confounded)
+    })
+
+    output$meth_confound_ui <- renderUI({
+      sheet <- methyl_dataset$sample_sheet
+      req(sheet, input$batch_col, input$batch_phenotype_col,
+          input$batch_col %in% colnames(sheet), input$batch_phenotype_col %in% colnames(sheet))
+      cc <- multi_live_confounding_check(sheet, input$batch_col, input$batch_phenotype_col)
+      if (is.null(cc)) return(NULL)
+      if (isTRUE(cc$confounded)) {
+        div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
+            " Potential confounding detected: the batch column and the chosen phenotype column are strongly associated - every batch level maps to essentially one phenotype level. ComBat may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
+      } else {
+        div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
+      }
+    })
+
+    output$meth_confound_override_ui <- renderUI({
+      if (!isTRUE(tryCatch(meth_confounded_now(), error = function(e) FALSE))) return(NULL)
+      checkboxInput(ns("meth_confound_override"), "I understand batch and the phenotype column appear confounded and want to proceed anyway.", value = FALSE)
     })
 
     batch_qc_result <- eventReactive(input$run_batch_btn, {
@@ -824,6 +857,13 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
 
       scale <- methyl_dataset$input_scale %||% "beta"
       if (identical(input$batch_method, "combat")) {
+        if (!is.null(input$batch_phenotype_col) && input$batch_phenotype_col %in% colnames(sheet)) {
+          cc <- multi_live_confounding_check(sheet, input$batch_col, input$batch_phenotype_col)
+          validate(need(
+            is.null(cc) || !isTRUE(cc$confounded) || isTRUE(input$meth_confound_override),
+            "Batch correction is blocked: the batch column and the chosen phenotype column appear confounded (every batch level maps to a single phenotype level). This cannot reliably separate batch from phenotype and correction could remove genuine biological signal. Check the override box above \"Run Batch QC\" to proceed anyway, or choose a different batch/phenotype column."
+          ))
+        }
         sample_ids <- methyl_sheet_sample_ids(sheet, colnames(mat))
         batch <- stats::setNames(as.character(sheet[[input$batch_col]]), sample_ids)[colnames(mat)]
         validate(need(!any(is.na(batch)), "Some samples in this run have no value in the chosen batch column."))

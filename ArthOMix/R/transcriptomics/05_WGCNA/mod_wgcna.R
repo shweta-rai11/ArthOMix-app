@@ -460,6 +460,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           out <- get_or_compute_wgcna_blocks(
             list(texpr = texpr, powers = powers, network_type = input$network_type,
                  cor_method = input$cor_method, r_sq_cutoff = input$r_sq_cutoff, step = "sft"),
+            persist_disk = !dataset_is_uploaded(),
             function() {
               sft <- WGCNA::pickSoftThreshold(
                 texpr, powerVector = powers, networkType = input$network_type,
@@ -721,6 +722,7 @@ mod_wgcna_server <- function(id, dataset, results) {
                merge_cut_height = input$merge_cut_height,
                pam_respects_dendro = isTRUE(input$pam_respects_dendro),
                reassign_threshold = reassign_threshold, seed = net_seed),
+          persist_disk = !dataset_is_uploaded(),
           function() WGCNA::blockwiseModules(
             texpr,
             power = power, networkType = input$network_type, TOMType = input$tom_type,
@@ -817,6 +819,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       full_tom <- get_or_compute_wgcna_blocks(
         list(texpr = net$texpr, power = net$power, network_type = net$network_type,
              tom_type = net$tom_type, cor_method = net$cor_method, step = "tom_full"),
+        persist_disk = !dataset_is_uploaded(),
         function() WGCNA::TOMsimilarityFromExpr(
           net$texpr, power = net$power, networkType = net$network_type,
           TOMType = net$tom_type, corType = net$cor_method, verbose = 0

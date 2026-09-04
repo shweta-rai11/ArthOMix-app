@@ -507,6 +507,86 @@ pp_tab_title <- function(ic, label) {
   tagList(icon(ic), " ", label)
 }
 
+pp_study_wise_limma <- function(expr, meta, study_col, ref_group, comp_group, min_n = 3) {
+  studies <- sort(unique(stats::na.omit(as.character(meta[[study_col]]))))
+  per_study <- list(); skipped <- character(0)
+  for (s in studies) {
+    idx <- which(as.character(meta[[study_col]]) == s & as.character(meta$group) %in% c(ref_group, comp_group))
+    y <- factor(as.character(meta$group[idx]), levels = c(ref_group, comp_group))
+    if (length(idx) < 2 * min_n || any(table(y) < min_n)) { skipped <- c(skipped, s); next }
+    x <- as.matrix(expr[, meta$sample[idx], drop = FALSE])
+    x <- x[stats::complete.cases(x), , drop = FALSE]
+    if (nrow(x) < 10) { skipped <- c(skipped, s); next }
+    design <- stats::model.matrix(~ y)
+    pos <- x[x > 0]
+    q99 <- if (length(pos)) stats::quantile(pos, 0.99, na.rm = TRUE) else NA_real_
+    looks_like_counts <- is.finite(q99) && q99 > 100 && all(x >= 0, na.rm = TRUE) &&
+      mean(abs(x - round(x)) < 1e-6, na.rm = TRUE) > 0.99
+    if (looks_like_counts) {
+      dge <- edgeR::DGEList(counts = round(x))
+      keep <- edgeR::filterByExpr(dge, group = y)
+      dge <- edgeR::calcNormFactors(dge[keep, , keep.lib.sizes = FALSE], method = "TMM")
+      v <- limma::voom(dge, design)
+      fit <- limma::eBayes(limma::lmFit(v, design))
+      method <- "limma-voom (TMM, raw counts)"
+    } else {
+      if (needs_quantile_norm(summarize_norm_diagnostics(x))) {
+        x <- limma::normalizeBetweenArrays(x, method = "quantile")
+        method <- "limma (quantile-normalised within study)"
+      } else {
+        method <- "limma"
+      }
+      fit <- limma::eBayes(limma::lmFit(x, design))
+    }
+    se <- sqrt(fit$s2.post) * fit$stdev.unscaled[, 2]
+    per_study[[s]] <- data.frame(
+      gene = rownames(fit$coefficients), logFC = unname(fit$coefficients[, 2]), se = unname(se),
+      p = unname(fit$p.value[, 2]), n_ref = sum(y == ref_group), n_comp = sum(y == comp_group),
+      method = method, stringsAsFactors = FALSE
+    )
+  }
+  list(per_study = per_study, skipped = skipped)
+}
+
+pp_dl_meta <- function(per_study) {
+  genes <- Reduce(union, lapply(per_study, `[[`, "gene"))
+  k <- length(per_study)
+  Y  <- vapply(per_study, function(d) d$logFC[match(genes, d$gene)], numeric(length(genes)))
+  SE <- vapply(per_study, function(d) d$se[match(genes, d$gene)], numeric(length(genes)))
+  if (is.null(dim(Y))) { Y <- matrix(Y, ncol = k); SE <- matrix(SE, ncol = k) }
+  colnames(Y) <- colnames(SE) <- names(per_study)
+  W <- 1 / SE^2
+  n_st <- rowSums(!is.na(Y) & is.finite(SE))
+  sw <- rowSums(W, na.rm = TRUE)
+  theta_fe <- rowSums(W * Y, na.rm = TRUE) / sw
+  Q <- rowSums(W * (Y - theta_fe)^2, na.rm = TRUE)
+  df <- pmax(n_st - 1, 0)
+  C <- sw - rowSums(W^2, na.rm = TRUE) / sw
+  tau2 <- (Q - df) / C
+  tau2[!is.finite(tau2) | tau2 < 0] <- 0
+  Wr <- 1 / (SE^2 + tau2)
+  swr <- rowSums(Wr, na.rm = TRUE)
+  theta_re <- rowSums(Wr * Y, na.rm = TRUE) / swr
+  se_re <- sqrt(1 / swr)
+  z <- theta_re / se_re
+  p <- 2 * stats::pnorm(-abs(z))
+  I2 <- ifelse(Q > 0 & df > 0, pmax(0, (Q - df) / Q) * 100, 0)
+  Qp <- ifelse(df > 0, stats::pchisq(Q, df, lower.tail = FALSE), NA_real_)
+  res <- data.frame(
+    gene = genes, n_studies = n_st,
+    logFC_pooled = theta_re, se_pooled = se_re,
+    ci_low = theta_re - 1.96 * se_re, ci_high = theta_re + 1.96 * se_re,
+    z = z, p_value = p, adj_p = NA_real_,
+    logFC_fixed = theta_fe, tau2 = tau2, Q = Q, Q_pvalue = Qp, I2 = I2,
+    stringsAsFactors = FALSE
+  )
+  colnames(Y) <- paste0("logFC_", names(per_study))
+  res <- cbind(res, as.data.frame(Y))
+  res <- res[res$n_studies >= 2, , drop = FALSE]
+  if (nrow(res)) res$adj_p <- stats::p.adjust(res$p_value, method = "BH")
+  res[order(res$p_value), , drop = FALSE]
+}
+
 mod_preprocessing_ui <- function(id) {
   ns <- NS(id)
 
@@ -529,6 +609,10 @@ mod_preprocessing_ui <- function(id) {
       tabPanel(
         value = "Batch correction", title = pp_tab_title("wand-magic-sparkles", "Batch Correction"),
         br(), uiOutput(ns("batch_tab_ui"))
+      ),
+      tabPanel(
+        value = "Study-wise meta-analysis", title = pp_tab_title("layer-group", "Study-wise Meta-analysis"),
+        br(), uiOutput(ns("meta_tab_ui"))
       ),
       tabPanel(
         value = "Explore", title = tagList(icon("magnifying-glass-chart"), " Data Exploration"),
@@ -1257,6 +1341,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         selectInput(ns("batch_col"), "Batch column to correct for",
                     choices = cols,
                     selected = if (length(batch_default) > 0) batch_default[1] else cols[1], selectize = FALSE),
+        uiOutput(ns("confound_ui")),
         {
           tagList(
             radioButtons(
@@ -1323,9 +1408,36 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           )
         },
         sliderInput(ns("mad_k"), "Outlier sensitivity (MADs from the cohort median)", min = 2, max = 6, value = 3, step = 0.5),
+        uiOutput(ns("confound_override_ui")),
         actionButton(ns("run_btn"), "Run normalisation and batch correction",
                       icon = icon("play"), class = "btn-primary btn-sm")
       )
+    })
+
+    confounded_now <- reactive({
+      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      req(meta, input$batch_col, input$batch_col %in% colnames(meta), "group" %in% colnames(meta))
+      cc <- multi_live_confounding_check(meta, input$batch_col, "group")
+      isTRUE(cc$confounded)
+    })
+
+    output$confound_ui <- renderUI({
+      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      req(meta, input$batch_col, input$batch_col %in% colnames(meta))
+      if (!"group" %in% colnames(meta)) return(NULL)
+      cc <- multi_live_confounding_check(meta, input$batch_col, "group")
+      if (is.null(cc)) return(NULL)
+      if (isTRUE(cc$confounded)) {
+        div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
+            " Potential confounding detected: the batch column and the group (phenotype) column are strongly associated - every batch level maps to essentially one group. Batch correction may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
+      } else {
+        div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
+      }
+    })
+
+    output$confound_override_ui <- renderUI({
+      if (!isTRUE(tryCatch(confounded_now(), error = function(e) FALSE))) return(NULL)
+      checkboxInput(ns("confound_override"), "I understand batch and the group column appear confounded and want to proceed anyway.", value = FALSE)
     })
 
     output$ref_batch_ui <- renderUI({
@@ -1351,7 +1463,26 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     result <- eventReactive(input$run_btn, {
       req(input$batch_col, input$color_by)
 
-    
+      {
+        skip_combat_early <- isTRUE(input$skip_combat)
+        correction_method_early <- input$correction_method %||% "combat"
+        using_batch_col_for_correction <- !skip_combat_early && (
+          identical(correction_method_early, "combat") ||
+          identical(correction_method_early, "limma") ||
+          (identical(input$norm_method %||% "auto", "tmm") && identical(input$tmm_correction_stage %||% "post", "pre"))
+        )
+        if (using_batch_col_for_correction) {
+          meta_cc <- tryCatch(active_meta_df(), error = function(e) NULL)
+          if (!is.null(meta_cc) && input$batch_col %in% colnames(meta_cc) && "group" %in% colnames(meta_cc)) {
+            cc <- multi_live_confounding_check(meta_cc, input$batch_col, "group")
+            validate(need(
+              is.null(cc) || !isTRUE(cc$confounded) || isTRUE(input$confound_override),
+              "Batch correction is blocked: the batch column and the group (phenotype) column appear confounded (every batch level maps to a single group). This cannot reliably separate batch from phenotype and correction could remove genuine biological signal. Check the override box above \"Run normalisation and batch correction\" to proceed anyway, or choose SVA or a different batch column."
+            ))
+          }
+        }
+      }
+
       combat_fallback_note <- NULL
 
       {
@@ -1954,6 +2085,124 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     for (bc_out in c("batch_tab_ui", "settings_ui", "ref_batch_ui", "results_top_ui", "results_rest_ui")) {
       outputOptions(output, bc_out, suspendWhenHidden = FALSE)
     }
+
+    output$meta_tab_ui <- renderUI({
+      m <- tryCatch(merged(), error = function(e) NULL)
+      intro <- div(class = "empty-note", icon("circle-info"),
+        "Alternative to the Batch correction tab for studies that are NOT directly comparable (different platforms, tissues, populations or processing). Instead of pooling samples and correcting batch, each study is analysed on its own (limma; limma-voom with TMM if a study is raw counts) and the per-study log2 fold-changes are combined per gene by inverse-variance random-effects meta-analysis (DerSimonian-Laird), with between-study heterogeneity (tau2, Cochran's Q, I2) reported. Use Batch correction when the studies are compatible enough to pool; use this tab when they are not.")
+      if (is.null(m)) {
+        return(tagList(intro, div(class = "empty-note", icon("triangle-exclamation"),
+                                  "Finish the Merge datasets tab first - this tab needs two or more merged studies.")))
+      }
+      cols <- colnames(m$meta)
+      if (!"group" %in% cols) return(tagList(intro, div(class = "empty-note", icon("triangle-exclamation"), "The merged metadata needs a group column.")))
+      groups <- sort(unique(stats::na.omit(as.character(m$meta$group))))
+      study_default <- intersect(c("dataset", "study", "cohort", "batch"), cols)[1]
+      tagList(
+        intro,
+        fluidRow(
+          column(6, bc_section("sliders", "Settings",
+            selectInput(ns("meta_study_col"), "Study column (one level per independent study)", choices = cols,
+                        selected = if (is.na(study_default)) cols[1] else study_default, selectize = FALSE),
+            selectInput(ns("meta_ref_group"), "Reference group", choices = groups, selected = groups[1], selectize = FALSE),
+            selectInput(ns("meta_comp_group"), "Comparison group", choices = groups, selected = groups[min(2, length(groups))], selectize = FALSE),
+            numericInput(ns("meta_min_n"), "Minimum samples per group within a study", value = 3, min = 2, step = 1),
+            actionButton(ns("meta_run_btn"), "Run study-wise meta-analysis", icon = icon("play"), class = "btn-primary btn-sm")
+          )),
+          column(6, withSpinner(uiOutput(ns("meta_summary_ui")), color = "#2563EB", type = 6))
+        ),
+        withSpinner(uiOutput(ns("meta_results_ui")), color = "#2563EB", type = 6)
+      )
+    })
+
+    meta_result <- eventReactive(input$meta_run_btn, {
+      m <- merged()
+      req(input$meta_study_col, input$meta_ref_group, input$meta_comp_group)
+      validate(need("group" %in% colnames(m$meta), "The merged metadata needs a group column."))
+      validate(need(input$meta_ref_group != input$meta_comp_group, "Reference and comparison group must be different."))
+      validate(need(input$meta_study_col %in% colnames(m$meta), "Choose a study column."))
+      n_studies <- length(unique(stats::na.omit(as.character(m$meta[[input$meta_study_col]]))))
+      validate(need(n_studies >= 2, "Study-wise meta-analysis needs at least two studies in the chosen study column. With a single study, use the Batch correction tab (tick \"Skip batch correction\" if there is no batch)."))
+      min_n <- max(2L, as.integer(input$meta_min_n %||% 3))
+      sw <- withProgress(message = "Fitting one limma model per study...", value = 0.3,
+        pp_study_wise_limma(m$expr, m$meta, input$meta_study_col, input$meta_ref_group, input$meta_comp_group, min_n = min_n))
+      validate(need(length(sw$per_study) >= 2, sprintf(
+        "Fewer than two studies have at least %d samples in both groups (skipped: %s).", min_n,
+        if (length(sw$skipped)) paste(sw$skipped, collapse = ", ") else "none")))
+      meta_tbl <- pp_dl_meta(sw$per_study)
+      validate(need(nrow(meta_tbl) > 0, "No gene was measured in at least two studies."))
+      res <- list(per_study = sw$per_study, skipped = sw$skipped, table = meta_tbl,
+                  ref_group = input$meta_ref_group, comp_group = input$meta_comp_group,
+                  study_col = input$meta_study_col, run_at = Sys.time())
+      if (!is.null(results)) {
+        results$study_meta <- list(
+          contrast = sprintf("%s vs %s", input$meta_comp_group, input$meta_ref_group),
+          studies = names(sw$per_study), n_genes = nrow(meta_tbl),
+          n_significant = sum(meta_tbl$adj_p < 0.05, na.rm = TRUE), timestamp = Sys.time())
+      }
+      res
+    }, ignoreInit = TRUE)
+
+    output$meta_summary_ui <- renderUI({
+      r <- tryCatch(meta_result(), error = function(e) NULL)
+      if (is.null(r)) return(div(class = "empty-note", icon("circle-info"), "Not run yet. Choose the study column and groups, then click \"Run study-wise meta-analysis\"."))
+      n_sig <- sum(r$table$adj_p < 0.05, na.rm = TRUE)
+      n_het <- sum(r$table$I2 > 50, na.rm = TRUE)
+      tagList(
+        p(strong("Studies combined: "), paste(names(r$per_study), collapse = ", "),
+          if (length(r$skipped)) sprintf(" (skipped for too few samples: %s)", paste(r$skipped, collapse = ", ")) else ""),
+        p(strong(format(nrow(r$table), big.mark = ",")), " genes measured in at least two studies; ",
+          strong(format(n_sig, big.mark = ",")), sprintf(" with pooled FDR < 0.05 (%s vs %s).", r$comp_group, r$ref_group)),
+        p(strong(format(n_het, big.mark = ",")), " genes show substantial between-study heterogeneity (I2 > 50%) - interpret their pooled effect with caution."),
+        p(class = "submodule-desc", "No batch correction was applied: each study is modelled separately, so study-level technical differences cannot be mistaken for biology the way they can after pooling. The cost is lower power than a compatible pooled analysis.")
+      )
+    })
+
+    output$meta_study_table <- DT::renderDataTable({
+      r <- meta_result()
+      df <- do.call(rbind, lapply(names(r$per_study), function(s) {
+        d <- r$per_study[[s]]
+        data.frame(study = s, n_ref = d$n_ref[1], n_comp = d$n_comp[1], n_genes = nrow(d), model = d$method[1], stringsAsFactors = FALSE)
+      }))
+      DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    output$meta_table <- DT::renderDataTable({
+      r <- meta_result()
+      num <- setdiff(names(r$table)[vapply(r$table, is.numeric, logical(1))], "n_studies")
+      DT::datatable(r$table, rownames = FALSE, filter = "top",
+                    options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact") %>%
+        DT::formatSignif(columns = num, digits = 4)
+    })
+
+    output$meta_volcano <- renderPlot({
+      r <- meta_result()
+      df <- r$table
+      df$het <- ifelse(is.na(df$I2), "NA", ifelse(df$I2 > 50, "I2 > 50%", "I2 <= 50%"))
+      ggplot(df, aes(x = logFC_pooled, y = -log10(pmax(p_value, 1e-300)), color = het)) +
+        geom_point(alpha = 0.6, size = 1.4) +
+        scale_color_manual(values = c("I2 <= 50%" = ARTHOMIX_COLORS$blue, "I2 > 50%" = ARTHOMIX_COLORS$orange, "NA" = "grey70"), name = "Heterogeneity") +
+        labs(x = sprintf("Pooled log2 fold-change (%s vs %s, random effects)", r$comp_group, r$ref_group), y = "-log10 pooled p-value") +
+        theme_arthomix(base_size = 12)
+    })
+
+    output$meta_download <- downloadHandler(
+      filename = function() "study_wise_meta_analysis.csv",
+      content = function(file) write.csv(meta_result()$table, file, row.names = FALSE)
+    )
+
+    output$meta_results_ui <- renderUI({
+      r <- tryCatch(meta_result(), error = function(e) NULL)
+      if (is.null(r)) return(NULL)
+      tagList(
+        bc_section("table", "Per-study models", DT::dataTableOutput(ns("meta_study_table"))),
+        bc_section("chart-simple", "Pooled effects", plotOutput(ns("meta_volcano"), height = 380)),
+        bc_section("table-list", "Meta-analysis table",
+                   div(class = "table-toolbar", downloadButton(ns("meta_download"), "Download CSV", class = "btn-sm")),
+                   DT::dataTableOutput(ns("meta_table")))
+      )
+    })
+    outputOptions(output, "meta_tab_ui", suspendWhenHidden = FALSE)
 
   
     mod_data_exploration_server("eda")

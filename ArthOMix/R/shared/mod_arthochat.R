@@ -18,24 +18,39 @@ ARTHOCHAT_MAX_EXECUTIONS <- 5L
 ARTHOCHAT_TEMPERATURE <- 0
 ARTHOCHAT_SEED <- 20260904L
 
-## Module labels ArthOChat's context builders use as "## <label>" section
-## headers (see build_tx_context()/build_mx_context()/build_cx_context()/
+## Module labels ArthOChat's context builders use as "### <label>" (and, for
+## the vertical-level dataset/results headers, "## <label>") section headers
+## (see build_tx_context()/build_mx_context()/build_cx_context()/
 ## build_mo_context() and .format_results_block() in R/modules_index.R).
 ## Used by arthochat_detect_ungrounded_reference() to recognise when the
 ## model's response names a specific sub-module, and by
 ## arthochat_grounded_modules_label() to summarise which ones actually had
 ## live data this turn.
-ARTHOCHAT_KNOWN_MODULES <- c(
-  "Differential Expression", "WGCNA", "Candidate Gene Identification", "Feature Selection",
-  "Diagnostic Model", "Diagnostic Classifier", "Nomogram", "Biomarker Card",
-  "Mendelian Randomization", "Colocalization", "Cross-Tissue Validation", "Cross-Ancestral Validation",
-  "Functional Enrichment", "Immune Deconvolution", "Sex Interaction Analysis",
-  "Quality Control", "Normalisation", "Cell-Type Deconvolution", "Differential Methylation Position",
-  "Differential Methylation Region", "Candidate CpGs", "ML Feature Selection", "Validation",
-  "Expression and Methylation Integration", "Biomarker Convergence", "Cross-Omics MR",
-  "Cohort Harmonization", "DIABLO/SNF Integration", "SNF Clustering", "Biomarker Discovery",
-  "Gene-CpG Mapping", "Pathways", "Results Summary"
-)
+##
+## Computed from the live TX_MODULES/MX_MODULES/CX_MODULES/MULTI_MODULES
+## config$title values (R/modules_index.R) rather than hand-maintained as a
+## parallel literal list: a hardcoded copy silently drifts out of sync with
+## the real titles (mismatched US/UK spelling, renamed titles, punctuation
+## differences) and the substring match below then never fires for that
+## module - i.e. exactly the bug this guard exists to prevent, just moved
+## into the guard's own module list instead of the model's answer. This is a
+## function, not a top-level constant, because R/shared/*.R (where this file
+## lives) is sourced before R/modules_index.R (0b_load_shared_modules.R runs
+## before modules_index.R); it's only ever called at chat-turn time, by which
+## point every R/*.R file has been sourced and the *_MODULES lists exist.
+.arthochat_known_modules <- function() {
+  registries <- list(
+    mget("TX_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]],
+    mget("MX_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]],
+    mget("CX_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]],
+    mget("MULTI_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]]
+  )
+  titles <- unlist(lapply(registries, function(reg) {
+    if (is.null(reg)) return(character(0))
+    vapply(reg, function(m) m$config$title %||% NA_character_, character(1))
+  }))
+  unique(titles[!is.na(titles) & nzchar(titles)])
+}
 
 ## Scans a draft assistant response for a mention of a known sub-module that
 ## the CURRENT context (system prompt, including the "## <module>" sections
@@ -56,18 +71,22 @@ ARTHOCHAT_KNOWN_MODULES <- c(
 ## whole context) so one module's own marker can never be mistaken for a
 ## different, unrelated module's status just because they're both short
 ## sections close together in the same context block.
-.arthochat_classify_context_modules <- function(context_text, known_modules = ARTHOCHAT_KNOWN_MODULES) {
+.arthochat_classify_context_modules <- function(context_text, known_modules = .arthochat_known_modules()) {
   empty <- list(not_run = character(0), grounded = character(0))
   if (is.null(context_text) || !nzchar(trimws(context_text %||% ""))) return(empty)
   lines <- strsplit(context_text, "\n", fixed = TRUE)[[1]]
-  header_idx <- grep("^## ", lines)
+  ## Vertical-level headers use "## ", per-sub-module headers (the ones this
+  ## function actually needs to classify) use "### " - matching only "## "
+  ## silently never found any per-sub-module header, so this guard never
+  ## fired against real context text (see tests/arthochat_verification).
+  header_idx <- grep("^#{2,3} ", lines)
   if (!length(header_idx)) return(empty)
 
   not_run <- character(0); grounded <- character(0)
   for (i in seq_along(header_idx)) {
     start <- header_idx[i]
     end <- if (i < length(header_idx)) header_idx[i + 1] - 1 else length(lines)
-    label_raw <- trimws(sub("^## ", "", lines[start]))
+    label_raw <- trimws(sub("^#{2,3} ", "", lines[start]))
     hits <- known_modules[vapply(known_modules, function(m) grepl(tolower(m), tolower(label_raw), fixed = TRUE), logical(1))]
     if (!length(hits)) next
     section_text <- paste(lines[start:end], collapse = " ")
@@ -92,7 +111,7 @@ ARTHOCHAT_KNOWN_MODULES <- c(
 ## R/modules_index.R (which addresses the specific root cause the harness
 ## found, but not every way a response could still reference an unrun module).
 arthochat_detect_ungrounded_reference <- function(response_text, context_text,
-                                                   known_modules = ARTHOCHAT_KNOWN_MODULES) {
+                                                   known_modules = .arthochat_known_modules()) {
   empty <- list(flagged = FALSE, modules = character(0))
   if (is.null(response_text) || !nzchar(trimws(response_text %||% ""))) return(empty)
   resp_lower <- tolower(response_text)
@@ -115,7 +134,7 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
 ## CURRENT context actually had live session data for - shown to the user
 ## only when arthochat_detect_ungrounded_reference() did NOT flag the
 ## response, so the footer never contradicts a caveat already given.
-arthochat_grounded_modules_label <- function(context_text, known_modules = ARTHOCHAT_KNOWN_MODULES) {
+arthochat_grounded_modules_label <- function(context_text, known_modules = .arthochat_known_modules()) {
   paste(.arthochat_classify_context_modules(context_text, known_modules)$grounded, collapse = ", ")
 }
 

@@ -497,7 +497,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
                          reassign_threshold = input$reassign_threshold, min_kme_to_stay = input$min_kme_to_stay,
                          min_core_kme = input$min_core_kme, seed = net_seed)
       net <- withProgress(message = "Running WGCNA (blockwiseModules) - this can take a while on large probe sets...", value = 0.3, {
-        get_or_compute_meth_wgcna_blocks(key_parts, function() {
+        get_or_compute_meth_wgcna_blocks(key_parts, persist_disk = isTRUE(methyl_dataset$preloaded), function() {
           WGCNA::blockwiseModules(
             texpr, power = input$net_power, networkType = sft$network_type, TOMType = input$tom_type,
             corType = cor_type, deepSplit = as.integer(input$deep_split), minModuleSize = input$min_module_size,

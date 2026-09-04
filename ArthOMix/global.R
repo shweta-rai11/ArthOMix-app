@@ -146,15 +146,15 @@ get_raw_eset <- function(gse_id) {
   .arthomix_cache[[key]]
 }
 
-get_or_compute_wgcna_blocks <- function(key_parts, compute_fn) {
+get_or_compute_wgcna_blocks <- function(key_parts, compute_fn, persist_disk = TRUE) {
   cache_key <- paste0("wgcna_", digest::digest(key_parts, algo = "xxhash64"))
   if (!is.null(.arthomix_cache[[cache_key]])) return(.arthomix_cache[[cache_key]])
   disk_path <- file.path(WGCNA_CACHE_DIR, paste0(cache_key, ".rds"))
-  result <- if (file.exists(disk_path)) {
+  result <- if (persist_disk && file.exists(disk_path)) {
     readRDS(disk_path)
   } else {
     result <- compute_fn()
-    tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
+    if (persist_disk) tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
     result
   }
   .arthomix_cache[[cache_key]] <- result
@@ -240,15 +240,15 @@ MULTI_MOFA_AVAILABLE <- requireNamespace("MOFA2", quietly = TRUE)
 MULTI_DIABLO_LIVE_AVAILABLE <- requireNamespace("mixOmics", quietly = TRUE)
 MULTI_SNF_LIVE_AVAILABLE <- requireNamespace("SNFtool", quietly = TRUE)
 
-get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn) {
+get_or_compute_meth_wgcna_blocks <- function(key_parts, compute_fn, persist_disk = TRUE) {
   cache_key <- paste0("methwgcna_", digest::digest(key_parts, algo = "xxhash64"))
   if (!is.null(.arthomix_cache[[cache_key]])) return(.arthomix_cache[[cache_key]])
   disk_path <- file.path(METH_WGCNA_CACHE_DIR, paste0(cache_key, ".rds"))
-  result <- if (file.exists(disk_path)) {
+  result <- if (persist_disk && file.exists(disk_path)) {
     readRDS(disk_path)
   } else {
     result <- compute_fn()
-    tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
+    if (persist_disk) tryCatch(saveRDS(result, disk_path), error = function(e) NULL)
     result
   }
   .arthomix_cache[[cache_key]] <- result
@@ -447,6 +447,64 @@ load_individual_dataset <- function(gse_id) {
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+INTERACTION_VIEW_CHOICES <- c(
+  "Group x sex interaction (primary)"        = "interaction",
+  "Disease effect within reference sex"      = "group",
+  "Disease effect within comparison sex"     = "within_comp_sex",
+  "Main sex effect (within reference group)" = "sex"
+)
+
+interaction_min_detectable_effect <- function(cell_table) {
+  n <- as.numeric(cell_table)
+  if (length(n) == 0 || any(n <= 0)) return(NA_real_)
+  (stats::qnorm(0.975) + stats::qnorm(0.80)) * sqrt(sum(1 / n))
+}
+
+interaction_build_design <- function(grp, sx, covariate_df) {
+  df <- data.frame(.grp = grp, .sx = sx)
+  cov_terms <- character(0)
+  if (!is.null(covariate_df) && ncol(covariate_df) > 0) {
+    for (i in seq_len(ncol(covariate_df))) {
+      raw <- covariate_df[[i]]
+      nm <- paste0(".cov", i)
+      label <- colnames(covariate_df)[i]
+      if (is.numeric(raw)) {
+        validate(need(isTRUE(stats::sd(raw, na.rm = TRUE) > 0), sprintf(
+          "The covariate \"%s\" is constant in this sample selection - remove it or choose a different one.", label)))
+        df[[nm]] <- raw
+      } else {
+        f <- droplevels(factor(as.character(raw)))
+        validate(need(nlevels(f) >= 2, sprintf(
+          "The covariate \"%s\" has fewer than two levels in this sample selection - remove it or choose a different one.", label)))
+        df[[nm]] <- f
+      }
+      cov_terms <- c(cov_terms, nm)
+    }
+  }
+  form <- stats::as.formula(paste("~ .grp * .sx", if (length(cov_terms)) paste("+", paste(cov_terms, collapse = " + ")) else ""))
+  design <- stats::model.matrix(form, data = df)
+  validate(need(qr(design)$rank == ncol(design),
+                "This combination of groups, sexes, and covariates produces a design matrix that isn't full rank (some group-by-sex cell is empty, or a covariate is collinear with group/sex). Remove a covariate, or pick different comparisons."))
+  coef_names <- colnames(design)
+  interaction_coef <- coef_names[grepl(":", coef_names, fixed = TRUE)]
+  validate(need(length(interaction_coef) == 1, "Could not uniquely identify the interaction coefficient in this design."))
+  main_group_coef <- coef_names[grepl("^\\.grp", coef_names) & !grepl(":", coef_names, fixed = TRUE)][1]
+  main_sex_coef   <- coef_names[grepl("^\\.sx", coef_names) & !grepl(":", coef_names, fixed = TRUE)][1]
+  cm <- matrix(0, nrow = ncol(design), ncol = 1, dimnames = list(coef_names, "within_comp_sex"))
+  cm[main_group_coef, 1] <- 1
+  cm[interaction_coef, 1] <- 1
+  list(design = design, contrast = cm,
+       coef_names = list(interaction = interaction_coef, group = main_group_coef,
+                         within_comp_sex = sprintf("%s + %s", main_group_coef, interaction_coef), sex = main_sex_coef))
+}
+
+multi_live_confounding_check <- function(meta, batch_col, phenotype_col) {
+  if (is.null(meta) || !all(c(batch_col, phenotype_col) %in% colnames(meta))) return(NULL)
+  tab <- table(meta[[batch_col]], meta[[phenotype_col]])
+  p <- tryCatch(stats::chisq.test(tab, simulate.p.value = TRUE, B = 2000)$p.value, error = function(e) NA_real_)
+  list(table = tab, p_value = p, confounded = any(rowSums(tab > 0) == 1))
+}
 
 guess_column_by_name <- function(cols, exact, contains = exact, fallback = cols[1]) {
   hit <- cols[tolower(cols) %in% tolower(exact)]

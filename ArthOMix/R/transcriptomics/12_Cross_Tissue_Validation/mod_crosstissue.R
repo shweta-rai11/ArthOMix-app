@@ -684,8 +684,7 @@ mod_crosstissue_ui <- function(id) {
           )
         )
       )
-    ),
-    uiOutput(ns("references_box_ui"))
+    )
     )
   )
 }
@@ -1026,27 +1025,6 @@ mod_crosstissue_server <- function(id, dataset, results) {
         "Random Forest" = rf_params_box(),
         "SVM" = svm_params_box(),
         lr_params_box()
-      )
-    })
-
-    output$references_box_ui <- renderUI({
-      req(ct_has_run())
-      tags$details(
-        class = "box box-primary",
-        tags$summary(class = "box-header", style = "cursor: pointer;", tags$h3(class = "box-title", "References")),
-        div(class = "box-body",
-        tags$ul(
-          class = "dge-ref-list",
-          tags$li(strong("Scope of a gene-set, non-transferred validation: "), "Justice AC, Covinsky KE, Berlin JA (1999). Assessing the Generalizability of Prognostic Information. ", tags$em("Ann Intern Med"), ", 130(6), 515-524; Steyerberg EW, Harrell FE (2016). Prediction models need appropriate internal, internal-external, and external validation. ", tags$em("J Clin Epidemiol"), ", 69, 245-247."),
-          tags$li(strong("Apparent AUC as an optimistic upper bound: "), "Harrell FE, Lee KL, Mark DB (1996). Multivariable prognostic models. ", tags$em("Stat Med"), ", 15(4), 361-387."),
-          tags$li(strong("Synovium DE (filterByExpr, TMM, voom, limma, eBayes): "), "Chen Y, Lun ATL, Smyth GK (2016). ", tags$em("F1000Research"), ", 5, 1438; Robinson MD, Oshlack A (2010). ", tags$em("Genome Biology"), ", 11, R25; Law CW, et al. (2014). voom. ", tags$em("Genome Biology"), ", 15, R29; Ritchie ME, et al. (2015). limma. ", tags$em("Nucleic Acids Research"), ", 43(7), e47; Smyth GK (2004). ", tags$em("Stat Appl Genet Mol Biol"), ", 3, Article 3."),
-          tags$li(strong("Multiple-testing correction: "), "Benjamini Y, Hochberg Y (1995). ", tags$em("J R Stat Soc B"), ", 57(1), 289-300."),
-          tags$li(strong("ROC / AUC confidence intervals: "), "DeLong ER, et al. (1988). ", tags$em("Biometrics"), ", 44, 837-845 (n ≥ 20); Carpenter J, Bithell J (2000). ", tags$em("Stat Med"), ", 19, 1141-1164 (n < 20)."),
-          tags$li(strong("Elastic net (glmnet), random forest, SVM, caret: "), "same as Diagnostic Model's References box - Friedman, Hastie & Tibshirani (2010); Zou & Hastie (2005); Breiman (2001); Cortes & Vapnik (1995); Kuhn (2008)."),
-          tags$li(strong("Selection-bias caveat on any fixed, blood-derived panel: "), "Ambroise C, McLachlan GJ (2002). ", tags$em("PNAS"), ", 99(10), 6562-6566.")
-        ),
-        p(class = "submodule-desc", strong("Ask ArthOChat"), " for a plain-language walkthrough or a live citation.")
-        )
       )
     })
 

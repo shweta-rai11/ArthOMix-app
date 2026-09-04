@@ -228,11 +228,53 @@ diag_gene_roc <- function(expr_sub, y) {
 diag_perf_at_cutoff <- function(prob, y, threshold, positive_level) {
   pred_pos <- prob >= threshold
   obs_pos <- y == positive_level
+  TP <- sum(pred_pos & obs_pos); TN <- sum(!pred_pos & !obs_pos)
+  FP <- sum(pred_pos & !obs_pos); FN <- sum(!pred_pos & obs_pos)
+  sens <- if (sum(obs_pos) > 0) TP / sum(obs_pos) else NA_real_
+  spec <- if (sum(!obs_pos) > 0) TN / sum(!obs_pos) else NA_real_
+  prec <- if ((TP + FP) > 0) TP / (TP + FP) else NA_real_
+  npv  <- if ((TN + FN) > 0) TN / (TN + FN) else NA_real_
+  f1   <- if (!is.na(prec) && !is.na(sens) && (prec + sens) > 0) 2 * prec * sens / (prec + sens) else NA_real_
+  bal_acc <- if (!is.na(sens) && !is.na(spec)) (sens + spec) / 2 else NA_real_
+  mcc_den <- sqrt((TP + FP) * (TP + FN) * (TN + FP) * (TN + FN))
+  mcc <- if (is.na(mcc_den) || mcc_den == 0) NA_real_ else (TP * TN - FP * FN) / mcc_den
+  y_bin <- as.integer(obs_pos)
+  brier <- mean((prob - y_bin)^2)
+  pr_auc <- if (sum(y_bin == 1) > 0 && sum(y_bin == 0) > 0) {
+    tryCatch(PRROC::pr.curve(scores.class0 = prob[y_bin == 1], scores.class1 = prob[y_bin == 0], curve = FALSE)$auc.integral,
+              error = function(e) NA_real_)
+  } else NA_real_
   list(
-    sensitivity = if (sum(obs_pos) > 0) sum(pred_pos & obs_pos) / sum(obs_pos) else NA_real_,
-    specificity = if (sum(!obs_pos) > 0) sum(!pred_pos & !obs_pos) / sum(!obs_pos) else NA_real_,
-    accuracy = mean(pred_pos == obs_pos)
+    sensitivity = sens, specificity = spec, accuracy = mean(pred_pos == obs_pos),
+    precision = prec, npv = npv, f1 = f1, balanced_accuracy = bal_acc, mcc = mcc,
+    brier = brier, pr_auc = pr_auc
   )
+}
+
+diag_calibration <- function(y, prob, positive_level, bins = 10) {
+  y_bin <- as.integer(y == positive_level)
+  brks <- unique(seq(0, 1, length.out = bins + 1))
+  bin_id <- cut(prob, brks, include.lowest = TRUE)
+  df <- data.frame(prob = prob, y = y_bin, bin = bin_id)
+  agg <- stats::aggregate(cbind(mean_pred = prob, mean_obs = y) ~ bin, data = df, FUN = mean)
+  n_bin <- as.data.frame(table(bin = df$bin)); names(n_bin) <- c("bin", "n")
+  agg <- merge(agg, n_bin, by = "bin", all.x = TRUE)
+  df$logit_prob <- stats::qlogis(pmin(pmax(prob, 1e-6), 1 - 1e-6))
+  fit <- tryCatch(stats::glm(y ~ logit_prob, family = stats::binomial(), data = df), error = function(e) NULL)
+  list(table = agg, brier = mean((prob - y_bin)^2),
+       slope = if (!is.null(fit)) unname(stats::coef(fit)[2]) else NA_real_,
+       intercept = if (!is.null(fit)) unname(stats::coef(fit)[1]) else NA_real_)
+}
+
+diag_plot_calibration <- function(cal, title) {
+  validate(need(!is.null(cal) && nrow(cal$table) > 0, "Not enough held-out predictions to draw a calibration curve."))
+  ggplot(cal$table, aes(x = mean_pred, y = mean_obs)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
+    geom_line(color = ARTHOMIX_COLORS$blue) + geom_point(aes(size = n), color = ARTHOMIX_COLORS$blue) +
+    scale_x_continuous(name = "Mean predicted probability", limits = c(0, 1)) +
+    scale_y_continuous(name = "Observed proportion", limits = c(0, 1)) +
+    labs(title = title, subtitle = sprintf("Brier score = %.3f", cal$brier), size = "Bin n") +
+    theme_arthomix(base_size = 11)
 }
 
 diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = character(0)) {
@@ -280,7 +322,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
     if (is.null(roc_e)) return(list(available = FALSE, reason = "ROC could not be computed for this split/contrast."))
     ci <- diag_auc_ci(roc_e)
     list(available = TRUE, roc = roc_e, auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
-         n = length(y_eval), n_pos = sum(y_eval == levels(y)[2]))
+         n = length(y_eval), n_pos = sum(y_eval == levels(y)[2]), pred = pred_eval, y_eval = y_eval)
   }
 
   nf_a <- max(2, min(params$enet_cv_folds, min(table(y))))
@@ -439,6 +481,46 @@ DIAG_TECHNIQUES <- list(
   list(key = "svm", label = "SVM")
 )
 
+diag_apply_models_external <- function(r, expr_ext, y_ext) {
+  genes <- r$genes
+  safe <- make.names(genes, unique = TRUE)
+  present <- genes %in% rownames(expr_ext)
+  X <- matrix(0, nrow = ncol(expr_ext), ncol = length(genes), dimnames = list(colnames(expr_ext), safe))
+  if (any(present)) {
+    sub <- t(expr_ext[genes[present], , drop = FALSE])
+    mu <- colMeans(sub, na.rm = TRUE)
+    sg <- apply(sub, 2, stats::sd, na.rm = TRUE); sg[is.na(sg) | sg == 0] <- 1
+    X[, safe[present]] <- scale(sub, center = mu, scale = sg)
+  }
+  X[is.na(X)] <- 0
+  pos <- make.names(r$comp_group %||% levels(y_ext)[2])
+  pick_pos <- function(pm) { cn <- colnames(pm); if (!is.null(cn) && pos %in% cn) pm[, pos] else pm[, ncol(pm)] }
+  models <- lapply(DIAG_TECHNIQUES, function(tech) {
+    rr <- r[[tech$key]]
+    if (is.null(rr) || is.null(rr$model)) return(list(available = FALSE, label = tech$label, key = tech$key, reason = "Model not trained."))
+    prob <- tryCatch(switch(rr$model_type,
+      lr   = as.numeric(predict(rr$model, newdata = as.data.frame(X), type = "response")),
+      enet = as.numeric(predict(rr$model, newx = X, s = rr$lambda_choice, type = "response")),
+      rf   = as.numeric(pick_pos(predict(rr$model, X, type = "prob"))),
+      svm  = as.numeric(pick_pos(attr(predict(rr$model, X, probability = TRUE), "probabilities")))
+    ), error = function(e) NULL)
+    if (is.null(prob) || length(prob) != length(y_ext) || all(is.na(prob))) {
+      return(list(available = FALSE, label = tech$label, key = tech$key, reason = "Could not score the external samples with this model."))
+    }
+    roc_e <- tryCatch(pROC::roc(y_ext, prob, quiet = TRUE, levels = levels(y_ext), direction = "<"), error = function(e) NULL)
+    if (is.null(roc_e)) return(list(available = FALSE, label = tech$label, key = tech$key, reason = "ROC could not be computed."))
+    ci <- diag_auc_ci(roc_e)
+    thr <- suppressWarnings(as.numeric(rr$best$threshold))
+    if (!is.finite(thr)) thr <- 0.5
+    perf <- diag_perf_at_cutoff(prob, y_ext, thr, levels(y_ext)[2])
+    list(available = TRUE, label = tech$label, key = tech$key, roc = roc_e,
+         auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
+         threshold = thr, perf = perf, prob = prob, y = y_ext)
+  })
+  names(models) <- vapply(DIAG_TECHNIQUES, `[[`, character(1), "key")
+  list(models = models, n_genes_present = sum(present), n_genes_panel = length(genes))
+}
+
 diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n = 100,
                                   lasso_alpha = 1, seed = ARTHOMIX_TX_ML_SEED) {
   y_full <- droplevels(factor(as.character(y_full)))
@@ -552,7 +634,10 @@ mod_diagnostic_testing_panel <- function(ns, prefix, title, roc_height = 300) {
   box(
     width = NULL, title = title, status = "primary", solidHeader = FALSE,
     withSpinner(uiOutput(ns(paste0(prefix, "_test_summary"))), color = "#2563EB", type = 6),
-    withSpinner(plotOutput(ns(paste0(prefix, "_test_roc_plot")), height = roc_height), color = "#2563EB", type = 6),
+    fluidRow(
+      column(6, withSpinner(plotOutput(ns(paste0(prefix, "_test_roc_plot")), height = roc_height), color = "#2563EB", type = 6)),
+      column(6, withSpinner(plotOutput(ns(paste0(prefix, "_test_calibration_plot")), height = roc_height), color = "#2563EB", type = 6))
+    ),
     div(class = "table-toolbar", downloadButton(ns(paste0(prefix, "_test_download")), "Performance (CSV)", class = "btn-sm")),
     DT::dataTableOutput(ns(paste0(prefix, "_test_table")))
   )
@@ -727,8 +812,7 @@ mod_diagnostic_ui <- function(id) {
           )
         )
       )
-    ),
-    uiOutput(ns("references_box_ui"))
+    )
     )
   )
 }
@@ -947,10 +1031,65 @@ mod_diagnostic_server <- function(id, dataset, results) {
       expr_sub <- d$expr[genes, meta_sub$sample, drop = FALSE]
 
       gr <- diag_gene_roc(expr_sub, y)
+      r_fit <- diag_result_value(panel_sex)
+      ext_models <- if (!is.null(r_fit) && length(r_fit$genes)) {
+        tryCatch(diag_apply_models_external(r_fit, d$expr[, meta_sub$sample, drop = FALSE], y), error = function(e) NULL)
+      } else NULL
       list(gr = gr, expr_sub = expr_sub, y = y, genes = genes, panel_note = cand$note,
            n_ref = sum(y == input$ext_ref_group), n_comp = sum(y == input$ext_comp_group),
-           ref_group = input$ext_ref_group, comp_group = input$ext_comp_group)
+           ref_group = input$ext_ref_group, comp_group = input$ext_comp_group,
+           ext_models = ext_models, panel_sex = panel_sex)
     }, ignoreInit = TRUE)
+
+    output$ext_model_ui <- renderUI({
+      r <- ext_result(); req(r)
+      if (is.null(r$ext_models)) {
+        return(div(class = "empty-note", icon("circle-info"),
+                   sprintf("Run Model Training for the %s panel first. The trained logistic regression, elastic net, random forest and SVM models are then scored on this external cohort exactly as trained: training Youden threshold reused, external samples z-scored within the external cohort, no refitting or re-tuning.", r$panel_sex)))
+      }
+      tagList(
+        p(class = "submodule-desc", sprintf(
+          "%d of %d panel genes are present in the external cohort (a missing gene enters as 0 after z-scoring). Models were fit on the %s training split and are applied unchanged; the decision threshold is the training Youden cutoff.",
+          r$ext_models$n_genes_present, r$ext_models$n_genes_panel, r$panel_sex)),
+        fluidRow(
+          column(6, plotOutput(ns("ext_model_roc"), height = 360)),
+          column(6, DT::dataTableOutput(ns("ext_model_table")))
+        )
+      )
+    })
+
+    output$ext_model_table <- DT::renderDataTable({
+      r <- ext_result(); req(r$ext_models)
+      rows <- lapply(r$ext_models$models, function(mm) {
+        if (!isTRUE(mm$available)) {
+          return(data.frame(model = mm$label, `AUC (95% CI)` = NA_character_, sensitivity = NA_real_, specificity = NA_real_,
+                            PPV = NA_real_, NPV = NA_real_, accuracy = NA_real_, `PR-AUC` = NA_real_, Brier = NA_real_,
+                            note = mm$reason, check.names = FALSE, stringsAsFactors = FALSE))
+        }
+        data.frame(model = mm$label, `AUC (95% CI)` = sprintf("%.3f (%.3f-%.3f)", mm$auc, mm$ci_lo, mm$ci_hi),
+                   sensitivity = round(mm$perf$sensitivity, 3), specificity = round(mm$perf$specificity, 3),
+                   PPV = round(mm$perf$precision, 3), NPV = round(mm$perf$npv, 3), accuracy = round(mm$perf$accuracy, 3),
+                   `PR-AUC` = round(mm$perf$pr_auc, 3), Brier = round(mm$perf$brier, 3), note = "",
+                   check.names = FALSE, stringsAsFactors = FALSE)
+      })
+      DT::datatable(do.call(rbind, rows), rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
+    })
+
+    output$ext_model_roc <- renderPlot({
+      r <- ext_result(); req(r$ext_models)
+      curves <- Filter(function(mm) isTRUE(mm$available), r$ext_models$models)
+      validate(need(length(curves) > 0, "No trained model could be applied to this external cohort."))
+      df <- do.call(rbind, lapply(curves, function(mm) {
+        co <- pROC::coords(mm$roc, "all", ret = c("specificity", "sensitivity"), transpose = FALSE)
+        d <- data.frame(fpr = 1 - co$specificity, tpr = co$sensitivity, model = sprintf("%s (AUC %.2f)", mm$label, mm$auc))
+        d[order(d$fpr, d$tpr), ]
+      }))
+      ggplot(df, aes(x = fpr, y = tpr, color = model)) +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey60") +
+        geom_path(linewidth = 1) + coord_equal() +
+        labs(x = "1 - Specificity", y = "Sensitivity", title = "External cohort ROC - trained models, no refitting", color = NULL) +
+        theme_arthomix(base_size = 11)
+    })
 
     ext_result_error_msg <- function() {
       tryCatch({ ext_result(); NULL }, error = function(e) {
@@ -1026,6 +1165,10 @@ mod_diagnostic_server <- function(id, dataset, results) {
       r <- tryCatch(ext_result(), error = function(e) NULL)
       if (is.null(r)) return(NULL)
       tagList(
+        box(
+          width = NULL, title = "Trained classifiers applied to the external cohort (frozen models, no refitting)", status = "primary", solidHeader = FALSE,
+          uiOutput(ns("ext_model_ui"))
+        ),
         box(
           width = NULL, title = "Per-gene ROC/AUC - External validation", status = "primary", solidHeader = FALSE,
           div(class = "table-toolbar", downloadButton(ns("ext_gene_download"), "Gene AUCs (CSV)", class = "btn-sm")),
@@ -1414,23 +1557,6 @@ mod_diagnostic_server <- function(id, dataset, results) {
       )
     })
 
-    output$references_box_ui <- renderUI({
-      if (!diag_has_run()) return(NULL)
-      box(
-        width = 12, title = "References", status = "primary", solidHeader = FALSE,
-        tags$ul(
-          class = "dge-ref-list",
-          tags$li(strong("Logistic regression: "), "Hosmer DW, Lemeshow S, Sturdivant RX (2013). ", tags$em("Applied Logistic Regression"), ", 3rd ed. Wiley."),
-          tags$li(strong("Elastic net (glmnet): "), "Friedman J, Hastie T, Tibshirani R (2010). Regularization Paths for Generalized Linear Models via Coordinate Descent. ", tags$em("Journal of Statistical Software"), ", 33(1); Zou H, Hastie T (2005). Regularization and Variable Selection via the Elastic Net. ", tags$em("J R Stat Soc B"), ", 67(2)."),
-          tags$li(strong("Random forests: "), "Breiman L (2001). Random Forests. ", tags$em("Machine Learning"), ", 45, 5-32."),
-          tags$li(strong("SVM: "), "Cortes C, Vapnik V (1995). Support-Vector Networks. ", tags$em("Machine Learning"), ", 20, 273-297."),
-          tags$li(strong("ROC / AUC confidence intervals: "), "DeLong ER, et al. (1988). Biometrics, 44, 837-845 (n ≥ 20); Carpenter J, Bithell J (2000). Bootstrap CIs. ", tags$em("Stat Med"), ", 19, 1141-1164 (n < 20)."),
-          tags$li(strong("caret (hyperparameter tuning): "), "Kuhn M (2008). Building Predictive Models in R Using the caret Package. ", tags$em("Journal of Statistical Software"), ", 28(5).")
-        ),
-        p(class = "submodule-desc", strong("Ask ArthOChat"), " for a plain-language walkthrough or a live citation.")
-      )
-    })
-
     save_result <- function(sex_label, r) {
       results$diagnostic <- utils::modifyList(
         results$diagnostic %||% list(),
@@ -1526,10 +1652,17 @@ mod_diagnostic_server <- function(id, dataset, results) {
       auc_str <- paste0(sprintf("%.3f (%.3f-%.3f)", ev$auc, ev$ci_lo, ev$ci_hi), diag_separation_note(ev))
       list(
         data.frame(dataset = label, metric = "AUC (95% CI)", value = auc_str, stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "PR-AUC", value = sprintf("%.3f", ev$perf$pr_auc), stringsAsFactors = FALSE),
         data.frame(dataset = label, metric = "n samples (n positive)", value = sprintf("%d (%d)", ev$n, ev$n_pos), stringsAsFactors = FALSE),
         data.frame(dataset = label, metric = "Sensitivity @ training cutoff", value = sprintf("%.3f", ev$perf$sensitivity), stringsAsFactors = FALSE),
         data.frame(dataset = label, metric = "Specificity @ training cutoff", value = sprintf("%.3f", ev$perf$specificity), stringsAsFactors = FALSE),
-        data.frame(dataset = label, metric = "Accuracy @ training cutoff", value = sprintf("%.3f", ev$perf$accuracy), stringsAsFactors = FALSE)
+        data.frame(dataset = label, metric = "Precision (PPV) @ training cutoff", value = sprintf("%.3f", ev$perf$precision), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "NPV @ training cutoff", value = sprintf("%.3f", ev$perf$npv), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "F1 @ training cutoff", value = sprintf("%.3f", ev$perf$f1), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "Balanced accuracy @ training cutoff", value = sprintf("%.3f", ev$perf$balanced_accuracy), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "MCC @ training cutoff", value = sprintf("%.3f", ev$perf$mcc), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "Accuracy @ training cutoff", value = sprintf("%.3f", ev$perf$accuracy), stringsAsFactors = FALSE),
+        data.frame(dataset = label, metric = "Brier score", value = sprintf("%.3f", ev$perf$brier), stringsAsFactors = FALSE)
       )
     }
 
@@ -1736,6 +1869,13 @@ mod_diagnostic_server <- function(id, dataset, results) {
           diag_roc_plot_pub(rr$test$roc, color = test_color,
                              title = sprintf("Test-split ROC - %s (%s)", label, tools::toTitleCase(sex_label)),
                              ci = c(rr$test$ci_lo, rr$test$auc, rr$test$ci_hi))
+        })
+        output[[paste0(prefix, "_test_calibration_plot")]] <- renderPlot({
+          r <- res(); if (is.null(r)) return(NULL)
+          rr <- r[[key]]
+          req(isTRUE(rr$test$available))
+          cal <- diag_calibration(rr$test$y_eval, rr$test$pred, levels(rr$test$y_eval)[2])
+          diag_plot_calibration(cal, sprintf("Test-split calibration - %s (%s)", label, tools::toTitleCase(sex_label)))
         })
         output[[paste0(prefix, "_test_table")]] <- DT::renderDataTable({
           r <- res(); if (is.null(r)) return(NULL)
