@@ -361,13 +361,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    nom_circularity_note <- function(src) {
-      if (!src %in% c("same_tissue", "cross_ancestry")) return(NULL)
-      div(class = "empty-note", style = "margin-top: 8px; border-left: 3px solid #d97706;",
-          icon("triangle-exclamation"),
-          "Circularity warning: this panel was selected from the SAME cohort currently loaded, and the nomogram below is fit and calibrated on that identical cohort - the AUC/discrimination and calibration numbers below are therefore likely optimistically biased, not an independent evaluation. Only \"Cross-tissue\" (panel selected in blood, evaluated fresh in the independent GSE89408 synovium cohort) is circularity-free.")
-    }
-
     output$preset_panel_ui <- renderUI({
       src <- input$gene_source %||% "own"
       if (identical(src, "own")) return(NULL)
@@ -384,8 +377,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
             div(class = "empty-note", style = "margin-top: 0;",
                 icon(if (isTRUE(panel$is_live)) "check" else "circle-info"), panel$note)
           )
-        },
-        nom_circularity_note(src)
+        }
       )
     })
 
@@ -521,7 +513,6 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
           " / ", strong(res$n_neg), " reference)."),
         p("Model C-statistic (discrimination): ", strong(sprintf("%.3f", res$c_stat)),
           " · Ridge penalty used: ", strong(res$penalty)),
-        nom_circularity_note(res$src),
         if (identical(res$src, "cross_ancestry")) {
           div(class = "empty-note", icon("circle-info"),
               "Ancestry replication here is genetic (Mendelian randomisation across European + East-Asian GWAS); the model above is still fit on this project's blood cohort - see Cross-Ancestry Validation.")
