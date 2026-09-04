@@ -10,7 +10,7 @@ mod_multi_dataset_config <- list(
 MO_MAX_BLOCKS <- 8
 MO_BLOCK_IDS <- paste0("block", seq_len(MO_MAX_BLOCKS))
 
-MO_SOURCE_CHOICES <- c("Reference / Example Dataset" = "preloaded", "Upload Dataset" = "upload", "Retrieve from GEO" = "geo")
+MO_SOURCE_CHOICES <- c("Preloaded" = "preloaded", "Upload Dataset" = "upload", "Retrieve from GEO" = "geo")
 
 mo_status_badge <- function(status) {
   color <- switch(status$level, ready = ARTHOMIX_COLORS$aqua, review = ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
@@ -138,7 +138,7 @@ mod_multi_dataset_ui <- function(id) {
 
     conditionalPanel(
       condition = sprintf("input['%s'] == 'preloaded'", ns("dataset_source")),
-      box(width = NULL, title = "Reference / Example Dataset", status = "primary", solidHeader = FALSE,
+      box(width = NULL, title = "Preloaded", status = "primary", solidHeader = FALSE,
           selectInput(ns("preloaded_pick"), "Select a reference dataset",
                       choices = c("RA anti-TNF Multi-Omics Dataset" = "ra_antitnf"), width = "100%"),
           selectInput(ns("preloaded_cell"), "Analysis cell (matched sex x drug/outcome subset)", choices = MULTI_CELL_CHOICES, width = "100%"),
@@ -307,7 +307,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
                     " Could not load this analysis cell - see the notification for details."))
       }
       div(class = "empty-note", icon("circle-check"),
-          tags$strong(" Reference / Example Dataset loaded: "), "RA anti-TNF Multi-Omics Dataset (Transcriptomics + Methylomics). ",
+          tags$strong(" Preloaded Dataset loaded: "), "RA anti-TNF Multi-Omics Dataset (Transcriptomics + Methylomics). ",
           "Use the pipeline below (1. Preview and Validate through 5. Compatibility and Activate) - the same steps used for an uploaded dataset.")
     })
 
@@ -331,7 +331,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       raw$mats <- res$layers
       raw$validations <- stats::setNames(lapply(names(res$layers), function(nm) multi_live_validate_matrix(res$layers[[nm]], layer_label = nm)), names(res$layers))
       raw$labels <- stats::setNames(as.list(names(res$layers)), names(res$layers))
-      raw$provenance <- stats::setNames(lapply(names(res$layers), function(nm) list(source = "Reference / Example Dataset", detail = res$provenance, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))), names(res$layers))
+      raw$provenance <- stats::setNames(lapply(names(res$layers), function(nm) list(source = "Preloaded", detail = res$provenance, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))), names(res$layers))
       raw$meta <- res$sample_meta
     }, ignoreInit = TRUE)
 
