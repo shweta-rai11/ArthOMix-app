@@ -258,7 +258,7 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
         DT::dataTableOutput(ns("location_table"))
       )
     })
-    output$plot_location <- renderPlot(mcc_plot_location(req(mcc_ok(state$result))$pairs_df))
+    output$plot_location <- multi_render_plotly(function() mcc_plot_location(req(mcc_ok(state$result))$pairs_df))
     output$location_table <- DT::renderDataTable({
       r <- req(mcc_ok(state$result))
       cols <- intersect(c("gene_symbol", "chr", "pos", "gene_id", "cpg", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
@@ -302,12 +302,12 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
             multi_plot_or_empty(function() pair_corr_plot_fn(), ns("plot_pair"), "Select a pair with computed correlation, or matched samples aren't available.", height = "380px"))
       )
     })
-    output$plot_scatter <- renderPlot(mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df))
+    output$plot_scatter <- multi_render_plotly(function() mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df))
     output$dl_scatter_png <- multi_png_download(function() mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df), function() "mapping_scatter.png")
-    output$plot_quadrant <- renderPlot(mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df))
+    output$plot_quadrant <- multi_render_plotly(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df))
     output$dl_quadrant_png <- multi_png_download(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df), function() "mapping_quadrant.png")
-    output$plot_heatmap <- renderPlot(mcc_plot_evidence_heatmap(req(mcc_ok(state$result))$pairs_df))
-    output$plot_network <- renderPlot(mcc_plot_network(req(mcc_ok(state$result))$pairs_df))
+    output$plot_heatmap <- multi_render_plotly(function() mcc_plot_evidence_heatmap(req(mcc_ok(state$result))$pairs_df))
+    output$plot_network <- multi_render_plotly(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df))
     output$dl_network_png <- multi_png_download(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df), function() "mapping_network.png")
 
     output$pair_picker_ui <- renderUI({

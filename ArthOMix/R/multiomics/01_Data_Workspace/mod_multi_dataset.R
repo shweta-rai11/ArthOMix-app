@@ -170,7 +170,7 @@ mod_multi_dataset_ui <- function(id) {
           conditionalPanel(
             condition = sprintf("input['%s'] == 'geo'", ns("dataset_source")),
             box(width = NULL, title = "Retrieve from GEO", status = "primary", solidHeader = FALSE,
-                p(class = "submodule-desc", "Enter a single GEO Series accession that bundles matched transcriptomics and methylation data from the same samples (a SuperSeries) - the app fetches it, discovers the linked sub-series, and splits it into an expression layer and a methylation layer automatically. If it can't be split, you'll get a clear error instead of a guess."),
+                p(class = "submodule-desc", "Enter a GEO SuperSeries accession with matched expression and methylation sub-series; it will be auto-split into both layers."),
                 textInput(ns("geo_superseries_acc"), "GEO Series accession", placeholder = "GSE12345"),
                 actionButton(ns("geo_autosplit_btn"), "Fetch & Split", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
                 uiOutput(ns("geo_autosplit_status"))),
@@ -190,14 +190,6 @@ mod_multi_dataset_ui <- function(id) {
         hr(),
         box(width = NULL, title = "Data Provenance", status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = TRUE,
             uiOutput(ns("provenance_ui")))
-      ),
-
-      conditionalPanel(
-        condition = sprintf("input['%s'] > 0", ns("activate_btn")),
-        hr(),
-        box(width = NULL, title = mod_multi_mofa_config$title, status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", mod_multi_mofa_config$description),
-            mod_multi_mofa_ui(ns("integrated")))
       )
     )
   )
@@ -308,7 +300,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       }
       div(class = "empty-note", icon("circle-check"),
           tags$strong(" Preloaded Dataset loaded: "), "RA anti-TNF Multi-Omics Dataset (Transcriptomics + Methylomics). ",
-          "Use the pipeline below (1. Preview and Validate through 5. Compatibility and Activate) - the same steps used for an uploaded dataset.")
+          "Use the pipeline below (Preview and Validate through Compatibility and Activate) - the same steps used for an uploaded dataset.")
     })
 
     observeEvent(input$load_preloaded_btn, {
@@ -376,9 +368,9 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       gen <- block_reset_gen()
       tabsetPanel(
         id = ns("pipeline_tabs"), type = "tabs",
-        tabPanel("1. Preview and Validate", br(), uiOutput(ns("validate_ui"))),
+        tabPanel("Preview and Validate", br(), uiOutput(ns("validate_ui"))),
         tabPanel(
-          "2. Sample Matching", br(),
+          "Sample Matching", br(),
           box(width = NULL, title = "Sample Matching Method", status = "primary", solidHeader = FALSE, collapsible = TRUE,
               radioButtons(ns("matching_method"), "Sample matching method",
                            choices = c("Exact Sample ID" = "exact", "Patient ID (from metadata)" = "patient_id", "User-defined mapping file" = "mapping"),
@@ -390,9 +382,9 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           ),
           uiOutput(ns("matching_ui"))
         ),
-        tabPanel("3. Preprocessing", br(), uiOutput(ns("preprocess_ui"))),
-        tabPanel("4. Batch Diagnostics", br(), uiOutput(ns("batch_ui"))),
-        tabPanel("5. Compatibility and Activate", br(), uiOutput(ns("compat_ui")))
+        tabPanel("Preprocessing", br(), uiOutput(ns("preprocess_ui"))),
+        tabPanel("Batch Diagnostics", br(), uiOutput(ns("batch_ui"))),
+        tabPanel("Compatibility and Activate", br(), uiOutput(ns("compat_ui")))
       )
     })
 
@@ -749,14 +741,14 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         selectInput(ns("impute_method"), "Missing-value handling (applied per dataset before normalization)",
                     choices = c("Leave as-is" = "none", "Mean imputation" = "mean", "Median imputation" = "median",
                                 "Remove samples/features exceeding thresholds" = "remove_rows"), selected = "none"),
-        p(class = "submodule-desc", tags$strong("Missing-value handling affects downstream results."), " Nothing is imputed until you pick a method and apply it in step 3.")
+        p(class = "submodule-desc", tags$strong("Missing-value handling affects downstream results."), " Nothing is imputed until you pick a method and apply it on the Preprocessing tab.")
       )
     })
-    output$miss_by_omics <- renderPlot(multi_live_missingness_by_omics_plot(raw$validations))
+    output$miss_by_omics <- multi_render_plotly(function() multi_live_missingness_by_omics_plot(raw$validations))
     sample_miss_plot_fn <- reactive(multi_live_sample_missingness_plot(multi_live_missingness(raw$mats[[req(input$miss_layer)]]), threshold = input$max_sample_missing))
-    output$sample_miss_plot <- renderPlot(sample_miss_plot_fn())
+    output$sample_miss_plot <- multi_render_plotly(function() sample_miss_plot_fn())
     feature_miss_plot_fn <- reactive(multi_live_feature_missingness_plot(multi_live_missingness(raw$mats[[req(input$miss_layer)]])))
-    output$feature_miss_plot <- renderPlot(feature_miss_plot_fn())
+    output$feature_miss_plot <- multi_render_plotly(function() feature_miss_plot_fn())
 
     output$preprocess_ui <- renderUI({
       if (length(raw$mats) < 2) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
@@ -828,27 +820,27 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )
     })
     before_dist_fn <- reactive(multi_live_distribution_plot(raw$mats[[req(input$dist_layer)]], kind = input$dist_kind %||% "box"))
-    output$dist_before <- renderPlot(before_dist_fn())
+    output$dist_before <- multi_render_plotly(function() before_dist_fn())
     after_dist_fn <- reactive(multi_live_distribution_plot(proc$filtered_mats[[req(input$dist_layer)]], kind = input$dist_kind %||% "box"))
-    output$dist_after <- renderPlot(after_dist_fn())
+    output$dist_after <- multi_render_plotly(function() after_dist_fn())
     scale_compare_fn <- reactive({
       req(proc$scaled_mats)
       multi_live_scale_comparison_plot(proc$scaled_mats, names(proc$scaled_mats))
     })
-    output$scale_compare <- renderPlot(scale_compare_fn())
+    output$scale_compare <- multi_render_plotly(function() scale_compare_fn())
 
     observe({
       req(proc$filtered_mats)
       for (nm in names(proc$filtered_mats)) {
         local({
           nm_local <- nm
-          output[[paste0("retention_", make.names(nm_local))]] <- renderPlot(multi_live_retention_plot(ncol(raw$mats[[nm_local]]), ncol(proc$filtered_mats[[nm_local]])))
+          output[[paste0("retention_", make.names(nm_local))]] <- multi_render_plotly(function() multi_live_retention_plot(ncol(raw$mats[[nm_local]]), ncol(proc$filtered_mats[[nm_local]])))
         })
       }
     })
 
     output$batch_ui <- renderUI({
-      if (is.null(proc$scaled_mats)) return(multi_empty_state("Apply preprocessing (step 3) first."))
+      if (is.null(proc$scaled_mats)) return(multi_empty_state("Apply preprocessing on the Preprocessing tab first."))
       meta_cols <- if (!is.null(raw$meta)) colnames(raw$meta) else character(0)
       tagList(
         selectInput(ns("batch_layer"), "Dataset", choices = names(proc$scaled_mats)),
@@ -874,13 +866,13 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )
     })
     pca_before_fn <- reactive(multi_live_pca_plot(multi_live_pca(proc$scaled_mats[[req(input$batch_layer)]]), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL))
-    output$pca_before <- renderPlot(pca_before_fn())
+    output$pca_before <- multi_render_plotly(function() pca_before_fn())
     corr_before_fn <- reactive({
       d <- multi_live_sample_correlation_data(proc$scaled_mats[[req(input$batch_layer)]])
       req(isTRUE(d$ok))
       multi_live_correlation_heatmap_plot(d$df)
     })
-    output$corr_before <- renderPlot(corr_before_fn())
+    output$corr_before <- multi_render_plotly(function() corr_before_fn())
 
     output$confound_ui <- renderUI({
       req(input$batch_col, input$phenotype_col, nzchar(input$batch_col), nzchar(input$phenotype_col), raw$meta)
@@ -931,13 +923,13 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       req(proc$batch_corrected)
       multi_live_pca_plot(multi_live_pca(proc$batch_corrected), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL)
     })
-    output$pca_after <- renderPlot(pca_after_fn())
+    output$pca_after <- multi_render_plotly(function() pca_after_fn())
     corr_after_fn <- reactive({
       d <- multi_live_sample_correlation_data(req(proc$batch_corrected))
       req(isTRUE(d$ok))
       multi_live_correlation_heatmap_plot(d$df)
     })
-    output$corr_after <- renderPlot(corr_after_fn())
+    output$corr_after <- multi_render_plotly(function() corr_after_fn())
 
     output$batch_after_ui <- renderUI({
       tagList(
@@ -1039,12 +1031,12 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       bad <- intersect(chosen, names(Filter(function(p) p$status$level == "not_compatible", cmp$per_layer)))
       validate(need(length(bad) == 0, sprintf("\"%s\" is marked Not Compatible and cannot be used for analysis.", paste(bad, collapse = ", "))))
 
-      validate(need(!is.null(proc$scaled_mats), "Preprocess the selected datasets first (step 3: \"Apply normalization, filtering, and scaling\") before activating them."))
+      validate(need(!is.null(proc$scaled_mats), "Preprocess the selected datasets first (Preprocessing tab: \"Apply normalization, filtering, and scaling\") before activating them."))
       final_mats <- if (!is.null(proc$batch_corrected) && !is.null(input$batch_layer)) {
         c(proc$scaled_mats[setdiff(names(proc$scaled_mats), input$batch_layer)], setNames(list(proc$batch_corrected), input$batch_layer))
       } else proc$scaled_mats
       final_mats <- final_mats[intersect(names(final_mats), chosen)]
-      validate(need(length(final_mats) >= 2, "At least two of the selected datasets must have been preprocessed (step 3) before activating them."))
+      validate(need(length(final_mats) >= 2, "At least two of the selected datasets must have been preprocessed before activating them."))
 
       ov_now <- tryCatch(overlap(), error = function(e) NULL)
       layer_meta <- lapply(names(final_mats), function(nm) list(
@@ -1071,7 +1063,5 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
 
     output$provenance_ui <- renderUI(mo_provenance_ui(multi_dataset$layer_meta %||% list()))
-
-    mod_multi_mofa_server("integrated", multi_dataset, multi_results)
   })
 }

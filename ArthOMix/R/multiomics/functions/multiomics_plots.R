@@ -12,7 +12,20 @@ multi_plot_or_empty <- function(plot_fn, output_id, msg = "No data for the curre
     NULL
   })
   if (is.null(p)) return(multi_empty_state(msg))
-  plotOutput(output_id, height = height)
+  plotly::plotlyOutput(output_id, height = height)
+}
+
+multi_render_plotly <- function(plot_fn) {
+  plotly::renderPlotly({
+    p <- tryCatch(plot_fn(), error = function(e) {
+      message(sprintf("multi_render_plotly: %s", conditionMessage(e)))
+      NULL
+    })
+    req(p)
+    gp <- plotly::ggplotly(p, tooltip = "all")
+    gp <- plotly::layout(gp, hoverlabel = list(bgcolor = "white", font = list(size = 12)))
+    plotly::config(gp, displaylogo = FALSE, modeBarButtonsToRemove = c("lasso2d", "select2d"))
+  })
 }
 
 multi_png_download <- function(plot_fn, filename_fn) {

@@ -53,6 +53,7 @@ CX_MODULES_BY_ID <- setNames(CX_MODULES, vapply(CX_MODULES, function(m) m$config
 MULTI_MODULES <- list(
   list(config = mod_multi_overview_config,       ui = mod_multi_overview_ui,       server = mod_multi_overview_server),
   list(config = mod_multi_integration_config,    ui = mod_multi_integration_ui,    server = mod_multi_integration_server),
+  list(config = mod_multi_mofa_config,           ui = mod_multi_mofa_ui,           server = mod_multi_mofa_server),
   list(config = mod_multi_stratification_config, ui = mod_multi_stratification_ui, server = mod_multi_stratification_server),
   list(config = mod_multi_biomarker_config,      ui = mod_multi_biomarker_ui,      server = mod_multi_biomarker_server),
   list(config = mod_multi_mapping_config,    ui = mod_multi_mapping_ui,    server = mod_multi_mapping_server),

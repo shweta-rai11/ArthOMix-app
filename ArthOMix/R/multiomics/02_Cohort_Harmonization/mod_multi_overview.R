@@ -150,11 +150,11 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       bc <- req(input$batch_col); req(nzchar(bc))
       ch_category_bar_plot(req(multi_dataset$sample_meta), bc, "Batch distribution")
     })
-    output$batch_plot <- renderPlot(batch_plot_fn())
+    output$batch_plot <- multi_render_plotly(function() batch_plot_fn())
     output$dl_batch_bar_png <- multi_png_download(batch_plot_fn, function() "cohort_harmonization_batch_distribution.png")
 
     completeness_plot_fn <- reactive({ h <- req(harmonization_result()); ch_completeness_heatmap_plot(h$ids) })
-    output$completeness_plot <- renderPlot(completeness_plot_fn(), alt = "Modality by sample data-completeness heatmap")
+    output$completeness_plot <- multi_render_plotly(function() completeness_plot_fn())
     output$dl_completeness_png <- multi_png_download(completeness_plot_fn, function() "cohort_harmonization_data_completeness.png")
 
     output$sample_match_ui <- renderUI({
@@ -181,7 +181,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE), class = "stripe hover compact")
     })
     overlap_heatmap_fn <- reactive({ h <- req(harmonization_result()); ch_overlap_heatmap_plot(h$overlap_matrix) })
-    output$overlap_heatmap <- renderPlot(overlap_heatmap_fn(), alt = "Pairwise sample overlap heatmap")
+    output$overlap_heatmap <- multi_render_plotly(function() overlap_heatmap_fn())
     output$dl_overlap_heatmap_png <- multi_png_download(overlap_heatmap_fn, function() "cohort_harmonization_sample_overlap.png")
     output$id_table <- DT::renderDataTable({
       h <- req(harmonization_result())
@@ -213,7 +213,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       req(mat)
       multi_live_pca_plot(multi_live_pca(mat), rd$sample_meta, if (nzchar(input$pca_color_by %||% "")) input$pca_color_by else NULL)
     })
-    output$pca_plot <- renderPlot(pca_plot_fn(), alt = "PCA of the selected modality, colored by the selected metadata column when available")
+    output$pca_plot <- multi_render_plotly(function() pca_plot_fn())
     output$dl_pca_png <- multi_png_download(pca_plot_fn, function() sprintf("cohort_harmonization_pca_%s.png", make.names(input$pca_layer %||% "modality")))
 
     output$correlation_ui <- renderUI({
@@ -241,7 +241,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       req(isTRUE(d$ok))
       multi_live_correlation_heatmap_plot(d$df)
     })
-    output$corr_plot <- renderPlot(corr_plot_fn(), alt = "Cross-modality feature correlation heatmap")
+    output$corr_plot <- multi_render_plotly(function() corr_plot_fn())
     output$dl_corr_png <- multi_png_download(corr_plot_fn, function() sprintf("cohort_harmonization_correlation_%s_vs_%s.png", make.names(input$corr_a %||% "A"), make.names(input$corr_b %||% "B")))
 
     output$sample_explorer_ui <- renderUI({
@@ -299,7 +299,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
       req(isTRUE(pca$ok))
       ch_sample_highlight_pca_plot(pca, input$explore_sample)
     })
-    output$explore_pca_plot <- renderPlot(explore_pca_fn(), alt = "PCA with the selected sample highlighted")
+    output$explore_pca_plot <- multi_render_plotly(function() explore_pca_fn())
     output$dl_explore_pca_png <- multi_png_download(explore_pca_fn, function() sprintf("cohort_harmonization_sample_highlight_%s.png", make.names(input$explore_sample %||% "sample")))
 
     observe({

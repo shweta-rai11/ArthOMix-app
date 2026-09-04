@@ -387,22 +387,22 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     })
     output$d_dl_selected <- downloadHandler(function() "diablo_selected_features.csv", function(file) utils::write.csv(mi_diablo_selected_features_df(diablo_state$result$fit), file, row.names = FALSE))
 
-    output$d_error_plot <- renderPlot({
+    output$d_error_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       perf_sum <- mi_diablo_performance_summary(res)
       req(perf_sum)
       mi_diablo_error_bar_plot(perf_sum)
     })
-    output$d_panel_plot <- renderPlot({
+    output$d_panel_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       sel <- req(mi_diablo_selected_features_df(res$fit))
       multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(sel, 1))
     })
-    output$d_score_plot <- renderPlot({
+    output$d_score_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       multi_diablo_score_plot(mi_diablo_sample_scores_df(res$fit, diablo_state$outcome_used))
     })
-    output$d_variance_plot <- renderPlot({
+    output$d_variance_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       multi_diablo_variance_plot(multi_diablo_variance_df(res$fit))
     })
@@ -415,7 +415,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       if (!isTRUE(corr$ok)) return(mi_warn(corr$error))
       multi_plot_or_empty(function() multi_live_correlation_heatmap_plot(corr$df), ns("d_corr_plot"), height = "420px")
     })
-    output$d_corr_plot <- renderPlot({
+    output$d_corr_plot <- multi_render_plotly(function() {
       req(diablo_state$result, input$d_corr_a, input$d_corr_b, input$d_corr_a != input$d_corr_b)
       v <- mi_val(); d <- mi_dataset()
       sel <- mi_diablo_selected_features_df(diablo_state$result$fit)
@@ -628,15 +628,15 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       )
     })
 
-    output$s_heatmap <- renderPlot({
+    output$s_heatmap <- multi_render_plotly(function() {
       res <- req(snf_state$result)
       mi_snf_fused_heatmap(res$W, res$clusters)
     })
-    output$s_pca_plot <- renderPlot({
+    output$s_pca_plot <- multi_render_plotly(function() {
       res <- req(snf_state$result)
       mi_snf_pca_cluster_plot(mi_dataset()$layers[input$s_blocks], res$clusters)
     })
-    output$s_estimate_plot <- renderPlot({
+    output$s_estimate_plot <- multi_render_plotly(function() {
       res <- req(snf_state$result)
       mi_snf_cluster_estimate_plot(res$cluster_estimate)
     })
@@ -716,7 +716,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         p(class = "submodule-desc", tags$em(res$note))
       )
     })
-    output$c_sup_plot <- renderPlot({
+    output$c_sup_plot <- multi_render_plotly(function() {
       mi_compare_bar_plot(req(c_supervised())$table)
     })
     output$c_sup_table <- DT::renderDataTable({

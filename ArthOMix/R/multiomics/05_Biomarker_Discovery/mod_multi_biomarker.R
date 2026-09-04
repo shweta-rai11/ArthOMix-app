@@ -411,8 +411,8 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       df <- data.frame(metric = c("BER", "Overall error", names(perf_sum$per_class_error)), value = c(perf_sum$ber, perf_sum$overall_error, as.numeric(perf_sum$per_class_error)))
       utils::write.csv(df, file, row.names = FALSE)
     })
-    output$perf_error_plot <- renderPlot({ mi_diablo_error_bar_plot(mi_diablo_performance_summary(req(mb_state$result)$diablo)) })
-    output$perf_roc_plot <- renderPlot({ mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
+    output$perf_error_plot <- multi_render_plotly(function() { mi_diablo_error_bar_plot(mi_diablo_performance_summary(req(mb_state$result)$diablo)) })
+    output$perf_roc_plot <- multi_render_plotly(function() { mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
 
     output$stability_ui <- renderUI(gate_ui(function(res) {
       sig <- sig_df()
@@ -431,7 +431,7 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
         div(class = "table-toolbar", downloadButton(ns("dl_stability"), "Download stability table (CSV)", class = "btn-sm"))
       )
     }))
-    output$stability_plot <- renderPlot({ mb_stability_plot(req(sig_df())) })
+    output$stability_plot <- multi_render_plotly(function() { mb_stability_plot(req(sig_df())) })
     output$stability_by_block_table <- DT::renderDataTable({
       sig <- req(sig_df())
       tab <- as.data.frame(table(omics = sig$omics, stability = sig$stability_category))
@@ -464,8 +464,8 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
             else multi_plot_or_empty(function() multi_live_correlation_heatmap_plot(corr$df), ns("int_corr_plot"), height = "420px"))
       )
     }))
-    output$int_component_plot <- renderPlot({ mb_component_correlation_plot(req(mb_state$result)$diablo$fit, mb_state$outcome_used) })
-    output$int_corr_plot <- renderPlot({
+    output$int_component_plot <- multi_render_plotly(function() { mb_component_correlation_plot(req(mb_state$result)$diablo$fit, mb_state$outcome_used) })
+    output$int_corr_plot <- multi_render_plotly(function() {
       res <- req(mb_state$result)
       sel <- req(mi_diablo_selected_features_df(res$diablo$fit))
       corr <- mi_diablo_selected_correlation_data(mb_state$layers_used, sel, "Transcriptomics", "Methylomics", rownames(res$diablo$fit$variates$Transcriptomics))
@@ -494,15 +494,15 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
         p(class = "submodule-desc", "Circos-style plot not implemented - see \"Selected cross-omics feature relationships\" on the Integration tab for the same data as a heatmap.")
       )
     }))
-    output$plot_sample <- renderPlot({ multi_diablo_score_plot(mi_diablo_sample_scores_df(req(mb_state$result)$diablo$fit, mb_state$outcome_used)) })
-    output$plot_loadings <- renderPlot({ multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(req(mi_diablo_selected_features_df(req(mb_state$result)$diablo$fit)), 1)) })
-    output$plot_stability <- renderPlot({ mb_stability_plot(req(sig_df())) })
-    output$plot_heatmap <- renderPlot({
+    output$plot_sample <- multi_render_plotly(function() { multi_diablo_score_plot(mi_diablo_sample_scores_df(req(mb_state$result)$diablo$fit, mb_state$outcome_used)) })
+    output$plot_loadings <- multi_render_plotly(function() { multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(req(mi_diablo_selected_features_df(req(mb_state$result)$diablo$fit)), 1)) })
+    output$plot_stability <- multi_render_plotly(function() { mb_stability_plot(req(sig_df())) })
+    output$plot_heatmap <- multi_render_plotly(function() {
       res <- req(mb_state$result)
       mb_heatmap_plot(mb_state$layers_used, req(sig_df()), mb_state$outcome_used, rownames(res$diablo$fit$variates$Transcriptomics))
     })
-    output$plot_variance <- renderPlot({ multi_diablo_variance_plot(multi_diablo_variance_df(req(mb_state$result)$diablo$fit)) })
-    output$plot_roc <- renderPlot({ mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
+    output$plot_variance <- multi_render_plotly(function() { multi_diablo_variance_plot(multi_diablo_variance_df(req(mb_state$result)$diablo$fit)) })
+    output$plot_roc <- multi_render_plotly(function() { mb_roc_plot(req(req(mb_state$result)$cv_roc)) })
 
     output$repro_table <- DT::renderDataTable({
       res <- req(mb_state$result)

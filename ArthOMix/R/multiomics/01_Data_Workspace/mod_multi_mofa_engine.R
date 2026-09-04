@@ -10,7 +10,7 @@ mod_multi_mofa_engine_ui <- function(id) {
       column(
         4,
         box(
-          width = NULL, title = "5. MOFA2 Integration", status = "primary", solidHeader = FALSE,
+          width = NULL, title = "MOFA2 Integration", status = "primary", solidHeader = FALSE,
           uiOutput(ns("readiness_ui")),
           numericInput(ns("num_factors"), "Number of factors", value = 10, min = 2, max = 25),
           numericInput(ns("seed"), "Random seed", value = 1, min = 1),
@@ -26,12 +26,12 @@ mod_multi_mofa_engine_ui <- function(id) {
           condition = sprintf("input['%s'] > 0", ns("train_btn")),
           tabsetPanel(
             id = ns("mofa_tabs"), type = "tabs",
-            tabPanel("6. Variance Explained", br(), uiOutput(ns("variance_ui"))),
-            tabPanel("6. Factor Scores", br(), uiOutput(ns("scores_ui"))),
-            tabPanel("6. Factor Heatmap", br(), uiOutput(ns("heatmap_ui"))),
-            tabPanel("6. Feature Loadings", br(), uiOutput(ns("loadings_ui"))),
-            tabPanel("7. Cross-Omics Correlation", br(), uiOutput(ns("correlation_ui"))),
-            tabPanel("8. Export", br(), uiOutput(ns("export_ui")))
+            tabPanel("Variance Explained", br(), uiOutput(ns("variance_ui"))),
+            tabPanel("Factor Scores", br(), uiOutput(ns("scores_ui"))),
+            tabPanel("Factor Heatmap", br(), uiOutput(ns("heatmap_ui"))),
+            tabPanel("Feature Loadings", br(), uiOutput(ns("loadings_ui"))),
+            tabPanel("Cross-Omics Correlation", br(), uiOutput(ns("correlation_ui"))),
+            tabPanel("Export", br(), uiOutput(ns("export_ui")))
           )
         )
       )
@@ -53,7 +53,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
 
     output$readiness_ui <- renderUI({
       mats <- live_state$mats
-      if (is.null(mats) || length(mats) < 2) return(div(class = "empty-note", icon("circle-info"), "Complete steps 1-3 (Upload, Matching, Preprocessing) first."))
+      if (is.null(mats) || length(mats) < 2) return(div(class = "empty-note", icon("circle-info"), "Load, match, and preprocess a dataset on the Dataset tab first."))
       gr <- multi_live_mofa_guardrails(mats)
       tagList(
         div(class = "empty-note", icon("circle-check"), sprintf(" %d layers ready, %s matched samples, %s total features.", length(mats), format(gr$n_samples, big.mark = ","), format(gr$total_features, big.mark = ","))),
@@ -124,7 +124,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       )
     })
     variance_plot_fn <- reactive(multi_live_mofa_variance_plot(model_state$variance_df))
-    output$variance_plot <- renderPlot(variance_plot_fn())
+    output$variance_plot <- multi_render_plotly(function() variance_plot_fn())
     output$dl_variance_png <- multi_png_download(variance_plot_fn, function() "multiomics_factor_variance_explained.png")
     output$dl_variance_csv <- downloadHandler(function() "multiomics_factor_variance_explained.csv", function(file) utils::write.csv(model_state$variance_df, file, row.names = FALSE))
 
@@ -147,7 +147,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       req(input$x_factor, input$y_factor)
       multi_live_factor_score_plot(model_state$factors_df, input$x_factor, input$y_factor, live_state$meta, if (nzchar(input$score_color_by %||% "")) input$score_color_by else NULL)
     })
-    output$score_plot <- renderPlot(score_plot_fn())
+    output$score_plot <- multi_render_plotly(function() score_plot_fn())
     output$dl_score_png <- multi_png_download(score_plot_fn, function() sprintf("multiomics_%s_%s.png", input$x_factor %||% "F1", input$y_factor %||% "F2"))
 
     output$heatmap_ui <- renderUI({
@@ -158,7 +158,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       )
     })
     heatmap_plot_fn <- reactive(multi_live_factor_heatmap(model_state$factors_df))
-    output$heatmap_plot <- renderPlot(heatmap_plot_fn())
+    output$heatmap_plot <- multi_render_plotly(function() heatmap_plot_fn())
     output$dl_heatmap_png <- multi_png_download(heatmap_plot_fn, function() "multiomics_factor_heatmap.png")
 
     output$loadings_ui <- renderUI({
@@ -181,13 +181,13 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       df <- model_state$loadings_df[model_state$loadings_df$factor == input$loadings_factor, , drop = FALSE]
       multi_live_loadings_plot(df, sign = input$loadings_sign %||% "both", top_n = as.integer(input$loadings_top_n %||% 20))
     })
-    output$loadings_plot <- renderPlot(loadings_plot_fn())
+    output$loadings_plot <- multi_render_plotly(function() loadings_plot_fn())
     output$dl_loadings_png <- multi_png_download(loadings_plot_fn, function() sprintf("multiomics_factor_loadings_%s.png", input$loadings_factor %||% "factor"))
     output$dl_loadings_csv <- downloadHandler(function() "multiomics_factor_loadings.csv", function(file) utils::write.csv(model_state$loadings_df, file, row.names = FALSE))
 
     output$correlation_ui <- renderUI({
       mats <- live_state$mats
-      if (is.null(mats) || length(mats) < 2) return(multi_empty_state("Complete preprocessing (steps 1-3) first."))
+      if (is.null(mats) || length(mats) < 2) return(multi_empty_state("Complete preprocessing on the Dataset tab first."))
       tagList(
         h5("Single feature pair"),
         fluidRow(
@@ -227,7 +227,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
                                            sprintf("%s: %s", input$corr_omicsA, input$corr_featA), sprintf("%s: %s", input$corr_omicsB, input$corr_featB),
                                            r$r, r$p, r$n)
     })
-    output$corr_scatter <- renderPlot(scatter_fn())
+    output$corr_scatter <- multi_render_plotly(function() scatter_fn())
 
     heatmap_corr_data <- reactive({
       req(input$corr_omicsA, input$corr_omicsB)
@@ -238,7 +238,7 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
       if (is.null(r) || !isTRUE(r$ok)) return(NULL)
       multi_live_correlation_heatmap_plot(r$df, fdr_threshold = input$heatmap_fdr %||% 1)
     })
-    output$corr_heatmap <- renderPlot(heatmap_corr_fn())
+    output$corr_heatmap <- multi_render_plotly(function() heatmap_corr_fn())
     output$dl_corr_png <- multi_png_download(heatmap_corr_fn, function() "multiomics_cross_omics_correlation.png")
     output$dl_corr_csv <- downloadHandler(function() "multiomics_cross_omics_correlation.csv", function(file) {
       r <- heatmap_corr_data()

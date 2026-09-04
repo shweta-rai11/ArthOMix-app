@@ -286,17 +286,17 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
             DT::dataTableOutput(ns("enrich_table")))
       )
     })
-    output$dot_plot <- renderPlot(mp_dot_plot(req(res_ok())$table, if (identical(req(res_ok())$method, "GSEA")) "GSEA" else "ORA", input$dot_top_n %||% 20))
+    output$dot_plot <- multi_render_plotly(function() mp_dot_plot(req(res_ok())$table, if (identical(req(res_ok())$method, "GSEA")) "GSEA" else "ORA", input$dot_top_n %||% 20))
     output$dl_dot_png <- multi_png_download(function() mp_dot_plot(req(res_ok())$table, if (identical(req(res_ok())$method, "GSEA")) "GSEA" else "ORA", input$dot_top_n %||% 20), function() "pathway_dotplot.png")
-    output$bar_plot <- renderPlot(mp_bar_plot(req(res_ok())$table, 20, input$bar_sort %||% "FDR"))
+    output$bar_plot <- multi_render_plotly(function() mp_bar_plot(req(res_ok())$table, 20, input$bar_sort %||% "FDR"))
     output$dl_bar_png <- multi_png_download(function() mp_bar_plot(req(res_ok())$table, 20, input$bar_sort %||% "FDR"), function() "pathway_barplot.png")
-    output$heatmap_plot <- renderPlot(mp_omics_heatmap(req(res_ok())$table))
+    output$heatmap_plot <- multi_render_plotly(function() mp_omics_heatmap(req(res_ok())$table))
 
     output$network_pathway_pick_ui <- renderUI({
       r <- req(res_ok())
       selectizeInput(ns("network_pathway_pick"), "Restrict network to pathway(s)", choices = stats::setNames(r$table$ID, r$table$Description), multiple = TRUE, options = list(placeholder = "Top 8 by adjusted P (default)"))
     })
-    output$network_plot <- renderPlot(mp_gene_pathway_network(req(res_ok())$table, req(res_ok())$input_df, input$network_pathway_pick))
+    output$network_plot <- multi_render_plotly(function() mp_gene_pathway_network(req(res_ok())$table, req(res_ok())$input_df, input$network_pathway_pick))
     output$dl_network_png <- multi_png_download(function() mp_gene_pathway_network(req(res_ok())$table, req(res_ok())$input_df, input$network_pathway_pick), function() "pathway_gene_network.png")
 
     output$enrich_table <- DT::renderDataTable({

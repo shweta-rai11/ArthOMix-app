@@ -3,7 +3,7 @@
 ## that computes on data the user supplies, rather than browsing the
 
 mod_multi_mofa_config <- list(
-  id = "mofa", title = "Integrated Analysis (MOFA2)", icon = "chart-line",
+  id = "mofa", title = "MOFA", icon = "chart-line", group = "Data",
   description = "Run a real MOFA2 factor analysis on the Active Multi-Omics Dataset built on the Dataset Workspace tab (matched samples only)."
 )
 

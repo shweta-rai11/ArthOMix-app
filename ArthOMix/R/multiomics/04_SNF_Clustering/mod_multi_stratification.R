@@ -391,15 +391,15 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       utils::write.csv(data.frame(patient_id = names(res$clusters), cluster = as.integer(res$clusters)), file, row.names = FALSE)
     })
 
-    output$cl_embed_plot <- renderPlot({ res <- req(state$result); sfc_spectral_embedding_plot(res$W, res$clusters) })
-    output$cl_heatmap <- renderPlot({ res <- req(state$result); sfc_feature_heatmap(state$layers_used, res$clusters) })
-    output$cl_fused <- renderPlot({ res <- req(state$result); mi_snf_fused_heatmap(res$W, res$clusters) })
-    output$cl_block_net <- renderPlot({
+    output$cl_embed_plot <- multi_render_plotly(function() { res <- req(state$result); sfc_spectral_embedding_plot(res$W, res$clusters) })
+    output$cl_heatmap <- multi_render_plotly(function() { res <- req(state$result); sfc_feature_heatmap(state$layers_used, res$clusters) })
+    output$cl_fused <- multi_render_plotly(function() { res <- req(state$result); mi_snf_fused_heatmap(res$W, res$clusters) })
+    output$cl_block_net <- multi_render_plotly(function() {
       res <- req(state$result); req(input$cl_inspect_block)
       mi_snf_fused_heatmap(res$Wall[[input$cl_inspect_block]], res$clusters)
     })
-    output$cl_conc_plot <- renderPlot({ res <- req(state$result); sfc_concordance_bar_plot(mi_snf_concordance(res)) })
-    output$cl_estimate_plot <- renderPlot({ res <- req(state$result); mi_snf_cluster_estimate_plot(res$cluster_estimate) })
+    output$cl_conc_plot <- multi_render_plotly(function() { res <- req(state$result); sfc_concordance_bar_plot(mi_snf_concordance(res)) })
+    output$cl_estimate_plot <- multi_render_plotly(function() { res <- req(state$result); mi_snf_cluster_estimate_plot(res$cluster_estimate) })
 
     output$stability_ui <- renderUI(gate(function() {
       stab <- state$stability
@@ -448,8 +448,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       stab <- req(state$stability)
       utils::write.csv(data.frame(resample = seq_along(stab$ari), ari = stab$ari), file, row.names = FALSE)
     })
-    output$st_plot <- renderPlot({ req(isTRUE(state$stability$ok)); sfc_stability_plot(state$stability) })
-    output$st_custom_plot <- renderPlot({ stab <- req(st_custom()); req(isTRUE(stab$ok)); sfc_stability_plot(stab) })
+    output$st_plot <- multi_render_plotly(function() { req(isTRUE(state$stability$ok)); sfc_stability_plot(state$stability) })
+    output$st_custom_plot <- multi_render_plotly(function() { stab <- req(st_custom()); req(isTRUE(stab$ok)); sfc_stability_plot(stab) })
 
     sens <- eventReactive(input$sens_run_btn, {
       req(state$result, state$layers_used)
@@ -467,7 +467,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     output$sens_table <- DT::renderDataTable({
       DT::datatable(req(sens())$summary, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
-    output$sens_plot <- renderPlot({ sfc_sensitivity_plot(req(sens())) })
+    output$sens_plot <- multi_render_plotly(function() { sfc_sensitivity_plot(req(sens())) })
 
     sc_clinical <- reactive({
       req(state$result)
@@ -506,7 +506,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
         DT::dataTableOutput(ns("clin_cat_table"))
       )
     })
-    output$clin_cat_plot <- renderPlot({ req(length(input$clin_cat_vars) > 0); sfc_categorical_multi_plot(state$result$clusters, state$sample_meta, input$clin_cat_vars) })
+    output$clin_cat_plot <- multi_render_plotly(function() { req(length(input$clin_cat_vars) > 0); sfc_categorical_multi_plot(state$result$clusters, state$sample_meta, input$clin_cat_vars) })
     output$clin_cat_table <- DT::renderDataTable({
       res <- req(clin_cat_results())
       df <- do.call(rbind, lapply(names(res), function(v) {
@@ -530,7 +530,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
         DT::dataTableOutput(ns("clin_cont_table"))
       )
     })
-    output$clin_cont_plot <- renderPlot({ req(length(input$clin_cont_vars) > 0); sfc_continuous_multi_plot(state$result$clusters, state$sample_meta, input$clin_cont_vars) })
+    output$clin_cont_plot <- multi_render_plotly(function() { req(length(input$clin_cont_vars) > 0); sfc_continuous_multi_plot(state$result$clusters, state$sample_meta, input$clin_cont_vars) })
     output$clin_cont_table <- DT::renderDataTable({
       res <- req(clin_cont_results())
       df <- do.call(rbind, lapply(names(res), function(v) {
@@ -565,7 +565,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       surv <- req(clin_surv())
       DT::datatable(sfc_km_risk_table(surv), rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
-    output$clin_km_plot <- renderPlot({ surv <- req(clin_surv()); req(isTRUE(surv$ok)); sfc_km_plot(surv) })
+    output$clin_km_plot <- multi_render_plotly(function() { surv <- req(clin_surv()); req(isTRUE(surv$ok)); sfc_km_plot(surv) })
 
     output$features_ui <- renderUI(gate(function() {
       res <- state$result
@@ -594,7 +594,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     output$feat_table <- DT::renderDataTable({
       DT::datatable(req(feat_rank())$table, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
-    output$feat_plot <- renderPlot({ r <- req(feat_rank()); req(isTRUE(r$ok)); sfc_feature_rank_plot(r$table) })
+    output$feat_plot <- multi_render_plotly(function() { r <- req(feat_rank()); req(isTRUE(r$ok)); sfc_feature_rank_plot(r$table) })
     output$dl_feat <- downloadHandler(function() sprintf("snf_feature_ranking_%s.csv", make.names(input$feat_block %||% "block")), function(file) {
       utils::write.csv(req(feat_rank())$table, file, row.names = FALSE)
     })
