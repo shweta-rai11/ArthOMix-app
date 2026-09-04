@@ -57,12 +57,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
     expr_data <- reactiveVal(NULL)
     meth_data <- reactiveVal(NULL)
 
-    ## ---- "My analysis results" data source ------------------------------
-    ## Pulls the live Transcriptomics DGE run and Methylomics DMP run this
-    ## user has already produced in this session (results/methyl_results are
-    ## the live reactiveValues passed in from server.R), via the same
-    ## cx_build_live_expr_df()/cx_build_live_meth_df() adapters used by
-    ## mod_cross_integration.R's "Use live session results" option.
+    ## ---- "My analysis results" data source: live DGE/DMP runs via the same adapters as mod_cross_integration.R.
     live_dge_choices <- reactive({
       runs <- (results %||% list())$dge_runs %||% list()
       if (length(runs) == 0) return(NULL)

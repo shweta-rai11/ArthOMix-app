@@ -284,14 +284,7 @@ mod_methyl_dmp_covariate_cols <- function(sheet, exclude) {
   cols[keep]
 }
 
-## Cell-type-fraction covariates (from Cell-Type Deconvolution's methyl_results$celltype$fractions)
-## are exposed in the same covariate picker as sample-sheet columns. Two distinct prefixes keep
-## them unambiguous end-to-end:
-##  - MOD_METHYL_DMP_CT_CHOICE_PREFIX tags the checkboxGroupInput *choice value* so a selected
-##    covariate can be routed back to the fractions matrix instead of the sample sheet.
-##  - MOD_METHYL_DMP_CT_COLNAME_PREFIX names the resulting column inside the covariate data.frame
-##    actually handed to model.matrix()/sva::sva(), so it can never collide with a sheet column
-##    of the same name as a cell type (e.g. a phenotype column literally called "CD4T").
+## Two prefixes keep cell-type-fraction covariates unambiguous vs. sample-sheet columns of the same name.
 MOD_METHYL_DMP_CT_CHOICE_PREFIX <- "celltype__"
 MOD_METHYL_DMP_CT_COLNAME_PREFIX <- "celltype_"
 

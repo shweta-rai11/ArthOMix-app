@@ -1,43 +1,15 @@
-## ArthOChat: chat assistant (ellmer + shinychat), living in its own app-wide
-## slide-out drawer (ui.R) rather than nested in any one module. Uses a
-## hosted Anthropic model when ANTHROPIC_API_KEY is set (arthochat_backend()
-## in global.R), falling back to a local Ollama server for offline dev.
-## Grounded via four global.R tools: project_methods(),
+## R/shared/mod_arthochat.R
+## ArthOChat: app-wide chat assistant (ellmer + shinychat), in its own slide-out drawer.
 
 ARTHOCHAT_MAX_TURNS <- 40L
 
 ARTHOCHAT_MAX_EXECUTIONS <- 5L
 
-## A fixed seed and temperature = 0 make ArthOChat's sampling deterministic
-## for a given prompt/context - the verification harness (tests/
-## arthochat_verification/README.md) documented the same unanswerable
-## question producing two different fabricated numbers on retry when Ollama's
-## own (non-zero) default temperature applied. This doesn't fix fabrication
-## itself (see arthochat_detect_ungrounded_reference() below for that), but it
-## does mean a given session/context no longer has run-to-run answer drift.
+## Fixed seed/temperature=0 for deterministic sampling - see tests/arthochat_verification/README.md.
 ARTHOCHAT_TEMPERATURE <- 0
 ARTHOCHAT_SEED <- 20260904L
 
-## Module labels ArthOChat's context builders use as "### <label>" (and, for
-## the vertical-level dataset/results headers, "## <label>") section headers
-## (see build_tx_context()/build_mx_context()/build_cx_context()/
-## build_mo_context() and .format_results_block() in R/modules_index.R).
-## Used by arthochat_detect_ungrounded_reference() to recognise when the
-## model's response names a specific sub-module, and by
-## arthochat_grounded_modules_label() to summarise which ones actually had
-## live data this turn.
-##
-## Computed from the live TX_MODULES/MX_MODULES/CX_MODULES/MULTI_MODULES
-## config$title values (R/modules_index.R) rather than hand-maintained as a
-## parallel literal list: a hardcoded copy silently drifts out of sync with
-## the real titles (mismatched US/UK spelling, renamed titles, punctuation
-## differences) and the substring match below then never fires for that
-## module - i.e. exactly the bug this guard exists to prevent, just moved
-## into the guard's own module list instead of the model's answer. This is a
-## function, not a top-level constant, because R/shared/*.R (where this file
-## lives) is sourced before R/modules_index.R (0b_load_shared_modules.R runs
-## before modules_index.R); it's only ever called at chat-turn time, by which
-## point every R/*.R file has been sourced and the *_MODULES lists exist.
+## Live sub-module titles from *_MODULES, not a hardcoded list - a hand-copied list would drift out of sync with real titles.
 .arthochat_known_modules <- function() {
   registries <- list(
     mget("TX_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]],
@@ -52,33 +24,12 @@ ARTHOCHAT_SEED <- 20260904L
   unique(titles[!is.na(titles) & nzchar(titles)])
 }
 
-## Scans a draft assistant response for a mention of a known sub-module that
-## the CURRENT context (system prompt, including the "## <module>" sections
-## built by build_scoped_assistant_context()) marks as not yet run/loaded in
-## this session - i.e. a claim the model could only have produced from its
-## own training knowledge, not this session's data, without hedging that it's
-## doing so. This is a second, independent safety net alongside the system
-## prompt's own "say plainly when unavailable" instruction (which a small
-## local model does not reliably follow under pressure - see
-## tests/arthochat_verification/README.md) and the context-builder fix in
-## R/modules_index.R (which addresses the specific root cause the harness
-## found, but not every way a response could still reference an unrun module).
-## Splits context_text into "## <header>" sections (the convention every
-## context builder in R/modules_index.R uses) and, for each section whose
-## header names a known module, classifies it as run/not-run based on
-## whether a not-yet-run/loaded marker appears WITHIN THAT SECTION ONLY -
-## scoping the check per-section (rather than a flat proximity regex over the
-## whole context) so one module's own marker can never be mistaken for a
-## different, unrelated module's status just because they're both short
-## sections close together in the same context block.
+## Classifies each "##/### <header>" section of context_text as run/not-run per-section, so one module's marker can't leak into a neighboring section.
 .arthochat_classify_context_modules <- function(context_text, known_modules = .arthochat_known_modules()) {
   empty <- list(not_run = character(0), grounded = character(0))
   if (is.null(context_text) || !nzchar(trimws(context_text %||% ""))) return(empty)
   lines <- strsplit(context_text, "\n", fixed = TRUE)[[1]]
-  ## Vertical-level headers use "## ", per-sub-module headers (the ones this
-  ## function actually needs to classify) use "### " - matching only "## "
-  ## silently never found any per-sub-module header, so this guard never
-  ## fired against real context text (see tests/arthochat_verification).
+  ## Matches both "## " (vertical) and "### " (per-sub-module) headers.
   header_idx <- grep("^#{2,3} ", lines)
   if (!length(header_idx)) return(empty)
 
@@ -99,17 +50,7 @@ ARTHOCHAT_SEED <- 20260904L
   list(not_run = unique(not_run), grounded = unique(grounded))
 }
 
-## Scans a draft assistant response for a mention of a known sub-module that
-## the CURRENT context (system prompt, including the "## <module>" sections
-## built by build_scoped_assistant_context()) marks as not yet run/loaded in
-## this session - i.e. a claim the model could only have produced from its
-## own training knowledge, not this session's data, without hedging that it's
-## doing so. This is a second, independent safety net alongside the system
-## prompt's own "say plainly when unavailable" instruction (which a small
-## local model does not reliably follow under pressure - see
-## tests/arthochat_verification/README.md) and the context-builder fix in
-## R/modules_index.R (which addresses the specific root cause the harness
-## found, but not every way a response could still reference an unrun module).
+## Flags a response naming a sub-module the current context marks not-yet-run, unless it hedges.
 arthochat_detect_ungrounded_reference <- function(response_text, context_text,
                                                    known_modules = .arthochat_known_modules()) {
   empty <- list(flagged = FALSE, modules = character(0))
@@ -125,12 +66,7 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
     sep = "|"
   )
   hedged <- grepl(hedge_pattern, resp_lower, perl = TRUE)
-  ## A response naming a module rarely echoes its full canonical title verbatim
-  ## (e.g. it says "WGCNA" or "the DMR analysis", not "WGCNA (Co-Methylation
-  ## Network)" or "Differentially Methylated Regions (DMRs)"). Matching only the
-  ## full title would let those fabricated answers pass unflagged, so also try
-  ## the title with its parenthetical qualifier stripped, and a leading
-  ## all-caps acronym if the title has one.
+  ## Also match a title's parenthetical-stripped form and leading acronym, since responses rarely echo the full canonical title.
   .mod_variants <- function(mod) {
     core <- trimws(sub("\\s*\\([^)]*\\)\\s*$", "", mod))
     acronym <- if (grepl("^[A-Z]{2,}\\b", mod)) sub("^([A-Z]{2,})\\b.*", "\\1", mod) else NA_character_
@@ -143,10 +79,7 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
   list(flagged = length(flagged_modules) > 0, modules = unique(flagged_modules))
 }
 
-## Summarises, for the transparency footer, which known sub-modules the
-## CURRENT context actually had live session data for - shown to the user
-## only when arthochat_detect_ungrounded_reference() did NOT flag the
-## response, so the footer never contradicts a caveat already given.
+## Sub-modules the current context had live session data for, for the transparency footer.
 arthochat_grounded_modules_label <- function(context_text, known_modules = .arthochat_known_modules()) {
   paste(.arthochat_classify_context_modules(context_text, known_modules)$grounded, collapse = ", ")
 }
@@ -548,11 +481,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
       stream <- cl$stream_async(input$chat_user_input)
       p <- shinychat::chat_append("chat", stream, session = session)
 
-      ## Post-hoc, non-blocking checks once the full response has streamed:
-      ## (1) the fabrication guard appends a caveat if the response named a
-      ## sub-module this session's context marked as not-yet-run/loaded
-      ## without hedging; (2) otherwise, a short transparency footer names
-      ## which sub-modules' live data the response could actually draw on.
+      ## Post-hoc: append a fabrication caveat, or else a "grounded in" footer.
       promises::then(p, onFulfilled = function(full_text) {
         chk <- arthochat_detect_ungrounded_reference(full_text, ctx_text)
         if (isTRUE(chk$flagged)) {
@@ -571,10 +500,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           }
         }
       })
-      ## Error handling: if the backend becomes unreachable mid-session (after
-      ## the initial arthochat_backend() check passed) or the stream
-      ## otherwise fails, show a clear chat message instead of an
-      ## unhandled/silent failure.
       promises::catch(p, function(e) {
         shinychat::chat_append(
           "chat",

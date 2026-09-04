@@ -98,13 +98,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     })
 
     ## ---- "Use live session results" data source ------------------------
-    ## dataset/results/methyl_dataset/methyl_results are the live Transcriptomics
-    ## and Methylomics reactiveValues, passed in directly from server.R. This is
-    ## the ONLY place in this module that reads results/methyl_results; it writes
-    ## the adapted tables into the shared cross_dataset store exactly like
-    ## mod_cross_dataset_server's "Use this data" button does, so everything
-    ## downstream (the `raw` sync above, "Run Integration", cx_aggregate_methylation(),
-    ## cx_gene_correlation(), cx_classify_evidence()) runs completely unmodified.
+    ## Writes adapted live results/methyl_results into cross_dataset, same as mod_cross_dataset_server's "Use this data" button.
     live_dge_choices <- reactive({
       runs <- (results %||% list())$dge_runs %||% list()
       if (length(runs) == 0) return(NULL)

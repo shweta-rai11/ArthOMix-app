@@ -285,13 +285,7 @@ dxm_overfitting_note <- function(train_auc, cv_auc, test_auc, test_label = "inde
 
 DXM_MAX_CANDIDATE_CPGS <- 200
 
-## Leakage-safe nested-CV validator for the Diagnostic Classifier's default
-## (no genuine held-out split) path. Mirrors transcriptomics' diag_validate_nested()
-## in spirit - reselect the panel (limma moderated-t ranking, then LASSO) inside
-## every outer fold, using only that fold's training labels - but built from this
-## module's own building blocks (dxm_roc_bundle) so this file stays self-contained.
-## X_full is samples (rows) x CpGs (columns), matching dxm$train_X/full_X's own
-## orientation in this module; y_full is a two-level factor (DXM_NEG/DXM_POS).
+## Leakage-safe nested-CV validator (no held-out split): reselects the panel inside every outer fold, training-fold labels only.
 dxm_validate_nested <- function(X_full, y_full, outer_k = 5, uni_top_n = 100, lasso_alpha = 1, seed = 42) {
   y_full <- droplevels(factor(as.character(y_full), levels = c(DXM_NEG, DXM_POS)))
   validate(need(nlevels(y_full) == 2, "Leakage-safe nested-CV validation needs exactly two classes."))
@@ -354,11 +348,7 @@ dxm_validate_nested <- function(X_full, y_full, outer_k = 5, uni_top_n = 100, la
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
-## Decides which AUC is this classifier session's headline (primary) metric,
-## mirroring transcriptomics' diag_attach_headline(). A genuine leakage-safe
-## held-out split (dxm$leakage_safe == TRUE) keeps the naive Test AUC as
-## primary. Otherwise the automatic nested-CV AUC becomes primary whenever
-## it's available; the naive Test AUC is still always shown, just demoted.
+## Headline AUC: naive Test AUC if leakage_safe, else nested-CV AUC when available (Test AUC still shown, just demoted).
 dxm_attach_headline <- function(leakage_safe, nested_cv = NULL) {
   if (isTRUE(leakage_safe)) {
     return(list(headline_metric = "test_split", nested_cv = NULL))

@@ -345,14 +345,7 @@ mod_dge_server <- function(id, dataset, results) {
       cs <- cur_source()
       meta <- cs$meta
 
-      ## Case-insensitive resolution of contrast_col/ref_group/comp_group against
-      ## the real metadata column names/values - matches the case-insensitive
-      ## matching every OTHER ArthOChat tool-invocation path already uses
-      ## (project_methods/project_methods_methylomics's module lookup, gwas_catalog_search,
-      ## other_module_context's tolower(module)). Only letter-casing is forgiven here;
-      ## a value that genuinely doesn't exist (in any case) is still rejected below,
-      ## same as before. The UI's own selectInput always supplies exact-case choices
-      ## already present in `meta`, so this is a no-op for the button-driven path.
+      ## Case-insensitive lookup against real metadata column names/values, for the ArthOChat tool-invocation path.
       .ci_resolve <- function(value, choices) {
         if (is.null(value) || !length(choices)) return(value)
         hit <- choices[tolower(choices) == tolower(value)]

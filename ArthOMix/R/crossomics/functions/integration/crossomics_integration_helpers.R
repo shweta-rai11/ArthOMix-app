@@ -706,15 +706,7 @@ cx_validate_dataset <- function(expr_df, meth_df, id_harmonization = NULL) {
 }
 
 ## ---- Live-session adapters ---------------------------------------------
-## Pure, testable bridges from the LIVE Transcriptomics (results$dge_runs)
-## and Methylomics (methyl_results$dmp_table) session objects into exactly
-## the same expr_df/meth_df column contract already produced by
-## cx_standardize_expression()/cx_standardize_methylation() - the same
-## functions cx_load_default_deg()+mod_cross_dataset.R and
-## cx_load_default_methylation() use to build the "Example data" and
-## "Upload your own data" paths. cx_aggregate_methylation(), cx_gene_correlation()
-## and cx_classify_evidence() are untouched - these adapters only shape input
-## for them, they never run downstream of that boundary.
+## Bridges live results$dge_runs/methyl_results$dmp_table into the same expr_df/meth_df contract as cx_standardize_expression()/cx_standardize_methylation().
 
 CX_LIVE_EMPTY_EXPR_DF <- data.frame(
   gene = character(0), log2fc = numeric(0), pvalue = numeric(0), fdr = numeric(0),

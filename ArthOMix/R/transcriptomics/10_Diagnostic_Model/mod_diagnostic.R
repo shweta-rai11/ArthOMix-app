@@ -594,13 +594,7 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
-## Decides which AUC is this sex-run's headline (primary) metric. A genuine
-## leakage-safe held-out split (leakage_safe == TRUE) keeps the naive
-## Test-split AUC as primary - it's a valid estimate in that case. Otherwise
-## (the default/bundled-panel path) the automatically-computed nested-CV AUC
-## becomes primary whenever it's available; the naive Test-split AUC is
-## always still attached/shown, just demoted in the UI. Pure and testable
-## independent of the nested-CV computation itself.
+## Headline AUC: naive Test-split AUC if leakage_safe, else nested-CV AUC when available (Test-split AUC still shown, just demoted).
 diag_attach_headline <- function(fit, nested_cv = NULL) {
   if (isTRUE(fit$leakage_safe)) {
     fit$nested_cv <- NULL
