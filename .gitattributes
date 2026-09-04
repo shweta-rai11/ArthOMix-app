@@ -2,3 +2,6 @@
 *.RData filter=lfs diff=lfs merge=lfs -text
 *.rda filter=lfs diff=lfs merge=lfs -text
 ArthOMix/data/examples/methylomics_upload/gse71841_expression_matrix.csv filter=lfs diff=lfs merge=lfs -text
+ArthOMix/data/examples/multiomics_upload/geo_multiomics/*.csv filter=lfs diff=lfs merge=lfs -text
+ArthOMix/data/examples/multiomics_upload/geo_multiomics/*.xlsx filter=lfs diff=lfs merge=lfs -text
+ArthOMix/data/examples/transcriptomics_upload/geo_transcriptomics/*.csv filter=lfs diff=lfs merge=lfs -text

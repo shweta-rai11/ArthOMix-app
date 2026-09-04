@@ -558,6 +558,91 @@ multi_geo_layer_fetch <- function(accession) {
   list(ok = TRUE, accession = acc, platforms = gset, error = NULL)
 }
 
+multi_geo_series_relation <- function(accession) {
+  acc <- toupper(trimws(accession %||% ""))
+  if (!grepl("^GSE[0-9]+$", acc)) return(list(ok = FALSE, error = "Enter a valid GEO Series accession, e.g. GSE12345."))
+  url <- sprintf("https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=%s&targ=self&form=text&view=quick", acc)
+  txt <- tryCatch(suppressWarnings(readLines(url, warn = FALSE)), error = function(e) e)
+  if (inherits(txt, "error") || length(txt) == 0) {
+    return(list(ok = FALSE, error = sprintf("Could not reach NCBI GEO for %s - check the accession and your network connection.", acc)))
+  }
+  if (!any(grepl("^\\^SERIES", txt))) {
+    return(list(ok = FALSE, error = sprintf("Could not find %s as a GEO Series - check the accession is a Series (GSExxxxx), not a Sample (GSM) or Platform (GPL) ID.", acc)))
+  }
+  rel_vals <- trimws(sub("^!Series_relation\\s*=\\s*", "", grep("^!Series_relation", txt, value = TRUE)))
+  subseries <- unique(sub("^SuperSeries of:\\s*", "", rel_vals[grepl("^SuperSeries of:\\s*GSE[0-9]+\\s*$", rel_vals)]))
+  list(ok = TRUE, accession = acc, subseries = subseries)
+}
+
+multi_geo_autosplit_fetch <- function(accession) {
+  acc <- toupper(trimws(accession %||% ""))
+  if (!grepl("^GSE[0-9]+$", acc)) return(list(ok = FALSE, error = "Enter a valid GEO Series accession, e.g. GSE12345."))
+
+  classify <- function(platforms) {
+    out <- list()
+    for (nm in names(platforms)) {
+      pm <- multi_geo_platform_matrix(platforms[[nm]], collapse_genes = TRUE)
+      if (!isTRUE(pm$ok)) next
+      det <- multi_live_detect_omics_type(pm$mat)
+      out[[nm]] <- list(mat = pm$mat, meta = pm$meta, platform = pm$platform, collapsed = pm$collapsed, detected = det$detected)
+    }
+    out
+  }
+  pick_pair <- function(layers, accession_of = NULL) {
+    rna <- Filter(function(l) identical(l$detected, "rnaseq"), layers)
+    meth <- Filter(function(l) identical(l$detected, "methylation"), layers)
+    if (length(rna) != 1 || length(meth) != 1) return(NULL)
+    exp_l <- rna[[1]]; exp_l$accession <- if (is.null(accession_of)) acc else accession_of(names(rna)[1])
+    meth_l <- meth[[1]]; meth_l$accession <- if (is.null(accession_of)) acc else accession_of(names(meth)[1])
+    list(expression = exp_l, methylation = meth_l)
+  }
+
+  direct <- multi_geo_layer_fetch(acc)
+  if (isTRUE(direct$ok) && length(direct$platforms) >= 2) {
+    pair <- pick_pair(classify(direct$platforms))
+    if (!is.null(pair)) return(list(ok = TRUE, accession = acc, expression = pair$expression, methylation = pair$methylation))
+  }
+
+  rel <- multi_geo_series_relation(acc)
+  if (!isTRUE(rel$ok)) return(list(ok = FALSE, error = rel$error))
+  if (length(rel$subseries) < 2) {
+    return(list(ok = FALSE, error = sprintf(
+      "%s does not look like a multi-omics SuperSeries - GEO lists %d linked sub-series here (need at least 2, one expression + one methylation). If you already have the split files, use \"Upload Dataset\" instead.",
+      acc, length(rel$subseries))))
+  }
+
+  fetched <- list()
+  for (sub_acc in rel$subseries) {
+    lf <- multi_geo_layer_fetch(sub_acc)
+    if (!isTRUE(lf$ok)) { fetched[[sub_acc]] <- list(ok = FALSE, error = lf$error); next }
+    layers <- classify(lf$platforms)
+    if (length(layers) == 0) {
+      fetched[[sub_acc]] <- list(ok = FALSE, error = "No usable expression matrix in this sub-series' GEO series matrix.")
+      next
+    }
+    l <- layers[[1]]
+    fetched[[sub_acc]] <- list(ok = TRUE, mat = l$mat, meta = l$meta, platform = l$platform, collapsed = l$collapsed, detected = l$detected)
+  }
+
+  failed <- Filter(function(f) !isTRUE(f$ok), fetched)
+  if (length(failed) > 0) {
+    detail <- paste(sprintf("%s (%s)", names(failed), vapply(failed, function(f) f$error, character(1))), collapse = "; ")
+    return(list(ok = FALSE, error = sprintf(
+      "%s is a SuperSeries of %s, but not all linked sub-series could be read from GEO's series matrix: %s. This data may only be available as a supplementary file, which auto-split cannot read - download it and use \"Upload Dataset\" instead.",
+      acc, paste(rel$subseries, collapse = " + "), detail)))
+  }
+
+  ok_fetched <- Filter(function(f) isTRUE(f$ok), fetched)
+  pair <- pick_pair(ok_fetched, accession_of = function(nm) nm)
+  if (is.null(pair)) {
+    types <- paste(sprintf("%s: %s", names(ok_fetched), vapply(ok_fetched, function(f) f$detected, character(1))), collapse = ", ")
+    return(list(ok = FALSE, error = sprintf(
+      "%s's linked sub-series (%s) could not be resolved to exactly one expression layer and one methylation layer (detected %s).",
+      acc, paste(rel$subseries, collapse = " + "), types)))
+  }
+  list(ok = TRUE, accession = acc, expression = pair$expression, methylation = pair$methylation)
+}
+
 multi_geo_platform_matrix <- function(eset, collapse_genes = TRUE) {
   ex <- tryCatch(Biobase::exprs(eset), error = function(e) NULL)
   if (is.null(ex) || nrow(ex) == 0 || ncol(ex) == 0) {

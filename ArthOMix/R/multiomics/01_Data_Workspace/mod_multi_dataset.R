@@ -108,9 +108,8 @@ mo_block_id <- function(i, mode) paste0(if (identical(mode, "geo")) "g" else "u"
 mo_file_input_id <- function(bid, gen) paste0(bid, "_file_g", gen)
 mo_meta_file_input_id <- function(bid, gen) paste0(bid, "_meta_file_g", gen)
 
-mo_block_ui <- function(ns, i, mode = c("upload", "geo"), gen = 0) {
-  mode <- match.arg(mode)
-  bid <- mo_block_id(i, mode)
+mo_block_ui <- function(ns, i, gen = 0) {
+  bid <- mo_block_id(i, "upload")
   box(
     width = NULL, title = sprintf("Dataset %d%s", i, if (i <= 2) " (required)" else ""),
     status = "primary", solidHeader = FALSE, collapsible = TRUE, collapsed = FALSE,
@@ -118,22 +117,13 @@ mo_block_ui <- function(ns, i, mode = c("upload", "geo"), gen = 0) {
                 selected = if (i == 1) "rnaseq" else if (i == 2) "methylation" else "other"),
     textInput(ns(paste0(bid, "_label")), "Display label", value = sprintf("Dataset %d", i)),
     uiOutput(ns(paste0(bid, "_feature_id_note"))),
-    if (identical(mode, "upload")) tagList(
-      fileInput(ns(mo_file_input_id(bid, gen)), "File (CSV, TSV, TXT, XLSX, or RDS)",
-                accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
-      uiOutput(ns(paste0(bid, "_omics_type_note"))),
-      fileInput(ns(mo_meta_file_input_id(bid, gen)), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
-                accept = c(".csv")),
-      uiOutput(ns(paste0(bid, "_orient_note"))),
-      uiOutput(ns(paste0(bid, "_shape_ui")))
-    ) else tagList(
-      textInput(ns(paste0(bid, "_geo_acc")), "GEO accession", placeholder = "GSE12345"),
-      actionButton(ns(paste0(bid, "_geo_fetch")), "Fetch from GEO", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
-      fileInput(ns(mo_meta_file_input_id(bid, gen)), "Additional sample metadata for this dataset (optional, CSV, first column = sample ID)",
-                accept = c(".csv")),
-      uiOutput(ns(paste0(bid, "_geo_platform_ui"))),
-      uiOutput(ns(paste0(bid, "_geo_status")))
-    ),
+    fileInput(ns(mo_file_input_id(bid, gen)), "File (CSV, TSV, TXT, XLSX, or RDS)",
+              accept = c(".csv", ".tsv", ".txt", ".xlsx", ".rds", ".Rds")),
+    uiOutput(ns(paste0(bid, "_omics_type_note"))),
+    fileInput(ns(mo_meta_file_input_id(bid, gen)), "Sample metadata for this dataset (optional, CSV, first column = sample ID)",
+              accept = c(".csv")),
+    uiOutput(ns(paste0(bid, "_orient_note"))),
+    uiOutput(ns(paste0(bid, "_shape_ui"))),
     p(class = "submodule-desc", "Rows must match the sample IDs in your metadata.")
   )
 }
@@ -179,10 +169,11 @@ mod_multi_dataset_ui <- function(id) {
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'geo'", ns("dataset_source")),
-            div(class = "empty-note", icon("circle-info"),
-                "Enter one GEO Series accession per dataset below. Inspect what's fetched before adding it - not every layer will be compatible."),
-            uiOutput(ns("geo_blocks_ui")),
-            uiOutput(ns("add_geo_block_ui")),
+            box(width = NULL, title = "Retrieve from GEO", status = "primary", solidHeader = FALSE,
+                p(class = "submodule-desc", "Enter a single GEO Series accession that bundles matched transcriptomics and methylation data from the same samples (a SuperSeries) - the app fetches it, discovers the linked sub-series, and splits it into an expression layer and a methylation layer automatically. If it can't be split, you'll get a clear error instead of a guess."),
+                textInput(ns("geo_superseries_acc"), "GEO Series accession", placeholder = "GSE12345"),
+                actionButton(ns("geo_autosplit_btn"), "Fetch & Split", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
+                uiOutput(ns("geo_autosplit_status"))),
             box(width = NULL, title = "Sample Metadata", status = "primary", solidHeader = FALSE,
                 p(class = "submodule-desc", "Imported automatically from each fetched GEO series' own sample metadata."))
           ),
@@ -213,13 +204,11 @@ mod_multi_dataset_ui <- function(id) {
 }
 
 mo_label_omics_type <- function(label, input, n_upload, n_geo, mode) {
-  if (identical(mode, "preloaded")) {
+  if (identical(mode, "preloaded") || identical(mode, "geo")) {
     return(switch(label, Transcriptomics = "rnaseq", Methylomics = "methylation", "other"))
   }
-  ids <- if (identical(mode, "upload")) seq_len(n_upload) else seq_len(n_geo)
-  bmode <- if (identical(mode, "upload")) "upload" else "geo"
-  for (i in ids) {
-    bid <- mo_block_id(i, bmode)
+  for (i in seq_len(n_upload)) {
+    bid <- mo_block_id(i, "upload")
     if (identical(input[[paste0(bid, "_label")]], label)) return(input[[paste0(bid, "_type")]] %||% "other")
   }
   "other"
@@ -359,8 +348,8 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       raw$provenance <- list(); raw$meta <- NULL
       proc$filtered_mats <- NULL; proc$scaled_mats <- NULL; proc$batch_corrected <- NULL
 
-      for (nm in names(geo_raw_platforms)) geo_raw_platforms[[nm]] <- NULL
-      for (nm in names(geo_fetched)) geo_fetched[[nm]] <- NULL
+      geo_fetched$expression <- NULL; geo_fetched$methylation <- NULL
+      output$geo_autosplit_status <- renderUI(NULL)
       for (nm in names(block_shape)) block_shape[[nm]] <- NULL
 
       for (i in seq_len(MO_MAX_BLOCKS)) {
@@ -370,17 +359,14 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       }
 
       n_upload_blocks(2)
-      n_geo_blocks(2)
       block_reset_gen(block_reset_gen() + 1)
 
       preloaded_load_attempted(FALSE)
     })
 
     n_upload_blocks <- reactiveVal(2)
-    n_geo_blocks <- reactiveVal(2)
     block_reset_gen <- reactiveVal(0)
-    geo_raw_platforms <- reactiveValues()   # gblockN -> list(accession, platforms)
-    geo_fetched <- reactiveValues()          # gblockN -> list(mat, meta, platform, accession, collapsed)
+    geo_fetched <- reactiveValues(expression = NULL, methylation = NULL)
     raw <- reactiveValues(mats = list(), validations = list(), labels = list(), provenance = list(), meta = NULL)
     proc <- reactiveValues(filtered_mats = NULL, scaled_mats = NULL, batch_corrected = NULL)
     block_shape <- reactiveValues()
@@ -412,11 +398,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
     output$upload_blocks_ui <- renderUI({
       gen <- block_reset_gen()
-      tagList(lapply(seq_len(n_upload_blocks()), function(i) mo_block_ui(ns, i, mode = "upload", gen = gen)))
-    })
-    output$geo_blocks_ui <- renderUI({
-      gen <- block_reset_gen()
-      tagList(lapply(seq_len(n_geo_blocks()), function(i) mo_block_ui(ns, i, mode = "geo", gen = gen)))
+      tagList(lapply(seq_len(n_upload_blocks()), function(i) mo_block_ui(ns, i, gen = gen)))
     })
 
     output$add_upload_block_ui <- renderUI({
@@ -425,21 +407,28 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     observeEvent(input$add_upload_block_btn, n_upload_blocks(min(MO_MAX_BLOCKS, n_upload_blocks() + 1)))
 
-    output$add_geo_block_ui <- renderUI({
-      if (n_geo_blocks() >= MO_MAX_BLOCKS) return(div(class = "submodule-desc", sprintf("Maximum of %d datasets per session.", MO_MAX_BLOCKS)))
-      actionButton(ns("add_geo_block_btn"), "+ Add Another Dataset", icon = icon("plus"), class = "btn-primary btn-sm")
+    observeEvent(input$geo_autosplit_btn, {
+      res <- multi_geo_autosplit_fetch(input$geo_superseries_acc)
+      if (!isTRUE(res$ok)) {
+        geo_fetched$expression <- NULL; geo_fetched$methylation <- NULL
+        output$geo_autosplit_status <- renderUI(div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"), sprintf(" %s", res$error)))
+        return()
+      }
+      geo_fetched$expression <- res$expression
+      geo_fetched$methylation <- res$methylation
+      output$geo_autosplit_status <- renderUI(div(class = "empty-note", icon("circle-check"), sprintf(
+        " Split %s into Transcriptomics (%s: %s samples x %s features) and Methylomics (%s: %s samples x %s features). Click \"Validate Datasets\" below to continue.",
+        res$accession,
+        res$expression$accession, format(nrow(res$expression$mat), big.mark = ","), format(ncol(res$expression$mat), big.mark = ","),
+        res$methylation$accession, format(nrow(res$methylation$mat), big.mark = ","), format(ncol(res$methylation$mat), big.mark = ",")
+      )))
     })
-    observeEvent(input$add_geo_block_btn, n_geo_blocks(min(MO_MAX_BLOCKS, n_geo_blocks() + 1)))
 
     lapply(seq_len(MO_MAX_BLOCKS), function(i) {
-      ubid <- mo_block_id(i, "upload"); gbid <- mo_block_id(i, "geo")
+      ubid <- mo_block_id(i, "upload")
 
       output[[paste0(ubid, "_feature_id_note")]] <- renderUI({
         otype <- input[[paste0(ubid, "_type")]] %||% "other"
-        p(class = "submodule-desc", sprintf("Feature identifier: %s", MULTI_LIVE_FEATURE_ID_LABELS[[otype]] %||% "Feature ID"))
-      })
-      output[[paste0(gbid, "_feature_id_note")]] <- renderUI({
-        otype <- input[[paste0(gbid, "_type")]] %||% "other"
         p(class = "submodule-desc", sprintf("Feature identifier: %s", MULTI_LIVE_FEATURE_ID_LABELS[[otype]] %||% "Feature ID"))
       })
 
@@ -517,44 +506,6 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
             )
           })
         )
-      })
-
-      observeEvent(input[[paste0(gbid, "_geo_fetch")]], {
-        acc <- input[[paste0(gbid, "_geo_acc")]]
-        res <- multi_geo_layer_fetch(acc)
-        if (!res$ok) {
-          geo_fetched[[gbid]] <- NULL
-          geo_raw_platforms[[gbid]] <- NULL
-          output[[paste0(gbid, "_geo_status")]] <- renderUI(div(class = "empty-note", icon("triangle-exclamation"), res$error))
-          output[[paste0(gbid, "_geo_platform_ui")]] <- renderUI(NULL)
-          return()
-        }
-        geo_raw_platforms[[gbid]] <- list(accession = res$accession, platforms = res$platforms)
-        plat_names <- names(res$platforms)
-        output[[paste0(gbid, "_geo_platform_ui")]] <- renderUI(
-          if (length(plat_names) > 1) selectInput(ns(paste0(gbid, "_geo_platform")), "This series spans multiple platforms - pick one", choices = plat_names, width = "100%")
-          else NULL
-        )
-      })
-
-      observe({
-        gp <- geo_raw_platforms[[gbid]]
-        if (is.null(gp)) return()
-        chosen <- if (length(gp$platforms) > 1) input[[paste0(gbid, "_geo_platform")]] else names(gp$platforms)[1]
-        req(chosen)
-        eset <- gp$platforms[[chosen]]
-        pm <- multi_geo_platform_matrix(eset, collapse_genes = identical(input[[paste0(gbid, "_type")]] %||% "other", "rnaseq"))
-        if (!pm$ok) {
-          geo_fetched[[gbid]] <- NULL
-          output[[paste0(gbid, "_geo_status")]] <- renderUI(div(class = "empty-note", icon("triangle-exclamation"), pm$error))
-          return()
-        }
-        geo_fetched[[gbid]] <- list(mat = pm$mat, meta = pm$meta, platform = pm$platform, accession = gp$accession, collapsed = pm$collapsed)
-        output[[paste0(gbid, "_geo_status")]] <- renderUI(
-          div(class = "empty-note", icon("circle-check"),
-              sprintf("Fetched %s (platform %s): %s samples x %s features.%s", gp$accession, pm$platform,
-                      format(nrow(pm$mat), big.mark = ","), format(ncol(pm$mat), big.mark = ","),
-                      if (isTRUE(pm$collapsed)) " Probes collapsed to genes." else "")))
       })
     })
 
@@ -636,39 +587,19 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           }
         }
       } else if (identical(mode, "geo")) {
-        for (i in seq_len(n_geo_blocks())) {
-          gbid <- mo_block_id(i, "geo")
-          gf <- geo_fetched[[gbid]]
+        for (key in c("expression", "methylation")) {
+          gf <- geo_fetched[[key]]
           if (is.null(gf)) next
-          label <- input[[paste0(gbid, "_label")]] %||% sprintf("Dataset %d", i)
-          otype <- input[[paste0(gbid, "_type")]] %||% "other"
-          if (otype %in% c("rnaseq", "methylation")) {
-            det <- multi_live_detect_omics_type(gf$mat)
-            mismatch <- identical(det$detected, "unclassifiable") ||
-              (identical(otype, "rnaseq") && identical(det$detected, "methylation")) ||
-              (identical(otype, "methylation") && identical(det$detected, "rnaseq"))
-            if (mismatch) {
-              showNotification(sprintf(
-                "%s: rejected. %s This dataset was selected as %s, but its structure %s.", label, det$reason,
-                names(MULTI_LIVE_OMICS_TYPES)[match(otype, MULTI_LIVE_OMICS_TYPES)] %||% otype,
-                if (identical(det$detected, "unclassifiable")) "could not be confidently classified as either Transcriptomics or DNA Methylomics" else sprintf("looks like %s instead", if (identical(det$detected, "methylation")) "DNA Methylomics" else "Transcriptomics")
-              ), type = "error", duration = 15)
-              next
-            }
-          }
+          label <- if (identical(key, "expression")) "Transcriptomics" else "Methylomics"
           v <- multi_live_validate_matrix(gf$mat, layer_label = label)
           mats[[label]] <- gf$mat
           validations[[label]] <- v
-          labels[[gbid]] <- label
-          provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
+          labels[[key]] <- label
+          provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s, auto-split)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           if (!is.null(gf$meta)) geo_meta_dfs[[label]] <- gf$meta
-          mfi <- input[[mo_meta_file_input_id(gbid, gen)]]
-          m <- mo_read_meta_file(mfi)
-          if (!is.null(m)) {
-            explicit_meta_dfs[[label]] <- m
-          } else if (!is.null(mfi)) {
-            showNotification(sprintf("%s: metadata file could not be read as a table and was skipped.", label), type = "warning")
-          }
+        }
+        if (is.null(geo_fetched$expression) || is.null(geo_fetched$methylation)) {
+          showNotification("Fetch & Split a GEO accession above before validating.", type = "warning")
         }
       }
 
@@ -696,6 +627,49 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       showNotification(sprintf("Validated %d dataset(s).", length(mats)), type = "message")
     })
 
+    expression_layer_name <- reactive({
+      nms <- names(raw$mats)
+      hit <- Filter(function(nm) identical(mo_label_omics_type(nm, input, n_upload_blocks(), 0L, input$dataset_source), "rnaseq"), nms)
+      if (length(hit) == 0) NULL else hit[[1]]
+    })
+    methylation_layer_name <- reactive({
+      nms <- names(raw$mats)
+      hit <- Filter(function(nm) identical(mo_label_omics_type(nm, input, n_upload_blocks(), 0L, input$dataset_source), "methylation"), nms)
+      if (length(hit) == 0) NULL else hit[[1]]
+    })
+    output$export_split_ui <- renderUI({
+      exp_nm <- expression_layer_name(); meth_nm <- methylation_layer_name()
+      if (is.null(exp_nm) && is.null(meth_nm)) return(NULL)
+      box(width = NULL, title = "Export Split Files", status = "primary", solidHeader = FALSE,
+          p(class = "submodule-desc", "Download the transcriptomics and methylation layers as separate files, plus the merged sample sheet - useful for re-uploading elsewhere or for Scenario 2 (two-file) loading."),
+          div(class = "table-toolbar", style = "display:flex; gap:8px; flex-wrap:wrap;",
+              if (!is.null(exp_nm)) downloadButton(ns("dl_expression_csv"), "expression.csv", class = "btn-sm"),
+              if (!is.null(meth_nm)) downloadButton(ns("dl_methylomics_csv"), "methylomics.csv", class = "btn-sm"),
+              if (!is.null(raw$meta)) downloadButton(ns("dl_sample_csv"), "sample.csv", class = "btn-sm")
+          ))
+    })
+    output$dl_expression_csv <- downloadHandler(
+      filename = function() "expression.csv",
+      content = function(file) {
+        m <- raw$mats[[req(expression_layer_name())]]
+        utils::write.csv(data.frame(sample_id = rownames(m), m, check.names = FALSE), file, row.names = FALSE)
+      }
+    )
+    output$dl_methylomics_csv <- downloadHandler(
+      filename = function() "methylomics.csv",
+      content = function(file) {
+        m <- raw$mats[[req(methylation_layer_name())]]
+        utils::write.csv(data.frame(sample_id = rownames(m), m, check.names = FALSE), file, row.names = FALSE)
+      }
+    )
+    output$dl_sample_csv <- downloadHandler(
+      filename = function() "sample.csv",
+      content = function(file) {
+        m <- req(raw$meta)
+        utils::write.csv(data.frame(sample_id = rownames(m), m, check.names = FALSE), file, row.names = FALSE)
+      }
+    )
+
     output$validate_ui <- renderUI({
       if (length(raw$validations) == 0) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
       tagList(
@@ -706,6 +680,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
               mo_dataset_block_card(nm, v$n_samples %||% NA, v$n_features %||% NA, st)
             })
         ),
+        uiOutput(ns("export_split_ui")),
         DT::dataTableOutput(ns("qc_table")),
         p(class = "submodule-desc", tags$em("Every value above is computed from your actual datasets.")),
         lapply(raw$validations, function(v) {
@@ -797,7 +772,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     output$norm_controls <- renderUI({
       req(length(raw$mats) > 0)
       tagList(lapply(names(raw$mats), function(label) {
-        otype <- mo_label_omics_type(label, input, n_upload_blocks(), n_geo_blocks(), input$dataset_source)
+        otype <- mo_label_omics_type(label, input, n_upload_blocks(), 0L, input$dataset_source)
         box(width = NULL, title = label, status = "primary", solidHeader = FALSE, collapsible = TRUE,
             selectInput(ns(paste0("norm_", make.names(label))), "Normalization", choices = MULTI_LIVE_NORM_CHOICES[[otype]] %||% MULTI_LIVE_NORM_CHOICES$other),
             numericInput(ns(paste0("topvar_", make.names(label))), "Feature filtering: keep top-N most variable features (blank = keep all)", value = NA, min = 10))
@@ -818,7 +793,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
                                           max_feature_missing_pct = input$max_feature_missing %||% 100)
         if (!imp$ok) { showNotification(sprintf("%s: %s", label, imp$error), type = "error"); next }
         m <- imp$mat
-        otype <- mo_label_omics_type(label, input, n_upload_blocks(), n_geo_blocks(), input$dataset_source)
+        otype <- mo_label_omics_type(label, input, n_upload_blocks(), 0L, input$dataset_source)
         norm <- multi_live_normalize(m, otype, input[[paste0("norm_", make.names(label))]] %||% "none")
         m <- norm$mat
         top_n <- input[[paste0("topvar_", make.names(label))]]
@@ -1073,7 +1048,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
 
       ov_now <- tryCatch(overlap(), error = function(e) NULL)
       layer_meta <- lapply(names(final_mats), function(nm) list(
-        omics_type = mo_label_omics_type(nm, input, n_upload_blocks(), n_geo_blocks(), input$dataset_source),
+        omics_type = mo_label_omics_type(nm, input, n_upload_blocks(), 0L, input$dataset_source),
         validation = raw$validations[[nm]],
         status = cmp$per_layer[[nm]]$status,
         processing = if (!is.null(proc$filtered_mats)) "Normalized, filtered, scaled" else "Not processed",
