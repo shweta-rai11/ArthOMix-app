@@ -58,8 +58,7 @@ MULTI_MODULES <- list(
   list(config = mod_multi_biomarker_config,      ui = mod_multi_biomarker_ui,      server = mod_multi_biomarker_server),
   list(config = mod_multi_mapping_config,    ui = mod_multi_mapping_ui,    server = mod_multi_mapping_server),
   list(config = mod_multi_pathway_config,        ui = mod_multi_pathway_ui,        server = mod_multi_pathway_server),
-  list(config = mod_multi_biomarkercard_config,  ui = mod_multi_biomarkercard_ui,  server = mod_multi_biomarkercard_server),
-  list(config = mod_multi_summary_config,        ui = mod_multi_summary_ui,        server = mod_multi_summary_server)
+  list(config = mod_multi_biomarkercard_config,  ui = mod_multi_biomarkercard_ui,  server = mod_multi_biomarkercard_server)
 )
 
 MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m) m$config$id, character(1)))

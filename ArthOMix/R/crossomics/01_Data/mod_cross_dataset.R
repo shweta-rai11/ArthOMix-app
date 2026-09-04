@@ -4,35 +4,25 @@
 
 mod_cross_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
-  description = "Load example Transcriptomics/Methylomics data, or upload your own in the same standardized format, for the Expression and Methylation sub-module to run on."
+  description = "Load your own Transcriptomics/Methylomics analysis results from this session, or upload data in the same standardized format, for the Expression and Methylation sub-module to run on."
 )
 
 mod_cross_dataset_ui <- function(id) {
   ns <- NS(id)
   tagList(
     div(class = "empty-note", icon("circle-info"),
-        "Loads the data for Expression and Methylation, separate from the Transcriptomics and Methylomics tabs."),
+        "Loads the data for Expression and Methylation. Pull in the Transcriptomics/Methylomics results you've already run in this session, or upload files below."),
     fluidRow(
       column(
         4,
         box(
           width = NULL, title = "1. Data Source", status = "primary", solidHeader = FALSE,
           radioButtons(ns("source_mode"), "Data source",
-                       choices = c("Example data" = "example", "Upload your own data" = "upload"),
+                       choices = c("My analysis results" = "example", "Upload your own data" = "upload"),
                        selected = "example"),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'example'", ns("source_mode")),
-            radioButtons(ns("sex_stratum"), "Analysis group",
-                         choices = c("ALL" = "all", "FEMALE" = "female", "MALE" = "male"),
-                         selected = "female", inline = TRUE),
-            radioButtons(ns("meth_level"), "Methylation data",
-                         choices = c("CpG-level (DMP)" = "dmp", "Region-level (DMR)" = "dmr"),
-                         selected = "dmp", inline = TRUE),
-            tags$div(style = "font-weight:600; margin-bottom:2px;", "Transcriptomics"),
-            p(class = "empty-note", icon("circle-info"), "Differentially Expressed Genes (DEG) format, for the analysis group selected above - included automatically."),
-            tags$div(style = "font-weight:600; margin-bottom:2px;", "Methylomics"),
-            p(class = "empty-note", icon("circle-info"), "Differentially Methylated Position/Region (DMP/DMR) format, for the analysis group and methylation level selected above - included automatically."),
-            actionButton(ns("load_example_btn"), "Load example data (Transcriptomics + Methylomics)", icon = icon("database"), class = "btn-primary btn-sm")
+            uiOutput(ns("live_source_ui"))
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'upload'", ns("source_mode")),
@@ -60,35 +50,64 @@ mod_cross_dataset_ui <- function(id) {
   )
 }
 
-mod_cross_dataset_server <- function(id, cross_dataset) {
+mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
     expr_data <- reactiveVal(NULL)
     meth_data <- reactiveVal(NULL)
 
-    observeEvent(input$load_example_btn, {
-      sex <- input$sex_stratum
-      deg <- cx_load_default_deg(sex = sex)
-      if (is.null(deg)) {
-        showNotification("Could not read the example Transcriptomics (DEG) table for this sex stratum.", type = "error")
-        expr_data(NULL)
-      } else {
-        std <- cx_standardize_expression(deg, mapping = c(gene = "gene", log2fc = "logFC", pvalue = "P.Value", fdr = "adj.P.Val"))
-        if (!std$ok) { showNotification(std$error, type = "error"); expr_data(NULL) }
-        else expr_data(list(df = std$df, source = sprintf("Example data (%s, %s DEG)", toupper(sex), if (identical(sex, "all")) "pooled" else "sex-stratified"), raw = NULL, mapping = NULL))
-      }
-
-      meth <- if (identical(input$meth_level, "dmr")) cx_load_default_dmr(sex = sex) else cx_load_default_methylation(sex = sex)
-      if (!meth$ok) {
-        showNotification(meth$error, type = "warning", duration = 10)
-        meth_data(NULL)
-      } else {
-        strat_word <- if (identical(sex, "all")) "pooled" else "sex-stratified"
-        meth_label <- if (identical(input$meth_level, "dmr")) sprintf("%s DMR", strat_word) else sprintf("%s DMP, SVA/bacon-adjusted", strat_word)
-        meth_data(list(df = meth$df, source = sprintf("Example data (%s, %s)", toupper(sex), meth_label), raw = NULL, mapping = NULL))
-      }
+    ## ---- "My analysis results" data source ------------------------------
+    ## Pulls the live Transcriptomics DGE run and Methylomics DMP run this
+    ## user has already produced in this session (results/methyl_results are
+    ## the live reactiveValues passed in from server.R), via the same
+    ## cx_build_live_expr_df()/cx_build_live_meth_df() adapters used by
+    ## mod_cross_integration.R's "Use live session results" option.
+    live_dge_choices <- reactive({
+      runs <- (results %||% list())$dge_runs %||% list()
+      if (length(runs) == 0) return(NULL)
+      stats::setNames(names(runs), vapply(runs, function(r) r$contrast %||% "(unnamed run)", character(1)))
     })
+
+    live_dmp_run <- reactive({
+      tbl <- (methyl_results %||% list())$dmp_table
+      if (is.null(tbl) || !is.data.frame(tbl) || nrow(tbl) == 0) return(NULL)
+      list(comparison = ((methyl_results %||% list())$dmp %||% list())$comparison %||% "Live Methylomics DMP run", table = tbl)
+    })
+
+    output$live_source_ui <- renderUI({
+      ch <- live_dge_choices()
+      dmp <- live_dmp_run()
+      if (is.null(ch) && is.null(dmp)) {
+        return(div(class = "empty-note", icon("triangle-exclamation"),
+                    "Run Differential Expression in Transcriptomics and DMP Analysis in Methylomics first, then come back here to load your results."))
+      }
+      tagList(
+        tags$div(style = "font-weight:600; margin-bottom:2px;", "Transcriptomics"),
+        if (is.null(ch)) p(class = "empty-note", icon("triangle-exclamation"), "Run Differential Expression in Transcriptomics first.")
+        else selectInput(ns("live_dge_run"), "DGE run", choices = ch, selected = unname(utils::tail(ch, 1))),
+        tags$div(style = "font-weight:600; margin-bottom:2px;", "Methylomics"),
+        if (is.null(dmp)) p(class = "empty-note", icon("triangle-exclamation"), "Run DMP Analysis in Methylomics first.")
+        else p(class = "empty-note", icon("circle-info"), sprintf("Using \"%s\" (latest live DMP run this session).", dmp$comparison)),
+        if (!is.null(ch) && !is.null(dmp))
+          actionButton(ns("load_live_btn"), "Load my analysis results (Transcriptomics + Methylomics)", icon = icon("bolt"), class = "btn-primary btn-sm", width = "100%")
+      )
+    })
+
+    observeEvent(input$load_live_btn, {
+      req(input$live_dge_run)
+      runs <- (results %||% list())$dge_runs %||% list()
+      dge_run <- runs[[input$live_dge_run]]
+      dmp_run <- live_dmp_run()
+
+      expr_res <- cx_build_live_expr_df(dge_run)
+      if (!expr_res$ok) { showNotification(expr_res$error, type = "error"); expr_data(NULL) }
+      else expr_data(list(df = expr_res$df, source = sprintf("My analysis: Transcriptomics DGE run \"%s\"", dge_run$contrast %||% input$live_dge_run), raw = NULL, mapping = NULL))
+
+      meth_res <- cx_build_live_meth_df(dmp_run)
+      if (!meth_res$ok) { showNotification(meth_res$error, type = "error"); meth_data(NULL) }
+      else meth_data(list(df = meth_res$df, source = sprintf("My analysis: Methylomics DMP run (%s)", dmp_run$comparison), raw = NULL, mapping = NULL))
+    }, ignoreInit = TRUE)
 
     observeEvent(input$expr_file, {
       res <- cx_read_and_detect(input$expr_file$datapath, input$expr_file$name, kind = "expression")
@@ -123,7 +142,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
     observeEvent(input$source_mode, { expr_data(NULL); meth_data(NULL) }, ignoreInit = TRUE)
 
     observeEvent(input$use_data_btn, {
-      validate(need(!is.null(expr_data()) || !is.null(meth_data()), "Load example data or upload a file first."))
+      validate(need(!is.null(expr_data()) || !is.null(meth_data()), "Load your analysis results or upload a file first."))
       if (!is.null(expr_data())) {
         cross_dataset$user_expr_df <- expr_data()$df
         cross_dataset$user_expr_source <- expr_data()$source
@@ -152,7 +171,7 @@ mod_cross_dataset_server <- function(id, cross_dataset) {
     output$preview_ui <- renderUI({
       if (is.null(expr_data()) && is.null(meth_data())) {
         msg <- if (identical(input$source_mode, "upload")) "Upload a Transcriptomics and/or Methylomics file to preview it here."
-               else "Click \"Load example data\" to preview both the Transcriptomics (DEG) and Methylomics (DMP/DMR) tables here."
+               else "Click \"Load my analysis results\" to preview both the Transcriptomics (DEG) and Methylomics (DMP) tables here."
         return(div(class = "empty-note", icon("circle-info"), msg))
       }
       tagList(

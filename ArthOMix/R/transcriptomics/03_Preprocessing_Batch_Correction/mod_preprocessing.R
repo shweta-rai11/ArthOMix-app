@@ -1,7 +1,5 @@
 ## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing.R - Preprocessing and Batch Correction (Section 2.2).
 
-MAX_PP_SOURCES <- 6
-
 mod_preprocessing_config <- list(
   id = "preprocessing", group = "Data",
   title = "Preprocessing and Batch Correction",
@@ -15,6 +13,19 @@ mod_pp_field_hint <- function(text) {
   tags$span(class = "field-hint", tabindex = "0",
             icon("circle-info"),
             tags$span(class = "field-hint-box", text))
+}
+
+## Log2-transform radio choices, shared by every preprocessing path in this module -
+## each option carries a hover hint explaining when to use it.
+pp_log2_choice_names <- function(auto_label = "Auto-detect (recommended)") {
+  list(
+    span(class = "field-label-with-hint", auto_label,
+         mod_pp_field_hint("Log2-transforms the data only if it looks untransformed (e.g. raw intensities or counts). Use this unless you have a reason not to.")),
+    span(class = "field-label-with-hint", "Force log2 transform",
+         mod_pp_field_hint("Always log2-transforms the data, even if it may already be transformed. Use only if you're sure the data is raw and auto-detect got it wrong.")),
+    span(class = "field-label-with-hint", "Skip log2 transform",
+         mod_pp_field_hint("Never log2-transforms the data. Use for raw RNA-seq counts that will be normalised downstream (e.g. TMM, DESeq2), or data that's already log-scaled."))
+  )
 }
 
 pp_guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
@@ -129,375 +140,6 @@ pp_preloaded_read <- function(choice_id, log2_choice, dataset = NULL) {
        n_samples_before = n_samples_before, n_samples_after = ncol(expr),
        n_genes_before = n_genes_before, n_genes_after = nrow(expr),
        log2_applied = needs_log)
-}
-
-mod_pp_source_ui <- function(id, default_gse = NULL, n_sources_id = NULL) {
-  ns <- NS(id)
-  tagList(
-    uiOutput(ns("source_type_ui")),
-    conditionalPanel(
-      condition = sprintf("input['%s'] == 'current'", ns("source_type")),
-      uiOutput(ns("current_note"))
-    ),
-    conditionalPanel(
-      condition = sprintf("input['%s'] == 'preloaded'", ns("source_type")),
-      if (!is.null(default_gse)) {
-        ## Fixed training-cohort default, no dropdown; preloaded_choice stays a hidden selectInput so raw_pair() still works.
-        tagList(
-          div(class = "empty-note", icon("check"),
-              sprintf("Using %s.", pp_cohort_label(default_gse))),
-          shinyjs::hidden(selectInput(ns("preloaded_choice"), "Choose a cohort", choices = pp_cohort_choices(),
-                                       selected = default_gse, selectize = FALSE))
-        )
-      } else {
-        selectInput(ns("preloaded_choice"), "Choose a cohort", choices = pp_cohort_choices(),
-                    selected = character(0), selectize = FALSE)
-      },
-      p(class = "empty-note", icon("triangle-exclamation"),
-        "Raw, single-platform data - not yet merged or normalised. Sample, group, and sex are mapped automatically.")
-    ),
-    conditionalPanel(
-      condition = sprintf("input['%s'] == 'upload'", ns("source_type")),
-      if (!is.null(n_sources_id)) {
-        conditionalPanel(
-          condition = sprintf("input['%s'] > 1", n_sources_id),
-          p(class = "empty-note", icon("circle-info"),
-            "Each dataset needs its own expression matrix + metadata pair below, using the same feature-ID type throughout (e.g. all gene symbols or all the same probe IDs) - Merge keeps only shared features and fails below 20. Each dataset's Sample ID column should be unique.")
-        )
-      },
-      textInput(ns("label"), "Label for this dataset", value = "", placeholder = "e.g. GSE12345"),
-      div(class = "field-label-with-hint", span("Expression matrix"),
-          mod_pp_field_hint("CSV or RDS file: genes or probes in rows, samples in columns. For CSV files, the first column must contain the feature ID.")),
-      fileInput(ns("expr_file"), NULL, accept = c(".csv", ".rds", ".Rds")),
-      div(class = "field-label-with-hint", span("Sample metadata"),
-          mod_pp_field_hint("CSV or RDS file: a data frame with one row per sample.")),
-      fileInput(ns("meta_file"), NULL, accept = c(".csv", ".rds", ".Rds")),
-      uiOutput(ns("upload_preview_ui")),
-      uiOutput(ns("colmap"))
-    ),
-    tags$hr(),
-    div(class = "filter-section-header", icon("users"), "Sample filters"),
-    uiOutput(ns("group_filter_ui")),
-    uiOutput(ns("numeric_filter_ui")),
-    checkboxInput(ns("dedup"), "Deduplicate samples by an ID column (keep first occurrence)", value = FALSE),
-    conditionalPanel(condition = sprintf("input['%s']", ns("dedup")), uiOutput(ns("dedup_col_ui"))),
-    tags$hr(),
-    div(class = "filter-section-header", icon("dna"), "Feature filters"),
-    uiOutput(ns("log2_ui")),
-    sliderInput(ns("max_na_pct"), "Drop features with more than this % of samples missing (remaining gaps are median-imputed)",
-                min = 0, max = 80, value = 0, step = 5),
-    textInput(ns("exclude_pattern"), "Exclude features whose ID matches this pattern (regex, optional)",
-              value = "", placeholder = "e.g. ^AFFX for Affymetrix control probes"),
-    actionButton(ns("run"), "Preprocess this dataset", icon = icon("play"), class = "btn-primary btn-sm"),
-    div(style = "margin-top:8px;", uiOutput(ns("status_ui")))
-  )
-}
-
-mod_pp_source_server <- function(id, default_label = "Dataset", default_gse = NULL, dataset = NULL) {
-  moduleServer(id, function(input, output, session) {
-    ns <- session$ns
-
-    output$source_type_ui <- renderUI({
-      type_choices <- c("Upload files" = "upload", "A bundled cohort" = "preloaded",
-                         "Currently loaded dataset" = "current")
-      current <- isolate(input$source_type)
-      selected <- if (!is.null(current) && current %in% type_choices) {
-        current
-      } else if (!is.null(default_gse)) {
-        "preloaded"
-      } else {
-        "upload"
-      }
-      radioButtons(ns("source_type"), "Data source", choices = type_choices, selected = selected)
-    })
-
-    source_type <- reactive(input$source_type %||% "upload")
-    use_preloaded <- reactive(identical(source_type(), "preloaded"))
-    use_upload    <- reactive(identical(source_type(), "upload"))
-    use_current   <- reactive(identical(source_type(), "current"))
-
-    ## "Currently loaded dataset" reuses the Dataset tab's staged preview, or the active dataset if none is staged.
-    current_source <- reactive({
-      list(
-        expr = dataset$staged_expr %||% dataset$expr,
-        meta = dataset$staged_meta %||% dataset$meta,
-        label = dataset$staged_source %||% dataset$source
-      )
-    })
-
-    output$current_note <- renderUI({
-      cs <- current_source()
-      if (is.null(dataset) || is.null(cs$expr)) {
-        return(div(class = "empty-note", icon("triangle-exclamation"),
-                    "Nothing is currently loaded. Preview a dataset on the Dataset tab first, then come back here."))
-      }
-      div(class = "empty-note", icon("check"),
-          sprintf("Using %s: %s genes x %s samples.", cs$label,
-                   format(nrow(cs$expr), big.mark = ","), ncol(cs$expr)))
-    })
-
-    meta_raw <- reactive({
-      req(use_upload(), input$meta_file)
-      path <- input$meta_file$datapath
-      if (grepl("\\.rds$", input$meta_file$name, ignore.case = TRUE)) {
-        loaded <- safe_read_rds(path)
-        validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
-        d <- loaded$value
-        validate(need(is.data.frame(d), "The uploaded metadata RDS file must contain a data frame."))
-        as.data.frame(d)
-      } else {
-        as.data.frame(data.table::fread(path, showProgress = FALSE))
-      }
-    })
-
-    ## Parses eagerly so a large upload doesn't look like it silently did nothing.
-    expr_raw_preview <- reactive({
-      req(use_upload(), input$expr_file)
-      if (grepl("\\.rds$", input$expr_file$name, ignore.case = TRUE)) {
-        res <- tx_parse_expr_matrix_rds(input$expr_file$datapath)
-        validate(need(res$ok, res$error))
-        res$mat
-      } else {
-        m <- as.data.frame(data.table::fread(input$expr_file$datapath, showProgress = FALSE))
-        as.matrix(m[, -1, drop = FALSE])
-      }
-    })
-
-    output$upload_preview_ui <- renderUI({
-      req(use_upload(), input$expr_file, input$meta_file)
-      preview <- tryCatch(list(expr = expr_raw_preview(), meta = meta_raw()), error = function(e) e)
-      if (inherits(preview, "error")) {
-        return(div(class = "empty-note", icon("triangle-exclamation"),
-                    paste("Could not read the uploaded file(s):", conditionMessage(preview))))
-      }
-      div(class = "empty-note", icon("circle-info"),
-          sprintf("Read %s: %s features x %s samples. Read %s: %s rows. Map the columns below.",
-                  input$expr_file$name, format(nrow(preview$expr), big.mark = ","), ncol(preview$expr),
-                  input$meta_file$name, nrow(preview$meta)))
-    })
-
-    output$colmap <- renderUI({
-      req(use_upload(), input$meta_file)
-      cols <- colnames(meta_raw())
-      tagList(
-        selectInput(ns("map_id"), "Sample ID column", choices = cols,
-                    selected = pp_guess_col(cols, c("sample", "sample_id", "id", "geo_accession", "accession")),
-                    selectize = FALSE),
-        selectInput(ns("map_group"), "Group / diagnosis column", choices = cols,
-                    selected = pp_guess_col(cols, c("group", "diagnosis", "disease", "condition", "status", "phenotype")),
-                    selectize = FALSE),
-        selectInput(ns("map_sex"), "Sex column (optional)", choices = c("(none)", cols),
-                    selected = pp_guess_col(cols, c("sex", "gender"), fallback = "(none)"),
-                    selectize = FALSE),
-        selectInput(ns("map_batch"), "Batch column (optional)", choices = c("(none)", cols),
-                    selected = pp_guess_col(cols, c("batch", "cohort", "platform", "dataset"), fallback = "(none)"),
-                    selectize = FALSE)
-      )
-    })
-
-    ## Loaded + column-mapped, before any filtering.
-    raw_pair <- reactive({
-      if (use_current()) {
-        cs <- current_source()
-        req(dataset, cs$expr, cs$meta)
-        expr <- cs$expr; meta <- cs$meta
-        if (!"batch" %in% colnames(meta)) meta$batch <- NA_character_
-        list(expr = expr, meta = meta, label = cs$label %||% default_label)
-      } else if (use_preloaded()) {
-        req(input$preloaded_choice)
-        gse <- input$preloaded_choice
-        if (identical(gse, default_dataset_entry$id)) {
-          ## Already merged and batch-corrected - not a raw GEO accession,
-          ## so it never had (and shouldn't need) a "<id>_raw.rds" file.
-          d <- load_default_dataset()
-          expr <- d$expr; meta <- d$meta
-        } else if (identical(gse, "GSE89408")) {
-          ## RNA-seq counts, already gene-level - no probe/platform to collapse.
-          d <- load_individual_dataset(gse)
-          validate(need(!is.null(d), paste("Raw data for", gse, "was not found on disk.")))
-          expr <- d$expr; meta <- d$meta
-        } else {
-          ## Microarray: collapse probes to gene symbol first, so this
-          ## dataset can actually share features with one on a different
-          ## platform when merged (see get_collapsed_genes()/
-          ## collapse_probes_to_genes() in global.R - cached per GSE ID,
-          ## since this is a genuinely slow step).
-          eset <- get_raw_eset(gse)
-          validate(need(!is.null(eset), paste("Raw file for", gse, "not found on disk.")))
-          expr <- get_collapsed_genes(gse)
-          meta <- eset_harmonize_meta(eset, gse)
-          keep <- !is.na(meta$group)
-          meta <- meta[keep, , drop = FALSE]
-          expr <- expr[, meta$sample, drop = FALSE]
-        }
-        if (!"batch" %in% colnames(meta)) meta$batch <- NA_character_
-        list(expr = expr, meta = meta, label = pp_cohort_label(gse))
-      } else {
-        req(input$expr_file, input$meta_file, input$map_id, input$map_group)
-        path <- input$expr_file$datapath
-        expr <- if (grepl("\\.rds$", input$expr_file$name, ignore.case = TRUE)) {
-          loaded <- safe_read_rds(path)
-          validate(need(isTRUE(loaded$ok), loaded$error %||% "Could not read this .rds file."))
-          loaded$value
-        } else {
-          m <- as.data.frame(data.table::fread(path, showProgress = FALSE))
-          rn <- as.character(m[[1]])
-          m <- as.matrix(m[, -1, drop = FALSE])
-          rownames(m) <- rn
-          m
-        }
-        meta <- meta_raw()
-        meta$sample <- as.character(meta[[input$map_id]])
-        meta$group  <- as.character(meta[[input$map_group]])
-        meta$sex    <- if (!identical(input$map_sex %||% "(none)", "(none)")) as.character(meta[[input$map_sex]]) else NA_character_
-        meta$batch  <- if (!identical(input$map_batch %||% "(none)", "(none)")) as.character(meta[[input$map_batch]]) else NA_character_
-
-        common <- intersect(colnames(expr), meta$sample)
-        validate(need(length(common) >= 3, "Fewer than 3 sample IDs in the expression matrix match the metadata sample-ID column. Check the column mapping."))
-        expr <- expr[, common, drop = FALSE]
-        meta <- meta[match(common, meta$sample), , drop = FALSE]
-        
-        label <- paste0("Uploaded dataset: ", if (nzchar(trimws(input$label %||% ""))) input$label else default_label)
-        list(expr = expr, meta = meta, label = label)
-      }
-    })
-
-    output$group_filter_ui <- renderUI({
-      pair <- raw_pair()
-      cols <- colnames(pair$meta)
-      tagList(
-        selectInput(ns("filter_col"), "Keep only samples where", choices = c("(no filter)", cols), selectize = FALSE),
-        conditionalPanel(
-          condition = sprintf("input['%s'] != '(no filter)'", ns("filter_col")),
-          uiOutput(ns("filter_val_ui"))
-        )
-      )
-    })
-
-    output$filter_val_ui <- renderUI({
-      req(input$filter_col, !identical(input$filter_col, "(no filter)"))
-      pair <- raw_pair()
-      vals <- sort(unique(stats::na.omit(as.character(pair$meta[[input$filter_col]]))))
-      checkboxGroupInput(ns("filter_vals"), "...equals one of", choices = vals, selected = vals, inline = TRUE)
-    })
-
-    output$numeric_filter_ui <- renderUI({
-      pair <- raw_pair()
-      num_cols <- names(pair$meta)[vapply(pair$meta, is.numeric, logical(1))]
-      req(length(num_cols) > 0)
-      tagList(
-        selectInput(ns("num_filter_col"), "...and within this numeric range (optional, for example age or RIN)",
-                    choices = c("(no filter)", num_cols), selectize = FALSE),
-        conditionalPanel(
-          condition = sprintf("input['%s'] != '(no filter)'", ns("num_filter_col")),
-          uiOutput(ns("num_filter_range_ui"))
-        )
-      )
-    })
-
-    output$num_filter_range_ui <- renderUI({
-      req(input$num_filter_col, !identical(input$num_filter_col, "(no filter)"))
-      pair <- raw_pair()
-      v <- suppressWarnings(as.numeric(pair$meta[[input$num_filter_col]]))
-      rng <- suppressWarnings(range(v, na.rm = TRUE))
-      validate(need(all(is.finite(rng)), "This column has no numeric values to filter on."))
-      sliderInput(ns("num_filter_range"), "...between", min = floor(rng[1]), max = ceiling(rng[2]), value = rng)
-    })
-
-    output$dedup_col_ui <- renderUI({
-      pair <- raw_pair()
-      selectInput(ns("dedup_col"), "Deduplicate by", choices = colnames(pair$meta), selectize = FALSE)
-    })
-
-    
-    output$log2_ui <- renderUI({
-      default <- if (use_upload()) "skip" else "auto"
-      radioButtons(ns("log2"), "Log2 transform",
-                   choiceNames = list("Auto-detect (recommended for preloaded/normalised data)", "Force log2",
-                                       "Skip (recommended for raw RNA-seq counts, e.g. for DESeq2)"),
-                   choiceValues = list("auto", "force", "skip"), selected = default)
-    })
-
-    result <- eventReactive(input$run, {
-      pair <- raw_pair()
-      expr <- pair$expr; meta <- pair$meta; label <- pair$label
-
-      n_samples_before <- ncol(expr); n_genes_before <- nrow(expr)
-
-      if (!is.null(input$filter_col) && !identical(input$filter_col, "(no filter)") && length(input$filter_vals) > 0) {
-        keep <- as.character(meta[[input$filter_col]]) %in% input$filter_vals
-        meta <- meta[keep, , drop = FALSE]
-        expr <- expr[, meta$sample, drop = FALSE]
-      }
-      if (!is.null(input$num_filter_col) && !identical(input$num_filter_col, "(no filter)") && !is.null(input$num_filter_range)) {
-        v <- suppressWarnings(as.numeric(meta[[input$num_filter_col]]))
-        keep <- !is.na(v) & v >= input$num_filter_range[1] & v <= input$num_filter_range[2]
-        meta <- meta[keep, , drop = FALSE]
-        expr <- expr[, meta$sample, drop = FALSE]
-      }
-      validate(need(ncol(expr) >= 3, "Fewer than 3 samples remain after the sample filters."))
-
-      if (isTRUE(input$dedup) && !is.null(input$dedup_col) && input$dedup_col %in% colnames(meta)) {
-        keep <- !duplicated(meta[[input$dedup_col]])
-        meta <- meta[keep, , drop = FALSE]
-        expr <- expr[, meta$sample, drop = FALSE]
-      }
-
-      pattern <- trimws(input$exclude_pattern %||% "")
-      if (nzchar(pattern)) {
-        matched <- tryCatch(grepl(pattern, rownames(expr), perl = TRUE), error = function(e) NULL)
-        validate(need(!is.null(matched), paste("Invalid regex pattern:", pattern)))
-        expr <- expr[!matched, , drop = FALSE]
-        validate(need(nrow(expr) > 0, "The exclusion pattern matched every feature. Check the regular expression and try again."))
-      }
-
-      ## Drop features missing above the chosen %, median-impute the rest.
-      na_pct <- rowMeans(is.na(expr)) * 100
-      expr <- expr[na_pct <= (input$max_na_pct %||% 0), , drop = FALSE]
-      validate(need(nrow(expr) > 0, "No features remain within the missing-data tolerance. Raise the missing-data slider and try again."))
-      if (anyNA(expr)) {
-        row_med <- apply(expr, 1, stats::median, na.rm = TRUE)
-        na_idx <- which(is.na(expr), arr.ind = TRUE)
-        expr[na_idx] <- row_med[na_idx[, 1]]
-      }
-
-      q99 <- suppressWarnings(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
-      needs_log <- if (identical(input$log2, "force")) TRUE
-                   else if (identical(input$log2, "skip")) FALSE
-                   else isTRUE(!is.na(q99) && q99 > 100)
-      if (needs_log) {
-        expr[expr <= 0] <- NA
-        expr <- log2(expr)
-        expr <- expr[stats::complete.cases(expr), , drop = FALSE]
-      }
-
-      list(
-        label = label, expr = as.matrix(expr), meta = meta,
-        n_samples_before = n_samples_before, n_samples_after = ncol(expr),
-        n_genes_before = n_genes_before, n_genes_after = nrow(expr),
-        log2_applied = needs_log
-      )
-    })
-
-    output$status_ui <- renderUI({
-      if (is.null(input$run) || input$run == 0) {
-        return(p(class = "empty-note", icon("circle-info"),
-                  "Not preprocessed yet. Set the filters above, then click \"Preprocess this dataset\"."))
-      }
-      res <- tryCatch(result(), error = function(e) e)
-      if (inherits(res, "error")) {
-        return(div(class = "empty-note", icon("triangle-exclamation"),
-                    paste("Could not preprocess this dataset:", conditionMessage(res))))
-      }
-      div(class = "empty-note", icon("check"),
-          sprintf("%s: %s of %s samples kept, %s of %s features kept%s.",
-                  res$label, res$n_samples_after, res$n_samples_before,
-                  format(res$n_genes_after, big.mark = ","), format(res$n_genes_before, big.mark = ","),
-                  if (res$log2_applied) ", log2-transformed" else ""))
-    })
-
-    result
-  })
 }
 
 ## UI
@@ -698,13 +340,6 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       sort(unique(grps))
     })
 
-    
-    pp_sources <- lapply(seq_len(MAX_PP_SOURCES), function(i) {
-      mod_pp_source_server(paste0("src", i), default_label = paste("Dataset", i),
-                            default_gse = NULL, dataset = dataset)
-    })
-
-    
     preloaded_results_val <- reactiveVal(NULL)
     observeEvent(input$preloaded_run, {
       req(length(input$preloaded_selected) > 0)
@@ -806,53 +441,28 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           shinyjs::hidden(checkboxGroupInput(ns("preloaded_selected"), "Cohorts",
                               choices = c("Currently Loaded Dataset" = "__current__"), selected = "__current__")),
           radioButtons(ns("preloaded_log2"), "Log2 Transform",
-                       choiceNames = list("Auto-detect (recommended)", "Force log2", "Skip (raw RNA-seq counts)"),
-                       choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
+                       choiceNames = pp_log2_choice_names(), choiceValues = list("auto", "force", "skip"),
+                       selected = "auto", inline = TRUE),
           actionButton(ns("preloaded_run"), "Preprocess", icon = icon("play"), class = "btn-primary btn-sm"),
           div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui"))),
           uiOutput(ns("activate_current_ui"))
         ))
       }
-      tagList(
-        box(
-          width = 12, title = tagList(icon("database"), " Preloaded Data"), status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc",
-            "Select one or more bundled blood or synovium cohorts, or use whatever is currently loaded on the Dataset tab. No upload required - each selection is preprocessed independently."),
-          checkboxGroupInput(ns("preloaded_selected"), "Cohorts",
-                              choices = c(pp_cohort_choices(), "Currently Loaded Dataset" = "__current__"),
-                              inline = TRUE),
-          p(class = "empty-note", icon("triangle-exclamation"),
-            "These cohorts are raw and platform-specific. Normalization and merging are handled in the next two steps."),
-          radioButtons(ns("preloaded_log2"), "Log2 Transform (applied to every selected cohort)",
-                       choiceNames = list("Auto-detect per cohort (recommended)", "Force log2", "Skip (raw RNA-seq counts)"),
-                       choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
-          actionButton(ns("preloaded_run"), "Load and Preprocess Selected Cohorts", icon = icon("play"), class = "btn-primary btn-sm"),
-          div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui")))
-        ),
-        box(
-          width = 12, title = tagList(icon("upload"), " Upload Your Own Data"), status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc",
-            "Upload one or more of your own expression matrix + sample metadata pairs, filter and preprocess each independently, then combine them (with the cohorts above, if any) in the Merge step below."),
-          numericInput(ns("n_sources"), "Number of your own datasets to upload", value = 1, min = 1, max = MAX_PP_SOURCES, step = 1, width = "260px"),
-          lapply(seq_len(MAX_PP_SOURCES), function(i) {
-            conditionalPanel(
-              condition = sprintf("input['%s'] >= %d", ns("n_sources"), i),
-              tags$div(class = "card", style = "margin-top:10px;",
-                       tags$div(class = "card-title", sprintf("Dataset %d", i)),
-                       mod_pp_source_ui(paste0("src", i), n_sources_id = ns("n_sources")))
-            )
-          })
-        )
+      box(
+        width = 12, title = tagList(icon("database"), " Preloaded Data"), status = "primary", solidHeader = FALSE,
+        p(class = "submodule-desc",
+          "Select one or more bundled blood or synovium cohorts, or use whatever is currently loaded on the Dataset tab. No upload required - each selection is preprocessed independently."),
+        checkboxGroupInput(ns("preloaded_selected"), "Cohorts",
+                            choices = c(pp_cohort_choices(), "Currently Loaded Dataset" = "__current__"),
+                            inline = TRUE),
+        p(class = "empty-note", icon("triangle-exclamation"),
+          "These cohorts are raw and platform-specific. Normalization and merging are handled in the next two steps."),
+        radioButtons(ns("preloaded_log2"), "Log2 Transform (applied to every selected cohort)",
+                     choiceNames = pp_log2_choice_names("Auto-detect per cohort (recommended)"),
+                     choiceValues = list("auto", "force", "skip"), selected = "auto", inline = TRUE),
+        actionButton(ns("preloaded_run"), "Load and Preprocess Selected Cohorts", icon = icon("play"), class = "btn-primary btn-sm"),
+        div(style = "margin-top:8px;", uiOutput(ns("preloaded_status_ui")))
       )
-    })
-
-    
-    own_upload_results <- reactive({
-      n_src <- input$n_sources %||% 0
-      if (n_src <= 0) return(list())
-      idx <- seq_len(min(n_src, MAX_PP_SOURCES))
-      vals <- lapply(idx, function(i) tryCatch(pp_sources[[i]](), error = function(e) NULL))
-      Filter(Negate(is.null), vals)
     })
 
     merge_inputs <- reactive({
@@ -863,9 +473,9 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                             paste(vapply(failed, `[[`, character(1), "label"), collapse = ", "),
                             paste(vapply(failed, `[[`, character(1), "error"), collapse = "; "))))
       preloaded_vals <- lapply(Filter(function(r) isTRUE(r$ok), res %||% list()), `[[`, "value")
-      all_vals <- c(preloaded_vals, own_upload_results())
+      all_vals <- preloaded_vals
       validate(need(length(all_vals) > 0,
-                    "Load at least one dataset above - a preloaded cohort, or your own upload - before merging."))
+                    "Load at least one preloaded cohort above before merging."))
       all_vals
     })
 
@@ -1049,7 +659,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         meta <- meta[keep, , drop = FALSE]
         expr <- expr[, meta$sample, drop = FALSE]
 
-        ## Same auto-detect log2 rule as every per-source preprocessing path (mod_pp_source_server's result()).
+        ## Same auto-detect log2 rule as every other preprocessing path in this module.
         q99 <- suppressWarnings(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
         if (isTRUE(!is.na(q99) && q99 > 100)) {
           expr[expr <= 0] <- NA
@@ -2089,7 +1699,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     output$meta_tab_ui <- renderUI({
       m <- tryCatch(merged(), error = function(e) NULL)
       intro <- div(class = "empty-note", icon("circle-info"),
-        "Alternative to the Batch correction tab for studies that are NOT directly comparable (different platforms, tissues, populations or processing). Instead of pooling samples and correcting batch, each study is analysed on its own (limma; limma-voom with TMM if a study is raw counts) and the per-study log2 fold-changes are combined per gene by inverse-variance random-effects meta-analysis (DerSimonian-Laird), with between-study heterogeneity (tau2, Cochran's Q, I2) reported. Use Batch correction when the studies are compatible enough to pool; use this tab when they are not.")
+        "For studies too different to pool - analyse each separately, then combine effect sizes via random-effects meta-analysis.")
       if (is.null(m)) {
         return(tagList(intro, div(class = "empty-note", icon("triangle-exclamation"),
                                   "Finish the Merge datasets tab first - this tab needs two or more merged studies.")))

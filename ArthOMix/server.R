@@ -60,7 +60,7 @@ existing_app_server <- function(input, output, session, auth) {
     user_meth_df = NULL, user_meth_source = NULL, user_meth_wide = NULL, user_meth_mapping = NULL, user_meth_sample_cols = character(0)
   )
   cross_results <- reactiveValues()
-  mod_cross_dataset_server("cx_dataset", cross_dataset)
+  mod_cross_dataset_server("cx_dataset", cross_dataset, results, methyl_results)
   lapply(CX_MODULES, function(m) {
     if (identical(m$config$id, "integration")) {
       m$server(paste0("cx_", m$config$id), cross_dataset, cross_results, dataset, results, methyl_dataset, methyl_results)

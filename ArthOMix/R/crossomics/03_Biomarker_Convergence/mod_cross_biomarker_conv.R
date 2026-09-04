@@ -26,6 +26,7 @@ mod_cross_biomarker_conv_ui <- function(id) {
         ),
         conditionalPanel(
           condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
+          radioButtons(ns("upload_sex"), "Sex", choices = c("Female" = "female", "Male" = "male", "None" = "none"), selected = "none", inline = TRUE),
           fileInput(ns("upload_eqtl_file"), "eQTL-MR results (optional)",
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
@@ -34,8 +35,6 @@ mod_cross_biomarker_conv_ui <- function(id) {
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
             "One row per gene. Required: gene, mQTL_MR_pval. Optional: mQTL_candidate_cpg, mQTL_cpg_chr, mQTL_cpg_pos_hg19, mQTL_MR_beta."),
-          p(class = "empty-note", icon("triangle-exclamation"),
-            "Upload at least one of the two files - the eQTL-MR and mQTL-MR tabs each work from their own file alone. But the eQTL-mQTL tab (genes with evidence in BOTH) needs both files uploaded - with only one, it will always be empty, since there's nothing to intersect it against. The two files are merged live by gene here (a plain outer join, not a re-run of either MR analysis). DEG/DMP/DMR significance isn't available from this path - this module never re-derives those; use the Cross-Omics Dataset tab / Expression and Methylation module for that."),
           actionButton(ns("load_table_upload"), "Merge & Load", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
         )
       )
@@ -86,7 +85,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       if (!merged$ok) { showNotification(merged$error, type = "error"); return() }
 
       raw$df <- merged$df
-      raw$sex <- "uploaded"
+      raw$sex <- input$upload_sex %||% "none"
       raw$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       files_desc <- paste(c(
         if (!is.null(input$upload_eqtl_file)) sprintf("eQTL-MR: \"%s\"", input$upload_eqtl_file$name),

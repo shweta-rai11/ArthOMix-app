@@ -4,7 +4,7 @@
 
 mod_multi_pathway_config <- list(
   id = "pathway", title = "Pathways", icon = "sitemap", group = "Interpretation",
-  description = "GO/KEGG/Reactome/WikiPathways/Hallmark enrichment on candidate biomarkers or your own upload, with real pathway maps."
+  description = "GO / KEGG / Reactome / WikiPathways / Hallmark enrichment on candidate biomarkers or your own upload, with real pathway maps."
 )
 
 MP_ORA_FIELDS <- c("id_col", "id_type", "effect_col", "pvalue_col", "fdr_col", "direction_col", "omics_col")

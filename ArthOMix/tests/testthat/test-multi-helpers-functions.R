@@ -272,19 +272,3 @@ test_that("multi_package_versions() reports real installed package versions, 'no
   expect_equal(limma_row$Version, as.character(utils::packageVersion("limma")))
 })
 
-test_that("multi_build_report() marks every sub-module 'not loaded this session' when multi_results is empty", {
-  lines <- multi_build_report(list())
-  text <- paste(lines, collapse = "\n")
-  expect_true(grepl("## overview", text, fixed = TRUE))
-  expect_equal(sum(grepl("(not loaded this session)", lines, fixed = TRUE)), 9L)
-})
-
-test_that("multi_build_report() marks a loaded sub-module distinctly from the unloaded ones, and always lists limitations/reproducibility scripts", {
-  lines <- multi_build_report(list(integration = list(cell = list(label = "x"))))
-  text <- paste(lines, collapse = "\n")
-  expect_true(grepl("Loaded - see the accompanying CSV", text, fixed = TRUE))
-  expect_true(grepl("## Known limitations", text, fixed = TRUE))
-  expect_true(grepl("## Reproducibility - source scripts", text, fixed = TRUE))
-  overview_idx <- which(lines == "## overview")
-  expect_equal(lines[overview_idx + 1], "(not loaded this session)")
-})

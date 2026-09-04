@@ -82,36 +82,22 @@ test_that("filter_and_transform_expr() log2-transforms only when requested, and 
   expect_true(max(out, na.rm = TRUE) <= log2(32) + 1e-6)
 })
 
-test_that("merging two uploaded datasets with fewer than 20 shared feature IDs is rejected with a clear validate() error", {
-  dir <- withr::local_tempdir()
+test_that("merging two preloaded datasets with fewer than 20 shared feature IDs is rejected with a clear validate() error", {
+  ## The "currently loaded dataset" source uses gene IDs guaranteed not to
+  ## overlap with any real gene symbol, so its intersection with the bundled
+  ## "__default_merged__" cohort's real genes is 0 - deterministically under
+  ## the 20-feature merge floor, regardless of the bundled cohort's contents.
   set.seed(40)
-  genesA <- paste0("GENE", 1:15)
-  genesB <- paste0("GENE", 10:15)
+  genesA <- paste0("ZZZFAKEGENE", 1:15)
   mA <- matrix(rnorm(15 * 6), 15, 6, dimnames = list(genesA, paste0("A", 1:6)))
-  mB <- matrix(rnorm(6 * 6), 6, 6, dimnames = list(genesB, paste0("B", 1:6)))
-  write.csv(data.frame(gene = rownames(mA), mA, check.names = FALSE), file.path(dir, "exprA.csv"), row.names = FALSE)
-  write.csv(data.frame(sample = colnames(mA), group = rep(c("HC", "RA"), 3)), file.path(dir, "metaA.csv"), row.names = FALSE)
-  write.csv(data.frame(gene = rownames(mB), mB, check.names = FALSE), file.path(dir, "exprB.csv"), row.names = FALSE)
-  write.csv(data.frame(sample = colnames(mB), group = rep(c("HC", "RA"), 3)), file.path(dir, "metaB.csv"), row.names = FALSE)
+  metaA <- data.frame(sample = colnames(mA), group = rep(c("HC", "RA"), 3), stringsAsFactors = FALSE)
 
-  d0 <- load_default_dataset()
-  dataset <- shiny::reactiveValues(expr = d0$expr, meta = d0$meta, source = d0$source, source_type = "preloaded")
+  dataset <- shiny::reactiveValues(expr = mA, meta = metaA,
+                                    source = "Synthetic no-overlap fixture", source_type = "preloaded")
 
   shiny::testServer(mod_preprocessing_server, args = list(id = "pp", dataset = dataset, results = shiny::reactiveValues()), {
-    session$setInputs(n_sources = 2)
-    session$setInputs(`src1-source_type` = "upload")
-    session$setInputs(`src1-expr_file` = fx_mkfile(file.path(dir, "exprA.csv")))
-    session$setInputs(`src1-meta_file` = fx_mkfile(file.path(dir, "metaA.csv")))
-    session$setInputs(`src1-map_id` = "sample", `src1-map_group` = "group")
-    session$setInputs(`src1-log2` = "skip", `src1-max_na_pct` = 0)
-    session$setInputs(`src1-run` = 1)
-
-    session$setInputs(`src2-source_type` = "upload")
-    session$setInputs(`src2-expr_file` = fx_mkfile(file.path(dir, "exprB.csv")))
-    session$setInputs(`src2-meta_file` = fx_mkfile(file.path(dir, "metaB.csv")))
-    session$setInputs(`src2-map_id` = "sample", `src2-map_group` = "group")
-    session$setInputs(`src2-log2` = "skip", `src2-max_na_pct` = 0)
-    session$setInputs(`src2-run` = 1)
+    session$setInputs(preloaded_selected = c("__current__", "__default_merged__"), preloaded_log2 = "skip")
+    session$setInputs(preloaded_run = 1)
 
     session$setInputs(merge_mode = "own")
     session$setInputs(merge_btn = 1)

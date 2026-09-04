@@ -125,7 +125,20 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
     sep = "|"
   )
   hedged <- grepl(hedge_pattern, resp_lower, perl = TRUE)
-  flagged_modules <- Filter(function(mod) grepl(tolower(mod), resp_lower, fixed = TRUE), not_run_modules)
+  ## A response naming a module rarely echoes its full canonical title verbatim
+  ## (e.g. it says "WGCNA" or "the DMR analysis", not "WGCNA (Co-Methylation
+  ## Network)" or "Differentially Methylated Regions (DMRs)"). Matching only the
+  ## full title would let those fabricated answers pass unflagged, so also try
+  ## the title with its parenthetical qualifier stripped, and a leading
+  ## all-caps acronym if the title has one.
+  .mod_variants <- function(mod) {
+    core <- trimws(sub("\\s*\\([^)]*\\)\\s*$", "", mod))
+    acronym <- if (grepl("^[A-Z]{2,}\\b", mod)) sub("^([A-Z]{2,})\\b.*", "\\1", mod) else NA_character_
+    unique(stats::na.omit(c(mod, core, acronym)))
+  }
+  flagged_modules <- Filter(function(mod) {
+    any(vapply(.mod_variants(mod), function(v) grepl(tolower(v), resp_lower, fixed = TRUE), logical(1)))
+  }, not_run_modules)
   if (hedged) flagged_modules <- character(0)
   list(flagged = length(flagged_modules) > 0, modules = unique(flagged_modules))
 }

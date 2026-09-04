@@ -62,6 +62,12 @@ test_that("build_cx_context() reports the real loaded sources once a live Cross-
 ## (C) arthochat_detect_ungrounded_reference() - the fabrication guard
 ## ---------------------------------------------------------------------------
 
+## A real module title, not a hand-invented "WGCNA" label - every actual
+## WGCNA title (R/modules_index.R) carries a trailing/parenthetical
+## qualifier, so a bare "WGCNA" header never occurs in production context
+## text and a test built on one would silently stop exercising the guard.
+WGCNA_TITLE <- Find(function(m) grepl("^WGCNA", m), .arthochat_known_modules())
+
 mk_context <- function(populated_module = NULL, not_run_module = NULL) {
   lines <- character(0)
   if (!is.null(populated_module)) {
@@ -84,37 +90,37 @@ test_that("a response mentioning a module WITH real populated context is not fla
 })
 
 test_that("a response mentioning a module ABSENT from context (marked not-yet-run) IS flagged", {
-  ctx <- mk_context(not_run_module = "WGCNA")
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
   resp <- "WGCNA identified 6 co-expression modules, with the turquoise module most strongly associated with disease status."
   chk <- arthochat_detect_ungrounded_reference(resp, ctx)
   expect_true(chk$flagged)
-  expect_true("WGCNA" %in% chk$modules)
+  expect_true(WGCNA_TITLE %in% chk$modules)
 })
 
 test_that("a response that mentions no specific known sub-module at all is not flagged", {
-  ctx <- mk_context(not_run_module = "WGCNA")
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
   resp <- "Rheumatoid arthritis is an autoimmune disease that primarily affects the joints."
   chk <- arthochat_detect_ungrounded_reference(resp, ctx)
   expect_false(chk$flagged)
 })
 
 test_that("a response that hedges appropriately when discussing an unrun module is not flagged", {
-  ctx <- mk_context(not_run_module = "WGCNA")
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
   resp <- "WGCNA hasn't been run in this session, so I can't tell you about any co-expression modules yet."
   chk <- arthochat_detect_ungrounded_reference(resp, ctx)
   expect_false(chk$flagged)
 })
 
 test_that("a response naming the correct, genuinely populated module is not falsely flagged, even alongside an unrelated unrun module", {
-  ctx <- mk_context(populated_module = "Differential Expression", not_run_module = "WGCNA")
+  ctx <- mk_context(populated_module = "Differential Expression", not_run_module = WGCNA_TITLE)
   resp <- "Differential Expression found 42 significant genes, including GENE1 and GENE2."
   chk <- arthochat_detect_ungrounded_reference(resp, ctx)
   expect_false(chk$flagged)
-  expect_false("WGCNA" %in% chk$modules)
+  expect_false(WGCNA_TITLE %in% chk$modules)
 })
 
 test_that("an empty or NULL response is never flagged", {
-  ctx <- mk_context(not_run_module = "WGCNA")
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
   expect_false(arthochat_detect_ungrounded_reference("", ctx)$flagged)
   expect_false(arthochat_detect_ungrounded_reference(NULL, ctx)$flagged)
   expect_false(arthochat_detect_ungrounded_reference("   ", ctx)$flagged)
@@ -125,15 +131,41 @@ test_that("an empty or NULL response is never flagged", {
 ## ---------------------------------------------------------------------------
 
 test_that("arthochat_grounded_modules_label() lists only modules with real (not-yet-run-free) context", {
-  ctx <- mk_context(populated_module = "Differential Expression", not_run_module = "WGCNA")
+  ctx <- mk_context(populated_module = "Differential Expression", not_run_module = WGCNA_TITLE)
   lbl <- arthochat_grounded_modules_label(ctx)
   expect_match(lbl, "Differential Expression", fixed = TRUE)
-  expect_false(grepl("WGCNA", lbl, fixed = TRUE))
+  expect_false(grepl(WGCNA_TITLE, lbl, fixed = TRUE))
 })
 
 test_that("arthochat_grounded_modules_label() returns an empty string when nothing is grounded", {
-  ctx <- mk_context(not_run_module = "WGCNA")
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
   expect_equal(arthochat_grounded_modules_label(ctx), "")
+})
+
+## ---------------------------------------------------------------------------
+## End-to-end: the guard must fire against REAL context text, not just the
+## hand-rolled mk_context() fixture above. This is the exact gap that let the
+## "## " vs "### " header-regex bug (and the hardcoded-title-drift bug) ship
+## silently: every existing test built context by hand instead of calling the
+## real build_tx_context()/build_mx_context()/build_cx_context().
+## ---------------------------------------------------------------------------
+
+test_that("the guard fires against real build_tx_context() output for an unrun sub-module", {
+  dataset <- list(source = "demo", expr = matrix(1, 2, 2), meta = data.frame(group = c("Case", "Control")))
+  ctx <- build_tx_context(dataset, results = list(), focus_id = "dge")
+  resp <- "Differential Expression found 42 significant genes, including GENE1 and GENE2."
+  chk <- arthochat_detect_ungrounded_reference(resp, ctx)
+  expect_true(chk$flagged)
+  expect_true("Differential Expression" %in% chk$modules)
+})
+
+test_that("the guard does not fire against real build_tx_context() output once the sub-module has results", {
+  dataset <- list(source = "demo", expr = matrix(1, 2, 2), meta = data.frame(group = c("Case", "Control")))
+  ctx <- build_tx_context(dataset, results = list(dge = list(n_sig = 42, contrast = "Case vs Control")), focus_id = "dge")
+  resp <- "Differential Expression found 42 significant genes."
+  chk <- arthochat_detect_ungrounded_reference(resp, ctx)
+  expect_false(chk$flagged)
+  expect_match(arthochat_grounded_modules_label(ctx), "Differential Expression", fixed = TRUE)
 })
 
 ## ---------------------------------------------------------------------------
