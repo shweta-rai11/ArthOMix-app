@@ -47,13 +47,13 @@ mod_cross_mr_stage_ui <- function(id) {
         conditionalPanel(
           condition = sprintf("input['%s'] == 'preloaded'", ns("evidence_source")),
           radioButtons(ns("sex"), "DEG/DMP/DMR/mQTL-MR/eQTL-MR evidence from", choices = c("Female" = "female", "Male" = "male", "Both (female and male)" = "combined"), selected = "female", inline = TRUE),
-          p(class = "submodule-desc", "Thresholds are set on the Biomarker Convergence tab.")
+          p(class = "submodule-desc", CX_BC_THRESHOLD_TEXT)
         ),
         conditionalPanel(
           condition = sprintf("input['%s'] == 'upload'", ns("evidence_source")),
           fileInput(ns("upload_evidence_file"), "Gene-level evidence table", accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per gene. Required: gene. Optional (each defaults to \"not significant/not evaluated\" if omitted, never fabricated): DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Significance is relabeled at the same default thresholds (FDR < 0.05) as the Biomarker Convergence tab's own preloaded data."),
+            "One row per gene. Required: gene. Optional (each defaults to \"not significant/not evaluated\" if omitted, never fabricated): DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Significance is relabeled at the same fixed thresholds as Biomarker Convergence (DEG/DMP/DMR FDR < 0.05, mQTL-MR nominal p < 0.05, eQTL-MR FDR < 0.05)."),
           actionButton(ns("load_evidence_upload"), "Load Uploaded Evidence", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
         )
       )

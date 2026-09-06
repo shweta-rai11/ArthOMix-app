@@ -105,9 +105,20 @@ cx_bc_dedup_min <- function(df, key_col, order_col) {
   df[idx, , drop = FALSE]
 }
 
+## Fixed significance thresholds. There is deliberately no UI for these: the
+## precomputed join was built at exactly these cut-offs, so relabelling at other
+## values would silently disagree with the pipeline's own flags. Both the
+## Biomarker Convergence and Cross-Omics MR panels print them on screen.
 CX_BC_DEFAULT_PARAMS <- list(
   deg_fdr = 0.05, dmp_genomewide_fdr = 0.05,
-  mqtl_sig_basis = "nominal_p", mqtl_sig_cutoff = 0.05, dmr_fdr = 0.05
+  mqtl_sig_basis = "nominal_p", mqtl_sig_cutoff = 0.05, dmr_fdr = 0.05,
+  eqtl_fdr = 0.05
+)
+
+CX_BC_THRESHOLD_TEXT <- paste0(
+  "Fixed thresholds: DEG FDR < 0.05; DMP bacon-corrected FDR < 0.05; DMR FDR < 0.05; ",
+  "mQTL-MR nominal p < 0.05; eQTL-MR: the table's own significance flag where it carries one ",
+  "(the pipeline's join), otherwise FDR < 0.05 when an eQTL-MR FDR is supplied, otherwise panel membership."
 )
 
 cx_bc_relabel <- function(df, params = CX_BC_DEFAULT_PARAMS) {
@@ -126,7 +137,16 @@ cx_bc_relabel <- function(df, params = CX_BC_DEFAULT_PARAMS) {
   } else out$mQTL_MR_pval
   out$mQTL_MR_significant <- !is.na(mqtl_stat) & mqtl_stat < p$mqtl_sig_cutoff
 
-  out$eQTL_MR_significant <- out$in_eQTL_MR_panel %in% TRUE
+  ## eQTL-MR: honour the pipeline's own flag when the table carries one (the
+  ## precomputed join marks its panel at its own cut-off); for uploads that give an
+  ## eQTL-MR FDR, apply the FDR threshold; otherwise every panel gene counts.
+  out$eQTL_MR_significant <- if ("eQTL_MR_significant" %in% colnames(df)) {
+    out$in_eQTL_MR_panel %in% TRUE & as.logical(df$eQTL_MR_significant) %in% TRUE
+  } else if ("eQTL_MR_FDR" %in% colnames(out) && any(!is.na(out$eQTL_MR_FDR))) {
+    out$in_eQTL_MR_panel %in% TRUE & !is.na(out$eQTL_MR_FDR) & out$eQTL_MR_FDR < p$eqtl_fdr
+  } else {
+    out$in_eQTL_MR_panel %in% TRUE
+  }
 
   out$methylation_significant <- out$DMP_genomewide_significant %in% TRUE | out$DMR_significant %in% TRUE
   out$n_evidence_layers <- rowSums(cbind(out$eQTL_MR_significant %in% TRUE, out$DEG_significant %in% TRUE,

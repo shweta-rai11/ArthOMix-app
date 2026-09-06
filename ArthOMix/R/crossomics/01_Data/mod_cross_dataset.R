@@ -18,10 +18,10 @@ mod_cross_dataset_ui <- function(id) {
         box(
           width = NULL, title = "1. Data Source", status = "primary", solidHeader = FALSE,
           radioButtons(ns("source_mode"), "Data source",
-                       choices = c("My analysis results" = "example", "Upload your own data" = "upload"),
-                       selected = "example"),
+                       choices = c("My analysis results" = "live", "Upload your own data" = "upload"),
+                       selected = "live"),
           conditionalPanel(
-            condition = sprintf("input['%s'] == 'example'", ns("source_mode")),
+            condition = sprintf("input['%s'] == 'live'", ns("source_mode")),
             uiOutput(ns("live_source_ui"))
           ),
           conditionalPanel(
@@ -67,7 +67,9 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
     live_dmp_run <- reactive({
       tbl <- (methyl_results %||% list())$dmp_table
       if (is.null(tbl) || !is.data.frame(tbl) || nrow(tbl) == 0) return(NULL)
-      list(comparison = ((methyl_results %||% list())$dmp %||% list())$comparison %||% "Live Methylomics DMP run", table = tbl)
+      dmp_meta <- (methyl_results %||% list())$dmp %||% list()
+      list(comparison = dmp_meta$comparison %||% "Live Methylomics DMP run",
+           array_type = dmp_meta$array_type, table = tbl)
     })
 
     output$live_source_ui <- renderUI({
@@ -99,9 +101,10 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       if (!expr_res$ok) { showNotification(expr_res$error, type = "error"); expr_data(NULL) }
       else expr_data(list(df = expr_res$df, source = sprintf("My analysis: Transcriptomics DGE run \"%s\"", dge_run$contrast %||% input$live_dge_run), raw = NULL, mapping = NULL))
 
-      meth_res <- cx_build_live_meth_df(dmp_run)
+      meth_res <- cx_build_live_meth_df(dmp_run, array_type = dmp_run$array_type)
       if (!meth_res$ok) { showNotification(meth_res$error, type = "error"); meth_data(NULL) }
-      else meth_data(list(df = meth_res$df, source = sprintf("My analysis: Methylomics DMP run (%s)", dmp_run$comparison), raw = NULL, mapping = NULL))
+      else meth_data(list(df = meth_res$df, source = sprintf("My analysis: Methylomics DMP run (%s)", dmp_run$comparison),
+                          raw = NULL, mapping = NULL, platform = cx_platform_label(dmp_run$array_type)))
     }, ignoreInit = TRUE)
 
     observeEvent(input$expr_file, {
@@ -110,7 +113,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       std <- cx_standardize_expression(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Transcriptomics file: %s Required columns could not be auto-detected here - use Expression and Methylation's own Upload option instead, which supports manual column mapping.", std$error),
+          sprintf("Transcriptomics file: %s Columns are recognised by name only - rename the gene and log2 fold-change columns to a recognised header (e.g. gene_symbol / gene, log2FC / logFC, adj.P.Val / FDR) and upload again.", std$error),
           type = "warning", duration = 15
         )
         expr_data(NULL)
@@ -125,7 +128,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       std <- cx_standardize_methylation(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Methylomics file: %s Required columns could not be auto-detected here - use Expression and Methylation's own Upload option instead, which supports manual column mapping.", std$error),
+          sprintf("Methylomics file: %s Columns are recognised by name only - rename the gene and Δβ columns to a recognised header (e.g. cpg, gene_symbol / gene, delta_beta / meandiff, fdr) and upload again.", std$error),
           type = "warning", duration = 15
         )
         meth_data(NULL)
@@ -151,6 +154,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
         cross_dataset$user_meth_wide <- meth_data()$raw
         cross_dataset$user_meth_mapping <- meth_data()$mapping
         cross_dataset$user_meth_sample_cols <- if (!is.null(meth_data()$raw)) cx_detect_sample_columns(meth_data()$raw, meth_data()$mapping) else character(0)
+        cross_dataset$user_meth_platform <- meth_data()$platform
       }
       showNotification("Ready for Expression and Methylation.", type = "message")
     }, ignoreInit = TRUE)
@@ -161,6 +165,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       cross_dataset$user_expr_wide <- NULL; cross_dataset$user_expr_mapping <- NULL; cross_dataset$user_expr_sample_cols <- character(0)
       cross_dataset$user_meth_df <- NULL; cross_dataset$user_meth_source <- NULL
       cross_dataset$user_meth_wide <- NULL; cross_dataset$user_meth_mapping <- NULL; cross_dataset$user_meth_sample_cols <- character(0)
+      cross_dataset$user_meth_platform <- NULL
     }, ignoreInit = TRUE)
 
     output$preview_ui <- renderUI({

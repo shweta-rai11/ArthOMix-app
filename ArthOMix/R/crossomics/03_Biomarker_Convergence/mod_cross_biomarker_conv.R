@@ -21,7 +21,7 @@ mod_cross_biomarker_conv_ui <- function(id) {
           condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
           radioButtons(ns("sex"), "Sex", choices = c("Female" = "female", "Male" = "male", "Both (female and male)" = "combined"), selected = "female", inline = TRUE),
           p(class = "empty-note", icon("circle-info"),
-            "Already-joined eQTL-MR, mQTL-MR, DEG, DMP, and DMR results, loaded as one table."),
+            "Already-joined eQTL-MR, mQTL-MR, DEG, DMP, and DMR results, loaded as one table. \"Both\" stacks the female and male tables; it is not a pooled-sex analysis."),
           actionButton(ns("load_table"), "Load Table", icon = icon("database"), class = "btn-primary btn-sm", width = "100%")
         ),
         conditionalPanel(
@@ -30,13 +30,15 @@ mod_cross_biomarker_conv_ui <- function(id) {
           fileInput(ns("upload_eqtl_file"), "eQTL-MR results (optional)",
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per gene. Required: gene. Optional: eQTL_MR_OR, eQTL_MR_pval, eQTL_MR_FDR, eQTL_MHC_region."),
+            "One row per gene. Required: gene. Optional: eQTL_MR_OR, eQTL_MR_pval, eQTL_MR_FDR (when given, eQTL-MR significance = FDR < 0.05; otherwise every listed gene counts as significant), eQTL_MHC_region."),
           fileInput(ns("upload_mqtl_file"), "mQTL-MR results (optional)",
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
             "One row per gene. Required: gene, mQTL_MR_pval. Optional: mQTL_candidate_cpg, mQTL_cpg_chr, mQTL_cpg_pos_hg19, mQTL_MR_beta."),
           actionButton(ns("load_table_upload"), "Merge & Load", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
-        )
+        ),
+        tags$hr(),
+        p(class = "submodule-desc", icon("sliders"), " ", CX_BC_THRESHOLD_TEXT)
       )
     ),
     column(

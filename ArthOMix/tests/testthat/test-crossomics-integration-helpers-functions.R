@@ -60,7 +60,7 @@ test_that("cx_region_fine() takes the first semicolon/comma-separated token, tri
   expect_equal(cx_region_fine(c("TSS200;Body", " 5'UTR ,1stExon", NA, "")), c("TSS200", "5'UTR", NA, NA))
 })
 
-test_that("cx_standardize_methylation() requires gene + (dbeta or beta), computes region/region_fine from region_raw", {
+test_that("cx_standardize_methylation() requires gene + dbeta, computes region/region_fine from region_raw", {
   df <- data.frame(cpg = "cg1", gene = "TP53", db = -0.3, reg = "TSS200", stringsAsFactors = FALSE)
   mapping <- c(cpg = "cpg", gene = "gene", dbeta = "db", beta = NA_character_, pvalue = NA_character_,
                 fdr = NA_character_, chr = NA_character_, pos = NA_character_, end = NA_character_,
@@ -71,11 +71,15 @@ test_that("cx_standardize_methylation() requires gene + (dbeta or beta), compute
   expect_equal(out$df$region_fine, "TSS200")
 })
 
-test_that("cx_standardize_methylation() refuses without a gene column, or without either dbeta or beta", {
+test_that("cx_standardize_methylation() refuses without a gene column, without dbeta, and (explicitly) for a beta-only file", {
   mapping_no_gene <- c(gene = NA_character_, cpg = "cpg", dbeta = "db", beta = NA_character_)
   expect_false(cx_standardize_methylation(data.frame(cpg = "cg1", db = 1), mapping_no_gene)$ok)
   mapping_no_val <- c(gene = "gene", cpg = "cpg", dbeta = NA_character_, beta = NA_character_)
   expect_false(cx_standardize_methylation(data.frame(cpg = "cg1", gene = "TP53"), mapping_no_val)$ok)
+  mapping_beta_only <- c(gene = "gene", cpg = "cpg", dbeta = NA_character_, beta = "beta")
+  out <- cx_standardize_methylation(data.frame(cpg = "cg1", gene = "TP53", beta = 0.8), mapping_beta_only)
+  expect_false(out$ok)
+  expect_true(grepl("beta-value", out$error, fixed = TRUE))
 })
 
 test_that("cx_cpg_level_table() flags sig_cpg correctly and labels methylation_direction from dbeta's sign", {
@@ -239,28 +243,12 @@ test_that("cx_get_region_annotation() fails soft for an unconfigured array type"
   expect_false(out$ok)
 })
 
-test_that("cx_load_default_deg() reads a real preloaded DEG table with real gene/logFC columns", {
-  skip_if_not(METH_DATA_AVAILABLE, "preloaded data not available")
-  d <- cx_load_default_deg("female")
-  skip_if(is.null(d), "no preloaded DEG table for this deployment")
-  expect_true(nrow(d) > 0)
-  expect_true("gene" %in% colnames(d))
-})
-
-test_that("cx_load_default_methylation() reads and annotates a real preloaded DMP table into the standardized methylation schema", {
-  skip_if_not(METH_DATA_AVAILABLE, "preloaded data not available")
-  out <- cx_load_default_methylation("female")
-  skip_if_not(out$ok, "preloaded methylation table not available")
-  expect_true(nrow(out$df) > 0)
-  expect_true(all(c("gene", "cpg", "dbeta", "region", "region_fine") %in% colnames(out$df)))
-})
-
-test_that("cx_load_default_dmr() reads a real preloaded DMR table with real region-level dbeta/gene annotation", {
-  skip_if_not(METH_DATA_AVAILABLE, "preloaded data not available")
-  out <- cx_load_default_dmr("female")
-  skip_if_not(out$ok, "preloaded DMR table not available")
-  expect_true(nrow(out$df) > 0)
-  expect_true(all(c("gene", "dbeta") %in% colnames(out$df)))
+test_that("cx_platform_label() names the manifest for 450K/EPIC, says so for other array types, NULL when unknown", {
+  expect_null(cx_platform_label(NULL))
+  expect_null(cx_platform_label(""))
+  expect_equal(cx_platform_label("450K"), "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)")
+  expect_equal(cx_platform_label("EPIC"), "Illumina EPIC (IlluminaHumanMethylationEPICanno.ilm10b4.hg19)")
+  expect_equal(cx_platform_label("WGBS"), "WGBS (no manifest annotation available)")
 })
 
 test_that("cx_build_provenance() reports every real parameter used, '(not set)' for anything genuinely missing", {
@@ -366,6 +354,28 @@ test_that("cx_build_live_meth_df() maps a real live DMP run's table onto the sta
   expect_equal(out$df$gene, c("A", "B", "C", "D"))
   expect_equal(out$df$dbeta, c(0.3, -0.3, 0.01, 0.01))
   expect_equal(out$df$fdr, c(0.001, 0.001, 0.9, 0.9))
+})
+
+test_that("cx_build_live_meth_df() hands on p_bacon (not p_raw) when the run came off the SVA tab, so pvalue and fdr agree", {
+  run <- fx_live_dmp_run(c("cg1", "cg2"), c("A", "B"), c(0.3, -0.3), c(0.001, 0.002), c(0.01, 0.02))
+  run$table$p_bacon <- c(0.005, 0.01)
+  out <- cx_build_live_meth_df(run)
+  expect_true(out$ok)
+  expect_equal(out$df$pvalue, c(0.005, 0.01))
+  expect_equal(cx_build_live_meth_df(fx_live_dmp_run(c("cg1"), c("A"), 0.3, 0.001, 0.01))$df$pvalue, 0.001)
+})
+
+test_that("cx_build_live_meth_df() fills feature/island context from the real 450K manifest when the array type is known", {
+  skip_if_not(requireNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19", quietly = TRUE), "450K annotation not installed")
+  ar <- cx_get_region_annotation("450K")
+  skip_if_not(isTRUE(ar$ok), "450K annotation not loadable")
+  cpg <- rownames(ar$anno)[!is.na(ar$anno$region_raw) & !is.na(ar$anno$gene)][1]
+  run <- fx_live_dmp_run(cpg, ar$anno[cpg, "gene"], 0.3, 0.001, 0.01)
+  out <- cx_build_live_meth_df(run, array_type = "450K")
+  expect_true(out$ok)
+  expect_false(is.na(out$df$region_fine))
+  expect_equal(out$df$island_context, ar$anno[cpg, "island_context"])
+  expect_true(is.na(cx_build_live_meth_df(run, array_type = "WGBS")$df$region_fine))
 })
 
 test_that("cx_build_live_meth_df() drops CpGs with no gene annotation, keeping the rest (subset of significant CpGs)", {

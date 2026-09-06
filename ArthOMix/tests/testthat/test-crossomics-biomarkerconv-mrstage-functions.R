@@ -112,6 +112,17 @@ test_that("cx_bc_relabel() recomputes every *_significant flag from retained raw
   expect_equal(out$n_evidence_layers[1], 4L)
 })
 
+test_that("cx_bc_relabel() eQTL-MR significance: honours the table's own flag, else FDR < 0.05 when an FDR is given, else panel membership", {
+  base <- data.frame(gene = c("A", "B", "C"), in_eQTL_MR_panel = c(TRUE, TRUE, FALSE),
+                     DEG_adjP = NA_real_, DMP_fdr_bacon = NA_real_, DMR_fdr = NA_real_, mQTL_MR_pval = NA_real_,
+                     stringsAsFactors = FALSE)
+  expect_equal(cx_bc_relabel(base)$eQTL_MR_significant, c(TRUE, TRUE, FALSE))
+  with_fdr <- base; with_fdr$eQTL_MR_FDR <- c(0.01, 0.0528, NA)
+  expect_equal(cx_bc_relabel(with_fdr)$eQTL_MR_significant, c(TRUE, FALSE, FALSE))
+  with_flag <- with_fdr; with_flag$eQTL_MR_significant <- c(TRUE, TRUE, TRUE)
+  expect_equal(cx_bc_relabel(with_flag)$eQTL_MR_significant, c(TRUE, TRUE, FALSE))
+})
+
 test_that("cx_bc_relabel() 'fdr' mqtl_sig_basis recomputes a real BH-FDR from mQTL_MR_pval instead of using the raw p-value directly", {
   df <- data.frame(gene = c("A", "B", "C"), DEG_adjP = NA, DMP_fdr_bacon = NA, DMR_fdr = NA,
                      mQTL_MR_pval = c(0.001, 0.02, 0.5), in_eQTL_MR_panel = FALSE, stringsAsFactors = FALSE)

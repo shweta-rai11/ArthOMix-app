@@ -135,8 +135,13 @@ cx_standardize_methylation <- function(df, mapping) {
   if (!has_gene) return(list(ok = FALSE, error = "No Gene Symbol column selected (required to join with expression)."))
   dbeta_col <- mapping["dbeta"]
   beta_col <- mapping["beta"]
-  if (is.na(dbeta_col) && is.na(beta_col)) {
-    return(list(ok = FALSE, error = "No Δβ (methylation change) or beta-value column selected."))
+  if (is.na(dbeta_col)) {
+    ## A beta-value column alone cannot yield a methylation change, so a beta-only file
+    ## is refused outright instead of being accepted with an all-NA Δβ.
+    return(list(ok = FALSE, error = if (is.na(beta_col))
+      "No Δβ (methylation change) column selected."
+    else
+      "Only a beta-value column was found - a Δβ (methylation change, e.g. delta_beta / meandiff) column is required; per-sample beta values alone cannot yield one."))
   }
   out <- data.frame(
     cpg = if (has_cpg) as.character(df[[mapping["cpg"]]]) else paste0("row", seq_len(nrow(df))),
@@ -490,68 +495,13 @@ cx_get_region_annotation <- function(array_type = "450K") {
   list(ok = TRUE, anno = anno, reason = NULL)
 }
 
-CX_DEG_TABLE_DIR <- file.path(DATA_ROOT, "results", "tables")
-
-cx_load_default_deg <- function(sex = c("female", "male", "all")) {
-  sex <- match.arg(sex)
-  path <- file.path(CX_DEG_TABLE_DIR, sprintf("DEG_%s_full.csv", sex))
-  if (!file.exists(path)) return(NULL)
-  deg <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) e)
-  if (inherits(deg, "error")) return(NULL)
-  deg
-}
-
-cx_load_default_methylation <- function(sex = c("female", "male", "all"), array_type = "450K") {
-  sex <- match.arg(sex)
-  if (!METH_DATA_AVAILABLE) {
-    return(list(ok = FALSE, df = NULL, error = "Methylomics preloaded data is not available in this deployment."))
-  }
-  dmp <- load_default_dmp(stage = "sva", sex = sex)
-  if (is.null(dmp)) return(list(ok = FALSE, df = NULL, error = "Could not read the preloaded methylation (DMP) table for this sex stratum."))
-  ar <- cx_get_region_annotation(array_type)
-  if (!isTRUE(ar$ok)) return(list(ok = FALSE, df = NULL, error = ar$reason))
-  a <- ar$anno
-  idx <- match(dmp$cpg, rownames(a))
-  df <- data.frame(
-    cpg = dmp$cpg, gene = a$gene[idx], chr = a$chr[idx], pos = a$pos[idx],
-    region_raw = a$region_raw[idx], island_context = a$island_context[idx],
-    dbeta = dmp$dbeta, pvalue = dmp$p_bacon, fdr = dmp$fdr_bacon, stringsAsFactors = FALSE
-  )
-  df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
-  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No CpGs in the preloaded methylation table could be annotated to a gene symbol."))
-  mapping <- c(cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
-               pvalue = "pvalue", fdr = "fdr", chr = "chr", pos = "pos", region = "region_raw",
-               island = "island_context", sample_id = NA_character_)
-  std <- cx_standardize_methylation(df, mapping)
-  if (!std$ok) return(list(ok = FALSE, df = NULL, error = std$error))
-  list(ok = TRUE, df = std$df, error = NULL)
-}
-
-cx_load_default_dmr <- function(sex = c("female", "male", "all")) {
-  sex <- match.arg(sex)
-  if (!METH_DATA_AVAILABLE) {
-    return(list(ok = FALSE, df = NULL, error = "Methylomics preloaded data is not available in this deployment."))
-  }
-  path <- file.path(METH_DMR_DIR, sprintf("dmr_%s_full.csv", sex))
-  if (!file.exists(path)) return(list(ok = FALSE, df = NULL, error = "Could not read the preloaded methylation (DMR) table for this sex stratum."))
-  dmr <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) e)
-  if (inherits(dmr, "error")) return(list(ok = FALSE, df = NULL, error = paste("Could not read the preloaded DMR table:", conditionMessage(dmr))))
-  df <- data.frame(
-    cpg = sprintf("%s:%s-%s", dmr$seqnames, dmr$start, dmr$end),
-    gene = trimws(as.character(dmr$overlapping.genes)),
-    dbeta = dmr$meandiff, pvalue = dmr$Stouffer, fdr = dmr$dmr_fdr,
-    chr = as.character(dmr$seqnames), pos = dmr$start,
-    region_raw = NA_character_, island_context = NA_character_,
-    stringsAsFactors = FALSE
-  )
-  df <- df[!is.na(df$gene) & nzchar(df$gene), , drop = FALSE]
-  if (nrow(df) == 0) return(list(ok = FALSE, df = NULL, error = "No DMRs in the preloaded region table are annotated to a gene symbol."))
-  mapping <- c(cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
-               pvalue = "pvalue", fdr = "fdr", chr = "chr", pos = "pos", region = "region_raw",
-               island = "island_context", sample_id = NA_character_)
-  std <- cx_standardize_methylation(df, mapping)
-  if (!std$ok) return(list(ok = FALSE, df = NULL, error = std$error))
-  list(ok = TRUE, df = std$df, error = NULL)
+## Human-readable methylation-platform label for provenance, from the Methylomics
+## dataset's declared array type (NULL/unknown for uploaded result tables).
+cx_platform_label <- function(array_type) {
+  if (is.null(array_type) || !nzchar(array_type %||% "")) return(NULL)
+  pkg <- CX_METH_ANNOTATION_PACKAGES[[array_type]]
+  if (is.null(pkg)) return(sprintf("%s (no manifest annotation available)", array_type))
+  sprintf("Illumina %s (%s)", array_type, pkg)
 }
 
 CX_MODULE_VERSION <- "ArthOMix Cross-Omics Expression and Methylation v1.1"
@@ -757,14 +707,16 @@ cx_build_live_expr_df <- function(dge_run) {
 #'
 #' @param dmp_run A list with a `$table` data.frame - the per-CpG live DMP
 #'   result as exposed on `methyl_results$dmp_table` by mod_methyl_dmp.R:
-#'   columns `cpg`, `gene`, `dbeta`, `p_raw`, `fdr`, `chr`, `pos`, `direction`
-#'   (gene/chr/pos from the array manifest annotation attached during the run).
+#'   columns `cpg`, `gene`, `dbeta`, `p_raw`, `fdr`, `chr`, `pos`, `direction`, plus
+#'   `p_bacon` when the run came off the SVA tab (gene/chr/pos from the array
+#'   manifest annotation attached during the run).
+#' @param array_type The Methylomics dataset's declared array type; "450K" and "EPIC"
+#'   get feature/island annotation from the manifest, anything else is left blank.
 #' @return `list(ok, df, error)` - `df` has exactly the columns
 #'   cx_standardize_methylation() produces (cpg, gene, dbeta, pvalue, fdr,
 #'   chr, pos, end, n_cpgs, region_id, region_raw, island_context, region,
-#'   region_fine). Rows with no gene annotation are dropped, exactly as the
-#'   preloaded cx_load_default_methylation() path already does.
-cx_build_live_meth_df <- function(dmp_run) {
+#'   region_fine). Rows with no gene annotation are dropped.
+cx_build_live_meth_df <- function(dmp_run, array_type = NULL) {
   if (is.null(dmp_run) || is.null(dmp_run$table) || !is.data.frame(dmp_run$table)) {
     return(list(ok = FALSE, error = "No live Methylomics DMP run available - run DMP Analysis in Methylomics first.", df = NULL))
   }
@@ -779,14 +731,32 @@ cx_build_live_meth_df <- function(dmp_run) {
   if (nrow(tbl) == 0) {
     return(list(ok = TRUE, df = CX_LIVE_EMPTY_METH_DF, error = NULL))
   }
+  ## When the run came off the SVA tab its FDR is BH over the bacon-corrected p, so
+  ## the p-value handed on must be the bacon one too (the Stouffer aggregation and any
+  ## FDR fallback downstream work from `pvalue`); the plain DMP tab has only p_raw.
+  p_col <- if ("p_bacon" %in% colnames(tbl) && any(!is.na(tbl$p_bacon))) "p_bacon"
+           else if ("p_raw" %in% colnames(tbl)) "p_raw" else NA_character_
+  ## Gene-feature / island context are not part of the live DMP table; fill them from
+  ## the Illumina manifest when the array type is one we have a manifest for, so the
+  ## region-restricted aggregation rules and island filters work on live runs too.
+  region_col <- NA_character_; island_col <- NA_character_
+  if (!is.null(array_type) && !is.null(CX_METH_ANNOTATION_PACKAGES[[array_type]])) {
+    ar <- cx_get_region_annotation(array_type)
+    if (isTRUE(ar$ok)) {
+      idx <- match(tbl$cpg, rownames(ar$anno))
+      tbl$.cx_region_raw <- ar$anno$region_raw[idx]
+      tbl$.cx_island_context <- ar$anno$island_context[idx]
+      region_col <- ".cx_region_raw"; island_col <- ".cx_island_context"
+    }
+  }
   mapping <- c(
     cpg = "cpg", gene = "gene", dbeta = "dbeta", beta = NA_character_,
-    pvalue = if ("p_raw" %in% colnames(tbl)) "p_raw" else NA_character_,
+    pvalue = p_col,
     fdr = if ("fdr" %in% colnames(tbl)) "fdr" else NA_character_,
     chr = if ("chr" %in% colnames(tbl)) "chr" else NA_character_,
     pos = if ("pos" %in% colnames(tbl)) "pos" else NA_character_,
     end = NA_character_, n_cpgs = NA_character_, region_id = NA_character_,
-    region = NA_character_, island = NA_character_, sample_id = NA_character_
+    region = region_col, island = island_col, sample_id = NA_character_
   )
   std <- cx_standardize_methylation(tbl, mapping)
   if (!std$ok) return(list(ok = FALSE, error = std$error, df = NULL))

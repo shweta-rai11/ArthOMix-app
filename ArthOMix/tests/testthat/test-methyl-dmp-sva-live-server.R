@@ -50,6 +50,11 @@ test_that("the live SVA-adjusted engine runs on uploaded data and produces a wel
 
     top10 <- r$df$cpg[order(r$df$fdr)][1:10]
     expect_true(sum(top10 %in% paste0("cg", 20000001:20000005)) >= 2)
+
+    ## The SVA tab publishes its table for Cross-Omics exactly as the plain DMP tab does.
+    expect_identical(methyl_results$dmp_table, r$df)
+    expect_true(grepl("SVA \\+ bacon", methyl_results$dmp$comparison))
+    expect_equal(methyl_results$dmp$n_probes, r$n_probes_tested)
   })
 })
 

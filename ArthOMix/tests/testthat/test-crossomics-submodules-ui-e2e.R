@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("every Cross-omics sub-module tab opens and renders with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-cx-submodules",
@@ -15,7 +14,7 @@ test_that("every Cross-omics sub-module tab opens and renders with no output err
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "crossomics")
   app$wait_for_idle(timeout = 20 * 1000)
@@ -33,8 +32,10 @@ test_that("every Cross-omics sub-module tab opens and renders with no output err
   }
 })
 
-test_that("Dataset -> Expression and Methylation Integration data flow: loading real example DEG/DMP data and running Integration produces real results with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
+test_that("Dataset -> Expression and Methylation Integration data flow: uploading DEG/DMP tables and running Integration produces real results with no output error", {
+  expr_path <- tempfile(fileext = ".csv"); meth_path <- tempfile(fileext = ".csv")
+  writeLines(c("gene_symbol,log2FC,adj.P.Val", "TP53,2.5,0.001", "BRCA1,-1.2,0.02", "EGFR,0.1,0.9", "MYC,1.4,0.01"), expr_path)
+  writeLines(c("cpg,gene,delta_beta,fdr", "cg1,TP53,-0.3,0.001", "cg2,TP53,-0.2,0.01", "cg3,BRCA1,0.3,0.001", "cg4,EGFR,0.2,0.001", "cg5,MYC,0.01,0.9"), meth_path)
 
   app <- new_app_driver(
     name = "arthomix-cx-integration-flow",
@@ -43,15 +44,18 @@ test_that("Dataset -> Expression and Methylation Integration data flow: loading 
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "crossomics")
   app$wait_for_idle(timeout = 20 * 1000)
   app$set_inputs(cx_menu = "Dataset")
   app$wait_for_idle(timeout = 20 * 1000)
-  app$set_inputs(`cx_dataset-source_mode` = "example", `cx_dataset-sex_stratum` = "female", `cx_dataset-meth_level` = "dmp")
-  app$click("cx_dataset-load_example_btn")
-  app$wait_for_idle(timeout = 30 * 1000)
+  app$set_inputs(`cx_dataset-source_mode` = "upload")
+  app$wait_for_idle(timeout = 10 * 1000)
+  app$upload_file(`cx_dataset-expr_file` = expr_path)
+  app$wait_for_idle(timeout = 20 * 1000)
+  app$upload_file(`cx_dataset-meth_file` = meth_path)
+  app$wait_for_idle(timeout = 20 * 1000)
   app$click("cx_dataset-use_data_btn")
   app$wait_for_idle(timeout = 10 * 1000)
 

@@ -653,7 +653,18 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       }
     ), ignoreInit = TRUE)
 
-    observeEvent(svalive_result(), svalive_has_run(TRUE))
+    observeEvent(svalive_result(), {
+      r <- svalive_result()
+      ## Publish exactly as the plain DMP tab does below, so Cross-Omics' "My analysis
+      ## results" route can take the SVA/bacon-adjusted run too; whichever tab ran last
+      ## is the one handed on. The table carries p_bacon alongside p_raw.
+      methyl_results$dmp <- list(comparison = sprintf("%s vs %s (%s; SVA + bacon)", r$comp, r$ref, r$sex_label),
+                                  n_probes = r$n_probes_tested,
+                                  n_sig = sum(!is.na(r$df$fdr) & r$df$fdr < 0.05, na.rm = TRUE),
+                                  array_type = methyl_dataset$array_type)
+      methyl_results$dmp_table <- r$df
+      svalive_has_run(TRUE)
+    })
 
     svalive_filtered <- reactive({
       r <- svalive_result()
@@ -998,7 +1009,8 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       r <- live_result()
       methyl_results$dmp <- list(comparison = sprintf("%s vs %s (%s)", r$comp, r$ref, r$sex_label),
                                   n_probes = r$n_probes_tested,
-                                  n_sig = sum(!is.na(r$df$fdr) & r$df$fdr < 0.05, na.rm = TRUE))
+                                  n_sig = sum(!is.na(r$df$fdr) & r$df$fdr < 0.05, na.rm = TRUE),
+                                  array_type = methyl_dataset$array_type)
       ## Full per-CpG table (cpg, gene, dbeta, p_raw, fdr, chr, pos, direction), exposed
       ## for reuse by other modules this session (mirrors methyl_results$dmr_table in
       ## mod_methyl_dmr.R) - e.g. Cross-Omics' "live session results" data source.

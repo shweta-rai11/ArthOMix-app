@@ -75,7 +75,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     raw <- reactiveValues(
       expr_df = NULL, expr_source = NULL, expr_sample_cols = character(0), expr_wide = NULL, expr_mapping = NULL,
       meth_df = NULL, meth_source = NULL, meth_sample_cols = character(0), meth_wide = NULL, meth_mapping = NULL,
-      meth_unavailable_reason = NULL
+      meth_platform = NULL, meth_unavailable_reason = NULL
     )
     integ <- reactiveValues(df = NULL, params = NULL, pairing = NULL, provenance = NULL, run_at = NULL,
                              universe = NULL, cpg_level = NULL, id_harmonization = NULL, validation = NULL)
@@ -94,6 +94,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       raw$meth_wide <- cross_dataset$user_meth_wide
       raw$meth_mapping <- cross_dataset$user_meth_mapping
       raw$meth_sample_cols <- cross_dataset$user_meth_sample_cols %||% character(0)
+      raw$meth_platform <- cross_dataset$user_meth_platform
       raw$meth_unavailable_reason <- NULL
     })
 
@@ -108,7 +109,9 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     live_dmp_run <- reactive({
       tbl <- (methyl_results %||% list())$dmp_table
       if (is.null(tbl) || !is.data.frame(tbl) || nrow(tbl) == 0) return(NULL)
-      list(comparison = ((methyl_results %||% list())$dmp %||% list())$comparison %||% "Live Methylomics DMP run", table = tbl)
+      dmp_meta <- (methyl_results %||% list())$dmp %||% list()
+      list(comparison = dmp_meta$comparison %||% "Live Methylomics DMP run",
+           array_type = dmp_meta$array_type, table = tbl)
     })
 
     output$live_source_ui <- renderUI({
@@ -118,7 +121,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         class = "card", style = "margin-bottom: 10px;",
         div(class = "card-title", icon("bolt"), "Data source"),
         radioButtons(ns("cx_source_mode"), NULL,
-                     choices = c("From the Cross-Omics Dataset tab (example/uploaded)" = "dataset_tab",
+                     choices = c("From the Cross-Omics Dataset tab (my analysis results / uploaded)" = "dataset_tab",
                                  "Use live Transcriptomics/Methylomics session results" = "live"),
                      selected = "dataset_tab"),
         conditionalPanel(
@@ -152,7 +155,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       }
       expr_res <- cx_build_live_expr_df(dge_run)
       if (!expr_res$ok) { showNotification(expr_res$error, type = "error"); return() }
-      meth_res <- cx_build_live_meth_df(dmp_run)
+      meth_res <- cx_build_live_meth_df(dmp_run, array_type = dmp_run$array_type)
       if (!meth_res$ok) { showNotification(meth_res$error, type = "error"); return() }
 
       cross_dataset$user_expr_df <- expr_res$df
@@ -166,6 +169,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       cross_dataset$user_meth_wide <- NULL
       cross_dataset$user_meth_mapping <- NULL
       cross_dataset$user_meth_sample_cols <- character(0)
+      cross_dataset$user_meth_platform <- cx_platform_label(dmp_run$array_type)
 
       showNotification("Live session results loaded - ready to Run Integration.", type = "message")
     }, ignoreInit = TRUE)
@@ -255,7 +259,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         padj_method = input$padj_method,
         sample_matching = if (isTRUE(pairing$paired)) sprintf("Paired (%d common samples)", pairing$n_common) else "Not available (unpaired datasets)",
         gene_annotation_source = if (isTRUE(id_harm$ok)) "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching" else "Not available - matched on exact provided text only",
-        methylation_platform = if (grepl("bacon-adjusted|DMR", raw$meth_source %||% "")) "Illumina 450K (IlluminaHumanMethylation450kanno.ilmn12.hg19)" else "Not specified by uploaded data",
+        methylation_platform = raw$meth_platform %||% "Not specified by uploaded data",
         run_at = integ$run_at
       )
       integ$provenance <- cx_build_provenance(integ$params)
