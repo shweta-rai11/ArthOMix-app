@@ -40,11 +40,15 @@ ARTHOCHAT_SEED <- 20260904L
     label_raw <- trimws(sub("^#{2,3} ", "", lines[start]))
     hits <- known_modules[vapply(known_modules, function(m) grepl(tolower(m), tolower(label_raw), fixed = TRUE), logical(1))]
     if (!length(hits)) next
+    ## Prefer the longest (most specific) matching title - e.g. a "ML Feature
+    ## Selection" header should resolve to itself, not fall back to the
+    ## shorter "Feature Selection" title it also happens to contain.
+    best_hit <- hits[[which.max(nchar(hits))]]
     section_text <- paste(lines[start:end], collapse = " ")
     if (grepl("not yet run|not yet loaded", section_text, ignore.case = TRUE)) {
-      not_run <- c(not_run, hits[[1]])
+      not_run <- c(not_run, best_hit)
     } else {
-      grounded <- c(grounded, hits[[1]])
+      grounded <- c(grounded, best_hit)
     }
   }
   list(not_run = unique(not_run), grounded = unique(grounded))
@@ -65,18 +69,57 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
     "haven't run", "hasn't run", "no results yet", "not been computed",
     sep = "|"
   )
-  hedged <- grepl(hedge_pattern, resp_lower, perl = TRUE)
-  ## Also match a title's stripped form and leading acronym, not just the full title.
+  ## Sentence-scoped: a hedge only suppresses the module(s) it's actually
+  ## said alongside, not every not-run module named anywhere in the response
+  ## (a response can legitimately hedge about one module while asserting a
+  ## fabricated result for another in the same turn).
+  sentences_lower <- tolower(strsplit(response_text, "(?<=[.!?])\\s+", perl = TRUE)[[1]])
+  if (!length(sentences_lower)) sentences_lower <- resp_lower
+
+  .escape_regex <- function(x) gsub("([][{}()+*^$|\\.?])", "\\\\\\1", x, perl = TRUE)
+  ## Also match a title's stripped form and leading acronym, not just the full title -
+  ## on a word boundary, so a short acronym (e.g. "ML") can't substring-match an
+  ## unrelated word (e.g. "html", "normally") and false-flag an unrun module.
   .mod_variants <- function(mod) {
     core <- trimws(sub("\\s*\\([^)]*\\)\\s*$", "", mod))
     acronym <- if (grepl("^[A-Z]{2,}\\b", mod)) sub("^([A-Z]{2,})\\b.*", "\\1", mod) else NA_character_
     unique(stats::na.omit(c(mod, core, acronym)))
   }
+  .mentions_variant <- function(variants, text_lower) {
+    any(vapply(variants, function(v) grepl(paste0("\\b", .escape_regex(tolower(v)), "\\b"), text_lower, perl = TRUE), logical(1)))
+  }
+
   flagged_modules <- Filter(function(mod) {
-    any(vapply(.mod_variants(mod), function(v) grepl(tolower(v), resp_lower, fixed = TRUE), logical(1)))
+    variants <- .mod_variants(mod)
+    if (!.mentions_variant(variants, resp_lower)) return(FALSE)
+    hedged_here <- any(vapply(sentences_lower, function(s) {
+      grepl(hedge_pattern, s, perl = TRUE) && .mentions_variant(variants, s)
+    }, logical(1)))
+    !hedged_here
   }, not_run_modules)
-  if (hedged) flagged_modules <- character(0)
   list(flagged = length(flagged_modules) > 0, modules = unique(flagged_modules))
+}
+
+## Code-level consent check for execute_confirmed_run: whether the user's own
+## most recent chat message plausibly affirms proceeding, rather than relying
+## solely on the model's own judgment of an ambiguous reply.
+arthochat_affirms_pending_run <- function(text) {
+  if (is.null(text) || !nzchar(trimws(text %||% ""))) return(FALSE)
+  t <- tolower(trimws(text))
+  negation_pattern <- paste(
+    "\\bno\\b", "\\bnope\\b", "don't", "do not", "not now", "\\bwait\\b",
+    "\\bcancel\\b", "\\bstop\\b", "hold off", "not yet", "never ?mind",
+    sep = "|"
+  )
+  if (grepl(negation_pattern, t, perl = TRUE)) return(FALSE)
+  affirm_pattern <- paste(
+    "\\byes\\b", "\\byeah\\b", "\\byep\\b", "\\byup\\b", "\\bsure\\b",
+    "\\bok\\b", "\\bokay\\b", "go ahead", "sounds good", "please do",
+    "please run", "please proceed", "\\brun it\\b", "\\bdo it\\b",
+    "\\bproceed\\b", "\\bconfirm(ed)?\\b", "let's do (it|this)", "go for it",
+    sep = "|"
+  )
+  grepl(affirm_pattern, t, perl = TRUE)
 }
 
 ## Sub-modules the current context had live session data for, for the transparency footer.
@@ -112,44 +155,22 @@ ARTHOCHAT_SYSTEM_PROMPT <- paste(
   "if it isn't there, say it's unavailable rather than reusing a stale or",
   "unrelated result.",
   "",
-  "Critical distinction, easy to get wrong: project_methods() and",
-  "project_methods_methylomics() return the PUBLISHED manuscript's own",
-  "write-up and numbers for how that pipeline was originally run - they are",
-  "NOT this session's live results, no matter how specific or numeric they",
-  "sound. This session's actual results live ONLY in the \"## Computed",
-  "analysis results (this session)\" part of the context below (or in an",
+  "This session's actual results live ONLY in the \"## Computed analysis",
+  "results (this session)\" part of the context below (or in an",
   "other_module_context result). A sub-module block that says \"(not yet run",
   "in this session)\" means exactly that - it has not been run in THIS",
-  "session, even if the methodology tool or literature describes what",
-  "running it typically produces. Never state, imply, or quote a specific",
-  "number (a gene count, DEG count, DMP count, p-value, etc.) as \"this",
-  "session's\" result unless it came from that Computed-results block or an",
-  "other_module_context/other-module Computed-results block - if the",
-  "question asks for a live number and the block says not yet run, the",
-  "correct answer is that it hasn't been run yet, never a number borrowed",
-  "from the methodology write-up or literature.",
+  "session, even if the literature describes what running it typically",
+  "produces. Never state, imply, or quote a specific number (a gene count,",
+  "DEG count, DMP count, p-value, etc.) as \"this session's\" result unless it",
+  "came from that Computed-results block or an other_module_context/",
+  "other-module Computed-results block - if the question asks for a live",
+  "number and the block says not yet run, the correct answer is that it",
+  "hasn't been run yet, never a number borrowed from the literature.",
   "",
-  "You have eight tools:",
+  "You have six tools:",
   "",
-  "- project_methods(module): looks up THIS project's own written methodology",
-  "  for a specific transcriptomics sub-module (e.g. \"WGCNA\", \"Mendelian",
-  "  randomisation\", \"feature selection\", or a section number like \"2.6\")",
-  "  plus its curated reference list - describing how the PUBLISHED pipeline",
-  "  was run, not this session's own results. This is the authoritative",
-  "  source for \"how does this project do X\" and \"how do I perform or",
-  "  interpret module Y\" - use it first whenever the question is about how a",
-  "  specific transcriptomics analysis/sub-module works, even if the user",
-  "  doesn't name the module explicitly (infer it from what they're asking",
-  "  about) - but never for \"what did MY run just produce\", which only the",
-  "  Computed-results context below can answer.",
-  "- project_methods_methylomics(module): the same idea, but for the",
-  "  Methylomics module's own pipeline (e.g. \"DMP\", \"DMR\", \"WGCNA",
-  "  methylomics\", \"cell-type deconvolution\", \"feature selection\",",
-  "  \"Mendelian randomization\", \"diagnostic classifier\"). Use this instead",
-  "  of project_methods whenever the question is clearly about methylation",
-  "  data/analysis rather than gene expression.",
-  "- pubmed_search(query): a live, broader PubMed search for scientific claims",
-  "  project_methods doesn't cover, or when the user wants more/newer external",
+  "- pubmed_search(query): a live PubMed search for scientific claims or",
+  "  methodology questions, or when the user wants more/newer external",
   "  literature.",
   "- gwas_catalog_search(query): searches the OpenGWAS catalogue for candidate",
   "  exposure/outcome GWAS datasets matching a trait, tissue or consortium",
@@ -265,6 +286,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
     })
 
     client <- NULL
+    last_user_message <- NULL
     get_client <- function() {
       if (is.null(client)) {
         cl <- if (identical(arthochat_backend(), "anthropic")) {
@@ -293,34 +315,6 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
           arguments = list(
             query = ellmer::type_string("The PubMed search query - keywords, not a full sentence."),
             max_results = ellmer::type_integer("Number of references to return (1-10). Defaults to 5.", required = FALSE)
-          )
-        ))
-        cl$register_tool(ellmer::tool(
-          project_methods,
-          paste(
-            "Look up this project's own methodology write-up and curated",
-            "reference list for a specific analysis sub-module - e.g. \"WGCNA\",",
-            "\"Mendelian randomisation\", \"feature selection\", \"diagnostic model\",",
-            "or a section number like \"2.6\". Use this before pubmed_search",
-            "whenever the question is about how a specific sub-module works,",
-            "or how to perform or interpret it."
-          ),
-          arguments = list(
-            module = ellmer::type_string("The sub-module name or topic to look up, e.g. \"WGCNA\" or \"2.6\".")
-          )
-        ))
-        cl$register_tool(ellmer::tool(
-          project_methods_methylomics,
-          paste(
-            "Look up the Methylomics module's own methodology write-up and",
-            "curated reference list for a specific analysis sub-module - e.g.",
-            "\"DMP\", \"DMR\", \"WGCNA methylomics\", \"cell-type deconvolution\",",
-            "\"feature selection\", \"Mendelian randomization\", or \"diagnostic",
-            "classifier\". Use this (not project_methods) whenever the question",
-            "is about methylation data or the Methylomics module specifically."
-          ),
-          arguments = list(
-            module = ellmer::type_string("The Methylomics sub-module name or topic to look up, e.g. \"DMR\" or \"cell-type deconvolution\".")
           )
         ))
         cl$register_tool(ellmer::tool(
@@ -404,6 +398,9 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
               if (is.null(pa)) {
                 return("Nothing is pending confirmation. Call propose_run_dge first, relay it to the user, and only call this after they clearly agree.")
               }
+              if (!arthochat_affirms_pending_run(last_user_message)) {
+                return("The user's most recent message does not contain a clear affirmative reply (e.g. \"yes\", \"go ahead\", \"run it\"). Do not execute - relay the proposal again and wait for explicit agreement, or call cancel_pending_action if they've declined or changed the subject.")
+              }
               if (n_executions() >= ARTHOCHAT_MAX_EXECUTIONS) {
                 return("This session's limit for agent-triggered analysis runs has been reached. Tell the user to use the Differential Expression tab directly, or reload the app to reset the limit.")
               }
@@ -473,6 +470,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
         shinychat::chat_clear("chat", session = session)
       }
       last_view_key <<- view_key
+      last_user_message <<- input$chat_user_input
 
       cl <- get_client()
       ctx_text <- system_prompt_r()

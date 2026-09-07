@@ -18,6 +18,14 @@ looks_like_normalized_totals <- function(m) {
   isTRUE(cv < 0.05 && pinned)
 }
 
+deconv_is_linear_scale <- function(declared_type, expr) {
+  if (!is.null(declared_type) && !is.na(declared_type) && nzchar(declared_type)) {
+    declared_type %in% c("raw", "normalized")
+  } else {
+    looks_like_raw_counts(expr) || looks_like_normalized_totals(expr)
+  }
+}
+
 tx_looks_like_results_table <- function(mat) {
   cn <- colnames(mat)
   if (is.null(cn) || length(cn) == 0) return(FALSE)
@@ -49,10 +57,10 @@ tx_validate_expr_upload <- function(mat, declared_type) {
       return(list(ok = FALSE, error = "\"Raw counts\" is selected, but this matrix has negative values. Raw counts can't be negative - this looks like normalized or log-transformed data. Change \"Data type\" above, or upload the actual raw count matrix."))
     }
     if (is_norm_totals) {
-      return(list(ok = FALSE, error = "\"Raw counts\" is selected, but per-sample totals are tightly pinned near a fixed value (e.g. ~1e6). That's the signature of TPM/FPKM/CPM data, not raw counts. Change \"Data type\" to \"Normalized\", or upload the actual raw count matrix."))
+      return(list(ok = FALSE, error = "\"Raw counts\" is selected, but per-sample totals are tightly pinned near a fixed value (e.g. ~1e6). That's the signature of TPM/FPKM/CPM-normalized data, not raw counts. Change \"Data type\" to \"Normalized\", or upload the actual raw count matrix."))
     }
     if (!is_raw) {
-      notes <- c(notes, "Note: this data lacks the usual wide range of raw sequencing counts (99th percentile <= 100). Double-check \"Data type\" above if downstream results look off.")
+      notes <- c(notes, "Note: this data lacks the usual wide dynamic range of raw sequencing counts (99th percentile <= 100). Double-check \"Data type\" above if downstream results look off.")
     }
   } else if (identical(declared_type, "normalized")) {
     if (is_raw && !is_norm_totals) {

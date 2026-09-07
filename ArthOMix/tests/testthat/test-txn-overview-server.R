@@ -27,6 +27,24 @@ test_that("run_qc_btn computes sample_qc() against the active dataset and flags/
   })
 })
 
+test_that("running outlier detection writes back to shared results so ArthoChat's grounding sees it as run", {
+  ## Regression guard for the 2026-09-07 defense audit finding: mod_overview_server
+  ## received results but never wrote to it, so ArthoChat's context builder
+  ## (which keys off results[["overview"]] being non-NULL) permanently reported
+  ## this sub-module as "NOT YET RUN IN THIS SESSION" even after a real QC run.
+  dataset <- fixture_dataset()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = results), {
+    session$setInputs(qc_source = "active", mad_k = 3)
+    session$setInputs(run_qc_btn = 0)
+    session$setInputs(run_qc_btn = 1)
+    sample_qc()
+    ov <- shiny::isolate(results$overview)
+    expect_false(is.null(ov))
+    expect_equal(ov$n_samples, 20L)
+  })
+})
+
 test_that("an artificially injected outlier sample is actually flagged by sample_qc()", {
   fm <- fx_expr_meta(n_genes = 200, n_samples = 20, seed = 51)
   fm$expr[, 1] <- fm$expr[, 1] + 40

@@ -24,7 +24,7 @@ mx <- list(
   mr="Mendelian Randomization", coloc="Colocalisation", diagnostic="Diagnostic Classifier",
   validation="Validation", biomarkercard="Biomarker Card"
 )
-cx <- list(integration="Expression and Methylation", biomarkerconv="Biomarker Convergence", mrstage="Cross-Omics MR")
+cx <- list(integration="Expression and Methylation", biomarkerconv="Biomarker Convergence", mrstage="MR Evidence")
 mo <- list(
   overview="Cohort Harmonization", integration="Multi-omics Integration (DIABLO & SNF)", stratification="SNF Clustering",
   biomarker="Biomarker Discovery", mapping="Gene-CpG Mapping", pathway="Pathways",

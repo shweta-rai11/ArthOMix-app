@@ -8,7 +8,6 @@
 MCOL_DEFAULT_P1 <- 1e-4
 MCOL_DEFAULT_P2 <- 1e-4
 MCOL_DEFAULT_P12 <- 1e-5
-MCOL_DEFAULT_P12_SUSIE <- 5e-6
 MCOL_DEFAULT_WINDOW_KB <- 1000
 MCOL_DEFAULT_MIN_SHARED_SNPS <- 10
 MCOL_DEFAULT_PP_THRESHOLD <- 0.8
@@ -596,7 +595,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
               suppressWarnings(suppressMessages(coloc::coloc.susie(
                 dataset1 = d1s, dataset2 = d2s,
                 susie.args = list(maxit = input$susie_maxit %||% 100, coverage = input$susie_coverage %||% 0.95),
-                p1 = p1, p2 = p2, p12 = MCOL_DEFAULT_P12_SUSIE
+                p1 = p1, p2 = p2, p12 = p12
               ))), error = function(e) e)
             if (inherits(susie_res, "error")) {
               susie_note <- sprintf("coloc.susie() failed: %s", conditionMessage(susie_res)); susie_res <- NULL

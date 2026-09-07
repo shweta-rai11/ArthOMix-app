@@ -46,6 +46,19 @@ test_that("Run Integration (real, synchronous) correctly classifies a hand-worke
     expect_equal(cross_results$integration$summary$n_genes, 4L)
     expect_equal(cross_results$integration$summary$n_integrated, 2L)
     expect_equal(integ$params$sex_stratum, "FEMALE")
+
+    ## Regression guard for the 2026-09-07 defense audit finding: the
+    ## provenance-manifest export was wired for only 2 of ~40 download paths,
+    ## with Cross-Omics entirely unwired to the shared session-wide log.
+    ## (run_integration is primed 0 -> 1 above per the testServer actionButton
+    ## gotcha, and this plain observeEvent has no ignoreInit - so it legitimately
+    ## fires on both the priming step and the "real" click; check the latest
+    ## record rather than assume a single push.)
+    recs <- arthomix_provenance_records(session)
+    expect_gte(length(recs), 1)
+    last <- recs[[length(recs)]]
+    expect_equal(last$module, "mod_cross_integration")
+    expect_equal(last$params$sex_stratum, "FEMALE")
   })
 })
 

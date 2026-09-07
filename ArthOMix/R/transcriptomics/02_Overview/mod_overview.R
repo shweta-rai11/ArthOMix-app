@@ -299,6 +299,19 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       merge(qc, t$meta[, intersect(c("sample", "group"), colnames(t$meta))], by = "sample", all.x = TRUE)
     })
 
+    observeEvent(sample_qc(), {
+      if (is.null(results)) return()
+      qc <- sample_qc()
+      t <- qc_target()
+      results$overview <- list(
+        source = t$label,
+        n_samples = nrow(t$meta),
+        n_features = nrow(t$expr),
+        n_flagged = sum(qc$flag_signal | qc$flag_detected | qc$flag_cor),
+        mad_k = input$mad_k %||% NA_real_
+      )
+    }, ignoreInit = TRUE)
+
     output$qc_summary_ui <- renderUI({
       if (!isTruthy(input$run_qc_btn) || input$run_qc_btn == 0) {
         return(div(class = "empty-note", icon("circle-info"), "Not run yet - click Run outlier detection to check for technical outliers."))

@@ -149,7 +149,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       } else {
         looks_like_raw_counts(expr)
       }
-      lin_expr <- if (is_counts) as.matrix(expr) else 2^as.matrix(expr)
+      lin_expr <- if (deconv_is_linear_scale(declared_type, expr)) as.matrix(expr) else 2^as.matrix(expr)
       lin_expr[!is.finite(lin_expr)] <- 0
       perm <- arthomix_quiet(as.integer(input$cib_perm %||% 100))
       if (is.na(perm) || perm < 0) perm <- 100

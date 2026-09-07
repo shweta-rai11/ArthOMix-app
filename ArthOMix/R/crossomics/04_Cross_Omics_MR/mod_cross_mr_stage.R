@@ -1,9 +1,14 @@
 ## R/crossomics/04_Cross_Omics_MR/mod_cross_mr_stage.R
-## Cross-Omics MR: single-instrument mQTL-MR results (Wald ratio, GoDMC -> Ishigaki RA).
+## MR Evidence: viewer/classifier for already-computed single-instrument mQTL-MR
+## results (Wald ratio, GoDMC -> Ishigaki RA). This module does not select
+## instruments, harmonize alleles, or compute a causal estimate itself - MR is
+## run externally and loaded here (preloaded, or an upload of externally-run
+## results); see mod_cross_mr_stage_ui's "Ask ArthOChat" copy, which is explicit
+## that ArthOChat won't run MR either, only suggest candidate GWAS datasets.
 
 mod_cross_mr_stage_config <- list(
-  id = "mrstage", title = "Cross-Omics MR", icon = "arrow-right-arrow-left", group = "Genetics",
-  description = "Classifies already-computed DEG/DMP/DMR/QTL evidence into 5 named convergence categories (DEG-DMP-QTL, DEG-DMR-QTL, DEG-eQTL, DMP-mQTL, DMR-mQTL)."
+  id = "mrstage", title = "MR Evidence", icon = "arrow-right-arrow-left", group = "Genetics",
+  description = "Loads and classifies already-computed MR/DEG/DMP/DMR/QTL evidence into 5 named convergence categories (DEG-DMP-QTL, DEG-DMR-QTL, DEG-eQTL, DMP-mQTL, DMR-mQTL). Does not compute MR itself - MR is run externally (preloaded pipeline output, or your own upload of already-run results)."
 )
 
 mod_cross_mr_stage_ui <- function(id) {
@@ -89,6 +94,12 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       mrs$df <- res$df
       mrs$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       showNotification(sprintf("Loaded %s MR instrument results.", format(nrow(res$df), big.mark = ",")), type = "message")
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_cross_mr_stage",
+        checksum_input = list(gene = res$df$gene, SNP = res$df$SNP),
+        params = list(source = "preloaded (GoDMC mQTL -> Ishigaki 2022 RA GWAS)",
+                      n_instruments = nrow(res$df), n_genes = length(unique(res$df$gene)))
+      ))
     })
 
     observeEvent(input$load_mr_upload, {
@@ -98,6 +109,12 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       mrs$df <- res$df
       mrs$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       showNotification(sprintf("Loaded %s MR instrument results from \"%s\".", format(nrow(res$df), big.mark = ","), input$upload_mr_file$name), type = "message")
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_cross_mr_stage",
+        checksum_input = list(gene = res$df$gene, SNP = res$df$SNP),
+        params = list(source = sprintf("upload: %s", input$upload_mr_file$name),
+                      n_instruments = nrow(res$df), n_genes = length(unique(res$df$gene)))
+      ))
     })
 
     output$panel_info_ui <- renderUI({

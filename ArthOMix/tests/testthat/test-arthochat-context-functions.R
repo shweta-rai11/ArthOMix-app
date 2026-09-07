@@ -119,6 +119,85 @@ test_that("a response naming the correct, genuinely populated module is not fals
   expect_false(WGCNA_TITLE %in% chk$modules)
 })
 
+test_that(".arthochat_classify_context_modules() resolves a header to its most specific matching title, not a shorter title it happens to contain", {
+  ## "ML Feature Selection" (Methylomics) contains "Feature Selection"
+  ## (Transcriptomics) as a substring - the classifier must not misresolve
+  ## the header to the shorter, wrong-module title.
+  ml_title <- Find(function(m) grepl("^ML Feature Selection", m), .arthochat_known_modules())
+  ctx <- mk_context(not_run_module = ml_title)
+  cls <- .arthochat_classify_context_modules(ctx)
+  expect_true(ml_title %in% cls$not_run)
+  expect_false("Feature Selection" %in% cls$not_run)
+})
+
+test_that("a hedge about one unrun module does not suppress flagging of a DIFFERENT unrun module in the same response", {
+  ## Regression guard for the 2026-09-07 defense audit finding: hedge
+  ## suppression was response-wide, so hedging about module A disabled
+  ## ungrounded-reference flagging for every other not-run module named in
+  ## that same response, not just A.
+  ml_title <- Find(function(m) grepl("^ML Feature Selection", m), .arthochat_known_modules())
+  ctx <- mk_context(not_run_module = WGCNA_TITLE)
+  ctx <- paste(ctx, sprintf("## %s\nNOT YET RUN IN THIS SESSION.\n", ml_title), sep = "\n")
+  resp <- paste0(
+    ml_title, " hasn't been run in this session yet. ",
+    "WGCNA identified 6 co-expression modules, with the turquoise module most strongly associated with disease status."
+  )
+  chk <- arthochat_detect_ungrounded_reference(resp, ctx)
+  expect_true(chk$flagged)
+  expect_true(WGCNA_TITLE %in% chk$modules)
+  expect_false(ml_title %in% chk$modules)
+})
+
+test_that("an unrelated word containing an unrun module's acronym as a substring does not false-flag it", {
+  ## Regression guard: the acronym matcher used fixed substring matching, so
+  ## "ML" (from "ML Feature Selection") matched any response containing
+  ## "html", "normally", "warmly", etc.
+  ml_title <- Find(function(m) grepl("^ML Feature Selection", m), .arthochat_known_modules())
+  ctx <- mk_context(not_run_module = ml_title)
+  resp <- "You can export this table as html or csv, and it renders normally in most browsers."
+  chk <- arthochat_detect_ungrounded_reference(resp, ctx)
+  expect_false(chk$flagged)
+  expect_false(ml_title %in% chk$modules)
+})
+
+test_that("the acronym itself, on a real word boundary, still correctly flags the unrun module", {
+  ml_title <- Find(function(m) grepl("^ML Feature Selection", m), .arthochat_known_modules())
+  ctx <- mk_context(not_run_module = ml_title)
+  resp <- "ML found the top 20 CpGs most predictive of RA status."
+  chk <- arthochat_detect_ungrounded_reference(resp, ctx)
+  expect_true(chk$flagged)
+  expect_true(ml_title %in% chk$modules)
+})
+
+## ---------------------------------------------------------------------------
+## (C2) arthochat_affirms_pending_run() - code-level consent check for the
+## DGE-execution tool (2026-09-07 defense audit finding: consent for the one
+## write-capable ArthoChat tool was entirely model-judged, never checked
+## against the user's actual last message in code).
+## ---------------------------------------------------------------------------
+
+test_that("clear affirmative replies are recognized as consent", {
+  for (msg in c("Yes", "yes, go ahead", "sure, run it", "ok do it", "Yeah please proceed",
+                "sounds good", "Let's do it", "please run it", "confirmed")) {
+    expect_true(arthochat_affirms_pending_run(msg), info = msg)
+  }
+})
+
+test_that("declines and off-topic messages are NOT recognized as consent", {
+  for (msg in c("no", "no thanks", "don't run it", "wait, not yet", "cancel that",
+                "actually what does WGCNA do?", "", "   ")) {
+    expect_false(arthochat_affirms_pending_run(msg), info = msg)
+  }
+})
+
+test_that("NULL input is not treated as consent", {
+  expect_false(arthochat_affirms_pending_run(NULL))
+})
+
+test_that("a vague reply that isn't a clear yes/no is not treated as consent", {
+  expect_false(arthochat_affirms_pending_run("hmm, tell me more about the covariate option first"))
+})
+
 test_that("an empty or NULL response is never flagged", {
   ctx <- mk_context(not_run_module = WGCNA_TITLE)
   expect_false(arthochat_detect_ungrounded_reference("", ctx)$flagged)

@@ -739,6 +739,16 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
                      outcome_label = hs$outcome_label, ci_level = input$mr_ci_level %||% 0.95, presso = presso))
       stage_flags$mr <- TRUE
       invalidate_from("sensitivity")
+
+      if (!is.null(methyl_results)) {
+        methyl_results$mr <- list(
+          outcome = hs$outcome_label,
+          n_cpgs = length(cpgs),
+          n_estimates = nrow(results),
+          n_nominal_significant = sum(results$pval < 0.05, na.rm = TRUE),
+          methods_used = sort(unique(results$method))
+        )
+      }
     })
     observeEvent(list(input$mr_methods, input$mr_ci_level, input$mr_run_presso), invalidate_from("sensitivity"), ignoreInit = TRUE)
 

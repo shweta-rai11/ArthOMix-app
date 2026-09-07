@@ -1,4 +1,4 @@
-## Module 4 (Cross-omics) - Biomarker Convergence + Cross-Omics MR's own
+## Module 4 (Cross-omics) - Biomarker Convergence + MR Evidence's own
 ## pure functions (crossomics_biomarkerconv_helpers.R,
 ## crossomics_mrstage_helpers.R): the precomputed eQTL/mQTL join loader
 

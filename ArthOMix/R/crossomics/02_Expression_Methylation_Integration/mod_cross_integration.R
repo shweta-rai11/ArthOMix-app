@@ -261,6 +261,13 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
         run_at = integ$run_at
       )
       integ$provenance <- cx_build_provenance(integ$params)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_cross_integration",
+        checksum_input = list(gene = classified$gene, evidence_level = classified$evidence_level),
+        params = integ$params,
+        seed = NULL,
+        packages = "org.Hs.eg.db"
+      ))
       active_filter("All")
 
       counts <- table(classified$category)

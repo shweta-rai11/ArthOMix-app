@@ -15,10 +15,10 @@ function(input, output, session) {
   results <- reactiveValues()
 
   ## Session-wide analysis-record + diagnostics stores (R/provenance.R). Every analysis run button in the
-  ## Transcriptomics module pushes its provenance record here (Methylomics / Cross-Omics / Multi-Omics are not
-  ## yet wired; the methylomics DMP tab writes its own downloadable manifest); the header "Analysis records"
-  ## button lists and exports them, and the same panel shows the reason behind every error/warning the app
-  ## absorbed into a "Not available".
+  ## Transcriptomics, Cross-Omics, and (most of) the Multi-Omics module pushes its provenance record here
+  ## (the methylomics DMP tab and the Cross-Omics Expression/Methylation Integration tab additionally write
+  ## their own downloadable per-tab manifest); the header "Analysis records" button lists and exports them,
+  ## and the same panel shows the reason behind every error/warning the app absorbed into a "Not available".
   session$userData$arthomix_provenance <- reactiveVal(list())
   session$userData$arthomix_diagnostics <- reactiveVal(list())
 
@@ -35,7 +35,7 @@ function(input, output, session) {
       p(class = "submodule-desc",
         "One row per analysis run in this session, in the order they ran. Each record holds the exact parameters, seed, R and package versions, and a checksum of the input data. Download the full JSON to attach to a report or a manuscript supplement. Records are kept when the dataset changes; results are not."),
       p(class = "submodule-desc", icon("circle-info"),
-        " Coverage: every analysis run button in the Transcriptomics module writes a record here (Overview normalisation, Preprocessing, Differential Expression, WGCNA, Candidate Genes, MR, Colocalisation, Feature Selection, Diagnostic Model incl. External Validation, Sex Interaction, Cross-Tissue Replication, Cross-Ancestry MR Replication, Functional Enrichment, Immune Deconvolution, Biomarker Card). The Methylomics, Cross-Omics and Multi-Omics modules are not yet wired to this log; the methylomics DMP tab writes its own downloadable manifest."),
+        " Coverage: every analysis run button in the Transcriptomics module writes a record here (Overview normalisation, Preprocessing, Differential Expression, WGCNA, Candidate Genes, MR, Colocalisation, Feature Selection, Diagnostic Model incl. External Validation, Sex Interaction, Cross-Tissue Replication, Cross-Ancestry MR Replication, Functional Enrichment, Immune Deconvolution, Biomarker Card); Cross-Omics (Expression/Methylation Integration, Biomarker Convergence, MR Evidence); and Multi-Omics (Cohort Harmonization, DIABLO/SNF Integration, SNF Clustering, Biomarker Discovery, Gene-CpG Mapping, Pathways). Methylomics is not yet wired to this shared log - its DMP tab writes its own downloadable manifest, as does Cross-Omics' Expression/Methylation Integration tab (in addition to writing here)."),
       div(class = "table-toolbar",
           downloadButton("download_analysis_records", "Download all records (.json)", class = "btn-sm btn-default"),
           actionButton("clear_analysis_records_btn", "Clear records", icon = icon("trash"), class = "btn-sm btn-default")),
@@ -174,7 +174,7 @@ function(input, output, session) {
   })
 
   output$cx_arthochat_hint <- renderUI({
-    hint <- if (identical(input$cx_menu, "Cross-Omics MR")) {
+    hint <- if (identical(input$cx_menu, "MR Evidence")) {
       "Need help selecting MR data - which sex's evidence, or preloaded vs. your own upload? Ask ArthOChat."
     } else {
       "Questions about how the panels converge, or which sex/data source to select? Ask ArthOChat."

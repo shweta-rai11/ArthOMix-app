@@ -217,7 +217,7 @@ build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
       "## Cross-Omics: currently loaded dataset",
       "NOT YET LOADED IN THIS SESSION - visit the Cross-Omics Dataset tab to load",
       "Transcriptomics (DEG) and/or Methylomics (DMP/DMR) data before Expression",
-      "and Methylation, Biomarker Convergence, or Cross-Omics MR can be run.",
+      "and Methylation, Biomarker Convergence, or MR Evidence can be run.",
       ""
     ))
   }

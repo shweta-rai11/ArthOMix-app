@@ -109,6 +109,7 @@ run_mmr_upload_stages <- function(fx, f_min_f = 10, f_pval = 1,
       out$sensitivity_state <<- sensitivity_state()
     }
   })
+  out$methyl_results <- methyl_results
   out
 }
 
@@ -167,6 +168,20 @@ test_that("MR analysis runs via TwoSampleMR::mr() and produces a real IVW estima
   ## off (a broken harmonisation - e.g. an unflipped allele - would typically
   ## produce a wrong-signed or wildly-scaled estimate instead).
   expect_gt(ivw_row$b, 0.15); expect_lt(ivw_row$b, 0.45)
+})
+
+test_that("a completed MR run writes back to shared methyl_results so ArthoChat's grounding sees it as run", {
+  ## Regression guard for the 2026-09-07 defense audit finding: mod_methyl_mr_server
+  ## received methyl_results but never wrote to it, so ArthoChat's context builder
+  ## (which keys off methyl_results[["mr"]] being non-NULL) permanently reported
+  ## this sub-module as "NOT YET RUN IN THIS SESSION" even after a real MR run.
+  dir <- withr::local_tempdir()
+  fx <- mmr_write_upload_files(dir)
+  out <- run_mmr_upload_stages(fx, f_min_f = 10, f_pval = 1, through = "mr")
+  mr_summary <- shiny::isolate(out$methyl_results$mr)
+  expect_false(is.null(mr_summary))
+  expect_equal(mr_summary$n_estimates, nrow(out$mr_state$results))
+  expect_gt(mr_summary$n_cpgs, 0)
 })
 
 test_that("with >=3 retained instruments for a CpG, heterogeneity/pleiotropy/leave-one-out are populated", {

@@ -414,6 +414,20 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
       )
     }, ignoreInit = TRUE)
 
+    observeEvent(result(), {
+      r <- result()
+      results$enrichment <- list(
+        database = r$database_label,
+        n_submitted = r$n_submitted,
+        n_unique = r$n_unique,
+        n_mapped = r$n_mapped,
+        n_tested = r$n_tested,
+        n_terms_returned = nrow(r$table),
+        n_significant = sum(r$table$qvalue < (input$qval_cut %||% 0.05), na.rm = TRUE),
+        top_terms = utils::head(r$table$Description, 10)
+      )
+    }, ignoreInit = TRUE)
+
     enrich_has_run <- reactiveVal(FALSE)
     observeEvent(input$run_btn, enrich_has_run(TRUE), ignoreInit = TRUE)
     # result() is an eventReactive, so it keeps the previous dataset's run until Run is clicked

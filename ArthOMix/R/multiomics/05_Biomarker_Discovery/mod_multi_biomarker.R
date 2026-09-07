@@ -21,7 +21,11 @@ mb_eval_cards <- function(ev) {
 
 mb_holdout_summary_ui <- function(res) {
   if (is.null(res$holdout)) {
-    return(p(class = "submodule-desc", if (isTRUE((res$holdout_frac %||% 0) > 0)) "The hold-out could not be scored." else "No hold-out was set aside for this run (Model tab: \"Hold-out fraction\")."))
+    return(if (isTRUE((res$holdout_frac %||% 0) > 0)) {
+      p(class = "submodule-desc", "The hold-out could not be scored.")
+    } else {
+      mi_warn("No hold-out was set aside for this run (Model tab: \"Hold-out fraction\" = 0). The signature below is association-only - DIABLO's own sparsity-selected features from the analyzed cohort, not an out-of-sample-validated biomarker panel. Raise the hold-out fraction, or run External Validation, before describing it as validated.")
+    })
   }
   ev <- res$holdout
   if (!isTRUE(ev$ok)) return(mi_warn(ev$error))
@@ -283,8 +287,8 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
           numericInput(ns("seed"), "Random seed", value = 1, min = 1, step = 1),
           hr(),
           h5("Sealed hold-out"),
-          numericInput(ns("holdout_frac"), "Hold-out fraction (0 = none)", value = 0, min = 0, max = 0.5, step = 0.05),
-          p(class = "submodule-desc", "A stratified share of the matched samples is set aside before any modelling and scored once with the final model - it never enters feature selection, tuning or cross-validation."),
+          numericInput(ns("holdout_frac"), "Hold-out fraction (0 = none)", value = 0.2, min = 0, max = 0.5, step = 0.05),
+          p(class = "submodule-desc", "A stratified share of the matched samples is set aside before any modelling and scored once with the final model - it never enters feature selection, tuning or cross-validation. Defaults to 20%: without a hold-out (0%), the signature table below is association-only - DIABLO's own sparsity-selected features from the analyzed cohort, not an out-of-sample-validated panel."),
           hr(),
           if (isTRUE(elig$ok)) div(
             if (isTRUE(input$keepx_auto)) mi_warn("Auto-tuning keepX (checked above) may take several minutes for high-dimensional data.") else NULL,

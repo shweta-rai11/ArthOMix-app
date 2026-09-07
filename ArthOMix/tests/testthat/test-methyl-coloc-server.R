@@ -37,12 +37,35 @@ make_synthetic_meth_coloc_files <- function() {
   list(meth_path = meth_path, gwas_path = gwas_path)
 }
 
-run_methyl_coloc_upload <- function(p1 = NULL, p2 = NULL, p12 = NULL, expect_run_error = FALSE) {
+make_identity_ld_file <- function(snp_ids) {
+  n <- length(snp_ids)
+  mat <- diag(1, n, n)
+  df <- data.frame(SNP = snp_ids, mat)
+  colnames(df) <- c("SNP", snp_ids)
+  path <- tempfile(fileext = ".csv")
+  write.csv(df, path, row.names = FALSE)
+  path
+}
+
+run_methyl_coloc_upload <- function(p1 = NULL, p2 = NULL, p12 = NULL, expect_run_error = FALSE,
+                                     use_susie = FALSE) {
   files <- make_synthetic_meth_coloc_files()
   dataset <- shiny::reactiveValues()
   results <- shiny::reactiveValues()
   out <- NULL
+  susie_calls <- list()
   shiny::testServer(mod_methyl_coloc_server, args = list(id = "coloc", dataset = dataset, results = results), {
+    if (isTRUE(use_susie)) {
+      snp_ids <- read.csv(files$meth_path, stringsAsFactors = FALSE)$snp
+      ld_path <- make_identity_ld_file(snp_ids)
+      testthat::local_mocked_bindings(
+        coloc.susie = function(...) {
+          susie_calls[[length(susie_calls) + 1]] <<- list(...)
+          list(summary = data.frame(nsnps = 3, PP.H4.abf = 0.5))
+        },
+        .package = "coloc"
+      )
+    }
     session$setInputs(
       data_source = "upload",
       meth_file = list(datapath = files$meth_path, name = "meth.csv"),
@@ -66,6 +89,14 @@ run_methyl_coloc_upload <- function(p1 = NULL, p2 = NULL, p12 = NULL, expect_run
     if (!is.null(p12)) prior_inputs$p12 <- p12
     if (length(prior_inputs) > 0) do.call(session$setInputs, prior_inputs)
 
+    if (isTRUE(use_susie)) {
+      session$setInputs(
+        use_susie = TRUE,
+        ld1_file = list(datapath = ld_path, name = "ld1.csv"),
+        ld2_file = list(datapath = ld_path, name = "ld2.csv")
+      )
+    }
+
     if (isTRUE(expect_run_error)) {
       ## The run_btn observeEvent() wraps build_run_state_upload() in its own
       ## tryCatch() and only shows a notification on a validate() failure - it
@@ -78,6 +109,7 @@ run_methyl_coloc_upload <- function(p1 = NULL, p2 = NULL, p12 = NULL, expect_run
       out <<- run_state()
     }
   })
+  attr(out, "susie_calls") <- susie_calls
   out
 }
 
@@ -99,6 +131,19 @@ test_that("changing p1/p2/p12 inputs away from coloc's defaults actually changes
   expect_false(isTRUE(all.equal(pp4_default, pp4_diff)))
   expect_equal(res_default$priors, list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-5))
   expect_equal(res_diff$priors, list(p1 = 1e-4, p2 = 1e-4, p12 = 1e-4))
+})
+
+test_that("coloc.susie() is called with the user's chosen p12, not a hardcoded value diverging from coloc.abf's", {
+  ## Regression guard for the 2026-09-07 defense audit finding: coloc.susie()
+  ## silently used a hardcoded p12 = 5e-6 regardless of the p12 the user set
+  ## (and which is what's actually displayed as "the" prior in the UI and
+  ## stored in rs$priors), so the two methods' results were not comparable
+  ## under the priors the UI claims were used.
+  rs <- run_methyl_coloc_upload(p1 = 1e-4, p2 = 1e-4, p12 = 1e-4, use_susie = TRUE)
+  calls <- attr(rs, "susie_calls")
+  expect_length(calls, 1)
+  expect_equal(calls[[1]]$p12, 1e-4)
+  expect_equal(calls[[1]]$p12, rs$priors$p12)
 })
 
 test_that("omitting the prior inputs entirely (pre-existing behaviour) reproduces coloc's own conventional defaults exactly", {

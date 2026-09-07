@@ -72,6 +72,11 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       raw$loaded_at <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
       raw$missing_layer <- NULL
       showNotification(sprintf("Loaded %s genes (%s).", format(nrow(res$df), big.mark = ","), toupper(input$sex)), type = "message")
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_cross_biomarker_conv",
+        checksum_input = list(gene = res$df$gene),
+        params = c(list(source = "preloaded", sex = input$sex, n_genes = nrow(res$df)), CX_BC_DEFAULT_PARAMS)
+      ))
     })
 
     observeEvent(input$load_table_upload, {
@@ -94,6 +99,12 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       ), collapse = "; ")
       raw$missing_layer <- if (is.null(input$upload_eqtl_file)) "eQTL-MR" else if (is.null(input$upload_mqtl_file)) "mQTL-MR" else NULL
       showNotification(sprintf("Loaded %s genes from %s.", format(nrow(merged$df), big.mark = ","), files_desc), type = "message")
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_cross_biomarker_conv",
+        checksum_input = list(gene = merged$df$gene),
+        params = c(list(source = "upload", files = files_desc, n_genes = nrow(merged$df),
+                         missing_layer = raw$missing_layer %||% "(none)"), CX_BC_DEFAULT_PARAMS)
+      ))
       if (!is.null(raw$missing_layer)) {
         showNotification(sprintf("You only uploaded %s data. The eQTL-mQTL tab needs both files, so it will show 0. Upload %s results too to populate it.",
                                   if (raw$missing_layer == "eQTL-MR") "mQTL-MR" else "eQTL-MR", raw$missing_layer),
