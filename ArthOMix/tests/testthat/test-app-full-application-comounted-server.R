@@ -83,10 +83,11 @@ test_that("all four verticals' shared reactiveValues, mounted together exactly a
     expect_null(cross_dataset$user_expr_df)
   })
 
+  expr_upload_path <- tempfile(fileext = ".csv")
+  writeLines(c("gene_symbol,log2FC,adj.P.Val", "TP53,2.5,0.001", "BRCA1,-1.2,0.02"), expr_upload_path)
   shiny::testServer(mod_cross_dataset_server, args = list(id = "cx_dataset", cross_dataset = cross_dataset), {
-    session$setInputs(source_mode = "example", sex_stratum = "female", meth_level = "dmp")
-    session$setInputs(load_example_btn = 0)
-    session$setInputs(load_example_btn = 1)
+    session$setInputs(source_mode = "upload")
+    session$setInputs(expr_file = fx_mkfile(expr_upload_path))
     session$setInputs(use_data_btn = 0)
     session$setInputs(use_data_btn = 1)
   })

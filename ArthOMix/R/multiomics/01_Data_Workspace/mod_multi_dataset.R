@@ -428,8 +428,11 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         req(fi)
         ext <- tolower(tools::file_ext(fi$name))
         df <- if (ext %in% c("csv", "tsv", "txt")) tryCatch(as.data.frame(data.table::fread(fi$datapath, showProgress = FALSE, nrows = 200)), error = function(e) NULL) else NULL
+        total_rows <- if (!is.null(df) && ext %in% c("csv", "tsv", "txt")) {
+          tryCatch(nrow(data.table::fread(fi$datapath, select = 1L, showProgress = FALSE)), error = function(e) nrow(df))
+        } else if (!is.null(df)) nrow(df) else NULL
 
-        orient_det <- multi_live_detect_orientation(df)
+        orient_det <- multi_live_detect_orientation(df, total_rows = total_rows)
         shape_det <- multi_live_detect_table_shape(df)
         long_det <- if (!is.null(df) && identical(shape_det$shape, "long")) multi_live_detect_long_columns(df) else NULL
 
@@ -724,7 +727,11 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     mo_same_patient_note <- function(sp) {
       div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("circle-xmark"),
-          " ", tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail))
+          " ", tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail),
+          if (identical(sp$category, "mismatch")) tagList(
+            tags$br(), tags$br(),
+            actionButton(ns("goto_crossomics"), "Go to Cross-Omics", icon = icon("arrows-left-right"), class = "btn-sm btn-primary")
+          ))
     }
     observeEvent(same_patient(), {
       sp <- same_patient()

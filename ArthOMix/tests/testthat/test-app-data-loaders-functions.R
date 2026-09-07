@@ -54,12 +54,6 @@ test_that("gene panels are discoverable and loadable", {
   expect_gt(length(genes), 0)
 })
 
-test_that("project methodology lookup (ArthOChat tool) finds real content", {
-  txt <- project_methods("wgcna")
-  expect_true(grepl("WGCNA", txt))
-  expect_false(grepl("No module matched", txt))
-})
-
 test_that("methylomics DMP (plain + SVA) and DMR load with the expected row counts", {
   dmp_plain <- load_default_dmp("plain", "female")
   dmp_sva   <- load_default_dmp("sva", "female")
@@ -118,11 +112,6 @@ test_that("methylomics biomarker card's cytoband file loads", {
   source(file.path(app_dir, "R", "methylomics", "15_Biomarker_Analysis", "mod_methyl_biomarkercard.R"), local = TRUE)
   cb <- bc_cytoband_hg19()
   expect_gt(nrow(cb), 0)
-})
-
-test_that("methylomics methodology lookup finds real content", {
-  txt <- project_methods_methylomics("dmp")
-  expect_false(grepl("No Methylomics module matched", txt))
 })
 
 test_that("every cross-omics registry table loads", {

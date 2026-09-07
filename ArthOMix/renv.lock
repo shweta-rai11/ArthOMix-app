@@ -123,6 +123,11 @@
       "Version": "1.26.6",
       "Source": "Bioconductor"
     },
+    "EpiDISH": {
+      "Package": "EpiDISH",
+      "Version": "2.22.0",
+      "Source": "Bioconductor"
+    },
     "fgsea": {
       "Package": "fgsea",
       "Version": "1.32.4",
@@ -244,6 +249,11 @@
       "Version": "3.62.2",
       "Source": "Bioconductor"
     },
+    "locfdr": {
+      "Package": "locfdr",
+      "Version": "1.1.8",
+      "Source": "Repository"
+    },
     "lumi": {
       "Package": "lumi",
       "Version": "2.58.0",
@@ -357,6 +367,11 @@
       "Version": "1.4",
       "Source": "Repository"
     },
+    "quadprog": {
+      "Package": "quadprog",
+      "Version": "1.5.8",
+      "Source": "Repository"
+    },
     "ragg": {
       "Package": "ragg",
       "Version": "1.5.0",
@@ -450,6 +465,11 @@
     "SNFtool": {
       "Package": "SNFtool",
       "Version": "2.3.1",
+      "Source": "Repository"
+    },
+    "stringr": {
+      "Package": "stringr",
+      "Version": "1.6.0",
       "Source": "Repository"
     },
     "sva": {

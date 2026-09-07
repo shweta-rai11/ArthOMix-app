@@ -24,7 +24,6 @@ test_that("transcriptomics default dataset files exist", {
   expect_true(file.exists(COLOC_REGIONS_RDS))
   expect_true(file.exists(VAL_SYNOVIUM_RDS))
   expect_true(file.exists(DGE_RESULTS_RDS))
-  expect_true(file.exists(PROJECT_CHAPTER_MD))
 })
 
 test_that("methylomics preloaded tables root and every script0N subfolder exist", {

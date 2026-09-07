@@ -21,9 +21,18 @@ multi_render_plotly <- function(plot_fn) {
       NULL
     })
     req(p)
+    is_flipped <- inherits(p$coordinates, "CoordFlip")
     gp <- plotly::ggplotly(p, tooltip = "all")
     gp <- plotly::layout(gp, hoverlabel = list(bgcolor = "white", font = list(size = 12)))
-    if (isTRUE(gp$x$layout$showlegend) && identical(gp$x$layout$legend$orientation, "h")) {
+    if (isTRUE(gp$x$layout$showlegend) && is_flipped) {
+      ## coord_flip() turns the y-axis label into the bottom axis title, which collides with a
+      ## bottom-anchored horizontal legend (the paper-coordinate offset below doesn't reliably
+      ## clear it once combined with axis automargin) - put the legend on the right instead.
+      gp <- plotly::layout(gp,
+        legend = list(orientation = "v", x = 1.02, xanchor = "left", y = 1, yanchor = "top"),
+        margin = list(r = 140)
+      )
+    } else if (isTRUE(gp$x$layout$showlegend) && identical(gp$x$layout$legend$orientation, "h")) {
       gp <- plotly::layout(gp,
         legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.35, yanchor = "top"),
         margin = list(b = 120)

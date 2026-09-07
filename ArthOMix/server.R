@@ -135,6 +135,9 @@ function(input, output, session) {
   multi_results <- reactiveValues()
   mod_multi_dataset_server("mo_dataset", multi_dataset, multi_results)
   lapply(MULTI_MODULES, function(m) m$server(paste0("mo_", m$config$id), multi_dataset, multi_results))
+  observeEvent(input[["mo_dataset-goto_crossomics"]], {
+    updateTabsetPanel(session, "sidebar_tabs", selected = "crossomics")
+  })
   observeEvent(multi_dataset$source, {
     for (nm in names(multi_results)) multi_results[[nm]] <- NULL
   }, ignoreInit = TRUE)

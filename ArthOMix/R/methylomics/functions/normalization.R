@@ -323,7 +323,7 @@ methyl_norm_recommendation <- function(dataset, status, available_methods) {
   if ("bmiq" %in% available_methods) {
     return("Your dataset contains beta values with Type I/II probe-design annotation available, but no raw intensity channels. Raw-intensity methods like Noob can't be applied directly; BMIQ or PBC (both beta-value-based, probe-design-aware) may be considered.")
   }
-  "Your dataset contains beta or M-values without raw intensity channels or Type I/II probe-design annotation. Raw-intensity and probe-design-aware methods are unavailable; plain quantile normalization is the only compatible method."
+  "Your dataset contains beta or M-values without raw intensity channels or Type I/II probe-design annotation. Raw-intensity and probe-design-aware methods are unavailable here; plain quantile normalization is the only method compatible with this input."
 }
 
 methyl_norm_validation <- function(before, after, anno_result, group_labels = NULL) {

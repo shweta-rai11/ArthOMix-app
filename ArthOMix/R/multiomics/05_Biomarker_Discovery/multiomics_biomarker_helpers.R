@@ -324,7 +324,8 @@ mb_panel_transfer <- function(diablo_res, train_layers, train_ids, train_outcome
 ## Reads an external layer file into a samples x features matrix, auto-detecting orientation.
 mb_read_external_layer <- function(path, filename = NULL) {
   df <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE, nrows = 200)), error = function(e) NULL)
-  orient <- multi_live_detect_orientation(df)$suggested %||% "samples_rows"
+  total_rows <- if (!is.null(df)) tryCatch(nrow(data.table::fread(path, select = 1L, showProgress = FALSE)), error = function(e) nrow(df)) else NULL
+  orient <- multi_live_detect_orientation(df, total_rows = total_rows)$suggested %||% "samples_rows"
   multi_live_read_matrix(path, orientation = orient, filename = filename)
 }
 

@@ -104,7 +104,7 @@ test_that("multi_live_same_patient_check(): completely different, partially over
     expect_equal(chk$message, MULTI_SAME_PATIENT_MESSAGE)
   }
   expect_equal(MULTI_SAME_PATIENT_MESSAGE,
-               "Patient ID should be same, this requires expression and methylation data to be from the same patient ID, you can explore cross-omics if your Patient ID are different.")
+               "Expression and methylation data must share the same patient IDs. If your patient IDs differ, use Cross-Omics instead.")
 })
 
 test_that("multi_live_same_patient_check(): duplicate, blank and unassignable patient IDs and empty datasets are detected rather than treated as valid", {

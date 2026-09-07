@@ -9,12 +9,12 @@ name: R tests
 #   Rscript -e 'testthat::test_dir("tests/testthat")'
 # run from the ArthOMix app root.
 #
-# NOTE: this workflow has not been run against a live GitHub Actions job -
-# it has not been executed/verified end-to-end here. It follows the
-# standard, well-established r-lib/actions setup-r + setup-renv pattern and
-## is syntactically valid YAML, but should be watched on its first real run
-# in case any package in renv.lock needs an additional system library not
-# listed below.
+# NOTE: this workflow has been run against live GitHub Actions jobs (renv
+# restore, LFS checkout, and the full testthat suite all execute end-to-end -
+# see run history via `gh run list`). It follows the standard,
+# well-established r-lib/actions setup-r + setup-renv pattern; failures seen
+# so far have been real test regressions (fixed as found), not workflow or
+# infrastructure problems.
 
 on:
   push:

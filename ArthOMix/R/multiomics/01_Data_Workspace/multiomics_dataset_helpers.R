@@ -142,10 +142,11 @@ multi_live_pivot_long <- function(df, feature_col, sample_col, value_col, group_
                        if (n_dup > 0) sprintf(" %d duplicate (sample, feature) pair(s) were averaged.", n_dup) else ""))
 }
 
-multi_live_detect_orientation <- function(df) {
+multi_live_detect_orientation <- function(df, total_rows = NULL) {
   if (is.null(df) || ncol(df) < 2 || nrow(df) < 1) return(list(suggested = "samples_rows", confident = FALSE, reason = NULL))
   id_col <- as.character(df[[1]])
   header <- colnames(df)[-1]
+  total_rows <- total_rows %||% nrow(df)
   more_cols_than_rows <- length(header) > nrow(df) * 3
   header_id_like <- mean(grepl("^[A-Za-z0-9_.-]+$", header)) > 0.9 && length(unique(header)) == length(header)
   id_col_id_like <- mean(grepl("^[A-Za-z0-9_.-]+$", id_col)) > 0.9 && length(unique(id_col)) == length(id_col)
@@ -153,6 +154,19 @@ multi_live_detect_orientation <- function(df) {
     return(list(suggested = "features_rows", confident = TRUE,
                 reason = sprintf("%s columns vs. %s rows, and the column headers look like sample identifiers - this looks like Feature x Sample orientation.",
                                   format(length(header), big.mark = ","), format(nrow(df), big.mark = ","))))
+  }
+  strong_feature_id_rx <- "^(cg[0-9]+|ch\\.[0-9XY]+\\.[0-9]+[A-Za-z]?|ENSG[0-9]+(\\.[0-9]+)?|ENST[0-9]+(\\.[0-9]+)?)$"
+  id_col_is_strong_feature <- mean(grepl(strong_feature_id_rx, id_col)) > 0.9
+  header_is_strong_feature <- mean(grepl(strong_feature_id_rx, header)) > 0.9
+  if (id_col_is_strong_feature && !header_is_strong_feature) {
+    return(list(suggested = "features_rows", confident = TRUE,
+                reason = "The first column's values look like CpG probe or Ensembl IDs, not the column headers - this looks like Feature x Sample orientation (first column = feature ID)."))
+  }
+  more_rows_than_cols <- total_rows > length(header) * 5
+  if (more_rows_than_cols && header_id_like && id_col_id_like) {
+    return(list(suggested = "features_rows", confident = TRUE,
+                reason = sprintf("%s rows vs. only %s columns - this looks like Feature x Sample orientation (first column = feature ID, one column per sample).",
+                                  format(total_rows, big.mark = ","), format(length(header), big.mark = ","))))
   }
   list(suggested = "samples_rows", confident = FALSE, reason = NULL)
 }

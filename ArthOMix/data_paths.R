@@ -39,8 +39,6 @@ DGE_RESULTS_RDS <- file.path(PROCESSED_DIR, "dge_results.rds")
 MR35_CROSSANCESTRY_FEMALE_CSV <- "MR35_crossancestry_female.csv"
 MR35_CROSSANCESTRY_MALE_CSV   <- "MR35_crossancestry_male.csv"
 
-PROJECT_CHAPTER_MD <- file.path(DATA_ROOT, "Chapter_2_subchapter2_sexstratified.md")
-
 arthomix_cleanup_stale_cache <- function(dir, max_age_days = 14) {
   if (!dir.exists(dir)) return(invisible(NULL))
   files <- list.files(dir, full.names = TRUE, recursive = TRUE, no.. = TRUE)
