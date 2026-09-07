@@ -14,7 +14,7 @@ tx <- list(
   wgcna="WGCNA Co-expression Network", candidates="Candidate Gene Identification", mr="Mendelian Randomization",
   coloc="Colocalization", featureselection="Feature Selection", diagnostic="Diagnostic Model",
   interaction="Sex Interaction Analysis", crosstissue="Cross-Tissue Validation", crossancestry="Cross-Ancestry Validation",
-  enrichment="Functional Enrichment", deconvolution="Immune Deconvolution", nomogram="Clinical Utility Nomogram",
+  enrichment="Functional Enrichment", deconvolution="Immune Deconvolution",
   biomarkercard="Biomarker Card"
 )
 mx <- list(

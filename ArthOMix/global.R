@@ -644,9 +644,7 @@ ARTHOMIX_METHODS_TOPICS <- list(
   list(id = "enrichment",       title = "Functional Enrichment",       section = "2.13", satellite = "METHODS_2.13_functional_enrichment.md",
        aliases = c("enrichment", "go term", "kegg", "pathway analysis", "gene ontology")),
   list(id = "deconvolution",    title = "Immune Deconvolution",        section = "2.14", satellite = "METHODS_2.14_deconvolution.md",
-       aliases = c("deconvolution", "immune cell", "cell composition", "mcp-counter", "mcpcounter")),
-  list(id = "nomogram",         title = "Clinical Utility Nomogram",   section = "2.15", satellite = "METHODS_2.15_clinical_utility_nomogram.md",
-       aliases = c("nomogram", "clinical utility", "decision curve"))
+       aliases = c("deconvolution", "immune cell", "cell composition", "mcp-counter", "mcpcounter"))
 )
 
 extract_chapter_section <- function(section) {

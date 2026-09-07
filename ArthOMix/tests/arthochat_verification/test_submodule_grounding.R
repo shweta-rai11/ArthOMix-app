@@ -15,7 +15,7 @@ OUT_CSV <- file.path("tests", "arthochat_verification", "results.csv")
 
 tx_ids <- c("overview", "preprocessing", "dge", "wgcna", "candidates", "mr", "coloc", "featureselection",
             "diagnostic", "interaction", "crosstissue", "crossancestry", "enrichment", "deconvolution",
-            "nomogram", "biomarkercard")
+            "biomarkercard")
 mx_ids <- c("qc", "normalization", "celltype", "dmp", "dmr", "interaction", "wgcna", "candidates",
             "featureselection", "mr", "coloc", "diagnostic", "validation", "biomarkercard")
 cx_ids <- c("integration", "biomarkerconv", "mrstage")

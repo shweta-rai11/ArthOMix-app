@@ -21,7 +21,7 @@ test_that("every Transcriptomics sub-module tab opens and renders with no output
 
   tx_ids <- c("overview", "preprocessing", "dge", "wgcna", "candidates", "mr", "coloc",
               "featureselection", "diagnostic", "interaction", "crosstissue", "crossancestry",
-              "enrichment", "deconvolution", "nomogram", "biomarkercard")
+              "enrichment", "deconvolution", "biomarkercard")
 
   app$set_inputs(tx_menu = "Sub-modules")
   app$wait_for_idle(timeout = 20 * 1000)
