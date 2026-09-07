@@ -1,6 +1,5 @@
 ## R/multiomics/04_SNF_Clustering/snf_clustering_plots.R
-## Plot functions for the live "SNF Clustering" submodule
-## (snf_clustering_helpers.R / mod_multi_stratification.R). Reuses
+## Plot functions for the live SNF Clustering submodule.
 
 sfc_spectral_embedding <- function(W, clusters) {
   if (is.null(W) || is.null(clusters) || nrow(W) < 3) return(NULL)

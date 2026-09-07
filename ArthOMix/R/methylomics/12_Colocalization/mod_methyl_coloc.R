@@ -1,6 +1,5 @@
 ## R/methylomics/12_Colocalization/mod_methyl_coloc.R
-## Bayesian colocalisation (coloc.abf, optionally coloc.susie) between an
-## mQTL/CpG signal and a GWAS trait signal in one region: shared causal
+## Bayesian colocalisation (coloc.abf, optionally coloc.susie) of an mQTL/CpG signal and a GWAS trait in one region.
 
 .mcol_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
@@ -32,7 +31,7 @@ MCOL_DEFAULT_PP_THRESHOLD <- 0.8
   headline <- switch(strongest,
     H4 = if (h4 >= MCOL_DEFAULT_PP_THRESHOLD)
       "Strong evidence supporting a shared genetic signal between the methylation-associated signal and the GWAS trait in this region."
-    else "Moderate evidence supporting a shared genetic signal between the two traits in this region - below the project's own 0.8 posterior threshold for a firm \"coloc-supported\" verdict.",
+    else "Moderate evidence for a shared genetic signal between the two traits in this region - below the project's own 0.8 posterior threshold for a firm \"coloc-supported\" verdict.",
     H3 = if (h3 >= MCOL_DEFAULT_PP_THRESHOLD)
       "Both traits show association in this region, but the evidence favours two distinct, LD-linked causal variants rather than one shared signal."
     else "Both traits show some association in this region; the evidence leans toward distinct causal variants, though this is not strongly resolved.",
@@ -44,7 +43,7 @@ MCOL_DEFAULT_PP_THRESHOLD <- 0.8
     p(strong(sprintf("Strongest-supported hypothesis: %s", strongest)), sprintf(" (posterior probability %.1f%%).", 100 * lead_p)),
     p(headline),
     p(class = "empty-note", icon("circle-info"),
-      "Colocalisation identifies statistical compatibility with a shared causal signal - it is not, by itself, proof of biological causality. A high PP.H4 does not mean a specific SNP causes the disease; it means the methylation- and disease-associated signals in this region are consistent with arising from the same underlying genetic variant.")
+      "Colocalisation shows statistical compatibility with a shared causal signal - it isn't proof of biological causality. A high PP.H4 doesn't mean a specific SNP causes the disease; it means the methylation and disease signals here are consistent with the same underlying variant.")
   )
 }
 
@@ -96,7 +95,7 @@ mcol_data_ui <- function(ns) {
             p(class = "submodule-desc", "Reproduces ", strong("script08_mendelian_randomization"), "'s coloc.abf() run: the GoDMC cis-mQTL signal vs the Ishigaki et al. (2022) rheumatoid arthritis GWAS signal, at each CpG carried into MR."),
             uiOutput(ns("pre_cpg_ui")),
             p(class = "empty-note", icon("circle-info"),
-              "Only the completed run's PP.H0-H4 summary per CpG is bundled with this deployment - the underlying per-SNP GoDMC/RA-GWAS region data isn't, so coloc.abf() can't be re-run live here. Results below are looked up, not recomputed, and SNP-level output, regional plots, and prior-sensitivity analysis are unavailable for this route. Use Upload Data for a fully live analysis.")
+              "Only the completed run's PP.H0-H4 summary per CpG is bundled here. The underlying per-SNP GoDMC/RA-GWAS region data isn't, so coloc.abf() can't be re-run live. Results below are looked up, not recomputed; SNP-level output, regional plots, and prior-sensitivity analysis are unavailable for this route. Use Upload Data for a fully live analysis.")
           ) else p(class = "empty-note", icon("triangle-exclamation"),
                    "The preloaded methylomics colocalisation dataset isn't available in this deployment - use Upload Data instead.")
         )
@@ -105,7 +104,7 @@ mcol_data_ui <- function(ns) {
         condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
         box(
           width = NULL, title = "Dataset 1: Methylation / mQTL data", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "One row per SNP, optionally x CpG (long format). CSV/TSV. Methylation is treated as a quantitative trait - map the effect-allele-frequency column below (coloc.abf needs it to analyse a quantitative trait without a directly-known phenotype SD)."),
+          p(class = "submodule-desc", "One row per SNP, optionally x CpG (long format). CSV/TSV. Methylation is treated as a quantitative trait, so map the effect-allele-frequency column below (coloc.abf needs it without a known phenotype SD)."),
           fileInput(ns("meth_file"), "Methylation/mQTL file", accept = c(".csv", ".tsv", ".txt")),
           uiOutput(ns("meth_map_ui")),
           uiOutput(ns("meth_extra_map_ui"))
@@ -139,7 +138,7 @@ mcol_filters_ui <- function(ns) uiOutput(ns("filters_tab_body"))
 mcol_filters_controls_preloaded <- function(ns) {
   tagList(
     p(class = "empty-note", icon("circle-info"),
-      sprintf("The Preloaded route reproduces the completed coloc.abf() run per CpG - priors (p1=%.0e, p2=%.0e, p12=%.0e, coloc's own defaults) and the +/-1Mb GoDMC cis window were fixed when this cached result was produced and are not re-run live for this route. Only a minimum-instrument-count filter and a focus-CpG choice apply here.",
+      sprintf("The Preloaded route reproduces the completed coloc.abf() run per CpG. Priors (p1=%.0e, p2=%.0e, p12=%.0e, coloc's own defaults) and the +/-1Mb GoDMC cis window were fixed when this result was cached, and aren't re-run live. Only a minimum-instrument-count filter and a focus-CpG choice apply here.",
               MCOL_DEFAULT_P1, MCOL_DEFAULT_P2, MCOL_DEFAULT_P12)),
     numericInput(ns("pre_min_nsnps"), "Minimum SNPs used per CpG", value = 0, min = 0, step = 10, width = "100%"),
     div(style = "margin-top: 6px;",
@@ -192,7 +191,7 @@ mcol_filters_controls_upload <- function(ns) {
     conditionalPanel(
       condition = sprintf("input['%s']", ns("use_susie")),
       div(class = "empty-note", icon("circle-info"),
-          "coloc.susie() needs a SNP-by-SNP LD (correlation) matrix for BOTH datasets - upload a delimited file with SNP IDs as the first column and as the header row, matching the SNP ID column mapped above. No LD is inferred, estimated, or simulated if not provided; without both matrices this option stays unavailable."),
+          "coloc.susie() needs a SNP-by-SNP LD (correlation) matrix for BOTH datasets. Upload a delimited file with SNP IDs as the first column and header row, matching the SNP ID column mapped above. No LD is inferred or simulated if not provided; without both matrices this option stays unavailable."),
       fileInput(ns("ld1_file"), "LD matrix - methylation/mQTL SNPs", accept = c(".csv", ".tsv")),
       fileInput(ns("ld2_file"), "LD matrix - GWAS SNPs", accept = c(".csv", ".tsv")),
       fluidRow(
@@ -418,7 +417,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       harm_action <- if (isTRUE(input$remove_ambiguous)) 3L else 2L
       harmonised <- tryCatch(TwoSampleMR::harmonise_data(meth_fmt, gwas_fmt, action = harm_action), error = function(e) NULL)
       validate(need(!is.null(harmonised) && nrow(harmonised) > 0,
-        "Harmonisation found no overlapping, alignable SNPs between the methylation/mQTL and GWAS datasets - check that both use the same SNP identifiers (rsIDs) and that allele columns are mapped correctly."))
+        "Harmonisation found no overlapping, alignable SNPs between the methylation/mQTL and GWAS datasets. Check that both use the same SNP identifiers (rsIDs) and that allele columns are mapped correctly."))
 
       summary_counts <- list(
         dataset1_variants = n_dataset1_variants, dataset2_variants = n_dataset2_variants,
@@ -476,7 +475,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
           if (!is.null(s$removed)) tags$tr(tags$td("Removed at harmonisation"), tags$td(s$removed))
         )),
         if (identical(vs$mode, "preloaded")) p(class = "empty-note", icon("circle-info"),
-          "Preloaded route: this reflects the already-completed upstream pipeline's own inputs (GoDMC cis-mQTL candidate rows, Ishigaki 2022 RA GWAS) - no re-validation is performed live, since the underlying per-SNP rows aren't bundled with this deployment.")
+          "Preloaded route: this reflects the already-completed upstream pipeline's own inputs (GoDMC cis-mQTL candidate rows, Ishigaki 2022 RA GWAS). No re-validation runs live, since the underlying per-SNP rows aren't bundled here.")
       )
     })
     outputOptions(output, "validation_ui", suspendWhenHidden = FALSE)
@@ -531,7 +530,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
 
       min_shared <- input$f_min_shared %||% MCOL_DEFAULT_MIN_SHARED_SNPS
       validate(need(nrow(h) >= min_shared,
-        sprintf("Fewer than %d shared SNPs remain after filtering (%d available) - colocalisation needs a minimally informative set of SNPs across the region. Loosen the filters or widen the genomic window.",
+        sprintf("Fewer than %d shared SNPs remain after filtering (%d available). Colocalisation needs a minimally informative set of SNPs across the region. Loosen the filters or widen the genomic window.",
                 min_shared, nrow(h))))
       validate(need(all(h$se.exposure > 0) && all(h$se.outcome > 0), "Some retained variants have a zero or negative standard error - cannot compute a Bayes factor for them."))
 
@@ -543,12 +542,12 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       validate(need(is.numeric(p12) && length(p12) == 1 && !is.na(p12) && p12 > 0 && p12 < 1,
                     "p12 must be a probability strictly between 0 and 1."))
       validate(need(p12 <= min(p1, p2),
-                    "p12 (probability a SNP affects both the methylation signal and the GWAS trait) cannot exceed p1 or p2 (probability it affects only one) - this is a coloc sanity convention. Lower p12, or raise p1/p2."))
+                    "p12 (probability a SNP affects both the methylation signal and the GWAS trait) can't exceed p1 or p2 (probability it affects only one). This is a coloc sanity convention. Lower p12, or raise p1/p2."))
       d1 <- list(beta = h$beta.exposure, varbeta = h$se.exposure^2,
                  N = round(stats::median(h$samplesize.exposure, na.rm = TRUE)), type = "quant", snp = h$SNP)
       if (!is.null(h$eaf.exposure)) d1$MAF <- pmin(h$eaf.exposure, 1 - h$eaf.exposure)
       validate(need(!is.null(d1$MAF),
-        "coloc.abf needs a minor allele frequency to analyse a quantitative trait (methylation) without a directly-supplied phenotype SD - map an effect-allele-frequency column for the methylation/mQTL file in Data & Setup and re-validate."))
+        "coloc.abf needs a minor allele frequency to analyse methylation as a quantitative trait without a directly-supplied phenotype SD. Map an effect-allele-frequency column for the methylation/mQTL file in Data & Setup and re-validate."))
       d2 <- list(beta = h$beta.outcome, varbeta = h$se.outcome^2,
                  N = round(stats::median(h$samplesize.outcome, na.rm = TRUE)), type = vs$gwas_type, snp = h$SNP)
       if (identical(vs$gwas_type, "cc")) d2$s <- vs$case_frac
@@ -578,14 +577,14 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         if (!requireNamespace("susieR", quietly = TRUE)) {
           susie_note <- "susieR is not installed in this deployment - multiple-signal colocalisation is unavailable."
         } else if (is.null(input$ld1_file) || is.null(input$ld2_file)) {
-          susie_note <- "Multiple-signal colocalisation (coloc.susie) needs an LD (SNP-by-SNP correlation) matrix for both datasets - upload both to enable it. No LD was inferred or fabricated, so this method was not run."
+          susie_note <- "Multiple-signal colocalisation (coloc.susie) needs an LD (SNP-by-SNP correlation) matrix for both datasets. Upload both to enable it. No LD was inferred or fabricated, so this method wasn't run."
         } else {
           ld1_raw <- read_uploaded_table(input$ld1_file$datapath)
           ld2_raw <- read_uploaded_table(input$ld2_file$datapath)
           ld1 <- .mcol_prep_ld(ld1_raw, h$SNP); ld2 <- .mcol_prep_ld(ld2_raw, h$SNP)
           common_ld <- if (!is.null(ld1) && !is.null(ld2)) intersect(colnames(ld1), colnames(ld2)) else character(0)
           if (length(common_ld) < 3) {
-            susie_note <- "Could not align the uploaded LD matrices to the harmonised SNP set (row/column names must be SNP IDs matching the mapped SNP column, with >=3 SNPs in common) - multiple-signal colocalisation was not run."
+            susie_note <- "Could not align the uploaded LD matrices to the harmonised SNP set (row/column names must be SNP IDs matching the mapped SNP column, with >=3 SNPs in common). Multiple-signal colocalisation wasn't run."
           } else {
             h_ld <- h[h$SNP %in% common_ld, , drop = FALSE]
             d1s <- list(beta = h_ld$beta.exposure, varbeta = h_ld$se.exposure^2, N = d1$N, type = "quant",
@@ -750,7 +749,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         )),
         .mcol_interpret(row$PP.H0, row$PP.H1, row$PP.H2, row$PP.H3, row$PP.H4),
         p(class = "empty-note", icon("triangle-exclamation"),
-          "GoDMC's cis-mQTL rows are a pre-filtered candidate list (each contributing cohort thresholded at p<1e-5 before meta-analysis), not an exhaustive dense scan of the region - coloc's power to distinguish PP.H3 from PP.H4 is bounded by this, a property of the source data, not of this analysis.")
+          "GoDMC's cis-mQTL rows are a pre-filtered candidate list (each cohort thresholded at p<1e-5 before meta-analysis), not an exhaustive dense scan of the region. Coloc's power to distinguish PP.H3 from PP.H4 is bounded by this - a property of the source data, not of this analysis.")
       )
     })
     outputOptions(output, "pre_focus_ui", suspendWhenHidden = FALSE)
@@ -841,7 +840,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         box(
           width = NULL, title = "Generate visualisation", status = "primary", solidHeader = FALSE,
           if (identical(rs$mode, "preloaded"))
-            p(class = "submodule-desc", "Preloaded route: only the per-CpG posterior-probability summary can be plotted - no per-SNP GoDMC/RA-GWAS region data is bundled to build a regional or posterior plot from (see Data & Setup).")
+            p(class = "submodule-desc", "Preloaded route: only the per-CpG posterior-probability summary can be plotted. No per-SNP GoDMC/RA-GWAS region data is bundled to build a regional or posterior plot from (see Data & Setup).")
           else p(class = "submodule-desc", "Builds the regional association, comparison, and posterior plots from the current Run Colocalisation result."),
           actionButton(ns("plot_btn"), "Generate Regional Plot", icon = icon("chart-area"), class = "btn-primary btn-sm")
         ),
@@ -911,7 +910,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
       rs <- run_state()
       if (identical(rs$mode, "preloaded")) {
         return(p(class = "empty-note", icon("circle-info"),
-                  "Sensitivity re-analysis needs per-SNP Bayes factors, which aren't bundled with the preloaded results - only summary posterior probabilities are available for this route. Use Upload Data with your own summary statistics to run sensitivity analysis."))
+                  "Sensitivity re-analysis needs per-SNP Bayes factors, which aren't bundled with the preloaded results. Only summary posterior probabilities are available for this route. Use Upload Data with your own summary statistics instead."))
       }
       tagList(
         box(
@@ -932,7 +931,7 @@ mod_methyl_coloc_server <- function(id, dataset, results = NULL) {
         ),
         box(
           width = NULL, title = "Parameter sensitivity", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Re-runs coloc.abf() varying one filter at a time from the current Run Colocalisation settings (genomic window, p-value thresholds, MAF, minimum sample size), holding the others fixed, to show how many shared SNPs and PP.H3/PP.H4 change."),
+          p(class = "submodule-desc", "Re-runs coloc.abf() varying one filter at a time (genomic window, p-value thresholds, MAF, minimum sample size) from the current Run Colocalisation settings, holding others fixed, to show how shared SNPs and PP.H3/PP.H4 change."),
           actionButton(ns("sens_param_btn"), "Run Sensitivity Analysis", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         conditionalPanel(

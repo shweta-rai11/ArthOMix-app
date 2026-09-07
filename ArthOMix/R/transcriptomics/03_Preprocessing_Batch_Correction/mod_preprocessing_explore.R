@@ -13,7 +13,7 @@ eda_parse_upload <- function(datapath, filename) {
   df <- tryCatch(
     as.data.frame(data.table::fread(datapath, showProgress = FALSE,
                                      na.strings = c("NA", "", "NaN", "null", "NULL", "#N/A"))),
-    error = function(e) NULL
+    error = arthomix_null_on_error
   )
   if (is.null(df)) {
     return(list(ok = FALSE, error = "The file could not be parsed as a delimited table. Please upload a CSV, TSV, or TXT file with a consistent delimiter."))
@@ -23,7 +23,7 @@ eda_parse_upload <- function(datapath, filename) {
   }
 
   first_col <- df[[1]]
-  first_num <- suppressWarnings(as.numeric(as.character(first_col)))
+  first_num <- arthomix_quiet(as.numeric(as.character(first_col)))
   id_is_char <- mean(is.na(first_num)) > 0.5
   if (id_is_char) {
     ids <- as.character(first_col)
@@ -40,7 +40,7 @@ eda_parse_upload <- function(datapath, filename) {
 
   is_num_col <- vapply(rest, function(col) {
     if (is.numeric(col)) return(TRUE)
-    v <- suppressWarnings(as.numeric(as.character(col)))
+    v <- arthomix_quiet(as.numeric(as.character(col)))
     blank <- is.na(col) | (is.character(col) & trimws(as.character(col)) == "")
     mean(is.na(v) & !blank) < 0.2
   }, logical(1))
@@ -50,7 +50,7 @@ eda_parse_upload <- function(datapath, filename) {
   }
 
   numeric_part <- rest[, is_num_col, drop = FALSE]
-  expr <- vapply(numeric_part, function(col) suppressWarnings(as.numeric(as.character(col))), numeric(nrow(numeric_part)))
+  expr <- vapply(numeric_part, function(col) arthomix_quiet(as.numeric(as.character(col))), numeric(nrow(numeric_part)))
   
   if (is.null(dim(expr))) expr <- matrix(expr, nrow = 1, dimnames = list(NULL, names(expr)))
   rownames(expr) <- ids
@@ -101,8 +101,7 @@ eda_skew_label <- function(skew) {
   else "Strongly skewed"
 }
 
-## Dataset Overview section: missingness, duplicates, constant/near-zero-
-## variance features, and pooled summary stats.
+## Dataset Overview: missingness, duplicates, constant/near-zero-variance features, pooled stats.
 eda_overview <- function(parsed) {
   m <- parsed$expr
   vals <- as.numeric(m)
@@ -163,8 +162,7 @@ eda_descriptive_stats <- function(m, margin) {
   df
 }
 
-## Pooled skewness/kurtosis/Shapiro-Wilk on a capped sample (Shapiro caps at
-## n = 5000 and gets oversensitive on real omics data well before that).
+## Pooled skewness/kurtosis/Shapiro-Wilk on a capped sample (Shapiro caps at n=5000).
 eda_normality_summary <- function(m) {
   vals <- as.numeric(m); vals <- vals[is.finite(vals)]
   skew <- eda_skewness(vals); kurt <- eda_kurtosis(vals)
@@ -172,7 +170,7 @@ eda_normality_summary <- function(m) {
   shapiro_n <- NA_integer_
   if (length(vals) >= 20) {
     shapiro_n <- min(length(vals), EDA_MAX_SHAPIRO_N)
-    shapiro <- tryCatch(stats::shapiro.test(sample(vals, shapiro_n)), error = function(e) NULL)
+    shapiro <- tryCatch(stats::shapiro.test(sample(vals, shapiro_n)), error = arthomix_null_on_error)
   }
   list(
     skewness = skew, kurtosis = kurt, label = eda_skew_label(skew),
@@ -197,7 +195,7 @@ eda_normalization_assessment <- function(expr) {
   if (identical(dt, "counts")) {
     verdict <- "not_normalized"; label <- "Likely not normalized (raw counts)"
     evidence <- c(evidence,
-      sprintf("%.0f%% of finite values are at or near integers and non-negative, with a maximum value of %s - the signature of raw sequencing read/count data rather than a continuous, transformed measurement.",
+      sprintf("%.0f%% of finite values are near-integer and non-negative, with a maximum of %s - the signature of raw sequencing counts, not a transformed measurement.",
               frac_integer * 100, format(round(max(finite_vals)), big.mark = ",")),
       "Raw counts of this kind have not yet been adjusted for library size or composition (e.g. via TMM, DESeq2 size factors, or CPM).")
   } else if (has_negative) {
@@ -217,7 +215,7 @@ eda_normalization_assessment <- function(expr) {
   } else {
     verdict <- "inconclusive"; label <- "Inconclusive"
     evidence <- c(evidence,
-      "Per-sample medians and/or interquartile ranges differ noticeably between samples. This can indicate data that has not yet been normalized, but it can also reflect genuine biological or batch variation in an already-normalized dataset.",
+      "Per-sample medians and/or interquartile ranges differ noticeably between samples. This can mean the data isn't normalized yet, or it can reflect real biological or batch variation in already-normalized data.",
       sprintf("Values are continuous rather than count-like (%.0f%% near-integer) and the overall range (%.2f to %.2f) does not clearly indicate raw counts either.",
               frac_integer * 100, min(finite_vals), max(finite_vals)))
   }
@@ -253,7 +251,7 @@ eda_prep_for_structure <- function(m, max_features = EDA_MAX_VARIANCE_FEATURES) 
 eda_pca <- function(m) {
   prep <- eda_prep_for_structure(m)
   if (is.null(prep) || ncol(prep$sub) < 3) return(NULL)
-  pr <- tryCatch(stats::prcomp(t(prep$sub), scale. = TRUE, center = TRUE), error = function(e) NULL)
+  pr <- tryCatch(stats::prcomp(t(prep$sub), scale. = TRUE, center = TRUE), error = arthomix_null_on_error)
   if (is.null(pr) || ncol(pr$x) < 2) return(NULL)
   var_exp <- (pr$sdev^2) / sum(pr$sdev^2) * 100
   list(scores = pr$x, var_exp = var_exp, n_features_used = prep$n_features_used, n_features_total = prep$n_features_total)
@@ -268,11 +266,10 @@ eda_sample_correlation <- function(m) {
 
 eda_hclust <- function(cor_mat) stats::hclust(stats::as.dist(1 - cor_mat), method = "average")
 
-## Sample outlier flags: robust MAD-based QC (compute_sample_qc(), global.R)
-## plus a PCA-distance-from-centroid flag; flags only, never removes anything.
+## Sample outlier flags: robust MAD-based QC plus PCA-distance-from-centroid; flags only, no removal.
 eda_sample_outliers <- function(m, pca) {
   ## Median-impute first - compute_sample_qc() has no NA handling of its own.
-  qc <- tryCatch(compute_sample_qc(eda_impute_median(m)), error = function(e) NULL)
+  qc <- tryCatch(compute_sample_qc(eda_impute_median(m)), error = arthomix_null_on_error)
   if (is.null(qc)) {
     qc <- data.frame(sample = colnames(m), signal = NA_real_, detected = NA_real_, mean_cor = NA_real_,
                       flag_signal = FALSE, flag_detected = FALSE, flag_cor = FALSE, stringsAsFactors = FALSE)
@@ -567,7 +564,7 @@ eda_status_panel_ui <- function(norm_assess, overview) {
               div(class = "explore-status-headline", norm_assess$label))),
       tags$ul(lapply(norm_assess$evidence, tags$li)),
       p(class = "explore-status-detail",
-        "This assessment is diagnostic/inferential, based on the observed value distribution - it is not proof, since the original processing history of this file is unknown to the application."),
+        "This assessment is inferential, based on the observed value distribution. It's not proof - this file's original processing history is unknown to the app."),
       div(class = "explore-status-facts",
           div(class = "explore-status-fact", span(class = "explore-status-fact-label", "Detected type"),
               span(class = "explore-status-fact-value", switch(norm_assess$detected_type,
@@ -597,8 +594,7 @@ eda_summary_card_ui <- function(summ) {
   )
 }
 
-## Cheap structural summary shown right after upload (dims, column types,
-## preview table); heavier analysis stays gated behind the Run button.
+## Cheap structural summary shown right after upload; heavier analysis waits for the Run button.
 eda_upload_info_ui <- function(ns, parsed) {
   h <- expr_raw_health(parsed$expr)
   div(class = "card",
@@ -629,7 +625,7 @@ mod_data_exploration_ui <- function(id) {
   ns <- NS(id)
   div(
     div(class = "empty-note", icon("circle-info"),
-        "Upload an individual raw molecular dataset here to assess its structure and quality before preprocessing, normalization, or downstream analysis. This tool is fully independent of the app's shared active dataset (set on the Dataset tab) - nothing you do here changes it, and nothing you upload here is written back anywhere."),
+        "Upload a raw molecular dataset here to check its structure and quality before preprocessing. This tool is independent of the app's shared active dataset (set on the Dataset tab) - nothing here changes it or gets written back anywhere."),
     withSpinner(uiOutput(ns("body_ui")), color = "#2563EB", type = 6)
   )
 }
@@ -641,9 +637,7 @@ mod_data_exploration_server <- function(id) {
     ns <- session$ns
 
     raw_data <- reactiveVal(NULL)
-    ## Bumped on every upload; lets results_ui tell a stale eda_result() (still
-    ## cached from a PRIOR file - eda_result only recomputes on run_btn, not on
-    ## raw_data) apart from one that actually matches the currently uploaded file.
+    ## Bumped on every upload, so results_ui can detect a stale eda_result() from a prior file.
     raw_version <- reactiveVal(0L)
 
     observeEvent(input$raw_file, {
@@ -660,7 +654,7 @@ mod_data_exploration_server <- function(id) {
         div(class = "card",
             div(class = "card-title", icon("upload"), "Step 1 - Upload raw data"),
             p(class = "submodule-desc",
-              "One feature (gene / probe / CpG site / protein) per row, one sample per column, with a feature-identifier column first - the same layout every raw expression/intensity matrix in this app uses. Accepted formats: CSV, TSV, or TXT. Excel files are not currently supported anywhere in this application; please export to CSV first."),
+              "One feature (gene / probe / CpG site / protein) per row, one sample per column, with a feature-ID column first. Same layout every raw matrix in this app uses. Accepted formats: CSV, TSV, or TXT. Excel isn't supported - export to CSV first."),
             fileInput(ns("raw_file"), "Raw data file", accept = c(".csv", ".tsv", ".txt"), width = "100%"),
             if (!is.null(parsed) && !isTRUE(parsed$ok)) div(class = "empty-note", icon("triangle-exclamation"), parsed$error)
         ),
@@ -669,7 +663,7 @@ mod_data_exploration_server <- function(id) {
           div(class = "card",
               div(class = "card-title", icon("play"), "Step 3 - Run Exploratory Data Analysis"),
               p(class = "submodule-desc",
-                "Runs the full EDA pipeline in one step: descriptive statistics, distribution and normality diagnostics, a normalization-status assessment, outlier detection, PCA and sample structure, sample correlation, missing-data and low-variance feature analysis, the mean-variance relationship, and a final plain-language summary with a recommended next step. Nothing here modifies the file you uploaded."),
+                "Runs the full EDA pipeline in one step: descriptive statistics, distribution/normality diagnostics, normalization status, outlier detection, PCA, sample correlation, missing-data and low-variance features, mean-variance relationship, and a final summary. Doesn't modify your uploaded file."),
               actionButton(ns("run_btn"), "Run Exploratory Data Analysis", icon = icon("flask"), class = "btn-primary")
           ),
           withSpinner(uiOutput(ns("results_ui")), color = "#2563EB", type = 6)
@@ -710,8 +704,8 @@ mod_data_exploration_server <- function(id) {
         norm_assess <- eda_normalization_assessment(m)
 
         incProgress(0.15, detail = "PCA and sample structure")
-        pca <- tryCatch(eda_pca(m), error = function(e) NULL)
-        corr <- tryCatch(eda_sample_correlation(m), error = function(e) NULL)
+        pca <- tryCatch(eda_pca(m), error = arthomix_null_on_error)
+        corr <- tryCatch(eda_sample_correlation(m), error = arthomix_null_on_error)
 
         incProgress(0.15, detail = "Outlier detection")
         feat_outliers <- eda_feature_outliers(m, feat_stats)
@@ -799,7 +793,7 @@ mod_data_exploration_server <- function(id) {
                   if (is.na(n$shapiro_p)) {
                     "Not enough finite values to run a normality test."
                   } else {
-                    sprintf("Computed on a random sample of %s values (Shapiro-Wilk is capped at 5,000 and becomes extremely sensitive at large n - a significant p-value here is common for real data and is not, by itself, evidence of a meaningful problem). Treat skewness/kurtosis and the Q-Q plot as the primary signal.", format(n$shapiro_n, big.mark = ","))
+                    sprintf("Computed on a random sample of %s values. Shapiro-Wilk is capped at 5,000 and gets very sensitive at large n, so a significant p-value here is common and not by itself a problem. Treat skewness/kurtosis and the Q-Q plot as the primary signal.", format(n$shapiro_n, big.mark = ","))
                   })
             ))
         )
@@ -814,7 +808,7 @@ mod_data_exploration_server <- function(id) {
       res <- eda_result()
       tagList(
         p(class = "submodule-desc",
-          "Sample-level flags combine robust (median/MAD-based) signal, detection-rate, and correlation-to-cohort checks with a PCA-distance-from-centroid check. Feature-level flags identify extreme variance, extreme skewness, or excessive missingness. Nothing is removed automatically - flagged rows/columns are for investigation, not automatic exclusion."),
+          "Sample-level flags combine robust (median/MAD) signal, detection-rate, correlation-to-cohort, and PCA-distance-from-centroid checks. Feature-level flags catch extreme variance, extreme skewness, or excessive missingness. Nothing is removed automatically - flags are for investigation only."),
         withSpinner(plotly::plotlyOutput(ns("outlier_box_plot"), height = 340), color = "#2563EB", type = 6),
         h5("Sample-level flags"), DT::dataTableOutput(ns("samp_outlier_table")),
         h5("Feature-level flags (most-flagged first)"), DT::dataTableOutput(ns("feat_outlier_table"))
@@ -935,7 +929,7 @@ mod_data_exploration_server <- function(id) {
     ## Assembles every section above into the results UI, only after a successful run.
     output$results_ui <- renderUI({
       cur_version <- raw_version()
-      res <- tryCatch(eda_result(), error = function(e) NULL)
+      res <- tryCatch(eda_result(), error = arthomix_null_on_error)
       if (is.null(res)) return(NULL)
       if (!identical(res$run_version, cur_version)) {
         return(div(class = "empty-note", icon("circle-info"),
@@ -958,7 +952,7 @@ mod_data_exploration_server <- function(id) {
               tabPanel("Violin (per sample)", br(), withSpinner(plotOutput(ns("violin_plot"), height = 340), color = "#2563EB", type = 6))
             )),
         box(width = 12, title = "D. Normality / distribution assessment", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "High-dimensional molecular data is not expected to be normally distributed at the whole-matrix level; this section reports the measured shape rather than asserting normality either way."),
+            p(class = "submodule-desc", "High-dimensional molecular data isn't expected to be normally distributed at the whole-matrix level. This section reports the measured shape, not a normality verdict."),
             uiOutput(ns("normality_ui"))),
         box(width = 12, title = "E. Normalization status assessment", status = "primary", solidHeader = FALSE, uiOutput(ns("normalization_ui"))),
         box(width = 12, title = "F. Outlier detection", status = "primary", solidHeader = FALSE, collapsible = TRUE, uiOutput(ns("outliers_ui"))),
@@ -967,11 +961,11 @@ mod_data_exploration_server <- function(id) {
         box(width = 12, title = "I. Missing data analysis", status = "primary", solidHeader = FALSE, collapsible = TRUE, uiOutput(ns("missing_ui"))),
         box(width = 12, title = "J. Low-variance features", status = "primary", solidHeader = FALSE,
             p(class = "submodule-desc", sprintf(
-              "%s constant feature(s) (zero variance) and %s additional near-zero-variance feature(s) (bottom 1%% of the non-zero variance distribution) were detected out of %s total. These are candidates to consider filtering downstream - they are not removed here.",
+              "%s constant feature(s) (zero variance) and %s near-zero-variance feature(s) (bottom 1%% of non-zero variance) out of %s total. Candidates for filtering downstream - not removed here.",
               format(res$overview$n_constant_features, big.mark = ","), format(res$overview$n_near_zero_var_features, big.mark = ","),
               format(res$overview$n_features, big.mark = ",")))),
         box(width = 12, title = "K. Mean-variance relationship", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "For count-like molecular data, variance typically increases with mean expression; a strong such trend is one signal that a variance-stabilizing transformation (e.g. log2 or a count-appropriate normalization) may be worth considering."),
+            p(class = "submodule-desc", "For count-like data, variance typically increases with mean expression. A strong trend here suggests a variance-stabilizing transformation (e.g. log2 or count-appropriate normalization) may help."),
             withSpinner(plotOutput(ns("meanvar_plot"), height = 340), color = "#2563EB", type = 6)),
         box(width = 12, title = "L. Before / after transformation diagnostic", status = "primary", solidHeader = FALSE, uiOutput(ns("transform_ui"))),
         box(width = 12, title = "M. EDA summary", status = "primary", solidHeader = FALSE,

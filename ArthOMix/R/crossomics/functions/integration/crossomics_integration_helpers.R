@@ -1,6 +1,5 @@
 ## R/crossomics/functions/integration/crossomics_integration_helpers.R
-## Pure data-processing logic for the "Expression and Methylation" Cross-Omics
-## sub-module (mod_cross_integration.R) - column auto-detection, gene-level
+## Data-processing logic for "Expression and Methylation": column auto-detection, gene-level joins.
 
 CX_FIELD_PATTERNS <- list(
   gene = c("^gene[_ .]?symbol$", "^hgnc[_ .]?symbol$", "^symbol$", "^gene[_ .]?name$",
@@ -136,12 +135,11 @@ cx_standardize_methylation <- function(df, mapping) {
   dbeta_col <- mapping["dbeta"]
   beta_col <- mapping["beta"]
   if (is.na(dbeta_col)) {
-    ## A beta-value column alone cannot yield a methylation change, so a beta-only file
-    ## is refused outright instead of being accepted with an all-NA Δβ.
+    ## Beta-only files are refused outright rather than accepted with an all-NA Δβ.
     return(list(ok = FALSE, error = if (is.na(beta_col))
       "No Δβ (methylation change) column selected."
     else
-      "Only a beta-value column was found - a Δβ (methylation change, e.g. delta_beta / meandiff) column is required; per-sample beta values alone cannot yield one."))
+      "Only a beta-value column was found. A Δβ (methylation change, e.g. delta_beta / meandiff) column is required - beta values alone aren't enough."))
   }
   out <- data.frame(
     cpg = if (has_cpg) as.character(df[[mapping["cpg"]]]) else paste0("row", seq_len(nrow(df))),
@@ -495,8 +493,7 @@ cx_get_region_annotation <- function(array_type = "450K") {
   list(ok = TRUE, anno = anno, reason = NULL)
 }
 
-## Human-readable methylation-platform label for provenance, from the Methylomics
-## dataset's declared array type (NULL/unknown for uploaded result tables).
+## Methylation-platform label for provenance, from the declared array type.
 cx_platform_label <- function(array_type) {
   if (is.null(array_type) || !nzchar(array_type %||% "")) return(NULL)
   pkg <- CX_METH_ANNOTATION_PACKAGES[[array_type]]
@@ -522,7 +519,7 @@ cx_build_provenance <- function(params) {
     sprintf("Gene annotation source: %s", params$gene_annotation_source %||% "org.Hs.eg.db (Bioconductor) - exact ID/alias lookup only, no fuzzy matching"),
     sprintf("Methylation platform annotation: %s", params$methylation_platform %||% "Not available"),
     if (!is.null(params$methylation_platform) && grepl("Illumina", params$methylation_platform))
-      "Note: CpG probes annotated to more than one gene (Illumina UCSC_RefGene_Name) are assigned to their first-listed gene only; other co-annotated genes for those probes are not separately represented in this integration.",
+      "Note: multi-gene CpG probes (Illumina UCSC_RefGene_Name) are assigned to their first-listed gene only; other co-annotated genes aren't shown here.",
     sprintf("Module version: %s", CX_MODULE_VERSION),
     sprintf("Run at: %s", params$run_at %||% "(not run yet)")
   )
@@ -558,7 +555,7 @@ cx_harmonize_gene_ids <- function(genes) {
   if (length(genes) == 0) return(list(ok = FALSE, error = "No gene identifiers to harmonize.", df = NULL, summary = NULL))
   lut <- cx_build_id_lookup()
   if (is.null(lut)) {
-    return(list(ok = FALSE, error = "Gene identifier annotation (org.Hs.eg.db) is not available in this deployment - harmonization skipped; matching falls back to exact text on the Gene column as provided.", df = NULL, summary = NULL))
+    return(list(ok = FALSE, error = "Gene identifier annotation (org.Hs.eg.db) is not available - harmonization skipped. Matching falls back to exact text on the Gene column.", df = NULL, summary = NULL))
   }
   main <- lut$main
   clean_id <- sub("\\.[0-9]+$", "", trimws(genes))
@@ -655,8 +652,7 @@ cx_validate_dataset <- function(expr_df, meth_df, id_harmonization = NULL) {
   list(transcriptomics = tx_checks, methylomics = mx_checks, compatibility = compat, ready = tx_ok && mx_ok)
 }
 
-## ---- Live-session adapters ---------------------------------------------
-## Bridges live results$dge_runs/methyl_results$dmp_table into the same expr_df/meth_df contract as cx_standardize_expression()/cx_standardize_methylation().
+## ---- Live-session adapters: bridge live results into the standardize_*() contract ----
 
 CX_LIVE_EMPTY_EXPR_DF <- data.frame(
   gene = character(0), log2fc = numeric(0), pvalue = numeric(0), fdr = numeric(0),
@@ -731,14 +727,10 @@ cx_build_live_meth_df <- function(dmp_run, array_type = NULL) {
   if (nrow(tbl) == 0) {
     return(list(ok = TRUE, df = CX_LIVE_EMPTY_METH_DF, error = NULL))
   }
-  ## When the run came off the SVA tab its FDR is BH over the bacon-corrected p, so
-  ## the p-value handed on must be the bacon one too (the Stouffer aggregation and any
-  ## FDR fallback downstream work from `pvalue`); the plain DMP tab has only p_raw.
+  ## SVA-tab runs use the bacon-corrected p; the plain DMP tab has only p_raw.
   p_col <- if ("p_bacon" %in% colnames(tbl) && any(!is.na(tbl$p_bacon))) "p_bacon"
            else if ("p_raw" %in% colnames(tbl)) "p_raw" else NA_character_
-  ## Gene-feature / island context are not part of the live DMP table; fill them from
-  ## the Illumina manifest when the array type is one we have a manifest for, so the
-  ## region-restricted aggregation rules and island filters work on live runs too.
+  ## Fill gene-feature/island context from the Illumina manifest when available.
   region_col <- NA_character_; island_col <- NA_character_
   if (!is.null(array_type) && !is.null(CX_METH_ANNOTATION_PACKAGES[[array_type]])) {
     ar <- cx_get_region_annotation(array_type)

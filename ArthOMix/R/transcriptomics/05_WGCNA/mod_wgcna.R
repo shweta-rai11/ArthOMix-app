@@ -1,11 +1,10 @@
 ## R/transcriptomics/05_WGCNA/mod_wgcna.R
-## WGCNA co-expression network submodule (Section 2.4): a 6-step wizard
-## (Filter & QC, Soft Power, Modules, Module-Trait, Hub Genes, Enrichment)
+## WGCNA co-expression network submodule: a 6-step wizard (Filter & QC, Soft Power, Modules, Module-Trait, Hub Genes, Enrichment).
 
 mod_wgcna_config <- list(
   id = "wgcna", group = "Network",
   title = "WGCNA Co-expression Network", section = "Section 2.4",
-  description = "Co-expression network analysis performed by gene or sample filtering, soft-threshold power, module detection, module-trait correlation, hub genes, functional enrichment and Cytoscape export.",
+  description = "Co-expression network analysis: gene/sample filtering, soft-threshold power, module detection, module-trait correlation, hub genes, enrichment, and Cytoscape export.",
   icon = "circle-nodes"
 )
 
@@ -56,7 +55,7 @@ load_precomputed_wgcna_result <- function() {
   dendro <- NULL
   block_colors <- module_colors
   if (length(net_files) > 0) {
-    net <- tryCatch(readRDS(net_files[1]), error = function(e) NULL)
+    net <- tryCatch(readRDS(net_files[1]), error = arthomix_null_on_error)
     if (!is.null(net) && length(net$dendrograms) > 0) {
       dendro <- net$dendrograms[[1]]
       block_colors <- module_colors[net$blockGenes[[1]]]
@@ -285,7 +284,7 @@ mod_wgcna_server <- function(id, dataset, results) {
 
       pattern <- trimws(input$exclude_pattern %||% "")
       if (nzchar(pattern) && length(keep) > 0) {
-        matched <- tryCatch(grepl(pattern, rownames(expr)[keep], perl = TRUE), error = function(e) NULL)
+        matched <- tryCatch(grepl(pattern, rownames(expr)[keep], perl = TRUE), error = arthomix_null_on_error)
         validate(need(!is.null(matched), paste("Invalid regex pattern:", pattern)))
         keep <- keep[!matched]
       }
@@ -390,13 +389,13 @@ mod_wgcna_server <- function(id, dataset, results) {
           p(class = "submodule-desc", "Choose which genes go into the network - fewer, more variable genes run faster and add less noise."),
           if (uploaded) div(
             class = "empty-note", style = "margin-bottom: 10px;", icon("book"),
-            "This isn't the app's default reference cohort, so the settings below (and in Soft Power / Modules) are pre-filled to match the published methodology's own general-purpose defaults: top 5,000 genes by highest median expression, power β = 7, minimum module size 66, merge cut height 0.3. Adjust any of them before you run."
+            "Not the app's default reference cohort, so settings below (and in Soft Power / Modules) are pre-filled to match this project's network: top 5,000 genes by median expression (reference cohort used all genes), signed network, power 12, min module size 30, merge cut height 0.25. Check the scale-free fit in Soft Power before trusting the power, and adjust as needed. One network is built on all samples; sex enters as a Module-Trait trait, not separate female/male networks."
           ),
           radioButtons(
             ns("gene_filter_method"), "Gene selection method",
             choiceNames = list(
               "Use all genes (recommended: this project's own choice)",
-              "Most highly-expressed genes by median (top N) (paper default)",
+              "Most highly-expressed genes by median (top N) (common WGCNA practice for uploads)",
               "Most variable genes (top N)",
               "Variance percentile cutoff",
               "MAD percentile cutoff",
@@ -508,7 +507,7 @@ mod_wgcna_server <- function(id, dataset, results) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
                     paste("Could not compute soft power:", sft_store$error)))
       }
-      res <- tryCatch(sft_result(), error = function(e) NULL)
+      res <- tryCatch(sft_result(), error = arthomix_null_on_error)
       if (is.null(res)) {
         return(div(class = "empty-note", icon("circle-info"), "Not computed yet. Click \"Compute power\"."))
       }
@@ -519,7 +518,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$sft_r2_plot <- renderPlot({
-      res <- tryCatch(sft_result(), error = function(e) NULL)
+      res <- tryCatch(sft_result(), error = arthomix_null_on_error)
       req(res)
       df <- res$sft_df
       ggplot(df, aes(x = Power, y = -sign(slope) * SFT.R.sq)) +
@@ -532,7 +531,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$sft_k_plot <- renderPlot({
-      res <- tryCatch(sft_result(), error = function(e) NULL)
+      res <- tryCatch(sft_result(), error = arthomix_null_on_error)
       req(res)
       df <- res$sft_df
       ggplot(df, aes(x = Power, y = mean.k.)) +
@@ -544,7 +543,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$sft_trunc_plot <- renderPlot({
-      res <- tryCatch(sft_result(), error = function(e) NULL)
+      res <- tryCatch(sft_result(), error = arthomix_null_on_error)
       req(res)
       df <- res$sft_df
       ggplot(df, aes(x = Power, y = truncated.R.sq)) +
@@ -556,7 +555,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     scale_free_check_stats <- reactive({
-      res <- tryCatch(sft_result(), error = function(e) NULL)
+      res <- tryCatch(sft_result(), error = arthomix_null_on_error)
       req(res)
       validate(need(!is.null(res$connectivity),
                     "Not available for the precomputed default dataset (this diagnostic needs a live softConnectivity() run)."))
@@ -569,7 +568,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       dk <- tapply(k, discretized_k, mean)
       p_dk <- as.vector(tapply(k, discretized_k, length) / length(k))
       breaks1 <- seq(from = min(k), to = max(k), length = n_breaks + 1)
-      hist1 <- suppressWarnings(graphics::hist(k, breaks = breaks1, equidist = FALSE, plot = FALSE, right = TRUE))
+      hist1 <- arthomix_quiet(graphics::hist(k, breaks = breaks1, equidist = FALSE, plot = FALSE, right = TRUE))
       dk2 <- hist1$mids
       dk <- ifelse(is.na(dk), dk2, dk)
       dk <- ifelse(dk == 0, dk2, dk)
@@ -578,7 +577,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       log_pdk <- as.numeric(log10(p_dk + 1e-09))
 
       lm_linear <- stats::lm(log_pdk ~ log_dk)
-      lm_exp <- tryCatch(stats::lm(log_pdk ~ log_dk + I(10^log_dk)), error = function(e) NULL)
+      lm_exp <- tryCatch(stats::lm(log_pdk ~ log_dk + I(10^log_dk)), error = arthomix_null_on_error)
 
       list(
         log_dk = log_dk, log_pdk = log_pdk,
@@ -627,19 +626,19 @@ mod_wgcna_server <- function(id, dataset, results) {
         p(class = "submodule-desc", "WGCNA raises gene-gene correlations to a power so the network is approximately scale-free. Pick the lowest power that reaches a good fit below."),
         if (!uploaded) div(
           class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
-          "This is the app's own default reference cohort: its network was precomputed offline at power = 12, so the settings below don't change the results shown after \"Compute power\" or Step 3's \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
+          "This is the app's own default reference cohort. Its network was precomputed offline at power = 12, so the settings below don't affect \"Compute power\" or Step 3's \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
         ),
         fluidRow(
           column(
             6,
             radioButtons(ns("network_type"), "Network type",
                          choiceNames = list(
-                           if (uploaded) "Signed" else "Signed (recommended)",
-                           if (uploaded) "Unsigned (recommended: paper default - unstated in the methodology, so left at the WGCNA package default)" else "Unsigned",
+                           "Signed (recommended - matches this project's own network; WGCNA's authors also recommend signed networks)",
+                           "Unsigned (WGCNA package default)",
                            "Signed hybrid"
                          ),
                          choiceValues = list("signed", "unsigned", "signed hybrid"),
-                         selected = if (uploaded) "unsigned" else "signed"),
+                         selected = "signed"),
             radioButtons(ns("cor_method"), "Correlation method",
                          choiceNames = list("Pearson (standard)", "Bicor (robust to outliers)"),
                          choiceValues = list("pearson", "bicor"), selected = "pearson")
@@ -650,25 +649,25 @@ mod_wgcna_server <- function(id, dataset, results) {
             radioButtons(ns("power_mode"), "Power",
                          choiceNames = list(
                            "Automatic",
-                           if (uploaded) "Manual (recommended: 7, paper default)" else "Manual (recommended: 12, this project's own choice)"
+                           "Manual (recommended: 12 for a signed network, this project's own choice; check the scale-free fit below)"
                          ),
                          choiceValues = list("auto", "manual"), selected = "manual"),
             conditionalPanel(
               condition = sprintf("input['%s'] == 'manual'", ns("power_mode")),
-              numericInput(ns("manual_power"), "Power value", value = if (uploaded) 7 else 12, min = 1, max = 30, step = 1)
+              numericInput(ns("manual_power"), "Power value", value = 12, min = 1, max = 30, step = 1)
             ),
             if (uploaded) numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1)
           )
         ),
         actionButton(ns("compute_power_btn"), "Compute power", icon = icon("play"), class = "btn-primary btn-sm"),
         if (!isTRUE(dataset$is_bundled_reference)) p(class = "submodule-desc", style = "margin-top:6px;",
-          "Can take several minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster."),
+          "Can take several minutes depending on gene count and dataset size. Narrowing Step 1's gene filter (e.g. top 2,000-4,000 most variable genes instead of all) runs much faster."),
         div(style = "margin-top:8px;", uiOutput(ns("power_status_ui")))
       )
     })
 
     output$step2_ui <- renderUI({
-      if (!is.null(sft_store$error) || is.null(tryCatch(sft_result(), error = function(e) NULL))) {
+      if (!is.null(sft_store$error) || is.null(tryCatch(sft_result(), error = arthomix_null_on_error))) {
         div(class = "empty-note", icon("circle-info"),
             "Not computed yet. Set your options above, then click \"Compute power\" to see the diagnostics below.")
       } else tagList(
@@ -779,13 +778,28 @@ mod_wgcna_server <- function(id, dataset, results) {
       base$n_modules <- res$n_modules
       base$module_genes <- split(res$gene_module$gene, res$gene_module$module)
       results$wgcna <- base
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_wgcna_modules",
+        checksum_input = list(genes = colnames(res$texpr), samples = rownames(res$texpr), modules = res$module_colors),
+        params = list(
+          source = if (identical(net_store$source, "loaded")) "precomputed bundled network (settings not applied)" else "computed live",
+          n_genes = res$n_genes, n_samples = res$n_samples, gene_filter = input$gene_filter_method %||% "all",
+          soft_power = res$power, network_type = res$network_type, tom_type = res$tom_type, correlation = res$cor_method,
+          deep_split = input$deep_split %||% 2, min_module_size = input$min_module_size %||% 30,
+          merge_cut_height = input$merge_cut_height %||% 0.25, pam_respects_dendro = isTRUE(input$pam_respects_dendro),
+          outlier_samples_removed = isTRUE(input$remove_outliers), n_modules = res$n_modules,
+          sex_handling = "single network on all samples; sex is a trait, not a stratification"
+        ),
+        seed = if (dataset_is_uploaded()) (input$net_seed %||% 1234) else 1234,
+        packages = "WGCNA"
+      ), dedupe = TRUE)
     })
 
     output$module_run_status_ui <- renderUI({
       if (!is.null(net_store$error)) {
         return(div(class = "empty-note", icon("triangle-exclamation"), net_store$error))
       }
-      res <- tryCatch(net_result(), error = function(e) NULL)
+      res <- tryCatch(net_result(), error = arthomix_null_on_error)
       if (is.null(res)) {
         return(div(class = "empty-note", icon("circle-info"), "Not run yet. Click \"Run\" above."))
       }
@@ -795,7 +809,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     draw_dendro <- function() {
-      net <- tryCatch(net_result(), error = function(e) NULL)
+      net <- tryCatch(net_result(), error = arthomix_null_on_error)
       req(net)
       WGCNA::plotDendroAndColors(
         net$dendro, net$block_colors, "Module colors",
@@ -856,7 +870,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$tom_status_ui <- renderUI({
-      res <- tryCatch(tom_result(), error = function(e) NULL)
+      res <- tryCatch(tom_result(), error = arthomix_null_on_error)
       if (is.null(res)) {
         return(div(class = "empty-note", icon("circle-info"),
                     "Not computed yet. Click \"Compute network heatmap\" - this recomputes the full topological overlap matrix and can take as long as Step 3's own \"Run\"."))
@@ -875,7 +889,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     )
 
     output$module_size_plot <- renderPlot({
-      net <- tryCatch(net_result(), error = function(e) NULL)
+      net <- tryCatch(net_result(), error = arthomix_null_on_error)
       req(net)
       df <- net$module_sizes
       ggplot(df, aes(x = stats::reorder(module, Freq), y = Freq, fill = module)) +
@@ -886,7 +900,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$eigengene_network_plot <- renderPlot({
-      net <- tryCatch(net_result(), error = function(e) NULL)
+      net <- tryCatch(net_result(), error = arthomix_null_on_error)
       req(net)
       MEs_use <- net$MEs[, colnames(net$MEs) != "MEgrey", drop = FALSE]
       me_cor <- wgcna_cor_fnc(net$cor_method)(as.matrix(MEs_use), use = "p")
@@ -907,7 +921,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$module_table <- DT::renderDataTable({
-      net <- tryCatch(net_result(), error = function(e) NULL)
+      net <- tryCatch(net_result(), error = arthomix_null_on_error)
       req(net)
       DT::datatable(net$gene_module, rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
@@ -931,17 +945,17 @@ mod_wgcna_server <- function(id, dataset, results) {
           p(class = "submodule-desc", "Genes are clustered by co-expression and cut into modules; similar modules are then merged into one."),
           if (!uploaded) div(
             class = "empty-note", style = "margin-bottom: 10px;", icon("lock"),
-            "This is the app's own default reference cohort: its modules were detected offline, so the settings below don't change the results shown after \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
+            "This is the app's own default reference cohort. Its modules were detected offline, so the settings below don't change the results after \"Run\". Switch to an uploaded or GEO-fetched dataset to make them active."
           ),
           fluidRow(
             column(
               6,
-              numericInput(ns("min_module_size"), "Minimum module size", value = if (uploaded) 66 else 30, min = 5, max = 1000, step = 5),
+              numericInput(ns("min_module_size"), "Minimum module size", value = 30, min = 5, max = 1000, step = 5),
               sliderInput(ns("deep_split"), "Deep split (0 = coarse, 4 = fine)", min = 0, max = 4, value = 2, step = 1)
             ),
             column(
               6,
-              sliderInput(ns("merge_cut_height"), "Merge cut height", min = 0, max = 1, value = if (uploaded) 0.3 else 0.25, step = 0.01),
+              sliderInput(ns("merge_cut_height"), "Merge cut height", min = 0, max = 1, value = 0.25, step = 0.01),
               selectInput(ns("tom_type"), "TOM type", choices = c("Signed" = "signed", "Unsigned" = "unsigned", "Signed Nowick" = "signed Nowick"),
                           selected = "signed", selectize = FALSE),
               checkboxInput(ns("pam_respects_dendro"), "PAM stage respects dendrogram", value = uploaded)
@@ -949,10 +963,10 @@ mod_wgcna_server <- function(id, dataset, results) {
           ),
           actionButton(ns("run_btn"), "Run", icon = icon("play"), class = "btn-primary btn-sm"),
           if (!isTRUE(dataset$is_bundled_reference)) p(class = "submodule-desc", style = "margin-top:6px;",
-            "Can take several minutes to tens of minutes depending on gene count and dataset size - narrowing Step 1's gene filter (e.g. the top 2,000-4,000 most variable genes instead of all genes) runs much faster for quick exploration."),
+            "Can take several minutes to tens of minutes depending on gene count and dataset size. Narrowing Step 1's gene filter (e.g. top 2,000-4,000 most variable genes) runs faster for quick exploration."),
           div(style = "margin-top:8px;", uiOutput(ns("module_run_status_ui")))
         ),
-        if (is.null(tryCatch(net_result(), error = function(e) NULL))) {
+        if (is.null(tryCatch(net_result(), error = arthomix_null_on_error))) {
           div(class = "empty-note", icon("circle-info"),
               "Not run yet. Set your module-detection options above, then click \"Run\" to see the results below.")
         } else tagList(
@@ -961,7 +975,7 @@ mod_wgcna_server <- function(id, dataset, results) {
             div(class = "table-toolbar", downloadButton(ns("download_dendro_png"), "Download dendrogram (PNG)", class = "btn-sm"))
           ),
           if (uploaded) wgcna_result("table-cells", "Gene network heatmap (TOM)",
-            desc = "Topological overlap between genes, on a random subsample (full topological overlap at thousands of genes can't be rendered directly). Darker = higher shared connectivity; the color strip along each edge marks module membership.",
+            desc = "Topological overlap between genes, on a random subsample (full overlap at thousands of genes can't be rendered directly). Darker = higher shared connectivity; the color strip on each edge marks module membership.",
             fluidRow(
               column(4, numericInput(ns("tom_n_select"), "Genes to sample for this plot", value = 400, min = 50, max = 1000, step = 50)),
               column(8, div(style = "margin-top:24px;",
@@ -1076,6 +1090,14 @@ mod_wgcna_server <- function(id, dataset, results) {
       base$significant_trait_modules <- sig
       base$traits_tested <- colnames(mt$p)
       results$wgcna <- base
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_wgcna_module_trait",
+        checksum_input = list(cor = mt$cor, p = mt$p),
+        params = list(traits = colnames(mt$p), correlation = input$cor_method %||% "pearson",
+                      disease_module_rule = "|r| >= 0.5 and p < 1e-8 on any selected trait column",
+                      n_modules_flagged = length(sig), flagged_modules = if (length(sig)) sig else "none"),
+        seed = NULL, packages = "WGCNA"
+      ), dedupe = TRUE)
     })
 
     mt_plot_obj <- reactive({
@@ -1198,7 +1220,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           validate(need(n_levels_used >= 2, "This trait has fewer than two distinct values in the current samples."))
         } else {
           validate(need(n_levels_used == 2,
-                        sprintf("\"%s\" has %d levels selected. Gene significance needs exactly two levels for a categorical trait - narrow the level checkboxes above to two, or use Step 4's module-trait heatmap for a multi-level comparison.",
+                        sprintf("\"%s\" has %d levels selected. Gene significance needs exactly two levels for a categorical trait. Narrow the checkboxes above to two, or use Step 4's module-trait heatmap for multi-level comparison.",
                                 input$hub_trait, n_levels_used)))
         }
         gs <- as.numeric(corFnc(net$texpr, trait_vec, use = "p"))
@@ -1457,7 +1479,7 @@ mod_wgcna_server <- function(id, dataset, results) {
                 uiOutput(ns("string_link_ui"), inline = TRUE))
           ),
           wgcna_result("image", "STRING-DB network image (live)",
-            desc = "A real image fetched live from the STRING protein-protein interaction database for the same genes - independent evidence (known/predicted interactions), not this dataset's own co-expression.",
+            desc = "Live image from the STRING protein-protein interaction database for the same genes - independent evidence (known/predicted interactions), not this dataset's own co-expression.",
             withSpinner(uiOutput(ns("string_image_ui")), color = "#2c6fbb", type = 6)
           )
         )
@@ -1465,7 +1487,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$enrich_hub_note <- renderUI({
-      hf <- tryCatch(hub_filtered(), error = function(e) NULL)
+      hf <- tryCatch(hub_filtered(), error = arthomix_null_on_error)
       if (is.null(hf) || nrow(hf) == 0) {
         div(class = "empty-note", icon("circle-info"), "No hub genes yet - set thresholds in Step 5 first.")
       } else {
@@ -1569,7 +1591,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$enrich_bar_plot <- renderPlot({
-      res <- tryCatch(module_enrich(), error = function(e) NULL)
+      res <- tryCatch(module_enrich(), error = arthomix_null_on_error)
       req(res)
       df <- res$table %>% dplyr::filter(qvalue < input$enrich_qcut) %>% dplyr::arrange(qvalue) %>% utils::head(15)
       validate(need(nrow(df) > 0, "No terms pass the current q-value cutoff."))
@@ -1581,7 +1603,7 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     output$enrich_table <- DT::renderDataTable({
-      res <- tryCatch(module_enrich(), error = function(e) NULL)
+      res <- tryCatch(module_enrich(), error = arthomix_null_on_error)
       req(res)
       DT::datatable(res$table, rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
@@ -1605,7 +1627,7 @@ mod_wgcna_server <- function(id, dataset, results) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
                     paste("Could not run enrichment:", enrich_store$error)))
       }
-      if (is.null(tryCatch(module_enrich(), error = function(e) NULL))) {
+      if (is.null(tryCatch(module_enrich(), error = arthomix_null_on_error))) {
         return(div(class = "empty-note", icon("circle-info"),
                     "Not run yet. Pick a module above, then click \"Run enrichment\" to see the results below."))
       }
@@ -1622,11 +1644,11 @@ mod_wgcna_server <- function(id, dataset, results) {
     })
 
     wgcna_progress <- reactive({
-      power_ok <- !is.null(tryCatch(sft_result(), error = function(e) NULL))
-      modules_ok <- !is.null(tryCatch(net_result(), error = function(e) NULL))
-      traits_ok <- !is.null(tryCatch(module_trait(), error = function(e) NULL))
-      hubs_ok <- !is.null(tryCatch(hub_filtered(), error = function(e) NULL))
-      enrich_ok <- !is.null(tryCatch(module_enrich(), error = function(e) NULL))
+      power_ok <- !is.null(tryCatch(sft_result(), error = arthomix_null_on_error))
+      modules_ok <- !is.null(tryCatch(net_result(), error = arthomix_null_on_error))
+      traits_ok <- !is.null(tryCatch(module_trait(), error = arthomix_null_on_error))
+      hubs_ok <- !is.null(tryCatch(hub_filtered(), error = arthomix_null_on_error))
+      enrich_ok <- !is.null(tryCatch(module_enrich(), error = arthomix_null_on_error))
       list(power_ok = power_ok, modules_ok = modules_ok, traits_ok = traits_ok, hubs_ok = hubs_ok, enrich_ok = enrich_ok)
     })
 

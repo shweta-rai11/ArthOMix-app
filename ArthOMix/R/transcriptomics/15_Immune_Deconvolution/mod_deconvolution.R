@@ -1,6 +1,5 @@
 ## R/transcriptomics/15_Immune_Deconvolution/mod_deconvolution.R
-## Immune Deconvolution: CIBERSORT (LM22 via IOBR) as the primary fraction
-## estimator, MCP-counter as an independent corroborating check, then a
+## Immune Deconvolution: CIBERSORT (LM22 via IOBR) primary, MCP-counter as a corroborating check.
 
 mod_deconvolution_config <- list(
   id = "deconvolution", group = "Interpretation",
@@ -12,7 +11,7 @@ mod_deconvolution_config <- list(
 mod_deconvolution_ui <- function(id) {
   ns <- NS(id)
   tagList(
-      p(class = "submodule-desc", "Runs CIBERSORT (LM22 signature, via IOBR) as the primary estimator and MCP-counter as an independent corroborating check, on whatever dataset is currently loaded; gene symbols must be in the expression matrix rownames."),
+      p(class = "submodule-desc", "Runs CIBERSORT (LM22 signature, via IOBR) as the primary estimator and MCP-counter as an independent corroborating check, on the currently loaded dataset. Gene symbols must be in the expression matrix rownames."),
       uiOutput(ns("advanced_ui")),
       actionButton(ns("run_btn"), "Estimate cell composition", icon = icon("play"), class = "btn-primary btn-sm"),
       div(class = "submodule-desc", style = "margin-top:6px;", "CIBERSORT's permutation testing can take up to a minute or two for larger cohorts."),
@@ -36,7 +35,7 @@ mod_deconvolution_ui <- function(id) {
         tags$summary(class = "box-header", style = "cursor: pointer;",
                       tags$h3(class = "box-title", icon("magnifying-glass-chart"), "Corroborating check: MCP-counter")),
         div(class = "box-body",
-          p(class = "submodule-desc", "MCP-counter is an independent, marker-gene-based estimator. It gives relative abundance scores, not fractions, so it's shown here to corroborate direction - agreement between two methods that fail in different ways is worth more than either alone - never as a replacement for the CIBERSORT fractions above."),
+          p(class = "submodule-desc", "MCP-counter is an independent, marker-gene-based estimator. It gives relative abundance scores, not fractions, so it's shown to corroborate direction - agreement between two differently-flawed methods is worth more than either alone - never to replace the CIBERSORT fractions above."),
           withSpinner(plotOutput(ns("mcp_plot"), height = 380), color = "#2c6fbb", type = 6),
           div(class = "table-toolbar", downloadButton(ns("download_mcp"), "Download scores CSV", class = "btn-sm")),
           DT::dataTableOutput(ns("mcp_table")),
@@ -51,7 +50,7 @@ mod_deconvolution_ui <- function(id) {
 
 deconv_gene_id_overlap_pct <- function(gene_ids) {
   known_symbols <- tryCatch(AnnotationDbi::keys(org.Hs.eg.db::org.Hs.eg.db, keytype = "SYMBOL"),
-                             error = function(e) NULL)
+                             error = arthomix_null_on_error)
   if (is.null(known_symbols)) return(NA_real_)
   round(100 * mean(gene_ids %in% known_symbols), 1)
 }
@@ -89,7 +88,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
                       tags$h3(class = "box-title", icon("sliders"), "Advanced: comparison group, sample filter & test")),
         div(class = "box-body",
           p(class = "submodule-desc",
-            "Defaults to comparing by \"group\" with Wilcoxon rank-sum (2 groups) or Kruskal-Wallis (3+ groups), FDR-adjusted - the same test this project's own deconvolution pipeline uses. Open this only if you want to compare by a different column, restrict to a sample subset first, force a specific test, or tune CIBERSORT's permutation count."),
+            "Defaults to comparing by \"group\" with Wilcoxon rank-sum (2 groups) or Kruskal-Wallis (3+ groups), FDR-adjusted - the same test this project's pipeline uses. Open this only to compare by a different column, restrict to a sample subset, force a specific test, or tune CIBERSORT's permutation count."),
           selectInput(ns("group_col"), "Compare cell composition across", choices = cols, selected = default_group, selectize = FALSE),
           radioButtons(
             ns("test_method"), "Statistical test",
@@ -141,7 +140,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
 
       id_overlap_pct <- deconv_gene_id_overlap_pct(rownames(expr))
       validate(need(is.na(id_overlap_pct) || id_overlap_pct >= 10,
-                    sprintf("Only %s%% of this expression matrix's row names match known human gene symbols - CIBERSORT/MCP-counter need HUGO gene symbols as row names (not Ensembl IDs, probe IDs, or another identifier type). Check the loaded dataset's feature IDs.",
+                    sprintf("Only %s%% of this expression matrix's row names match known human gene symbols. CIBERSORT/MCP-counter need HUGO gene symbols as row names (not Ensembl IDs, probe IDs, etc). Check the loaded dataset's feature IDs.",
                             id_overlap_pct)))
 
       declared_type <- dataset$declared_data_type
@@ -152,12 +151,12 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       }
       lin_expr <- if (is_counts) as.matrix(expr) else 2^as.matrix(expr)
       lin_expr[!is.finite(lin_expr)] <- 0
-      perm <- suppressWarnings(as.integer(input$cib_perm %||% 100))
+      perm <- arthomix_quiet(as.integer(input$cib_perm %||% 100))
       if (is.na(perm) || perm < 0) perm <- 100
 
       set.seed(ARTHOMIX_TX_ML_SEED)
       cib_raw <- tryCatch(
-        suppressMessages(suppressWarnings(
+        suppressMessages(arthomix_quiet(
           IOBR::deconvo_tme(eset = lin_expr, method = "cibersort", arrays = !is_counts, perm = perm)
         )),
         error = function(e) validate(need(FALSE, paste("CIBERSORT could not run on this expression matrix:", conditionMessage(e))))
@@ -194,7 +193,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
       pct <- tryCatch(result()$id_overlap_pct, error = function(e) NA_real_)
       req(!is.na(pct), pct < 70)
       div(class = "empty-note", style = "margin-top: 8px;", icon("triangle-exclamation"),
-          sprintf("Only %s%% of this expression matrix's row names matched known human gene symbols. CIBERSORT and MCP-counter can only score genes they recognise, so the fractions below may be based on a small, possibly unrepresentative subset of the LM22/MCP-counter marker panels - check that the loaded dataset's feature IDs are gene symbols.", pct))
+          sprintf("Only %s%% of this expression matrix's row names matched known human gene symbols. CIBERSORT and MCP-counter can only score genes they recognise, so fractions below may reflect a small, unrepresentative subset of the marker panels. Check that feature IDs are gene symbols.", pct))
     })
 
     deconv_has_run <- reactiveVal(FALSE)
@@ -226,7 +225,7 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
         p <- NA_real_; direction <- NA_character_
         if (nlevels(g) >= 2 && all(table(g) >= 2) && stats::sd(xv) > 0) {
           p <- tryCatch(
-            suppressWarnings(
+            arthomix_quiet(
               if (identical(used_method, "wilcox") && nlevels(g) == 2) {
                 stats::wilcox.test(xv ~ g)$p.value
               } else {
@@ -288,8 +287,8 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
 
     observeEvent(input$run_btn, {
       if (is.null(results)) return(invisible(NULL))
-      cgs <- tryCatch(cib_stats(), error = function(e) NULL)
-      mgs <- tryCatch(mcp_stats(), error = function(e) NULL)
+      cgs <- tryCatch(cib_stats(), error = arthomix_null_on_error)
+      mgs <- tryCatch(mcp_stats(), error = arthomix_null_on_error)
       req(cgs)
       results$deconvolution <- list(
         compared_across = cgs$group_col,
@@ -300,6 +299,19 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
         mcpcounter_n_significant = if (!is.null(mgs)) sum(mgs$table$significant, na.rm = TRUE) else NA_integer_,
         mcpcounter_significant_cell_types = if (!is.null(mgs)) mgs$table$cell_type[mgs$table$significant] else character(0)
       )
+      res <- tryCatch(result(), error = arthomix_null_on_error)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_deconvolution",
+        checksum_input = list(cib = if (!is.null(res)) res$cib$table else NULL, mcp = if (!is.null(res)) res$mcp$table else NULL),
+        params = list(
+          compared_across = cgs$group_col, test = cgs$test_label, cibersort_permutations = input$cib_perm %||% 100,
+          sample_filter = if (!is.null(input$filter_col) && !identical(input$filter_col, "(no filter)")) sprintf("%s in {%s}", input$filter_col, paste(input$filter_vals, collapse = ", ")) else "none",
+          signature = "CIBERSORT LM22 (via IOBR) + MCP-counter", multiple_testing = "BH across cell types",
+          n_samples = if (!is.null(res)) nrow(res$cib$table) else NA_integer_,
+          gene_symbol_overlap_pct = if (!is.null(res)) res$id_overlap_pct else NA_real_
+        ),
+        seed = ARTHOMIX_TX_ML_SEED, packages = c("IOBR", "MCPcounter")
+      ))
     })
 
     output$cell_table <- DT::renderDataTable({
@@ -311,13 +323,13 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     output$cell_plot <- renderPlot({
       if (!deconv_has_run()) return(NULL)
       res <- result()
-      gs <- tryCatch(cib_stats(), error = function(e) NULL)
+      gs <- tryCatch(cib_stats(), error = arthomix_null_on_error)
       render_group_boxplot(res$cib$table, res$cib$cell_cols, res$group_col, gs, "CIBERSORT fraction")
     })
 
     output$stats_table <- DT::renderDataTable({
       if (!deconv_has_run()) return(NULL)
-      gs <- tryCatch(cib_stats(), error = function(e) NULL)
+      gs <- tryCatch(cib_stats(), error = arthomix_null_on_error)
       req(gs)
       st <- gs$table
       out <- data.frame(
@@ -350,13 +362,13 @@ mod_deconvolution_server <- function(id, dataset, results = NULL) {
     output$mcp_plot <- renderPlot({
       if (!deconv_has_run()) return(NULL)
       res <- result()
-      gs <- tryCatch(mcp_stats(), error = function(e) NULL)
+      gs <- tryCatch(mcp_stats(), error = arthomix_null_on_error)
       render_group_boxplot(res$mcp$table, res$mcp$cell_cols, res$group_col, gs, "MCP-counter score")
     })
 
     output$mcp_stats_table <- DT::renderDataTable({
       if (!deconv_has_run()) return(NULL)
-      gs <- tryCatch(mcp_stats(), error = function(e) NULL)
+      gs <- tryCatch(mcp_stats(), error = arthomix_null_on_error)
       req(gs)
       st <- gs$table
       out <- data.frame(

@@ -1,6 +1,5 @@
 ## R/multiomics/05_Biomarker_Discovery/multiomics_biomarker_plots.R
-## Plot functions specific to Biomarker Discovery
-## (multiomics_biomarker_helpers.R / mod_multi_biomarker.R). Reuses the
+## Plot functions specific to Biomarker Discovery.
 
 mb_stability_plot <- function(sig_df, top_n = 40) {
   need <- c("feature", "omics", "selection_frequency", "stability_category")
@@ -76,7 +75,8 @@ mb_roc_plot <- function(cv_roc) {
   co <- pROC::coords(cv_roc$roc, "all", ret = c("specificity", "sensitivity"), transpose = FALSE)
   df <- data.frame(fpr = 1 - co$specificity, tpr = co$sensitivity)
   df <- df[order(df$fpr, df$tpr), ]
-  label <- sprintf("AUC = %.3f\n%d-fold pooled out-of-fold, n = %d", cv_roc$auc, cv_roc$folds, cv_roc$n_used)
+  label <- if (is.null(cv_roc$folds) || is.na(cv_roc$folds)) sprintf("AUC = %.3f\nexternal cohort, n = %d", cv_roc$auc, cv_roc$n_used)
+    else sprintf("AUC = %.3f\n%d-fold pooled out-of-fold, n = %d", cv_roc$auc, cv_roc$folds, cv_roc$n_used)
   ggplot2::ggplot(df, ggplot2::aes(x = fpr, y = tpr)) +
     ggplot2::geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = ARTHOMIX_COLORS$ink_muted) +
     ggplot2::geom_line(color = ARTHOMIX_COLORS$blue, linewidth = 1.1) +

@@ -18,7 +18,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblapack-dev \
     gfortran \
     zlib1g-dev \
+    libmagick++-dev \
+    libglpk-dev \
+    libglu1-mesa-dev \
+    libgl1-mesa-dev \
+    freeglut3-dev \
+    libhdf5-dev \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+## MOFA2 runs its factor model through the Python package mofapy2 (the app calls
+## MOFA2::run_mofa(use_basilisk = FALSE) and resolves the interpreter from
+## RETICULATE_PYTHON). Install it into the image so the MOFA sub-module works
+## in the container.
+RUN pip3 install --no-cache-dir --break-system-packages "mofapy2==0.7.5" || pip3 install --no-cache-dir "mofapy2==0.7.5"
+ENV RETICULATE_PYTHON=/usr/bin/python3
 
 WORKDIR /app
 

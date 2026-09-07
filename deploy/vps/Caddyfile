@@ -1,0 +1,9 @@
+# Replace SERVER_IP with your VPS's public IPv4 address, dashes instead of dots,
+# e.g. 203.0.113.9 -> 203-0-113-9.sslip.io
+# sslip.io is a free wildcard DNS service: <anything>.<ip-with-dashes>.sslip.io
+# always resolves to that IP, so Caddy can get you a real HTTPS certificate
+# without buying a domain.
+
+SERVER_IP.sslip.io {
+	reverse_proxy localhost:3838
+}

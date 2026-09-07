@@ -1,7 +1,7 @@
 ## server.R
 ## ArthOMix Explorer
 
-existing_app_server <- function(input, output, session, auth) {
+function(input, output, session) {
 
   dataset <- local({
     d <- load_default_dataset()
@@ -13,6 +13,62 @@ existing_app_server <- function(input, output, session, auth) {
   })
 
   results <- reactiveValues()
+
+  ## Session-wide analysis-record + diagnostics stores (R/provenance.R). Every analysis run button in the
+  ## Transcriptomics module pushes its provenance record here (Methylomics / Cross-Omics / Multi-Omics are not
+  ## yet wired; the methylomics DMP tab writes its own downloadable manifest); the header "Analysis records"
+  ## button lists and exports them, and the same panel shows the reason behind every error/warning the app
+  ## absorbed into a "Not available".
+  session$userData$arthomix_provenance <- reactiveVal(list())
+  session$userData$arthomix_diagnostics <- reactiveVal(list())
+
+  output$analysis_records_badge <- renderUI({
+    n <- length(arthomix_provenance_records(session))
+    if (n == 0) return(NULL)
+    span(class = "app-header-badge", n)
+  })
+
+  observeEvent(input$analysis_records_btn, {
+    showModal(modalDialog(
+      title = tagList(icon("clipboard-list"), " Analysis records - this session"),
+      size = "l", easyClose = TRUE, footer = modalButton("Close"),
+      p(class = "submodule-desc",
+        "One row per analysis run in this session, in the order they ran. Each record holds the exact parameters, seed, R and package versions, and a checksum of the input data. Download the full JSON to attach to a report or a manuscript supplement. Records are kept when the dataset changes; results are not."),
+      p(class = "submodule-desc", icon("circle-info"),
+        " Coverage: every analysis run button in the Transcriptomics module writes a record here (Overview normalisation, Preprocessing, Differential Expression, WGCNA, Candidate Genes, MR, Colocalisation, Feature Selection, Diagnostic Model incl. External Validation, Sex Interaction, Cross-Tissue Replication, Cross-Ancestry MR Replication, Functional Enrichment, Immune Deconvolution, Nomogram, Biomarker Card). The Methylomics, Cross-Omics and Multi-Omics modules are not yet wired to this log; the methylomics DMP tab writes its own downloadable manifest."),
+      div(class = "table-toolbar",
+          downloadButton("download_analysis_records", "Download all records (.json)", class = "btn-sm btn-default"),
+          actionButton("clear_analysis_records_btn", "Clear records", icon = icon("trash"), class = "btn-sm btn-default")),
+      DT::dataTableOutput("analysis_records_table"),
+      tags$hr(),
+      h4(icon("stethoscope"), " Diagnostics: absorbed errors and warnings"),
+      p(class = "submodule-desc",
+        "When an optional step fails, the app shows \"Not available\" rather than crashing the tab. The reason is kept here so you can see why. Identical messages are collapsed with a count, newest first."),
+      div(class = "table-toolbar",
+          actionButton("clear_diagnostics_btn", "Clear diagnostics", icon = icon("trash"), class = "btn-sm btn-default")),
+      DT::dataTableOutput("analysis_diagnostics_table")
+    ))
+  }, ignoreInit = TRUE)
+
+  output$analysis_records_table <- DT::renderDataTable({
+    tbl <- arthomix_provenance_summary_table(arthomix_provenance_records(session))
+    DT::datatable(tbl, rownames = FALSE,
+                  options = list(pageLength = 10, scrollX = TRUE, order = list(list(0, "desc"))),
+                  class = "stripe hover compact")
+  })
+  output$analysis_diagnostics_table <- DT::renderDataTable({
+    tbl <- arthomix_diag_summary_table(arthomix_diag_entries(session))
+    DT::datatable(tbl, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
+  })
+  output$download_analysis_records <- downloadHandler(
+    filename = function() sprintf("arthomix_analysis_records_%s.json", format(Sys.time(), "%Y%m%d_%H%M%S")),
+    content = function(file) {
+      recs <- arthomix_provenance_json_safe(arthomix_provenance_records(session))
+      writeLines(jsonlite::toJSON(recs, pretty = TRUE, auto_unbox = TRUE, force = TRUE, null = "null"), file)
+    }
+  )
+  observeEvent(input$clear_analysis_records_btn, arthomix_provenance_clear(session), ignoreInit = TRUE)
+  observeEvent(input$clear_diagnostics_btn, arthomix_diag_clear(session), ignoreInit = TRUE)
 
   observeEvent(dataset$source, {
     for (nm in names(results)) results[[nm]] <- NULL
@@ -585,10 +641,6 @@ existing_app_server <- function(input, output, session, auth) {
     ")
   }, ignoreInit = TRUE)
 
-  observeEvent(input$logout_btn, {
-    auth$logout()
-  }, ignoreInit = TRUE)
-
   output$tx_page_subtitle <- renderUI({
     sel <- input$tx_menu %||% "Dataset"
     txt <- switch(sel,
@@ -629,18 +681,4 @@ existing_app_server <- function(input, output, session, auth) {
     if (is.null(txt)) return(NULL)
     p(txt)
   })
-}
-
-function(input, output, session) {
-
-  auth <- mod_auth_server("auth")
-
-  output$app_shell <- renderUI({
-    if (is.null(auth$session_info())) mod_auth_ui("auth") else existing_app_ui(auth$session_info()$user$email)
-  })
-
-  observeEvent(auth$session_info(), {
-    req(auth$session_info())
-    existing_app_server(input, output, session, auth)
-  }, once = TRUE)
 }

@@ -1,6 +1,5 @@
 ## R/multiomics/functions/multiomics_plots.R
-## Plotting helpers for the Multi-Omics sub-modules - kept separate from the
-## module files themselves, same split crossomics_integration_plots.R uses
+## Plotting helpers for the Multi-Omics sub-modules, kept separate from module files.
 
 multi_empty_state <- function(msg = "Load a table (Dataset tab) to see results here.") {
   div(class = "empty-note", icon("circle-info"), msg)
@@ -24,6 +23,12 @@ multi_render_plotly <- function(plot_fn) {
     req(p)
     gp <- plotly::ggplotly(p, tooltip = "all")
     gp <- plotly::layout(gp, hoverlabel = list(bgcolor = "white", font = list(size = 12)))
+    if (isTRUE(gp$x$layout$showlegend) && identical(gp$x$layout$legend$orientation, "h")) {
+      gp <- plotly::layout(gp,
+        legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.35, yanchor = "top"),
+        margin = list(b = 120)
+      )
+    }
     plotly::config(gp, displaylogo = FALSE, modeBarButtonsToRemove = c("lasso2d", "select2d"))
   })
 }

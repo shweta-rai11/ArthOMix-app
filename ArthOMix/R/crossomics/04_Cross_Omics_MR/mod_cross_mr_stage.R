@@ -1,6 +1,5 @@
 ## R/crossomics/04_Cross_Omics_MR/mod_cross_mr_stage.R
-## Submodule: Cross-Omics MR - loads the pipeline's own already-run
-## single-instrument mQTL-MR results (Wald ratio, GoDMC exposure -> Ishigaki
+## Cross-Omics MR: single-instrument mQTL-MR results (Wald ratio, GoDMC -> Ishigaki RA).
 
 mod_cross_mr_stage_config <- list(
   id = "mrstage", title = "Cross-Omics MR", icon = "arrow-right-arrow-left", group = "Genetics",
@@ -30,10 +29,10 @@ mod_cross_mr_stage_ui <- function(id) {
           condition = sprintf("input['%s'] == 'upload'", ns("mr_source")),
           fileInput(ns("upload_mr_file"), "MR instrument results", accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per CpG-instrument. Required: gene, pval. Optional: cpg, SNP, nsnp, b, se, OR, OR_lo, OR_hi, FDR (recomputed via Benjamini-Hochberg from pval if omitted), steiger_dir, steiger_pval."),
+            "One row per CpG-instrument. Required: gene, pval. Optional: cpg, SNP, nsnp, b, se, OR, OR_lo, OR_hi, FDR (recomputed from pval if omitted), steiger_dir, steiger_pval."),
           actionButton(ns("load_mr_upload"), "Load Uploaded MR Results", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%"),
           tags$hr(),
-          p(class = "submodule-desc", icon("robot"), " Not sure which exposure/outcome dataset fits your own trait? Ask ArthOChat - it can search GWAS Catalog/OpenGWAS and PubMed for real candidate datasets (it will not fetch raw summary statistics or run MR itself; you'd still run that externally and upload the results above)."),
+          p(class = "submodule-desc", icon("robot"), " Not sure which dataset fits your trait? Ask ArthOChat - it searches GWAS Catalog/OpenGWAS and PubMed for candidates. It won't run MR itself; run it externally and upload the results above."),
           textInput(ns("ai_trait_query"), NULL, placeholder = "Describe your trait/disease, e.g. \"type 2 diabetes\""),
           actionButton(ns("ai_suggest_mr"), "Ask ArthOChat for a suggested dataset", icon = icon("comments"), class = "btn-outline-primary btn-sm", width = "100%")
         ),
@@ -53,7 +52,7 @@ mod_cross_mr_stage_ui <- function(id) {
           condition = sprintf("input['%s'] == 'upload'", ns("evidence_source")),
           fileInput(ns("upload_evidence_file"), "Gene-level evidence table", accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per gene. Required: gene. Optional (each defaults to \"not significant/not evaluated\" if omitted, never fabricated): DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Significance is relabeled at the same fixed thresholds as Biomarker Convergence (DEG/DMP/DMR FDR < 0.05, mQTL-MR nominal p < 0.05, eQTL-MR FDR < 0.05)."),
+            "One row per gene. Required: gene. Optional: DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Omitted columns default to \"not significant/not evaluated\", never fabricated. Same fixed thresholds as Biomarker Convergence: DEG/DMP/DMR FDR < 0.05, mQTL-MR nominal p < 0.05, eQTL-MR FDR < 0.05."),
           actionButton(ns("load_evidence_upload"), "Load Uploaded Evidence", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
         )
       )
@@ -164,7 +163,7 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       n_genes <- length(unique(d[[gene_col]][d[[mhc_col]] %in% TRUE]))
       p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
         sprintf(
-          "%d of %d row(s) here (%d gene(s), including HLA/MHC-region genes) fall in the MHC region (chr6, ~25-34Mb) - the single most notorious horizontal-pleiotropy hotspot in autoimmune-disease genetics. Extreme regional LD means an MR estimate here is more likely to reflect the region than the gene itself; treat these rows as considerably less reliable than non-MHC hits, regardless of how significant they look.",
+          "%d of %d row(s) (%d gene(s)) fall in the MHC region (chr6, ~25-34Mb): a major pleiotropy hotspot in autoimmune genetics. High regional LD means an estimate here may reflect the region, not the gene. Treat these as less reliable, regardless of significance.",
           n_mhc, nrow(d), n_genes
         ))
     }
@@ -238,7 +237,7 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
     output$results_table_ui <- renderUI({
       if (is.null(mrs$df)) return(cx_empty_state("Load MR results on the \"1. MR Data\" panel to see results here."))
       tagList(
-        p(class = "submodule-desc", "Mendelian randomization estimates - valid under the standard instrumental-variable assumptions. A single-instrument gene cannot be tested for validity via heterogeneity; a gene with several independent CpG-instruments (shown as separate rows here) could be, but this module does not currently aggregate per gene or run that test - treat every row as an association consistent with a causal effect, not as proof of one. No instrument-strength (F-statistic) figure is available from the precomputed file."),
+        p(class = "submodule-desc", "Mendelian randomization estimates (standard instrumental-variable assumptions apply). Single-instrument genes can't be heterogeneity-tested; this module doesn't run that test even for multi-instrument genes. Treat rows as consistent with a causal effect, not proof. No F-statistic is available."),
         mhc_warning(mrs_with_mhc(), mhc_col = "MHC_region"),
         if (any(mrs$df$steiger_dir %in% FALSE)) p(class = "empty-note", icon("triangle-exclamation"),
           sprintf("%d row(s) fail the Steiger directionality test (steiger_dir = FALSE) - possible reverse causation. Filter the \"steiger_dir\" column below to inspect them.", sum(mrs$df$steiger_dir %in% FALSE))),

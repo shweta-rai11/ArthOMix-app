@@ -1,10 +1,9 @@
-## Sex Interaction Analysis submodule (Section 2.10): live limma
-## group*sex interaction model on the currently loaded dataset.
+## Sex Interaction Analysis: live limma group*sex interaction model on the currently loaded dataset.
 
 mod_interaction_config <- list(
   id = "interaction", group = "Biomarker modeling",
   title = "Sex Interaction Analysis",
-  description = "Diagnosis-by-sex interaction model on the preloaded or uploaded data, showing which genes respond to the group difference differently in each sex, with the within-sex disease effects from the same fit.",
+  description = "Diagnosis-by-sex interaction model showing which genes respond to the group difference differently in each sex, plus within-sex disease effects from the same fit.",
   icon = "venus-mars"
 )
 
@@ -132,7 +131,7 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
     })
 
     observeEvent(input$run_btn, {
-      res <- tryCatch(fit_result(), error = function(e) NULL)
+      res <- tryCatch(fit_result(), error = arthomix_null_on_error)
       req(res)
       padj_cut <- input$padj_cut
       sig_counts <- lapply(res$tables, function(tt) sum(tt$adj.P.Val < padj_cut, na.rm = TRUE))
@@ -152,6 +151,20 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
         top_hits = head(int_tbl$gene[order(int_tbl$adj.P.Val)], 10),
         timestamp = Sys.time()
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_interaction",
+        checksum_input = list(genes = int_tbl$gene, logFC = int_tbl$logFC, cells = as.integer(res$cell_table)),
+        params = list(
+          model = "~ group * sex" , covariates = if (length(res$covariates)) res$covariates else "none",
+          reference_group = input$ref_group, comparison_group = input$comp_group,
+          reference_sex = input$ref_sex, comparison_sex = input$comp_sex,
+          padj_cut = padj_cut, cell_counts = paste(sprintf("%s/%s=%d", rownames(res$cell_table)[row(res$cell_table)],
+                                                             colnames(res$cell_table)[col(res$cell_table)], as.integer(res$cell_table)), collapse = ", "),
+          min_cell_n = res$min_cell_n, min_detectable_effect_sd = round(res$min_detectable_effect, 3),
+          n_tested = nrow(int_tbl), n_significant_interaction = sig_counts$interaction
+        ),
+        seed = NULL, packages = "limma"
+      ))
     }, ignoreInit = TRUE)
 
     output$summary_ui <- renderUI({
@@ -173,7 +186,7 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
         tags$tbody(lapply(rownames(ct), function(r) tags$tr(tags$td(strong(r)), lapply(colnames(ct), function(cl) tags$td(ct[r, cl])))))
       )
       power_note <- if (is.finite(res$min_detectable_effect)) {
-        sprintf("Smallest group-by-sex cell: n = %d. Minimum detectable interaction effect at 80%% power (alpha = 0.05, per gene, before multiple-testing adjustment) is about %.2f SD of expression - effects smaller than this will usually be missed.",
+        sprintf("Smallest group-by-sex cell: n = %d. Minimum detectable interaction effect at 80%% power (alpha=0.05, per gene, before multiple-testing adjustment) is about %.2f SD of expression. Smaller effects will usually be missed.",
                 res$min_cell_n, res$min_detectable_effect)
       } else NULL
       tagList(
@@ -188,7 +201,7 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
         effect_row(sprintf("Main sex effect within %s (reference group)", res$ref_group), res$coef_names$sex, res$tables$sex),
         if (length(res$covariates)) p(class = "empty-note", icon("circle-info"), sprintf("Adjusted for: %s", paste(res$covariates, collapse = ", "))) else NULL,
         p(class = "empty-note", icon("circle-info"),
-          "All four results come from the same fit. The interaction term is the primary result - it tests whether the disease effect itself differs between sexes. The two within-sex disease effects are the secondary, stratified view (a gene can be significant in one sex and not the other without a significant interaction, which is why the interaction term is reported first).")
+          "All four results come from the same fit. The interaction term is primary - it tests whether the disease effect itself differs between sexes. The two within-sex effects are the secondary, stratified view: a gene can be significant in one sex and not the other without a significant interaction, which is why the interaction term is reported first.")
       )
     })
 

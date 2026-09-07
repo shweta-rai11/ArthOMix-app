@@ -1,6 +1,5 @@
 ## R/transcriptomics/01_Data/mod_dataset.R
-## Dataset tab: pick a preloaded dataset, upload your own, or fetch from NCBI
-## GEO - each of the three is an independent pipeline, and whichever one you
+## Dataset tab: pick a preloaded dataset, upload your own, or fetch from GEO.
 
 mod_dataset_config <- list(
   id = "dataset", 
@@ -84,7 +83,7 @@ mod_dataset_ui <- function(id) {
                var statusDiv = document.getElementById('%s');
                if (!statusDiv) return;
                btn.disabled = true;
-               statusDiv.innerHTML = '<div class=\"empty-note\"><i class=\"fas fa-spinner fa-spin\" role=\"presentation\"></i> Fetching from NCBI GEO - this can take anywhere from a few seconds to a couple of minutes depending on the series size and NCBI\\'s current load. This app is unresponsive to other actions while it fetches - please don\\'t navigate away or click Fetch again.</div>';
+               statusDiv.innerHTML = '<div class=\"empty-note\"><i class=\"fas fa-spinner fa-spin\" role=\"presentation\"></i> Fetching from NCBI GEO - this can take a few seconds to a couple of minutes. Please don\\'t navigate away or click Fetch again.</div>';
                var observer = new MutationObserver(function() {
                  var liveBtn = document.getElementById('%s');
                  if (liveBtn) liveBtn.disabled = false;
@@ -125,9 +124,56 @@ mod_dataset_ui <- function(id) {
         )
       )
     ),
-    uiOutput(ns("load_message"))
+    uiOutput(ns("load_message")),
+    box(
+      width = NULL, title = "Reserve validation samples (sealed hold-out)", status = "primary", solidHeader = FALSE,
+      p(class = "submodule-desc",
+        "Set aside samples before any analysis runs. Reserved samples are hidden from every step (DE, WGCNA, Candidate Genes, Feature Selection, Model Training). They're only scored later in Diagnostic Model → External Validation, giving the one result that's leakage-safe end-to-end. Note: this turns off the fast precomputed results, since those were built using all samples."),
+      fluidRow(
+        column(3, numericInput(ns("reserve_frac_pct"), "Reserved fraction (%)", value = 30, min = 10, max = 50, step = 5)),
+        column(3, numericInput(ns("reserve_seed"), "Split seed", value = 1234, min = 1, step = 1)),
+        column(3, checkboxInput(ns("reserve_stratify_sex"), "Stratify by sex as well as group", value = TRUE)),
+        column(3, div(style = "margin-top: 26px; display: flex; gap: 8px; flex-wrap: wrap;",
+                      actionButton(ns("reserve_btn"), "Reserve", icon = icon("lock"), class = "btn-primary btn-sm"),
+                      actionButton(ns("release_btn"), "Release", icon = icon("lock-open"), class = "btn-default btn-sm")))
+      ),
+      uiOutput(ns("reserve_status"))
+    )
   )
 }
+
+DATASET_RESERVE_MIN_TOTAL <- 20L
+DATASET_RESERVE_MIN_PER_GROUP <- 4L
+
+## Stratified split into discovery/reserved samples. Pure function, testable outside Shiny.
+tx_reserve_validation_ids <- function(meta, frac, seed = 1234, stratify_sex = TRUE) {
+  stopifnot(is.data.frame(meta), "sample" %in% colnames(meta), "group" %in% colnames(meta))
+  frac <- min(max(as.numeric(frac), 0.1), 0.5)
+  ok <- !is.na(meta$group)
+  meta <- meta[ok, , drop = FALSE]
+  if (nrow(meta) < DATASET_RESERVE_MIN_TOTAL) stop(sprintf("At least %d samples with a group label are needed to reserve a validation set (this dataset has %d).", DATASET_RESERVE_MIN_TOTAL, nrow(meta)))
+  grp <- as.character(meta$group)
+  if (length(unique(grp)) < 2) stop("The group column needs at least two distinct values to reserve a stratified validation set.")
+  strata <- grp
+  if (isTRUE(stratify_sex) && "sex" %in% colnames(meta) && any(!is.na(meta$sex))) {
+    sx <- as.character(meta$sex); sx[is.na(sx)] <- "unknown"
+    strata <- paste(grp, sx, sep = "|")
+  }
+  set.seed(as.integer(seed))
+  strata_f <- factor(strata)
+  train_idx <- as.integer(caret::createDataPartition(strata_f, p = 1 - frac, list = FALSE)[, 1])
+  reserved <- meta$sample[setdiff(seq_len(nrow(meta)), train_idx)]
+  disc_tab <- table(grp[train_idx]); res_tab <- table(grp[-train_idx])
+  if (any(disc_tab < DATASET_RESERVE_MIN_PER_GROUP) || length(res_tab) < 2 || any(res_tab < DATASET_RESERVE_MIN_PER_GROUP)) {
+    stop(sprintf("Reserving %d%% would leave fewer than %d samples in a group on one side of the split (discovery: %s; reserved: %s). Lower the fraction or use a larger dataset.",
+                 round(frac * 100), DATASET_RESERVE_MIN_PER_GROUP,
+                 paste(sprintf("%s = %d", names(disc_tab), as.integer(disc_tab)), collapse = ", "),
+                 paste(sprintf("%s = %d", names(res_tab), as.integer(res_tab)), collapse = ", ")))
+  }
+  reserved
+}
+
+DATASET_RESERVED_SUFFIX_RE <- " \\[[0-9]+ validation samples reserved\\]$"
 
 mod_dataset_server <- function(id, dataset) {
   moduleServer(id, function(input, output, session) {
@@ -146,10 +192,10 @@ mod_dataset_server <- function(id, dataset) {
         }
       if (raw_unavailable) {
         p(class = "empty-note", icon("circle-info"),
-          "This source's raw probe-level file isn't available in this deployment, so this loads its samples only, filtered out of the merged, batch-corrected training cohort - not raw, single-platform data. To see it merged with the other training source instead, pick \"Merged Data\" above.")
+          "This source's raw probe-level file isn't available here. This loads only its samples, filtered from the merged, batch-corrected training cohort - not raw single-platform data. Pick \"Merged Data\" above to see it merged with the other source.")
       } else {
         p(class = "empty-note", icon("triangle-exclamation"),
-          "Raw, single-platform data - probe-level, not merged or normalised. You can run any sub-module directly against it, but most were built assuming the merged cohort, so results may look different. To just look at it without changing what every sub-module runs on, use the QC tab on Overview and Datasets instead.")
+          "Raw, single-platform data - probe-level, not merged or normalised. Sub-modules can run on it directly, but most assume the merged cohort, so results may differ. To inspect it without changing what sub-modules run on, use the QC tab on Overview and Datasets instead.")
       }
     })
 
@@ -171,7 +217,7 @@ mod_dataset_server <- function(id, dataset) {
         if (!is.null(eset)) {
           tagList(
             p(class = "module-card-tagline",
-              tryCatch(Biobase::experimentData(eset)@title, error = function(e) NULL)),
+              tryCatch(Biobase::experimentData(eset)@title, error = arthomix_null_on_error)),
             p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
             p(strong("Platform: "), Biobase::annotation(eset), br(),
               strong("Samples: "), ncol(eset), ", ", strong("Probes: "), format(nrow(eset), big.mark = ","))
@@ -212,9 +258,9 @@ mod_dataset_server <- function(id, dataset) {
         m <- as.matrix(m[, -1, drop = FALSE])
         if (!is.numeric(m)) {
           storage.mode(m) <- "character"
-          m_num <- suppressWarnings(matrix(as.numeric(m), nrow = nrow(m), ncol = ncol(m), dimnames = dimnames(m)))
+          m_num <- arthomix_quiet(matrix(as.numeric(m), nrow = nrow(m), ncol = ncol(m), dimnames = dimnames(m)))
           validate(need(!any(!is.na(m) & m != "" & is.na(m_num)),
-            "This file has non-numeric values outside the first (gene ID) column. Expression matrices must be purely numeric after the ID column - check for stray text, footnotes, or thousands separators in the data cells."))
+            "This file has non-numeric values outside the first (gene ID) column. Everything after the ID column must be numeric - check for stray text, footnotes, or thousands separators."))
           m <- m_num
         }
         rownames(m) <- rn
@@ -329,13 +375,121 @@ mod_dataset_server <- function(id, dataset) {
       dataset$is_bundled_reference <- is_bundled_reference
       dataset$geo_ids <- geo_ids
       dataset$declared_data_type <- declared_data_type
+      ## a newly loaded dataset never inherits the previous dataset's sealed hold-out
+      dataset$reserved_ids <- character(0)
+      dataset$reserved_expr <- NULL
+      dataset$reserved_meta <- NULL
+      dataset$reserved_info <- NULL
       sum(duplicated(rownames(expr)))
     }
+
+    ## ---- Sealed validation hold-out --------------------------------------------------------------
+    reserve_msg <- reactiveVal(NULL)
+
+    seal_samples <- function(ids, info) {
+      expr <- dataset$expr; meta <- dataset$meta
+      ids <- intersect(ids, colnames(expr))
+      keep <- setdiff(colnames(expr), ids)
+      dataset$reserved_expr <- expr[, ids, drop = FALSE]
+      dataset$reserved_meta <- meta[match(ids, meta$sample), , drop = FALSE]
+      dataset$reserved_ids <- ids
+      dataset$reserved_info <- info
+      dataset$expr <- expr[, keep, drop = FALSE]
+      dataset$meta <- meta[match(keep, meta$sample), , drop = FALSE]
+    }
+
+    observeEvent(input$reserve_btn, {
+      req(dataset$expr, dataset$meta)
+      if (length(dataset$reserved_ids %||% character(0)) > 0) {
+        reserve_msg(list(kind = "warn", text = "Validation samples are already reserved for this dataset. Release them first if you want a different split."))
+        return()
+      }
+      frac <- (input$reserve_frac_pct %||% 30) / 100
+      ids <- tryCatch(tx_reserve_validation_ids(dataset$meta, frac, seed = input$reserve_seed %||% 1234,
+                                                stratify_sex = isTRUE(input$reserve_stratify_sex)),
+                      error = function(e) e)
+      if (inherits(ids, "error")) { reserve_msg(list(kind = "warn", text = conditionMessage(ids))); return() }
+      info <- list(frac = frac, seed = input$reserve_seed %||% 1234, stratify_sex = isTRUE(input$reserve_stratify_sex),
+                   reserved_at = Sys.time(), source_at_reservation = dataset$source,
+                   was_bundled_reference = isTRUE(dataset$is_bundled_reference), resealed = 0L)
+      seal_samples(ids, info)
+      ## bundled shortcuts used all samples, so disable them for a reserved run
+      dataset$is_bundled_reference <- FALSE
+      base <- sub(DATASET_RESERVED_SUFFIX_RE, "", dataset$source %||% "Currently loaded dataset")
+      dataset$source <- sprintf("%s [%d validation samples reserved]", base, length(ids))
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_dataset_reserve_validation",
+        checksum_input = list(reserved_ids = sort(ids), discovery_ids = sort(colnames(dataset$expr))),
+        params = list(fraction = frac, seed = info$seed, stratify_sex = info$stratify_sex,
+                      n_reserved = length(ids), n_discovery = ncol(dataset$expr),
+                      reserved_groups = paste(sprintf("%s = %d", names(table(dataset$reserved_meta$group)), as.integer(table(dataset$reserved_meta$group))), collapse = ", "),
+                      bundled_shortcuts_disabled = info$was_bundled_reference),
+        seed = info$seed, packages = "caret"
+      ))
+      reserve_msg(list(kind = "ok", text = sprintf(
+        "Reserved %d of %d samples (%s) as a sealed validation set, stratified by %s. Every sub-module now sees only the %d discovery samples. Score them later in Diagnostic Model → External Validation → \"Sealed validation samples\".%s",
+        length(ids), length(ids) + ncol(dataset$expr),
+        paste(sprintf("%s = %d", names(table(dataset$reserved_meta$group)), as.integer(table(dataset$reserved_meta$group))), collapse = ", "),
+        if (info$stratify_sex) "group and sex" else "group", ncol(dataset$expr),
+        if (info$was_bundled_reference) " Precomputed bundled-reference shortcuts are disabled for this run because they were computed on all samples." else "")))
+    }, ignoreInit = TRUE)
+
+    observeEvent(input$release_btn, {
+      ids <- dataset$reserved_ids %||% character(0)
+      if (length(ids) == 0) { reserve_msg(list(kind = "warn", text = "No validation samples are reserved.")); return() }
+      info <- dataset$reserved_info
+      rexpr <- dataset$reserved_expr; rmeta <- dataset$reserved_meta
+      common_genes <- intersect(rownames(dataset$expr), rownames(rexpr))
+      dataset$expr <- cbind(dataset$expr[common_genes, , drop = FALSE], rexpr[common_genes, , drop = FALSE])
+      dataset$meta <- rbind(dataset$meta, rmeta[, colnames(dataset$meta), drop = FALSE])
+      dataset$reserved_ids <- character(0); dataset$reserved_expr <- NULL; dataset$reserved_meta <- NULL; dataset$reserved_info <- NULL
+      if (isTRUE(info$was_bundled_reference)) dataset$is_bundled_reference <- TRUE
+      dataset$source <- sub(DATASET_RESERVED_SUFFIX_RE, "", dataset$source %||% "Currently loaded dataset")
+      reserve_msg(list(kind = "ok", text = sprintf("Released %d reserved samples back into the active dataset (%d samples). Results computed on the discovery subset have been cleared.", length(ids), ncol(dataset$expr))))
+    }, ignoreInit = TRUE)
+
+    ## Re-seal reserved samples if another sub-module reintroduces them into the active matrix.
+    observeEvent(dataset$expr, {
+      ids <- dataset$reserved_ids %||% character(0)
+      if (length(ids) == 0 || is.null(dataset$expr)) return()
+      back <- intersect(ids, colnames(dataset$expr))
+      if (length(back) == 0) return()
+      info <- dataset$reserved_info %||% list()
+      info$resealed <- (info$resealed %||% 0L) + 1L
+      info$resealed_from <- dataset$source
+      seal_samples(ids, info)
+      if (isTRUE(dataset$is_bundled_reference)) dataset$is_bundled_reference <- FALSE
+      if (!grepl(DATASET_RESERVED_SUFFIX_RE, dataset$source %||% "")) {
+        dataset$source <- sprintf("%s [%d validation samples reserved]", dataset$source %||% "Currently loaded dataset", length(dataset$reserved_ids))
+      }
+      reserve_msg(list(kind = "ok", text = sprintf(
+        "The active matrix was replaced (%s) and contained %d reserved samples. They were sealed away again, now with the same processing as the discovery samples.",
+        dataset$source, length(back))))
+    })
+
+    output$reserve_status <- renderUI({
+      ids <- dataset$reserved_ids %||% character(0)
+      msg <- reserve_msg()
+      tagList(
+        if (!is.null(msg)) div(class = "empty-note", icon(if (identical(msg$kind, "ok")) "check" else "triangle-exclamation"), msg$text),
+        if (length(ids) > 0) {
+          info <- dataset$reserved_info %||% list()
+          rt <- table(dataset$reserved_meta$group)
+          div(class = "empty-note", icon("lock"),
+              sprintf("Sealed hold-out active: %d reserved samples (%s), seed %s, %d%% of the dataset%s. Reserved on: %s.%s",
+                      length(ids), paste(sprintf("%s = %d", names(rt), as.integer(rt)), collapse = ", "),
+                      format(info$seed %||% NA), round((info$frac %||% NA) * 100),
+                      if (isTRUE(info$stratify_sex)) ", stratified by group and sex" else ", stratified by group",
+                      info$source_at_reservation %||% "(unknown)",
+                      if ((info$resealed %||% 0L) > 0) sprintf(" Re-sealed %d time(s) after the active matrix was reprocessed.", info$resealed) else ""))
+        } else div(class = "empty-note", icon("circle-info"), "No validation samples reserved - every loaded sample is visible to every sub-module.")
+      )
+    })
 
     duplicate_feature_note <- function(n_dup) {
       if (n_dup == 0) return(NULL)
       div(class = "empty-note", icon("triangle-exclamation"),
-          sprintf("%d duplicated feature identifier(s) were detected in this dataset. All rows are kept here, but downstream row-name-keyed steps (e.g. the Preprocessing merge tab) will keep only the first occurrence of each - rename duplicates in your source file if this is unintended.", n_dup))
+          sprintf("%d duplicated feature identifier(s) found. All rows are kept here, but downstream steps keyed by row name (e.g. the Preprocessing merge tab) keep only the first occurrence of each. Rename duplicates in your source file if unintended.", n_dup))
     }
 
     observeEvent(input$load_preloaded_btn, {
@@ -351,7 +505,7 @@ mod_dataset_server <- function(id, dataset) {
       )
       output$preloaded_load_message <- renderUI(tagList(
         span(style = "color: var(--color-success); font-size: 13px; font-weight: 600;", icon("check"), " ",
-             sprintf("Loaded %s: %s genes across %s samples. Every sub-module now runs on this dataset - optionally go to Preprocessing and pick \"Currently loaded dataset\" to merge, normalise, or batch-correct it first.",
+             sprintf("Loaded %s: %s genes across %s samples. Every sub-module now runs on this dataset. Optionally go to Preprocessing and pick \"Currently loaded dataset\" to merge, normalise, or batch-correct it first.",
                       entry$label, format(nrow(d$expr), big.mark = ","), ncol(d$expr))),
         duplicate_feature_note(n_dup)
       ))
@@ -462,9 +616,9 @@ mod_dataset_server <- function(id, dataset) {
         eset <- geo_eset()
         ex <- Biobase::exprs(eset)
         if (nrow(ex) == 0 || ncol(ex) == 0) {
-          stop("This GEO series has no expression matrix in its series matrix file - common for RNA-seq series that only deposit raw counts as supplementary files. Download that file from the GEO page and use \"Upload your own data\" instead.")
+          stop("This GEO series has no expression matrix in its series matrix file. This is common for RNA-seq series that only deposit raw counts as supplementary files. Download that file from GEO and use \"Upload your own data\" instead.")
         }
-        collapsed <- tryCatch(collapse_probes_to_genes(eset), error = function(e) NULL)
+        collapsed <- tryCatch(collapse_probes_to_genes(eset), error = arthomix_null_on_error)
         used_collapse <- !is.null(collapsed) && nrow(collapsed) > 0 && isTRUE(attr(collapsed, "collapsed"))
         expr <- if (used_collapse) collapsed else ex
         list(expr = expr, meta = as.data.frame(Biobase::pData(eset)),
@@ -491,7 +645,7 @@ mod_dataset_server <- function(id, dataset) {
         if (!em$collapsed) {
           div(class = "empty-note", icon("triangle-exclamation"),
               if (isTRUE(res$gpl_skipped))
-                "GEO's platform-annotation file couldn't be fetched just now (NCBI may be rate-limiting automated requests) - loaded at probe/feature-ID level without gene symbols. Try fetching again later, or use Preprocessing's own probe-collapse step afterward."
+                "GEO's platform-annotation file couldn't be fetched (NCBI may be rate-limiting requests). Loaded at probe/feature-ID level without gene symbols. Try again later, or use Preprocessing's probe-collapse step afterward."
               else
                 "No gene-symbol annotation found for this platform - left at probe/feature-ID level. You can still load it as-is, or use Preprocessing's own probe-collapse step afterward.")
         }
@@ -569,7 +723,7 @@ mod_dataset_server <- function(id, dataset) {
         )
         n_samples <- ncol(result$expr)
         wgcna_note <- if (n_samples < 15) {
-          " Note: WGCNA needs at least 15 samples to detect modules reliably, so its tab will stay blank until a larger dataset (e.g. merged with another GEO series or the preloaded cohort) is loaded."
+          " Note: WGCNA needs at least 15 samples to detect modules reliably. Its tab stays blank until a larger dataset is loaded (e.g. merged with another GEO series or the preloaded cohort)."
         } else {
           ""
         }

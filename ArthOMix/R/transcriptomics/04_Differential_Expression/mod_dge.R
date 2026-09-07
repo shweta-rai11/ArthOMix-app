@@ -1,6 +1,5 @@
 ## R/transcriptomics/04_Differential_Expression/mod_dge.R - Differential Expression submodule.
-## Fits a live limma or DESeq2 contrast between two levels of any metadata
-## column, with an optional covariate/filter column; method must match the
+## Fits a live limma or DESeq2 contrast between two levels of any metadata column.
 
 mod_dge_config <- list(
   id = "dge", group = "Data",
@@ -25,7 +24,7 @@ dge_read_expr_upload <- function(datapath, filename) {
   validate(need(ncol(df) >= 2, "Expression file needs a feature-ID column plus at least one sample column."))
   rn <- as.character(df[[1]])
   raw <- df[, -1, drop = FALSE]
-  m <- suppressWarnings({ mm <- as.matrix(raw); storage.mode(mm) <- "double"; mm })
+  m <- arthomix_quiet({ mm <- as.matrix(raw); storage.mode(mm) <- "double"; mm })
   rownames(m) <- rn
   colnames(m) <- colnames(raw)
   m
@@ -104,7 +103,17 @@ mod_dge_ui <- function(id) {
             uiOutput(ns("ref_comp_ui")),
             uiOutput(ns("covariate_controls_ui")),
             numericInput(ns("padj_cut"), "Adjusted p-value cutoff", value = 0.05, min = 0, max = 1, step = 0.01),
-            numericInput(ns("lfc_cut"), "Absolute log2 fold-change cutoff", value = 0.1, min = 0, step = 0.1),
+            numericInput(ns("lfc_cut"), "Absolute log2 fold-change cutoff", value = 0.5, min = 0, step = 0.1),
+            radioButtons(
+              ns("effect_mode"), "How the fold-change cutoff is applied",
+              choiceNames = list(
+                "Filter after testing (genes tested against log2FC = 0, then the |log2FC| gate applied post hoc)",
+                "limma::treat - fold-change inside the null hypothesis (H0: |log2FC| ≤ cutoff; conservative, McCarthy & Smyth 2009; limma only)"
+              ),
+              choiceValues = list("posthoc", "treat"), selected = "posthoc"
+            ),
+            div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
+                "A |log2FC| cutoff of 0.1 (a 1.07-fold change) is a coherence filter, not a prioritisation step - it calls about half the transcriptome significant on the bundled cohort. The result panel also reports counts at 0.5 and 1.0, so this choice's effect stays visible."),
             actionButton(ns("run_btn"), "Run differential expression", icon = icon("play"), class = "btn-primary btn-sm"),
             div(style = "margin-top:10px;", uiOutput(ns("saved_runs_ui")))
           )
@@ -163,13 +172,13 @@ mod_dge_server <- function(id, dataset, results) {
 
     upload_type_check <- reactive({
       req(input$dge_expr_file)
-      expr <- tryCatch(dge_read_expr_upload(input$dge_expr_file$datapath, input$dge_expr_file$name), error = function(e) NULL)
+      expr <- tryCatch(dge_read_expr_upload(input$dge_expr_file$datapath, input$dge_expr_file$name), error = arthomix_null_on_error)
       req(expr)
       tx_validate_expr_upload(expr, input$dge_declared_data_type)
     })
 
     output$upload_type_warning_ui <- renderUI({
-      checked <- tryCatch(upload_type_check(), error = function(e) NULL)
+      checked <- tryCatch(upload_type_check(), error = arthomix_null_on_error)
       req(checked)
       if (!isTRUE(checked$ok)) {
         div(class = "empty-note", icon("triangle-exclamation"), checked$error)
@@ -204,7 +213,7 @@ mod_dge_server <- function(id, dataset, results) {
       req(input$data_source == "upload")
       out <- tagList()
 
-      meta_df <- tryCatch(meta_upload_raw(), error = function(e) NULL)
+      meta_df <- tryCatch(meta_upload_raw(), error = arthomix_null_on_error)
       if (!is.null(meta_df)) {
         cols <- colnames(meta_df)
         out <- tagAppendChildren(
@@ -216,7 +225,7 @@ mod_dge_server <- function(id, dataset, results) {
         )
       }
 
-      annot_df <- tryCatch(annot_upload_raw(), error = function(e) NULL)
+      annot_df <- tryCatch(annot_upload_raw(), error = arthomix_null_on_error)
       if (!is.null(annot_df)) {
         acols <- colnames(annot_df)
         out <- tagAppendChildren(
@@ -270,7 +279,7 @@ mod_dge_server <- function(id, dataset, results) {
 
     cur_source <- reactive({
       if (identical(input$data_source, "upload")) {
-        up <- tryCatch(active_upload_input(), error = function(e) NULL)
+        up <- tryCatch(active_upload_input(), error = arthomix_null_on_error)
         if (!is.null(up)) return(up)
       }
       list(expr = dataset$expr, meta = dataset$meta, source_label = dataset$source,
@@ -341,7 +350,9 @@ mod_dge_server <- function(id, dataset, results) {
       selectInput(ns("covariate_level"), "Restrict to", choices = lvls, selected = lvls[1], selectize = FALSE)
     })
 
-    compute_dge_fit <- function(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method) {
+    compute_dge_fit <- function(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method,
+                                effect_mode = "posthoc", lfc_cut = 0.5) {
+      use_treat <- identical(effect_mode, "treat") && identical(method, "limma") && is.numeric(lfc_cut) && isTRUE(lfc_cut > 0)
       cs <- cur_source()
       meta <- cs$meta
 
@@ -399,11 +410,11 @@ mod_dge_server <- function(id, dataset, results) {
         is_normalized_totals <- looks_like_normalized_totals(expr)
       }
       if (identical(used_method, "deseq2")) {
-        validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts directly via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with Preprocessing's own log2 set to \"Skip\")."))
-        validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw sequencing counts. DESeq2 requires raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
+        validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with log2 set to \"Skip\")."))
+        validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw counts. DESeq2 needs raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
       } else if (identical(used_method, "limma")) {
         validate(need(!(is_counts && !is_normalized_totals),
-          "This data looks like raw, non-negative sequencing counts (wide value range, not library-size-normalised) - limma assumes continuous, roughly-normal data and can give misleading results on raw counts. Pick DESeq2 instead, or load/normalise this to continuous, log-scale data first."))
+          "This data looks like raw, non-negative sequencing counts (wide value range, not library-size-normalised). limma assumes continuous, roughly-normal data and can mislead on raw counts. Pick DESeq2 instead, or normalise this to continuous, log-scale data first."))
       }
 
       tt <- if (identical(used_method, "deseq2")) {
@@ -432,9 +443,10 @@ mod_dge_server <- function(id, dataset, results) {
         aw <- limma::arrayWeights(expr, design)
         fit <- limma::lmFit(expr, design, weights = aw)
         cm <- limma::makeContrasts(contrasts = paste0(safe_levels[2], "-", safe_levels[1]), levels = design)
-        fit2 <- tryCatch(limma::eBayes(limma::contrasts.fit(fit, cm)),
-                          error = function(e) validate(need(FALSE, paste("limma could not fit this contrast:", conditionMessage(e)))))
-        out <- limma::topTable(fit2, number = Inf, sort.by = "P")
+        fit2 <- tryCatch(
+          if (use_treat) limma::treat(limma::contrasts.fit(fit, cm), lfc = lfc_cut) else limma::eBayes(limma::contrasts.fit(fit, cm)),
+          error = function(e) validate(need(FALSE, paste("limma could not fit this contrast:", conditionMessage(e)))))
+        out <- if (use_treat) limma::topTreat(fit2, coef = 1, number = Inf, sort.by = "P") else limma::topTable(fit2, number = Inf, sort.by = "P")
         out$gene <- rownames(out)
         rownames(out) <- NULL
         out[, c("gene", setdiff(colnames(out), "gene"))]
@@ -446,13 +458,13 @@ mod_dge_server <- function(id, dataset, results) {
         if (adjust_for_covariate) sprintf("~0 + %s + %s", contrast_col, covariate_col) else sprintf("~0 + %s", contrast_col)
       }
       test_label <- switch(used_method,
-        limma = "moderated t-test (limma eBayes, array-quality-weighted)",
+        limma = if (use_treat) sprintf("limma treat, H0: |log2FC| <= %s inside the test (array-quality-weighted)", format(lfc_cut)) else "moderated t-test (limma eBayes, array-quality-weighted)",
         deseq2 = "Wald test (DESeq2)",
         used_method
       )
 
       list(
-        table = tt, method = used_method,
+        table = tt, method = used_method, effect_mode = if (use_treat) "treat" else "posthoc",
         expr = expr, grp = grp,
         design_formula = design_formula, test_label = test_label,
         n_ref = sum(grp == levels(grp)[1]), n_comp = sum(grp == levels(grp)[2]),
@@ -466,7 +478,8 @@ mod_dge_server <- function(id, dataset, results) {
       compute_dge_fit(
         input$contrast_col, input$ref_group, input$comp_group,
         input$covariate_col %||% "(none)", input$covariate_mode %||% "filter", input$covariate_level,
-        input$method
+        input$method,
+        effect_mode = input$effect_mode %||% "posthoc", lfc_cut = input$lfc_cut %||% 0.5
       )
     })
 
@@ -494,7 +507,23 @@ mod_dge_server <- function(id, dataset, results) {
       compute_dge_significance(fit_result(), input$padj_cut, input$lfc_cut)
     })
 
-    save_dge_result <- function(res, df) {
+    save_dge_result <- function(res, df, padj_cut = input$padj_cut %||% 0.05, lfc_cut = input$lfc_cut %||% 0.5) {
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_dge",
+        checksum_input = list(expr = res$expr, grp = as.character(res$grp)),
+        params = list(
+          method = res$method, contrast = res$label, design_formula = res$design_formula,
+          test = res$test_label, effect_mode = res$effect_mode %||% "posthoc",
+          padj_cut = padj_cut, lfc_cut = lfc_cut,
+          n_reference = res$n_ref, n_comparison = res$n_comp,
+          n_tested = nrow(df), n_significant = sum(df$significant),
+          n_significant_lfc_0.1 = sum(!is.na(df$adj.P.Val) & df$adj.P.Val < padj_cut & abs(df$logFC) > 0.1),
+          n_significant_lfc_0.5 = sum(!is.na(df$adj.P.Val) & df$adj.P.Val < padj_cut & abs(df$logFC) > 0.5),
+          n_significant_lfc_1 = sum(!is.na(df$adj.P.Val) & df$adj.P.Val < padj_cut & abs(df$logFC) > 1)
+        ),
+        seed = NULL,
+        packages = if (identical(res$method, "deseq2")) "DESeq2" else "limma"
+      ))
       out <- list(
         contrast = res$label,
         method = res$method,
@@ -526,17 +555,18 @@ mod_dge_server <- function(id, dataset, results) {
     }
 
     observeEvent(input$run_btn, {
-      df <- tryCatch(sig_table(), error = function(e) NULL)
+      df <- tryCatch(sig_table(), error = arthomix_null_on_error)
       req(df)
       save_dge_result(fit_result(), df)
     })
 
     run_dge_now <- function(contrast_col, ref_group, comp_group, method,
                              covariate_col = "(none)", covariate_mode = "filter", covariate_level = NULL,
-                             padj_cut = 0.05, lfc_cut = 0.1) {
-      fit <- compute_dge_fit(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method)
+                             padj_cut = 0.05, lfc_cut = 0.5, effect_mode = "posthoc") {
+      fit <- compute_dge_fit(contrast_col, ref_group, comp_group, covariate_col, covariate_mode, covariate_level, method,
+                             effect_mode = effect_mode, lfc_cut = lfc_cut)
       df <- compute_dge_significance(fit, padj_cut, lfc_cut)
-      save_dge_result(fit, df)
+      save_dge_result(fit, df, padj_cut = padj_cut, lfc_cut = lfc_cut)
     }
 
     latest_run_matching <- function(pattern, negate = FALSE) {
@@ -587,6 +617,14 @@ mod_dge_server <- function(id, dataset, results) {
         p(strong("Model: "), tags$code(res$design_formula), sprintf(", %s.", res$test_label)),
         p(strong(format(nrow(df), big.mark = ",")), " genes tested, ",
           strong(format(n_sig, big.mark = ",")), " significant at the current cutoffs."),
+        {
+          padj_now <- input$padj_cut %||% 0.05
+          n_at <- function(thr) sum(!is.na(df$adj.P.Val) & df$adj.P.Val < padj_now & abs(df$logFC) > thr)
+          p(class = "submodule-desc", style = "font-size: 12.5px;", icon("circle-info"),
+            sprintf(" Sensitivity to the fold-change gate at adjusted p < %s: %s genes at |log2FC| > 0.1, %s at > 0.5, %s at > 1.0%s.",
+                    format(padj_now), format(n_at(0.1), big.mark = ","), format(n_at(0.5), big.mark = ","), format(n_at(1), big.mark = ","),
+                    if (identical(res$effect_mode, "treat")) " (p-values already test against the cutoff via limma::treat)" else ""))
+        },
         div(class = "pipeline-status-strip",
             span(class = "badge-up", sprintf("%s upregulated", format(n_up, big.mark = ","))),
             span(class = "badge-down", sprintf("%s downregulated", format(n_down, big.mark = ","))))
@@ -599,7 +637,7 @@ mod_dge_server <- function(id, dataset, results) {
       top_labels <- df %>% dplyr::filter(significant) %>% dplyr::arrange(adj.P.Val) %>% head(15)
       n_up <- sum(df$direction == "Up")
       n_down <- sum(df$direction == "Down")
-      sig_p <- suppressWarnings(max(df$P.Value[df$significant], na.rm = TRUE))
+      sig_p <- arthomix_quiet(max(df$P.Value[df$significant], na.rm = TRUE))
       xr <- max(c(abs(df$logFC), input$lfc_cut), na.rm = TRUE) * 1.08
 
       p <- ggplot(df, aes(x = logFC, y = -log10(P.Value), color = direction, size = direction)) +
@@ -636,7 +674,7 @@ mod_dge_server <- function(id, dataset, results) {
 
     output$volcano <- renderPlot({
       if (!dge_has_run()) return(NULL)
-      p <- tryCatch(volcano_plot_obj(), error = function(e) NULL)
+      p <- tryCatch(volcano_plot_obj(), error = arthomix_null_on_error)
       req(p)
       p
     })
@@ -683,7 +721,7 @@ mod_dge_server <- function(id, dataset, results) {
 
     output$heatmap <- renderPlot({
       if (!dge_has_run()) return(NULL)
-      a <- tryCatch(heatmap_args(), error = function(e) NULL)
+      a <- tryCatch(heatmap_args(), error = arthomix_null_on_error)
       req(a)
       ph <- pheatmap::pheatmap(
         a$mat, annotation_col = a$annotation_col, annotation_colors = a$annotation_colors,
@@ -715,7 +753,7 @@ mod_dge_server <- function(id, dataset, results) {
 
     output$dge_table <- DT::renderDataTable({
       req(dge_has_run())
-      df <- tryCatch(sig_table(), error = function(e) NULL)
+      df <- tryCatch(sig_table(), error = arthomix_null_on_error)
       req(df)
       DT::datatable(df, rownames = FALSE, filter = "top",
                      options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")

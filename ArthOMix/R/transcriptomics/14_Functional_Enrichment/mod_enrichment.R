@@ -1,6 +1,4 @@
-## Functional Enrichment submodule: live GO/KEGG/Reactome over-representation
-## analysis on a user gene list or a bundled biomarker panel, plus MyGene.info
-## gene cards and a STRING PPI network for the same genes.
+## Functional Enrichment: live GO/KEGG/Reactome over-representation, MyGene.info cards, STRING PPI.
 
 mod_enrichment_config <- list(
   id = "enrichment", group = "Interpretation",
@@ -59,7 +57,7 @@ fetch_string_network_png <- function(genes) {
     resp <- httr::GET(url, httr::write_disk(tmp, overwrite = TRUE), httr::timeout(20))
     if (httr::http_error(resp) || !file.exists(tmp) || file.info(tmp)$size < 500) return(NULL)
     tmp
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
 }
 
 fetch_string_degrees <- function(genes) {
@@ -86,17 +84,17 @@ fetch_string_degrees <- function(genes) {
 }
 
 build_wgcna_hub_lookup <- function() {
-  modules <- tryCatch(read_table_safe("WGCNA_05_gene_module_assignment.csv"), error = function(e) NULL)
-  hubs    <- tryCatch(read_table_safe("WGCNA_07_hub_genes_only.csv"), error = function(e) NULL)
+  modules <- tryCatch(read_table_safe("WGCNA_05_gene_module_assignment.csv"), error = arthomix_null_on_error)
+  hubs    <- tryCatch(read_table_safe("WGCNA_07_hub_genes_only.csv"), error = arthomix_null_on_error)
   function(gene) {
     m <- if (!is.null(modules)) modules[modules$gene == gene, , drop = FALSE] else NULL
     h <- if (!is.null(hubs)) hubs[hubs$gene == gene, , drop = FALSE] else NULL
     list(
       module         = if (!is.null(m) && nrow(m)) m$module[1] else NA_character_,
       disease_module = if (!is.null(m) && nrow(m)) isTRUE(as.character(m$is_disease_module[1]) == "TRUE") else FALSE,
-      kme            = if (!is.null(m) && nrow(m)) suppressWarnings(as.numeric(m$kME_own[1])) else NA_real_,
+      kme            = if (!is.null(m) && nrow(m)) arthomix_quiet(as.numeric(m$kME_own[1])) else NA_real_,
       is_hub         = if (!is.null(h) && nrow(h)) isTRUE(as.character(h$is_hub[1]) == "TRUE") else FALSE,
-      connectivity   = if (!is.null(h) && nrow(h)) suppressWarnings(as.numeric(h$connectivity[1])) else NA_real_
+      connectivity   = if (!is.null(h) && nrow(h)) arthomix_quiet(as.numeric(h$connectivity[1])) else NA_real_
     )
   }
 }
@@ -186,8 +184,8 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
-    bundled_venn <- tryCatch(read_table_safe("FS_venn_membership.csv"), error = function(e) NULL)
+    bundled_synovium <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = arthomix_null_on_error)
+    bundled_venn <- tryCatch(read_table_safe("FS_venn_membership.csv"), error = arthomix_null_on_error)
     wgcna_hub_lookup <- build_wgcna_hub_lookup()
     wgcna_hub_lookup_gated <- function(gene) {
       if (isTRUE(dataset$is_bundled_reference)) wgcna_hub_lookup(gene)
@@ -389,6 +387,18 @@ mod_enrichment_server <- function(id, dataset, results = NULL) {
         )
       }))
       hub_table <- hub_table[order(-hub_table$string_degree, -hub_table$wgcna_hub, -hub_table$wgcna_kme), ]
+
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_enrichment",
+        checksum_input = list(genes = sort(genes), universe = sort(universe_entrez)),
+        params = list(
+          database = db_label, qvalue_cutoff = input$qval_cut, panel_source = input$panel_source %||% "pasted",
+          n_submitted = length(genes_raw), n_unique = length(genes), n_mapped = nrow(mapped_df), n_tested = length(gene_entrez),
+          n_universe = length(universe_entrez), n_terms_returned = nrow(df)
+        ),
+        seed = NULL,
+        packages = c("clusterProfiler", if (identical(input$ontology, "REACTOME")) "ReactomePA", "org.Hs.eg.db")
+      ))
 
       list(
         table = df,

@@ -1,6 +1,5 @@
 ## R/multiomics/01_Data_Workspace/multiomics_dataset_helpers.R
-## Pure data-processing logic for the "Live Analysis (Upload & MOFA2)"
-## sub-module (mod_multi_mofa.R / mod_multi_mofa_engine.R) - the ONE part of
+## Data-processing logic for the Live Analysis (Upload & MOFA2) sub-module.
 
 MULTI_LIVE_OMICS_TYPES <- c(
   "RNA-seq / Transcriptomics" = "rnaseq",
@@ -249,6 +248,54 @@ multi_live_sample_overlap <- function(mat_list) {
   )
 }
 
+MULTI_SAME_PATIENT_MESSAGE <- "Expression and methylation data must share the same patient IDs. If your patient IDs differ, use Cross-Omics instead."
+
+## Same-patient gate: every layer must have the exact same patient IDs (no subsetting, unlike multi_live_sample_overlap()).
+multi_live_same_patient_check <- function(overlap, dropped = NULL) {
+  fail <- function(category, headline, detail) list(ok = FALSE, pending = FALSE, category = category, message = headline, detail = detail)
+  if (is.null(overlap) || !isTRUE(overlap$ok) || length(overlap$mats) < 2) {
+    return(list(ok = FALSE, pending = TRUE, category = "pending", message = "Add at least two datasets and validate them first.", detail = NULL))
+  }
+  ids <- lapply(overlap$mats, function(m) as.character(rownames(m)))
+  layer_names <- names(ids)
+  preview <- function(x) { x <- unique(x); if (length(x) > 6) paste0(paste(x[1:6], collapse = ", "), ", ...") else paste(x, collapse = ", ") }
+
+  n_ids <- vapply(ids, length, integer(1))
+  if (any(n_ids == 0)) {
+    return(fail("missing", "No patient/sample IDs were found in one of the datasets, so same-patient Multi-Omics integration cannot proceed.",
+                sprintf("%s contains no samples - check that the file has a patient/sample ID column and at least one data row.", paste(layer_names[n_ids == 0], collapse = ", "))))
+  }
+  is_blank <- lapply(ids, function(x) is.na(x) | !nzchar(trimws(x)) | toupper(trimws(x)) %in% c("NA", "NAN", "NULL"))
+  n_blank <- vapply(is_blank, sum, integer(1))
+  if (any(n_blank > 0)) {
+    return(fail("missing", "Missing patient IDs were found, so same-patient Multi-Omics integration cannot proceed.",
+                paste(sprintf("%s has %d row(s) with a blank or NA patient ID.", layer_names[n_blank > 0], n_blank[n_blank > 0]), collapse = " ")))
+  }
+  dropped <- unlist(dropped %||% list())
+  if (length(dropped) > 0 && any(dropped > 0)) {
+    dropped <- dropped[dropped > 0]
+    return(fail("missing", "Some samples could not be assigned a patient ID, so same-patient Multi-Omics integration cannot proceed.",
+                paste(sprintf("%s: %d sample(s) have no patient ID in the metadata/mapping.", names(dropped), dropped), collapse = " ")))
+  }
+  norm <- lapply(ids, ch_normalize_id)
+  dup_ids <- lapply(seq_along(ids), function(i) unique(ids[[i]][duplicated(norm[[i]]) | duplicated(norm[[i]], fromLast = TRUE)]))
+  n_dup <- vapply(dup_ids, length, integer(1))
+  if (any(n_dup > 0)) {
+    return(fail("duplicate", "Duplicate patient IDs were found - each patient must appear exactly once per dataset before same-patient Multi-Omics integration.",
+                paste(sprintf("%s has %d duplicated patient ID(s): %s.", layer_names[n_dup > 0], n_dup[n_dup > 0], vapply(dup_ids[n_dup > 0], preview, character(1))), collapse = " ")))
+  }
+  only_here <- lapply(seq_along(ids), function(i) {
+    others <- Reduce(intersect, norm[-i])
+    ids[[i]][!(norm[[i]] %in% others)]
+  })
+  n_only <- vapply(only_here, length, integer(1))
+  if (any(n_only > 0)) {
+    return(fail("mismatch", MULTI_SAME_PATIENT_MESSAGE,
+                paste(sprintf("%s has %d patient ID(s) not present in the other dataset(s): %s.", layer_names[n_only > 0], n_only[n_only > 0], vapply(only_here[n_only > 0], preview, character(1))), collapse = " ")))
+  }
+  list(ok = TRUE, pending = FALSE, category = "ok", message = NULL, detail = NULL, n_patients = length(unique(norm[[1]])))
+}
+
 multi_live_missingness <- function(mat) {
   if (is.null(mat)) return(NULL)
   list(
@@ -296,8 +343,21 @@ MULTI_LIVE_NORM_CHOICES <- list(
   other = c("Log2(x + 1)" = "log2", "Z-score" = "autoscale", "None" = "none")
 )
 
+## Same log-scale auto-detect as transcriptomics, plus a negative-value check (counts can't be negative).
+multi_live_looks_log_scale <- function(mat) {
+  pos <- as.numeric(mat[mat > 0 & is.finite(mat)])
+  if (length(pos) < 10) return(FALSE)
+  q99 <- stats::quantile(pos, 0.99, na.rm = TRUE)
+  any(mat < 0, na.rm = TRUE) || !is.finite(q99) || q99 <= 100
+}
+
 multi_live_normalize <- function(mat, omics_type, method) {
   if (is.null(mat)) return(list(ok = FALSE, mat = NULL, error = "No matrix to normalize."))
+  note <- NULL
+  if (identical(method, "log2") && multi_live_looks_log_scale(mat)) {
+    method <- "none"
+    note <- "This block already looks log-scaled (or contains negative values), so log2(x + 1) was not reapplied to avoid double-transforming it."
+  }
   out <- switch(method,
     "log2" = log2(pmax(mat, 0) + 1),
     "mvalue" = { b <- pmin(pmax(mat, 1e-3), 1 - 1e-3); log2(b / (1 - b)) },
@@ -307,7 +367,7 @@ multi_live_normalize <- function(mat, omics_type, method) {
     "autoscale" = scale(mat, center = TRUE, scale = TRUE),
     mat
   )
-  list(ok = TRUE, mat = out, error = NULL, method = method)
+  list(ok = TRUE, mat = out, error = NULL, method = method, note = note)
 }
 
 multi_live_filter_features <- function(mat, criterion = c("variance", "mad", "missingness"), keep_top_n = NULL, min_value = NULL) {
@@ -524,7 +584,7 @@ multi_dataset_status <- function(validation, n_shared = NULL, n_own = NULL) {
   list(level = "ready", label = "Ready", reasons = character(0))
 }
 
-multi_dataset_compatibility <- function(validations, overlap = NULL, has_metadata = FALSE) {
+multi_dataset_compatibility <- function(validations, overlap = NULL, has_metadata = FALSE, same_patient = NULL) {
   validations <- Filter(Negate(is.null), validations)
   labels <- names(validations)
   per_layer <- lapply(labels, function(nm) {
@@ -534,14 +594,16 @@ multi_dataset_compatibility <- function(validations, overlap = NULL, has_metadat
     list(label = nm, status = multi_dataset_status(v, n_shared, n_own))
   })
   names(per_layer) <- labels
-  sample_matching_ok <- !is.null(overlap) && isTRUE(overlap$ok) && overlap$n_shared >= 3
+  same_patient_failed <- !is.null(same_patient) && !isTRUE(same_patient$ok) && !isTRUE(same_patient$pending)
+  sample_matching_ok <- !is.null(overlap) && isTRUE(overlap$ok) && overlap$n_shared >= 3 && !same_patient_failed
   levels <- vapply(per_layer, function(p) p$status$level, character(1))
   overall_label <- if (length(levels) == 0) "NO DATASETS SELECTED"
     else if (any(levels == "not_compatible")) "NOT READY - one or more datasets cannot be used"
+    else if (same_patient_failed) "NOT READY - patient IDs are not the same across datasets"
     else if (!sample_matching_ok) "REVIEW REQUIRED - insufficient sample matching"
     else if (any(levels == "review")) "READY WITH REVIEW"
     else "READY"
-  list(per_layer = per_layer, sample_matching_ok = sample_matching_ok,
+  list(per_layer = per_layer, sample_matching_ok = sample_matching_ok, same_patient_failed = same_patient_failed,
        has_metadata = isTRUE(has_metadata), overall_label = overall_label)
 }
 
@@ -607,7 +669,7 @@ multi_geo_autosplit_fetch <- function(accession) {
   if (!isTRUE(rel$ok)) return(list(ok = FALSE, error = rel$error))
   if (length(rel$subseries) < 2) {
     return(list(ok = FALSE, error = sprintf(
-      "%s does not look like a multi-omics SuperSeries - GEO lists %d linked sub-series here (need at least 2, one expression + one methylation). If you already have the split files, use \"Upload Dataset\" instead.",
+      "%s doesn't look like a multi-omics SuperSeries: GEO lists %d linked sub-series here, but needs at least 2 (one expression, one methylation). If you already have the split files, use \"Upload Dataset\" instead.",
       acc, length(rel$subseries))))
   }
 
@@ -628,7 +690,7 @@ multi_geo_autosplit_fetch <- function(accession) {
   if (length(failed) > 0) {
     detail <- paste(sprintf("%s (%s)", names(failed), vapply(failed, function(f) f$error, character(1))), collapse = "; ")
     return(list(ok = FALSE, error = sprintf(
-      "%s is a SuperSeries of %s, but not all linked sub-series could be read from GEO's series matrix: %s. This data may only be available as a supplementary file, which auto-split cannot read - download it and use \"Upload Dataset\" instead.",
+      "%s is a SuperSeries of %s, but not all linked sub-series could be read from GEO's series matrix: %s. It may only exist as a supplementary file, which auto-split can't read. Download it and use \"Upload Dataset\" instead.",
       acc, paste(rel$subseries, collapse = " + "), detail)))
   }
 

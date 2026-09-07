@@ -7,7 +7,9 @@ suppressWarnings(suppressMessages(
 ))
 source_from_app_root(file.path("R", "transcriptomics", "09_Feature_Selection", "mod_featureselection.R"))
 
-fs_upload_fixture <- function(sex_n = 6, sex_col = TRUE, sexes = c("F", "M"), seed = 111) {
+## sex_n = 10 per group per sex: after the default 30% held-out split each group keeps 7 training
+## samples, clearing FS_MIN_GROUP_SAMPLES (6).
+fs_upload_fixture <- function(sex_n = 10, sex_col = TRUE, sexes = c("F", "M"), seed = 111) {
   set.seed(seed)
   if (length(sex_n) == 1) sex_n <- setNames(rep(sex_n, length(sexes)), sexes)
   genes <- paste0("GENE", 1:15)

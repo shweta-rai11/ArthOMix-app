@@ -1,6 +1,5 @@
 ## R/transcriptomics/07_Mendelian_Randomization/mod_mr.R
-## Submodule: Mendelian Randomization
-## A general-purpose two-sample MR tool. "Your analysis" runs a live MR test
+## Submodule: Mendelian Randomization - a general-purpose two-sample MR tool.
 
 mr_info_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
@@ -64,7 +63,7 @@ mod_mr_overall_ui <- function(ns) {
               div(
                 style = "display:flex; align-items:center; gap:4px; margin-top: 8px;",
                 checkboxInput(ns("do_clump"), "LD-clump exposure SNPs before harmonising (needs network access)", value = FALSE),
-                mr_info_tip("Runs ieugwasr::ld_clump() live against the OpenGWAS LD reference to drop correlated SNPs, the same independence step the bundled dataset's own instruments were built with. Off by default since it needs network access; if it fails, filtering proceeds on the unclumped set.")
+                mr_info_tip("Runs ieugwasr::ld_clump() live against the OpenGWAS LD reference to drop correlated SNPs - the same step used to build the bundled dataset's instruments. Off by default (needs network); if it fails, filtering proceeds unclumped.")
               ),
               conditionalPanel(
                 condition = sprintf("input['%s']", ns("do_clump")),
@@ -130,7 +129,7 @@ mod_mr_overall_ui <- function(ns) {
                   choiceNames = list("Include (default)", "Exclude (sensitivity)"),
                   choiceValues = list("include", "exclude"), selected = "include", inline = TRUE
                 ),
-                mr_info_tip("HLA-DRB1 is the dominant RA locus with the genome's longest-range LD, so any MHC gene's cis-eQTL is confounded with it. MHC-flagged genes are best read as “associated, not causal” unless they also survive with MHC instruments excluded.")
+                mr_info_tip("HLA-DRB1 is the dominant RA locus with the genome's longest-range LD, so any MHC gene's cis-eQTL is confounded with it. Read MHC-flagged genes as “associated, not causal” unless they also survive with MHC instruments excluded.")
               )
             ),
             div(style = "display:flex; align-items:center; gap:4px;",
@@ -138,7 +137,7 @@ mod_mr_overall_ui <- function(ns) {
             ),
             div(style = "display:flex; align-items:center; gap:4px;",
               checkboxInput(ns("run_presso"), "Also run MR-PRESSO outlier test (≥4 instruments)", value = FALSE),
-              mr_info_tip("Simulation-based test (MRPRESSO::mr_presso) for horizontal-pleiotropy outlier instruments, with an outlier-corrected estimate when any are found. Off by default since it's simulation-based and adds a few seconds per run.")
+              mr_info_tip("Simulation-based test (MRPRESSO::mr_presso) for horizontal-pleiotropy outlier instruments, with a corrected estimate when found. Off by default - adds a few seconds per run.")
             ),
             div(style = "display: flex; gap: 8px; margin-top: 6px;",
                 actionButton(ns("run_btn"), "Run MR", icon = icon("play"), class = "btn-primary btn-sm"),
@@ -217,12 +216,12 @@ mod_mr_server <- function(id, dataset, results) {
       req(identical(input$data_source, "upload"))
       if (is.null(input$exp_file) && is.null(input$out_file)) return(NULL)
       exp_part <- if (!is.null(input$exp_file)) {
-        df <- tryCatch(exp_df_r(), error = function(e) NULL)
+        df <- tryCatch(exp_df_r(), error = arthomix_null_on_error)
         label <- if (nzchar(trimws(input$upload_label %||% ""))) trimws(input$upload_label) else "Uploaded exposure"
         sprintf("%s - %s (%s SNPs)", label, input$exp_file$name, if (!is.null(df)) format(nrow(df), big.mark = ",") else "reading...")
       } else "not yet uploaded"
       out_part <- if (!is.null(input$out_file)) {
-        df <- tryCatch(out_df_r(), error = function(e) NULL)
+        df <- tryCatch(out_df_r(), error = arthomix_null_on_error)
         sprintf("%s (%s SNPs)", input$out_file$name, if (!is.null(df)) format(nrow(df), big.mark = ",") else "reading...")
       } else "not yet uploaded"
       div(class = "empty-note", style = "margin-top: 8px; font-size: 12.5px;",
@@ -380,7 +379,7 @@ mod_mr_server <- function(id, dataset, results) {
 
     current_ci_level <- function() as.numeric(input$ci_level %||% "0.95")
     apply_max_snps_cap <- function(d) {
-      cap <- suppressWarnings(as.numeric(input$max_snps %||% "Inf"))
+      cap <- arthomix_quiet(as.numeric(input$max_snps %||% "Inf"))
       if (is.na(cap) || !is.finite(cap) || nrow(d) <= cap) return(d)
       d[order(d$pval.exposure), , drop = FALSE][seq_len(cap), , drop = FALSE]
     }
@@ -408,7 +407,7 @@ mod_mr_server <- function(id, dataset, results) {
       exp_fmt$exposure <- label
       out_fmt$outcome <- "Uploaded outcome"
 
-      dat_up <- tryCatch(TwoSampleMR::harmonise_data(exp_fmt, out_fmt, action = 2), error = function(e) NULL)
+      dat_up <- tryCatch(TwoSampleMR::harmonise_data(exp_fmt, out_fmt, action = 2), error = arthomix_null_on_error)
       validate(need(!is.null(dat_up) && nrow(dat_up) > 0,
         "Harmonisation found no overlapping SNPs between the two files - check that both use the same SNP identifiers (e.g. rsIDs) and that allele columns are mapped correctly."))
       dat_up$gene <- label
@@ -422,7 +421,7 @@ mod_mr_server <- function(id, dataset, results) {
       fstat_cut <- as.numeric(input$fstat_cut %||% "10")
       d <- dat_up[dat_up$pval.exposure <= pval_cut & dat_up$Fstat >= fstat_cut, , drop = FALSE]
       validate(need(nrow(d) >= 1, sprintf(
-        "No SNPs remain after filtering (%d harmonised before filtering). Loosen the p-value or F-statistic threshold - uploaded data doesn't necessarily reach genome-wide significance the way the bundled eQTLGen instruments do.",
+        "No SNPs remain after filtering (%d harmonised before filtering). Loosen the p-value or F-statistic threshold - uploaded data may not reach genome-wide significance like the bundled eQTLGen instruments.",
         n_before
       )))
 
@@ -436,7 +435,7 @@ mod_mr_server <- function(id, dataset, results) {
             clump_r2 = as.numeric(input$clump_r2 %||% "0.001"),
             clump_p = 1, pop = input$clump_pop %||% "EUR"
           ),
-          error = function(e) NULL
+          error = arthomix_null_on_error
         )
         if (is.null(clumped)) {
           clump_status <- "api_error"
@@ -527,7 +526,7 @@ mod_mr_server <- function(id, dataset, results) {
         ),
         box(
           width = NULL, title = "Sensitivity diagnostics", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Funnel plot (asymmetry suggests directional pleiotropy) and leave-one-out IVW (whether one SNP drives the whole estimate) - both only defined with ≥3 instruments, same as Cochran's Q and the MR-Egger intercept shown in the Result panel."),
+          p(class = "submodule-desc", "Funnel plot (asymmetry suggests directional pleiotropy) and leave-one-out IVW (whether one SNP drives the estimate). Both need ≥3 instruments, like Cochran's Q and MR-Egger intercept in the Result panel."),
           uiOutput(ns("diagnostics_ui"))
         )
       )
@@ -543,7 +542,7 @@ mod_mr_server <- function(id, dataset, results) {
         ),
         box(
           width = 12, title = "MR estimates", status = "primary", solidHeader = FALSE,
-          p(class = "submodule-desc", "Every estimator this gene's instrument count qualifies for. “Project primary” marks the pre-specified hierarchy's pick (IVW > Wald ratio > weighted median > MR-Egger) - fixed in advance, never chosen by which p-value looks best."),
+          p(class = "submodule-desc", "Every estimator this gene's instrument count qualifies for. “Project primary” marks the pre-specified hierarchy's pick (IVW > Wald ratio > weighted median > MR-Egger), fixed in advance - never chosen by which p-value looks best."),
           div(class = "table-toolbar", downloadButton(ns("download_mr"), "Download CSV", class = "btn-sm")),
           DT::dataTableOutput(ns("mr_table"))
         )
@@ -562,6 +561,23 @@ mod_mr_server <- function(id, dataset, results) {
       existing <- results$mr %||% list(genes_tested = list())
       existing$genes_tested[[res$gene]] <- entry
       results$mr <- existing
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_mr",
+        checksum_input = list(gene = res$gene, snps = res$d$SNP, bx = res$d$beta.exposure, by = res$d$beta.outcome),
+        params = list(
+          gene = res$gene, data_source = if (isTRUE(res$uploaded)) "uploaded exposure/outcome GWAS" else "bundled eQTLGen cis-eQTL vs Okada 2014 RA GWAS (sex-combined)",
+          eqtl_p_cut = res$pval_cut, f_stat_cut = res$fstat_cut, mhc_mode = res$mhc_mode,
+          max_snps = input$max_snps %||% "Inf", ci_level = res$est$ci_level, alpha = input$alpha_cut %||% 0.05,
+          n_instruments_before = res$n_before, n_instruments_used = res$est$n_snp,
+          primary_method = res$est$primary_method, primary_estimate = round(primary_row$estimate, 5), primary_p = signif(primary_row$p, 4),
+          heterogeneity_Q_p = if (!is.null(res$est$heterogeneity)) signif(res$est$heterogeneity$Q_pval, 4) else NA_real_,
+          egger_intercept_p = if (!is.null(res$est$pleiotropy)) signif(res$est$pleiotropy$p, 4) else NA_real_,
+          weighted_mode = isTRUE(input$include_mode), mr_presso = isTRUE(input$run_presso),
+          ld_clumping = res$clump_status %||% "n/a"
+        ),
+        seed = if (isTRUE(input$run_presso)) 2024 else NULL,
+        packages = c("MendelianRandomization", "TwoSampleMR", if (isTRUE(input$run_presso)) "MRPRESSO")
+      ))
     })
 
     output$summary_ui <- renderUI({
@@ -584,7 +600,7 @@ mod_mr_server <- function(id, dataset, results) {
         if (isTRUE(res$uploaded) && identical(res$clump_status, "api_error"))
           p(class = "empty-note", icon("triangle-exclamation"), "LD clumping could not reach the OpenGWAS LD reference (network or token issue) - proceeded on the unclumped SNP set."),
         if (isTRUE(res$uploaded) && identical(res$clump_status, "no_match"))
-          p(class = "empty-note", icon("triangle-exclamation"), "LD clumping ran but found none of these SNP IDs in the chosen population's LD reference panel (check they're rsIDs, and that the population matches your data's ancestry) - proceeded on the unclumped SNP set."),
+          p(class = "empty-note", icon("triangle-exclamation"), "LD clumping ran but found none of these SNP IDs in the chosen population's LD reference panel (check they're rsIDs and the population matches your data's ancestry). Proceeded unclumped."),
         p(strong(res$gene), ": ", strong(res$est$n_snp),
           paste0(" instrument SNP", if (res$est$n_snp != 1) "s" else "", " after your current filters (",
                  format(res$n_before, big.mark = ","), if (isTRUE(res$uploaded)) " harmonised" else " cached", " before filtering).")),
@@ -612,11 +628,11 @@ mod_mr_server <- function(id, dataset, results) {
         if (!is.null(presso) && !is.null(presso$error))
           p(class = "empty-note", icon("triangle-exclamation"), sprintf("MR-PRESSO could not run: %s", presso$error)),
         if (res$est$n_snp < 3) p(class = "empty-note", icon("circle-info"),
-                              "Fewer than 3 SNPs: only the IVW (or Wald ratio) estimate is shown - MR-Egger, weighted median, Cochran's Q and the MR-Egger intercept all need at least 3 for a meaningful pleiotropy check."),
+                              "Fewer than 3 SNPs: only the IVW (or Wald ratio) estimate is shown. MR-Egger, weighted median, Cochran's Q, and the MR-Egger intercept all need at least 3 for a meaningful pleiotropy check."),
         if (res$est$n_snp >= 3 && res$est$n_snp < 4 && isTRUE(input$run_presso))
           p(class = "empty-note", icon("circle-info"), "MR-PRESSO needs at least 4 instruments; not run for this gene."),
         if (res$gene %in% relabel_check$genes) p(class = "empty-note", icon("circle-info"),
-                              "This gene shares at least one instrument SNP with a neighbouring gene, and the cached reference estimate shown below was computed before this app's own SNP-to-gene relabelling fix - your live estimate above may therefore use a slightly different instrument set than the cached one."),
+                              "This gene shares at least one instrument SNP with a neighbouring gene. The cached reference estimate below was computed before this app's SNP-to-gene relabelling fix, so your live estimate above may use a slightly different instrument set."),
         if (nrow(pr) > 0) tagList(
           hr(),
           p(class = "submodule-desc", style = "margin-bottom: 0;",
@@ -760,7 +776,7 @@ mod_mr_server <- function(id, dataset, results) {
       }
       box(
         width = 12, title = "Batch screen: MR across every available gene", status = "primary", solidHeader = FALSE,
-        p(class = "submodule-desc", "Applies the filters above to every gene with a cached instrument (up to 1,701), then BH-FDR corrects across genes tested under these filters - this session's own screen, not a separate, precomputed per-sex FDR reference, which used a different denominator."),
+        p(class = "submodule-desc", "Applies the filters above to every gene with a cached instrument (up to 1,701), then BH-FDR corrects across genes tested here. This is this session's own screen, not the precomputed per-sex FDR reference, which used a different denominator."),
         withSpinner(uiOutput(ns("batch_summary_ui")), color = "#2c6fbb", type = 6),
         div(class = "table-toolbar", downloadButton(ns("download_batch"), "Download CSV", class = "btn-sm")),
         DT::dataTableOutput(ns("batch_table"))
@@ -784,7 +800,7 @@ mod_mr_server <- function(id, dataset, results) {
       withProgress(message = "Running MR across all available genes", value = 0, {
         for (i in seq_along(genes)) {
           dg <- apply_max_snps_cap(split_d[[genes[i]]])
-          est <- tryCatch(estimate_mr_set(dg, include_mode = FALSE, full = FALSE, ci_level = current_ci_level()), error = function(e) NULL)
+          est <- tryCatch(estimate_mr_set(dg, include_mode = FALSE, full = FALSE, ci_level = current_ci_level()), error = arthomix_null_on_error)
           if (!is.null(est)) {
             prim <- est$res_table[est$res_table$primary, , drop = FALSE][1, ]
             rows[[i]] <- data.frame(

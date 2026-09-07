@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("the app boots and every top-level module renders with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-smoke",
@@ -15,7 +14,7 @@ test_that("the app boots and every top-level module renders with no output error
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   expect_no_error_in_dom <- function(label) {
     app$wait_for_idle(timeout = 30 * 1000)

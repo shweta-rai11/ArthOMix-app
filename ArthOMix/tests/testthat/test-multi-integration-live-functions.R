@@ -264,3 +264,75 @@ test_that("mi_snf_run() reports a clear error object (never a crash) via mi_snf_
   out <- mi_snf_eligibility(validation)
   expect_false(out$ok)
 })
+
+test_that("mi_diablo_oof_auc() is a held-out estimate: near 0.5 on pure noise (where mixOmics perf()'s AUC is ~1) and high on planted signal", {
+  set.seed(3); n <- 40; ids <- sprintf("s%02d", 1:n)
+  Y <- stats::setNames(factor(rep(c("A", "B"), each = 20)), ids)
+  X <- list(a = matrix(rnorm(n * 400), n, 400, dimnames = list(ids, paste0("a", 1:400))),
+            b = matrix(rnorm(n * 400), n, 400, dimnames = list(ids, paste0("b", 1:400))))
+  design <- matrix(0.1, 2, 2, dimnames = list(names(X), names(X))); diag(design) <- 0
+  noise <- mi_diablo_oof_auc(X, Y, ncomp = 1, keepX = list(a = 10, b = 10), design = design, folds = 4, nrepeat = 2, seed = 1)
+  expect_true(!is.null(noise))
+  expect_lt(noise$auc, 0.75)
+  X$a[Y == "B", 1:8] <- X$a[Y == "B", 1:8] + 3; X$b[Y == "B", 1:8] <- X$b[Y == "B", 1:8] - 3
+  signal <- mi_diablo_oof_auc(X, Y, ncomp = 1, keepX = list(a = 10, b = 10), design = design, folds = 4, nrepeat = 2, seed = 1)
+  expect_gt(signal$auc, 0.9)
+  expect_true(signal$ci_lo <= signal$auc && signal$auc <= signal$ci_hi)
+})
+
+test_that("mi_diablo_run() reports the out-of-fold AUROC (with CI) in its performance summary, never the perf() AUC", {
+  set.seed(5); n <- 30; ids <- sprintf("s%02d", 1:n)
+  Y <- stats::setNames(factor(rep(c("A", "B"), each = 15)), ids)
+  X <- list(a = matrix(rnorm(n * 100), n, 100, dimnames = list(ids, paste0("a", 1:100))), b = matrix(rnorm(n * 100), n, 100, dimnames = list(ids, paste0("b", 1:100))))
+  params <- list(ncomp_mode = "manual", ncomp = 1, keepx_mode = "manual", keepx_manual = list(a = 5, b = 5),
+                 validation_mode = "manual", validation_method = "mfold", folds = 3, nrepeat = 1, distance = "max.dist", scale = TRUE, seed = 1)
+  r <- mi_diablo_run(X, Y, ids, params)
+  expect_true(r$ok)
+  ps <- mi_diablo_performance_summary(r)
+  expect_true(all(c("AUC", "ci_lo", "ci_hi", "n", "folds", "repeats") %in% colnames(ps$auc)))
+  expect_equal(ps$auc$AUC, r$oof$auc)
+})
+
+test_that("mi_diablo_tune_ncomp() picks a component number inside the feasible range via perf() on a non-sparse block.plsda, and mi_diablo_run() records how ncomp was chosen", {
+  set.seed(9); n <- 36; ids <- sprintf("s%02d", 1:n)
+  Y <- stats::setNames(factor(rep(c("A", "B"), each = 18)), ids)
+  X <- list(a = matrix(rnorm(n * 60), n, 60, dimnames = list(ids, paste0("a", 1:60))), b = matrix(rnorm(n * 60), n, 60, dimnames = list(ids, paste0("b", 1:60))))
+  X$a[Y == "B", 1:6] <- X$a[Y == "B", 1:6] + 3
+  design <- mi_diablo_design(names(X))
+  tn <- mi_diablo_tune_ncomp(X, Y, design, max_ncomp = 3, validation_method = "Mfold", folds = 3, nrepeat = 3, dist = "max.dist", seed = 1)
+  expect_true(tn$ncomp >= 1 && tn$ncomp <= 3)
+  expect_true(nzchar(tn$note))
+  params <- list(ncomp_mode = "tuned", keepx_mode = "manual", keepx_manual = list(a = 5, b = 5),
+                 validation_mode = "manual", validation_method = "mfold", folds = 3, nrepeat = 1, distance = "max.dist", scale = TRUE, seed = 1)
+  r <- mi_diablo_run(X, Y, ids, params)
+  expect_true(r$ok)
+  expect_equal(r$params$ncomp_mode, "tuned")
+  expect_true(r$params$ncomp >= 1 && r$params$ncomp <= 3)
+  expect_equal(length(r$params$keepX$a), r$params$ncomp)
+  expect_false(isTRUE(r$nested))
+})
+
+test_that("with keepX tuning on, mi_diablo_run() reports nested out-of-fold error rates (inner grid search per outer fold) and flags them as nested", {
+  set.seed(10); n <- 30; ids <- sprintf("s%02d", 1:n)
+  Y <- stats::setNames(factor(rep(c("A", "B"), each = 15)), ids)
+  X <- list(a = matrix(rnorm(n * 30), n, 30, dimnames = list(ids, paste0("a", 1:30))), b = matrix(rnorm(n * 30), n, 30, dimnames = list(ids, paste0("b", 1:30))))
+  X$a[Y == "B", 1:5] <- X$a[Y == "B", 1:5] + 3
+  params <- list(ncomp_mode = "manual", ncomp = 1, keepx_mode = "automatic",
+                 validation_mode = "manual", validation_method = "mfold", folds = 3, nrepeat = 1, distance = "max.dist", scale = TRUE, seed = 1)
+  r <- mi_diablo_run(X, Y, ids, params)
+  expect_true(r$ok)
+  expect_true(isTRUE(r$nested))
+  expect_true(length(r$oof$inner_keepx) >= 3)
+  ps <- mi_diablo_performance_summary(r)
+  expect_true(ps$nested)
+  expect_match(ps$error_source, "Nested")
+  expect_equal(ps$ber, r$oof$ber)
+  expect_true(is.finite(ps$ber))
+})
+
+test_that("mi_snf_affinity() feeds the SNFtool kernel the Euclidean distance (square root of dist2), as in the SNFtool documentation", {
+  set.seed(2); m <- matrix(rnorm(40), 8, 5, dimnames = list(paste0("s", 1:8), paste0("f", 1:5)))
+  W <- mi_snf_affinity(m, k = 3, alpha = 0.5, standardize = FALSE)
+  d <- sqrt(SNFtool::dist2(m, m))
+  expect_equal(W, SNFtool::affinityMatrix(d, K = 3, sigma = 0.5))
+})

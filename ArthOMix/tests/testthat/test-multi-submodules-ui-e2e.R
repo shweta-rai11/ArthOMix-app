@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("every Multiomics sub-module tab opens and renders with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-mo-submodules",
@@ -15,7 +14,7 @@ test_that("every Multiomics sub-module tab opens and renders with no output erro
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "multiomics")
   app$wait_for_idle(timeout = 20 * 1000)
@@ -34,7 +33,6 @@ test_that("every Multiomics sub-module tab opens and renders with no output erro
 })
 
 test_that("Dataset Workspace -> Overview data flow: loading the preloaded RA anti-TNF cell makes it visible to Cohort Harmonization", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-mo-overview-flow",
@@ -43,7 +41,7 @@ test_that("Dataset Workspace -> Overview data flow: loading the preloaded RA ant
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "multiomics")
   app$wait_for_idle(timeout = 20 * 1000)

@@ -1,6 +1,5 @@
 ## R/transcriptomics/16_Nomogram/mod_nomogram.R
-## Clinical Utility Nomogram (Section 2.15): fits a per-sex rms::lrm logistic
-## model on a chosen gene panel (unstandardised log2 expression, sex as
+## Clinical Utility Nomogram: fits a per-sex rms::lrm logistic model on a chosen gene panel.
 
 mod_nomogram_config <- list(
   id = "nomogram", group = "Interpretation",
@@ -34,9 +33,9 @@ nom_clinical_impact <- function(df, form, penalty, p, y, th, N, B, seed) {
     set.seed(seed + b)
     idx <- sample(nrow(df), replace = TRUE)
     dfb <- df[idx, , drop = FALSE]
-    fb <- tryCatch(rms::lrm(form, data = dfb, penalty = penalty), error = function(e) NULL)
+    fb <- tryCatch(rms::lrm(form, data = dfb, penalty = penalty), error = arthomix_null_on_error)
     if (is.null(fb)) next
-    pb <- tryCatch(as.numeric(plogis(stats::predict(fb, newdata = dfb))), error = function(e) NULL)
+    pb <- tryCatch(as.numeric(plogis(stats::predict(fb, newdata = dfb))), error = arthomix_null_on_error)
     if (is.null(pb)) next
     yb <- dfb$y
     bh[, b] <- vapply(th, function(pt) mean(pb >= pt) * N, numeric(1))
@@ -62,7 +61,7 @@ nom_fit_core <- function(df, predictors, penalty, event_label, params) {
   if (identical(penalty, "auto")) {
     fit0 <- rms::lrm(form, data = df, x = TRUE, y = TRUE)
     pen_grid <- c(0, 0.5, 1, 2, 3, 5, 8, 12, 20, 30)
-    pt <- tryCatch(rms::pentrace(fit0, penalty = pen_grid), error = function(e) NULL)
+    pt <- tryCatch(rms::pentrace(fit0, penalty = pen_grid), error = arthomix_null_on_error)
     penalty <- if (!is.null(pt) && is.numeric(pt$penalty) && length(pt$penalty) == 1) pt$penalty else 0
   }
 
@@ -71,7 +70,7 @@ nom_fit_core <- function(df, predictors, penalty, event_label, params) {
                         fun.at = c(0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.99), lp = FALSE)
 
   set.seed(params$seed)
-  cal <- tryCatch(rms::calibrate(fit, B = params$calibrate_B), error = function(e) NULL)
+  cal <- tryCatch(rms::calibrate(fit, B = params$calibrate_B), error = arthomix_null_on_error)
 
   p <- as.numeric(plogis(stats::predict(fit)))
   y <- df$y
@@ -92,7 +91,7 @@ nom_fit_core <- function(df, predictors, penalty, event_label, params) {
 
 nom_render_dca_plot <- function(dca_df, event_label) {
   th <- dca_df$threshold
-  ymax <- suppressWarnings(max(c(dca_df$NB_panel, dca_df$NB_all), na.rm = TRUE))
+  ymax <- arthomix_quiet(max(c(dca_df$NB_panel, dca_df$NB_all), na.rm = TRUE))
   if (!is.finite(ymax) || ymax <= 0) ymax <- 0.1
   op <- par(mar = c(7.5, 4, 3, 1)); on.exit(par(op))
   plot(th, dca_df$NB_panel, type = "l", col = "#C0392B", lwd = 2.5, ylim = c(-0.05, ymax * 1.1),
@@ -267,7 +266,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    val <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = function(e) NULL)
+    val <- tryCatch(readRDS(VAL_SYNOVIUM_RDS), error = arthomix_null_on_error)
     bundled_venn <- read_table_safe("FS_venn_membership.csv")
 
     panel_labels <- c(
@@ -416,7 +415,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
         penalty_manual = input$penalty_manual %||% NOM_DEFAULT_PARAMS$penalty_manual,
         calibrate_B = input$calibrate_B %||% NOM_DEFAULT_PARAMS$calibrate_B,
         dca_step = input$dca_step %||% NOM_DEFAULT_PARAMS$dca_step,
-        impact_N = suppressWarnings(as.numeric(input$impact_N)) %||% NOM_DEFAULT_PARAMS$impact_N,
+        impact_N = arthomix_quiet(as.numeric(input$impact_N)) %||% NOM_DEFAULT_PARAMS$impact_N,
         impact_B = input$impact_B %||% NOM_DEFAULT_PARAMS$impact_B,
         seed = input$seed %||% NOM_DEFAULT_PARAMS$seed
       )
@@ -515,7 +514,7 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
           " · Ridge penalty used: ", strong(res$penalty)),
         if (identical(res$src, "cross_ancestry")) {
           div(class = "empty-note", icon("circle-info"),
-              "Ancestry replication here is genetic (Mendelian randomisation across European + East-Asian GWAS); the model above is still fit on this project's blood cohort - see Cross-Ancestry Validation.")
+              "Ancestry replication here is genetic (Mendelian randomisation across European + East-Asian GWAS). The model above is still fit on this project's blood cohort - see Cross-Ancestry Validation.")
         }
       )
     })
@@ -604,6 +603,20 @@ mod_nomogram_server <- function(id, dataset, results = NULL) {
           penalty = res$penalty, tissue = res$tissue_label, gene_source = res$src
         )), res$sex_label)
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_nomogram",
+        checksum_input = list(coef = res$coef_df, n = res$n_samples),
+        params = list(
+          stratum = res$sex_label, cohort = res$tissue_label, gene_source = res$src,
+          n_genes = res$n_present, age_included = isTRUE(res$age_included),
+          n_samples = res$n_samples, n_events = res$n_pos, n_reference = res$n_neg,
+          ridge_penalty = res$penalty, penalty_mode = input$penalty_mode %||% "project",
+          apparent_c_statistic = round(res$c_stat, 4),
+          note = "C-statistic, calibration and decision curve are apparent (in-sample) on the same samples the panel was selected from; calibration curve is bootstrap bias-corrected",
+          calibration_bootstraps = input$calibrate_B %||% 200, impact_bootstraps = input$impact_B %||% 500, dca_step = input$dca_step %||% 0.01
+        ),
+        seed = input$seed %||% 1234, packages = "rms"
+      ))
     })
   })
 }

@@ -1,4 +1,4 @@
-## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing.R - Preprocessing and Batch Correction (Section 2.2).
+## R/transcriptomics/03_Preprocessing_Batch_Correction/mod_preprocessing.R - Preprocessing and Batch Correction.
 
 mod_preprocessing_config <- list(
   id = "preprocessing", group = "Data",
@@ -15,8 +15,7 @@ mod_pp_field_hint <- function(text) {
             tags$span(class = "field-hint-box", text))
 }
 
-## Log2-transform radio choices, shared by every preprocessing path in this module -
-## each option carries a hover hint explaining when to use it.
+## Log2-transform radio choices, shared across preprocessing paths; each has a hover hint.
 pp_log2_choice_names <- function(auto_label = "Auto-detect (recommended)") {
   list(
     span(class = "field-label-with-hint", auto_label,
@@ -120,7 +119,7 @@ pp_preloaded_read <- function(choice_id, log2_choice, dataset = NULL) {
   if (!"batch" %in% colnames(meta)) meta$batch <- NA_character_
 
   n_samples_before <- ncol(expr); n_genes_before <- nrow(expr)
-  q99 <- suppressWarnings(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
+  q99 <- arthomix_quiet(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
   needs_log <- if (identical(log2_choice, "force")) TRUE
                else if (identical(log2_choice, "skip")) FALSE
                else isTRUE(!is.na(q99) && q99 > 100)
@@ -301,8 +300,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     }, ignoreNULL = FALSE)
 
     pp_progress <- reactive({
-      merged_ok <- !is.null(tryCatch(merged(), error = function(e) NULL))
-      batch_ok  <- !is.null(tryCatch(result(), error = function(e) NULL))
+      merged_ok <- !is.null(tryCatch(merged(), error = arthomix_null_on_error))
+      batch_ok  <- !is.null(tryCatch(result(), error = arthomix_null_on_error))
       pl_res <- preloaded_results()
       n_pl <- length(input$preloaded_selected %||% character(0))
       n <- max(1, n_pl)
@@ -508,7 +507,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           box(
             width = 12, title = tagList(icon("dna"), " Probe-to-gene collapsing (optional)"), status = "primary", solidHeader = FALSE,
             p(class = "submodule-desc",
-              "Turn this on if the loaded datasets are still at probe level (e.g. raw Affymetrix IDs) rather than one row per gene. Applies to every selected dataset using the same annotation file - for different platforms, collapse each dataset separately before uploading."),
+              "Turn this on if the loaded datasets are still at probe level (e.g. raw Affymetrix IDs) rather than one row per gene. Applies the same annotation file to every selected dataset - collapse different platforms separately before uploading."),
             checkboxInput(ns("collapse_probes"), "My selected data is at probe level - collapse to one row per gene before merging", value = FALSE),
             conditionalPanel(
               condition = sprintf("input['%s']", ns("collapse_probes")),
@@ -660,7 +659,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         expr <- expr[, meta$sample, drop = FALSE]
 
         ## Same auto-detect log2 rule as every other preprocessing path in this module.
-        q99 <- suppressWarnings(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
+        q99 <- arthomix_quiet(stats::quantile(as.numeric(expr[expr > 0]), 0.99, na.rm = TRUE))
         if (isTRUE(!is.na(q99) && q99 > 100)) {
           expr[expr <= 0] <- NA
           expr <- log2(expr)
@@ -728,7 +727,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     
     output$merge_select_ui <- renderUI({
       
-      lst <- tryCatch(merge_inputs(), error = function(e) NULL)
+      lst <- tryCatch(merge_inputs(), error = arthomix_null_on_error)
       req(length(lst) >= 2)
       labels <- vapply(lst, `[[`, character(1), "label")
       box(width = 12, title = tagList(icon("check-double"), " Choose which datasets to merge"), status = "primary", solidHeader = FALSE,
@@ -852,7 +851,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       sets <- lapply(lst, function(x) rownames(x$expr))
       common <- Reduce(intersect, sets)
       validate(need(length(common) >= 20,
-                    "Fewer than 20 features are in common across the selected datasets. Check that every uploaded dataset uses the same type of row name, for example all gene symbols or all the same probe IDs."))
+                    "Fewer than 20 features are in common across the selected datasets. Check every dataset uses the same row-name type, e.g. all gene symbols or all the same probe IDs."))
       
       n_dup_features <- sum(vapply(lst, function(x) expr_raw_health(x$expr)$n_duplicated_features, integer(1)))
       merged_expr <- do.call(cbind, lapply(lst, function(x) x$expr[common, , drop = FALSE]))
@@ -864,7 +863,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         m[, all_cols, drop = FALSE]
       })
       merged_meta <- tryCatch(do.call(rbind, metas), error = function(e) {
-        validate("Could not combine metadata across datasets. A column with the same name has a different type in different datasets, for example numeric in one and text in another. Rename or fix that column, then preprocess again.")
+        validate("Could not combine metadata across datasets. A column with the same name has a different type in different datasets (e.g. numeric vs. text). Rename or fix it, then preprocess again.")
       })
       if (!"batch" %in% colnames(merged_meta) || all(is.na(merged_meta$batch))) merged_meta$batch <- merged_meta$dataset
       validate(need(identical(colnames(merged_expr), merged_meta$sample),
@@ -930,7 +929,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     })
 
     output$settings_ui <- renderUI({
-      m <- tryCatch(merged(), error = function(e) NULL)
+      m <- tryCatch(merged(), error = arthomix_null_on_error)
       if (is.null(m)) {
         return(div(class = "empty-note", icon("circle-info"),
                     "Finish the Merge datasets tab first (or preprocess and merge just one dataset there) before configuring batch correction."))
@@ -982,7 +981,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
                 choiceValues = list("post", "pre"), selected = "post"
               ),
               p(class = "empty-note", icon("circle-info"),
-                "ComBat-seq (before TMM) ignores the correction method, prior, reference batch and exclude-outliers options below. It always protects the group column directly, and uses the batch column and biological covariates chosen here.")
+                "ComBat-seq (before TMM) ignores the correction method, prior, reference batch and exclude-outliers options below. It always protects the group column, using the batch column and covariates chosen here.")
             ),
             selectInput(ns("protect_cols"), "Biological covariates to protect (won't be treated as batch)",
                         choices = cols, selected = protect_default, multiple = TRUE),
@@ -1007,7 +1006,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
               conditionalPanel(
                 condition = sprintf("input['%s'] == 'sva'", ns("correction_method")),
                 p(class = "empty-note", icon("circle-info"),
-                  "SVA estimates unwanted variation directly from the data instead of using the batch column above - useful when the real source of batch effects is unknown or only partly captured by a column you have. It still protects the biological covariates chosen below. Leek JT et al., Bioinformatics 2012;28(6):882-883."),
+                  "SVA estimates unwanted variation directly from the data instead of using the batch column above. Useful when the real source of batch effects is unknown or only partly captured. Still protects the covariates chosen below. Leek JT et al., Bioinformatics 2012;28(6):882-883."),
                 numericInput(ns("sva_n_sv"), "Number of surrogate variables (0 = auto-estimate)", value = 0, min = 0, max = 20, step = 1)
               ),
               selectInput(ns("batch_col2"), "Combine with a second column into an interaction batch (optional, for example dataset by scan batch)",
@@ -1025,24 +1024,41 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     })
 
     confounded_now <- reactive({
-      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      meta <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
       req(meta, input$batch_col, input$batch_col %in% colnames(meta), "group" %in% colnames(meta))
       cc <- multi_live_confounding_check(meta, input$batch_col, "group")
       isTRUE(cc$confounded)
     })
 
     output$confound_ui <- renderUI({
-      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      meta <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
       req(meta, input$batch_col, input$batch_col %in% colnames(meta))
       if (!"group" %in% colnames(meta)) return(NULL)
       cc <- multi_live_confounding_check(meta, input$batch_col, "group")
       if (is.null(cc)) return(NULL)
-      if (isTRUE(cc$confounded)) {
+      status <- if (isTRUE(cc$confounded)) {
         div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
-            " Potential confounding detected: the batch column and the group (phenotype) column are strongly associated - every batch level maps to essentially one group. Batch correction may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
+            " Potential confounding detected: batch and group (phenotype) are strongly associated - every batch level maps to essentially one group. Correction may remove real biological signal and can't reliably separate batch from phenotype. Blocked below unless you override it.")
       } else {
         div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
       }
+      ## Batch x group counts, always shown - imbalance exaggerates significance (Nygaard et al. 2016).
+      tab <- cc$table
+      counts <- as.data.frame.matrix(tab)
+      counts <- cbind(Batch = rownames(counts), counts, stringsAsFactors = FALSE)
+      props <- prop.table(as.matrix(tab), margin = 1)
+      unbalanced <- any(is.finite(props) & props < 0.2 & as.matrix(tab) > 0) || isTRUE((cc$p_value %||% 1) < 0.05)
+      tagList(
+        status,
+        p(class = "submodule-desc", style = "margin-top: 8px; margin-bottom: 4px;", strong("Batch x group sample counts")),
+        tags$table(class = "table table-condensed", style = "width:auto; margin-bottom: 6px; font-size: 12.5px;",
+          tags$thead(tags$tr(lapply(colnames(counts), tags$th))),
+          tags$tbody(lapply(seq_len(nrow(counts)), function(i) tags$tr(lapply(counts[i, ], function(v) tags$td(as.character(v))))))),
+        if (unbalanced) div(class = "empty-note", style = "font-size: 12.5px; border-left: 3px solid #b8860b;", icon("triangle-exclamation"),
+          " Group is unevenly distributed across batches. ComBat keeps the group difference, but testing it afterward on this unbalanced design exaggerates significance (Nygaard, Rodland & Hovig, Biostatistics 2016). Treat DE counts as a sensitivity result; compare with Study-wise Meta-analysis, which never pools across batches.")
+        else div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
+          " Group is reasonably balanced across batches, the setting in which ComBat with a protected group behaves well (Nygaard, Rodland & Hovig, Biostatistics 2016).")
+      )
     })
 
     output$confound_override_ui <- renderUI({
@@ -1052,7 +1068,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
     output$ref_batch_ui <- renderUI({
       req(input$batch_col)
-      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      meta <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
       req(meta)
       lvls <- sort(unique(stats::na.omit(as.character(meta[[input$batch_col]]))))
       selectInput(ns("ref_batch"), "Reference batch (optional). Other batches are shifted to match this one instead of a pooled average.",
@@ -1061,7 +1077,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
     
     observeEvent(list(input$batch_col, input$batch_col2), {
-      meta <- tryCatch(active_meta_df(), error = function(e) NULL)
+      meta <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
       req(meta)
       cols <- colnames(meta)
       exclude <- c(input$batch_col, if (!identical(input$batch_col2 %||% "(none)", "(none)")) input$batch_col2 else NULL)
@@ -1082,12 +1098,12 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           (identical(input$norm_method %||% "auto", "tmm") && identical(input$tmm_correction_stage %||% "post", "pre"))
         )
         if (using_batch_col_for_correction) {
-          meta_cc <- tryCatch(active_meta_df(), error = function(e) NULL)
+          meta_cc <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
           if (!is.null(meta_cc) && input$batch_col %in% colnames(meta_cc) && "group" %in% colnames(meta_cc)) {
             cc <- multi_live_confounding_check(meta_cc, input$batch_col, "group")
             validate(need(
               is.null(cc) || !isTRUE(cc$confounded) || isTRUE(input$confound_override),
-              "Batch correction is blocked: the batch column and the group (phenotype) column appear confounded (every batch level maps to a single group). This cannot reliably separate batch from phenotype and correction could remove genuine biological signal. Check the override box above \"Run normalisation and batch correction\" to proceed anyway, or choose SVA or a different batch column."
+              "Batch correction is blocked: batch and group (phenotype) appear confounded (every batch level maps to a single group). This can't reliably separate batch from phenotype and could remove real signal. Check the override box above \"Run\" to proceed anyway, or choose SVA or a different batch column."
             ))
           }
         }
@@ -1106,13 +1122,13 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         already_corrected <- FALSE
 
         if (identical(norm_method, "tmm")) {
-          ## TMM + log2-CPM for raw RNA-seq counts: edgeR::filterByExpr() by group, then calcNormFactors(method="TMM").
+          ## TMM + log2-CPM for raw RNA-seq: edgeR::filterByExpr() by group, then calcNormFactors(TMM).
           validate(need(all(expr >= 0, na.rm = TRUE),
-                        "TMM normalisation expects raw, non-negative counts, but this data has negative values, which suggests it is already log-transformed. Preprocess this dataset again with log2 set to \"Skip\"."))
-          
+                        "TMM normalisation expects raw, non-negative counts, but this data has negative values - it looks already log-transformed. Preprocess this dataset again with log2 set to \"Skip\"."))
+
           non_integer_frac <- mean(abs(as.matrix(expr) - round(as.matrix(expr))) > 1e-6, na.rm = TRUE)
           validate(need(non_integer_frac < 0.01,
-                        "TMM normalisation expects raw integer counts, but most values in this data are non-integer, which suggests it has already been normalised (e.g. CPM/RPKM/TPM, or quantile-normalised microarray intensities). Preprocess the original raw count matrix again with log2 set to \"Skip\"."))
+                        "TMM normalisation expects raw integer counts, but most values here are non-integer - it looks already normalised (CPM/RPKM/TPM, or quantile-normalised microarray). Preprocess the original raw count matrix again with log2 set to \"Skip\"."))
           validate(need("group" %in% colnames(meta), "TMM normalisation needs a group column to filter low-count genes by."))
           grp <- factor(meta$group)
           validate(need(length(unique(na.omit(grp))) >= 2, "TMM normalisation needs at least two group levels."))
@@ -1134,7 +1150,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             validate(need(all(table(cs_batch) >= 2), "Every level of the chosen batch column (or combination) needs at least 2 samples for ComBat-seq."))
             
             validate(need(!anyNA(cs_batch), sprintf(
-              "%d sample(s) have no value in the chosen batch column (or combination) - every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset) or choose a different batch column.",
+              "%d sample(s) have no value in the chosen batch column (or combination). Every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset), or choose a different batch column.",
               sum(is.na(cs_batch)))))
 
             cs_batch_cols_used <- c(input$batch_col, if (cs_use_batch2) input$batch_col2 else NULL)
@@ -1243,7 +1259,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             validate(need(all(table(batch) >= 2), "Every level of the chosen batch column (or combination) needs at least 2 samples for correction."))
             
             validate(need(!anyNA(batch), sprintf(
-              "%d sample(s) have no value in the chosen batch column (or combination) - every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset) or choose a different batch column.",
+              "%d sample(s) have no value in the chosen batch column (or combination). Every sample needs a batch value. Fix the metadata (e.g. map a batch column for every merged dataset), or choose a different batch column.",
               sum(is.na(batch)))))
           }
 
@@ -1352,7 +1368,30 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       )
     })
 
-    ##  Value boxes 
+    ## Every completed normalisation/batch-correction run pushes an analysis record to the session-wide store.
+    observeEvent(input$run_btn, {
+      res <- tryCatch(result(), error = arthomix_null_on_error)
+      req(res)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_preprocessing_batch",
+        checksum_input = list(expr = res$expr_combat, samples = res$meta$sample),
+        params = list(
+          sources = res$sources, normalisation = res$norm_label,
+          batch_correction = if (isTRUE(res$skip_combat)) "skipped" else res$correction_method %||% "combat",
+          batch_col = res$batch_col, interaction_batch = isTRUE(res$use_batch2), reference_batch = res$ref_batch %||% NA_character_,
+          combat_prior = res$combat_prior, combat_mean_only = isTRUE(res$combat_mean_only),
+          protected_covariates = if (length(res$protect)) res$protect else "none",
+          min_expr_percentile = input$min_pct %||% 0, min_variance_percentile = input$variance_pct %||% 0,
+          n_genes_before = res$n_before, n_genes_after = res$n_after, n_samples = nrow(res$meta),
+          n_outliers_excluded = res$n_excluded_outliers, mad_k = input$mad_k %||% 3,
+          fallback_note = res$combat_fallback_note %||% NA_character_
+        ),
+        seed = if (identical(res$correction_method, "sva")) ARTHOMIX_TX_ML_SEED else NULL,
+        packages = c("limma", "sva", "edgeR")
+      ))
+    }, ignoreInit = TRUE)
+
+    ##  Value boxes
 
     output$vb_samples <- renderValueBox({
       res <- result()
@@ -1480,7 +1519,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           p("PC1 versus ", strong(res$batch_col), " association (one-way ANOVA p-value): ",
             sprintf("%.2g", before_p), " before, and ", sprintf("%.2g", after_p), " after."),
           p(class = "empty-note", icon("triangle-exclamation"),
-            "These two numbers are identical because \"Skip batch correction\" is ticked in Settings, so \"after\" is the same uncorrected data as \"before\". Untick it to see whether correction actually reduces this column's effect on PC1.")
+            "These two numbers are identical because \"Skip batch correction\" is ticked in Settings, so \"after\" is the same as \"before\". Untick it to see whether correction reduces this column's effect on PC1.")
         ))
       }
       tagList(
@@ -1596,7 +1635,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     }
 
     output$results_top_ui <- renderUI({
-      res <- tryCatch(result(), error = function(e) NULL)
+      res <- tryCatch(result(), error = arthomix_null_on_error)
       if (is.null(res)) {
         return(div(class = "empty-note", icon("circle-info"),
             "Set the options on the left, then click \"Run normalisation and batch correction\" to see results here."))
@@ -1618,7 +1657,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     })
 
     output$results_rest_ui <- renderUI({
-      res <- tryCatch(result(), error = function(e) NULL)
+      res <- tryCatch(result(), error = arthomix_null_on_error)
       req(res)
       tagList(
         
@@ -1640,7 +1679,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         ),
         if (isTRUE(res$skip_combat)) div(class = "empty-note", icon("triangle-exclamation"),
           strong(" \"Skip batch correction\" is ticked in Settings: "),
-          "no correction was run, so the panels below are the same normalised data twice, and every before/after comparison is necessarily identical. Untick it and re-run to see an actual before/after."),
+          "no correction was run, so the panels below show the same normalised data twice - every before/after comparison is identical. Untick it and re-run to see a real before/after."),
         bc_section("braille", "PCA before batch correction",
           withSpinner(plotOutput(ns("pca_before"), height = 340), color = "#2563EB", type = 6)
         ),
@@ -1697,7 +1736,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     }
 
     output$meta_tab_ui <- renderUI({
-      m <- tryCatch(merged(), error = function(e) NULL)
+      m <- tryCatch(merged(), error = arthomix_null_on_error)
       intro <- div(class = "empty-note", icon("circle-info"),
         "For studies too different to pool - analyse each separately, then combine effect sizes via random-effects meta-analysis.")
       if (is.null(m)) {
@@ -1732,7 +1771,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       validate(need(input$meta_ref_group != input$meta_comp_group, "Reference and comparison group must be different."))
       validate(need(input$meta_study_col %in% colnames(m$meta), "Choose a study column."))
       n_studies <- length(unique(stats::na.omit(as.character(m$meta[[input$meta_study_col]]))))
-      validate(need(n_studies >= 2, "Study-wise meta-analysis needs at least two studies in the chosen study column. With a single study, use the Batch correction tab (tick \"Skip batch correction\" if there is no batch)."))
+      validate(need(n_studies >= 2, "Study-wise meta-analysis needs at least two studies in the chosen column. With a single study, use the Batch correction tab instead (tick \"Skip batch correction\" if there is no batch)."))
       min_n <- max(2L, as.integer(input$meta_min_n %||% 3))
       sw <- withProgress(message = "Fitting one limma model per study...", value = 0.3,
         pp_study_wise_limma(m$expr, m$meta, input$meta_study_col, input$meta_ref_group, input$meta_comp_group, min_n = min_n))
@@ -1750,11 +1789,22 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           studies = names(sw$per_study), n_genes = nrow(meta_tbl),
           n_significant = sum(meta_tbl$adj_p < 0.05, na.rm = TRUE), timestamp = Sys.time())
       }
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_preprocessing_meta",
+        checksum_input = list(genes = meta_tbl$gene, pooled = meta_tbl$logFC_pooled),
+        params = list(
+          study_col = input$meta_study_col, reference_group = input$meta_ref_group, comparison_group = input$meta_comp_group,
+          min_n_per_group = min_n, studies = names(sw$per_study), skipped_studies = if (length(sw$skipped)) sw$skipped else "none",
+          per_study_model = vapply(sw$per_study, function(d) d$method[1], character(1)),
+          pooling = "DerSimonian-Laird random effects, BH across genes", n_genes = nrow(meta_tbl)
+        ),
+        seed = NULL, packages = c("limma", "edgeR")
+      ))
       res
     }, ignoreInit = TRUE)
 
     output$meta_summary_ui <- renderUI({
-      r <- tryCatch(meta_result(), error = function(e) NULL)
+      r <- tryCatch(meta_result(), error = arthomix_null_on_error)
       if (is.null(r)) return(div(class = "empty-note", icon("circle-info"), "Not run yet. Choose the study column and groups, then click \"Run study-wise meta-analysis\"."))
       n_sig <- sum(r$table$adj_p < 0.05, na.rm = TRUE)
       n_het <- sum(r$table$I2 > 50, na.rm = TRUE)
@@ -1764,7 +1814,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         p(strong(format(nrow(r$table), big.mark = ",")), " genes measured in at least two studies; ",
           strong(format(n_sig, big.mark = ",")), sprintf(" with pooled FDR < 0.05 (%s vs %s).", r$comp_group, r$ref_group)),
         p(strong(format(n_het, big.mark = ",")), " genes show substantial between-study heterogeneity (I2 > 50%) - interpret their pooled effect with caution."),
-        p(class = "submodule-desc", "No batch correction was applied: each study is modelled separately, so study-level technical differences cannot be mistaken for biology the way they can after pooling. The cost is lower power than a compatible pooled analysis.")
+        p(class = "submodule-desc", "No batch correction applied: each study is modelled separately, so technical differences can't be mistaken for biology as they can after pooling. Cost: lower power than a compatible pooled analysis.")
       )
     })
 
@@ -1802,7 +1852,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
     )
 
     output$meta_results_ui <- renderUI({
-      r <- tryCatch(meta_result(), error = function(e) NULL)
+      r <- tryCatch(meta_result(), error = arthomix_null_on_error)
       if (is.null(r)) return(NULL)
       tagList(
         bc_section("table", "Per-study models", DT::dataTableOutput(ns("meta_study_table"))),

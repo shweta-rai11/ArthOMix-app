@@ -1,5 +1,6 @@
-# local Supabase credentials - never commit
+# local environment variables - never commit
 ArthOMix/.Renviron
+ArthOMix/.env
 
 # OS / editor
 .DS_Store

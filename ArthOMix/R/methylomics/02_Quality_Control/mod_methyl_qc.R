@@ -1,6 +1,5 @@
-## R/methylomics/02_Quality_Control/mod_methyl_qc.R - Methylomics Quality Control sub-module (UI + server).
-## Each tab is an independent, button-driven eventReactive over the shared
-## methyl_dataset; nothing here mutates methyl_dataset itself.
+## R/methylomics/02_Quality_Control/mod_methyl_qc.R
+## Each tab is an independent eventReactive over shared methyl_dataset; none mutate it.
 mod_methyl_qc_config <- list(
   id = "qc", title = "Quality Control", icon = "magnifying-glass-chart", group = "Data",
   description = "Performs probe and sample QC"
@@ -106,7 +105,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       req(pheno, sexcheck)
       tagList(
         div(class = "empty-note", icon("flask"),
-            "Historical reference: sample-level QC and probe-level filtering for the preloaded whole-blood dataset, reproduced from the completed pipeline run - nothing here is recomputed. The live, interactive tool below runs the same kinds of checks against the real matrix instead, one method at a time as you run each tab."),
+            "Historical reference: sample- and probe-level QC for the preloaded whole-blood dataset, reproduced from the completed pipeline run. Nothing here is recomputed. The live tool below runs the same checks against the real matrix, one method at a time."),
         div(class = "card",
             div(class = "card-title", icon("users"), "Cohort composition"),
             radioButtons(ns("qc_sex"), "Stratum", inline = TRUE,
@@ -120,12 +119,12 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
               valueBox(sum(sexcheck$sex_mismatch), "Sex mismatches (chrY vs reported)", icon = icon("venus-mars"), color = if (sum(sexcheck$sex_mismatch) > 0) "red" else "green", width = 4),
               valueBox(nrow(sexcheck), "Samples checked", icon = icon("vial"), color = "light-blue", width = 4)
             ),
-            p(class = "submodule-desc", "Outlier detection is run separately within each sex (whole-blood methylation separates strongly by sex on early PCs, so pooling would misflag one sex as \"outliers\" relative to the other)."),
+            p(class = "submodule-desc", "Outlier detection runs separately within each sex. Whole-blood methylation separates strongly by sex on early PCs, so pooling would misflag one sex as an outlier relative to the other."),
             DT::dataTableOutput(ns("qc_outlier_table"))
         ),
         div(class = "card",
             div(class = "card-title", icon("filter"), "Probe-filtering cascade"),
-            p(class = "submodule-desc", "Applied as five sequential, independently logged criteria (ChAMP-style: cg-prefix restriction, Zhou et al. 2017 MASK_general, multi-hit removal, sex-chromosome removal, >5% missingness) - a cohort-wide, probe-level QC pass run once on all 689 samples before the sex-stratified analysis, so it is intentionally the same for every Stratum selection above (probe filtering doesn't depend on which sex is being viewed; only the two sample-level tables above it do)."),
+            p(class = "submodule-desc", "Five sequential, logged criteria (ChAMP-style: cg-prefix restriction, Zhou et al. 2017 MASK_general, multi-hit removal, sex-chromosome removal, >5% missingness). Run once cohort-wide on all 689 samples before sex-stratification, so it's the same for every Stratum choice above; only the two sample-level tables above it change by sex."),
             DT::dataTableOutput(ns("qc_cascade_table"))
         )
       )
@@ -263,7 +262,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       if (is.null(methyl_dataset$beta)) {
         return(div(class = "card",
           div(class = "card-title", icon("upload"), "Live QC dashboard"),
-          p(class = "submodule-desc", "Upload a beta/M-value matrix or raw IDAT files on the Methylomics Dataset tab - or load the preloaded whole-blood dataset, if this deployment has the live matrix available - to run this interactively.")
+          p(class = "submodule-desc", "Upload a beta/M-value matrix or raw IDAT files on the Dataset tab, or load the preloaded whole-blood dataset if its live matrix is available, to run this interactively.")
         ))
       }
       div(class = "tx-menu-wrap",
@@ -414,12 +413,12 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
               )
             ),
             if (!has_idat) p(class = "empty-note", icon("circle-info"),
-              "This dataset has no raw IDAT input, so detection p-values and per-sample intensity aren't available - \"Maximum failed-probe percentage\", \"Minimum signal intensity\", bisulfite conversion efficiency, and median intensity below all show as unavailable. Call-rate filtering still works from the beta/M-value matrix alone."),
+              "This dataset has no raw IDAT input, so detection p-values and per-sample intensity aren't available. \"Maximum failed-probe percentage\", \"Minimum signal intensity\", bisulfite conversion, and median intensity below show as unavailable. Call-rate filtering still works from the beta/M-value matrix alone."),
             actionButton(ns("run_sample_qc_btn"), "Run Sample QC", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         div(class = "card",
             div(class = "card-title", icon("table-list"), "Manual sample inclusion/exclusion"),
-            p(class = "submodule-desc", "Select rows to exclude, then Apply - excluded samples are removed from the sample scope every QC method reads from, starting the next time each method's own Run button is clicked."),
+            p(class = "submodule-desc", "Select rows to exclude, then Apply. Excluded samples are removed from the scope every QC method reads from, starting the next time each method's own Run button is clicked."),
             DT::dataTableOutput(ns("manual_table")),
             div(style = "margin-top:8px;",
                 actionButton(ns("manual_apply_btn"), "Apply exclusions", icon = icon("check"), class = "btn-primary btn-sm"),
@@ -685,7 +684,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       tagList(
         div(class = "card",
             div(class = "card-title", icon("venus-mars"), "Sex check"),
-            p(class = "submodule-desc", "Predicts each sample's sex from its methylation profile (minfi::getSex() when raw IDAT is available, else a chrX/chrY beta heuristic) and compares it against the sample sheet's reported sex, if any. Independent of every other tab - nothing here changes what any other method does."),
+            p(class = "submodule-desc", "Predicts each sample's sex from its methylation profile (minfi::getSex() with raw IDAT, else a chrX/chrY beta heuristic) and compares it to the sample sheet's reported sex, if any. Independent of every other tab."),
             actionButton(ns("run_sex_qc_btn"), "Run Sex QC", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         uiOutput(ns("sex_qc_gate"))
@@ -791,7 +790,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         return(div(class = "card",
           div(class = "card-title", icon("wand-magic-sparkles"), "Batch QC"),
           p(class = "empty-note", icon("triangle-exclamation"), "No batch variable detected in uploaded metadata."),
-          p(class = "submodule-desc", "ComBat needs a batch/chip/plate/slide column in the sample sheet. RUVm instead needs raw IDAT input (control probes) plus the missMethyl package - neither is available for this dataset.")
+          p(class = "submodule-desc", "ComBat needs a batch/chip/plate/slide column in the sample sheet. RUVm needs raw IDAT input (control probes) plus the missMethyl package. Neither is available for this dataset.")
         ))
       }
       tagList(
@@ -812,7 +811,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
               if (!is.null(sheet)) selectInput(ns("ruvm_group_col"), "Factor of interest to protect (e.g. disease/control)", choices = colnames(sheet), selected = colnames(sheet)[1])
               else p(class = "empty-note", icon("triangle-exclamation"), "No sample sheet - RUVm needs a factor-of-interest column."),
               numericInput(ns("ruvm_k"), "Unwanted-variation factors (k)", value = 1, min = 1, max = 10, step = 1),
-              p(class = "submodule-desc", "RUVm (Maksimovic et al. 2015) estimates unwanted variation from the array's own internal negative-control probes, conditioned on the factor above - it doesn't need a batch label the way ComBat does.")),
+              p(class = "submodule-desc", "RUVm (Maksimovic et al. 2015) estimates unwanted variation from the array's own negative-control probes, conditioned on the factor above. It doesn't need a batch label the way ComBat does.")),
             conditionalPanel(condition = sprintf("input['%s'] == 'combat'", ns("batch_method")), uiOutput(ns("meth_confound_override_ui"))),
             actionButton(ns("run_batch_btn"), "Run Batch QC", icon = icon("play"), class = "btn-primary btn-sm")
         ),
@@ -836,7 +835,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       if (is.null(cc)) return(NULL)
       if (isTRUE(cc$confounded)) {
         div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
-            " Potential confounding detected: the batch column and the chosen phenotype column are strongly associated - every batch level maps to essentially one phenotype level. ComBat may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
+            " Potential confounding detected: the batch and phenotype columns are strongly associated - every batch level maps to essentially one phenotype level. ComBat may remove real biological signal here. Correction is blocked below unless you override this.")
       } else {
         div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
       }
@@ -861,7 +860,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
           cc <- multi_live_confounding_check(sheet, input$batch_col, input$batch_phenotype_col)
           validate(need(
             is.null(cc) || !isTRUE(cc$confounded) || isTRUE(input$meth_confound_override),
-            "Batch correction is blocked: the batch column and the chosen phenotype column appear confounded (every batch level maps to a single phenotype level). This cannot reliably separate batch from phenotype and correction could remove genuine biological signal. Check the override box above \"Run Batch QC\" to proceed anyway, or choose a different batch/phenotype column."
+            "Batch correction is blocked: the batch and phenotype columns appear confounded (every batch level maps to one phenotype level). Correction could remove real biological signal. Check the override box above \"Run Batch QC\" to proceed anyway, or choose a different column."
           ))
         }
         sample_ids <- methyl_sheet_sample_ids(sheet, colnames(mat))
@@ -1002,7 +1001,7 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         run_info_line(r$run_at, sprintf("Method(s): %s. Stratum: %s.", paste(r$methods, collapse = ", "), r$subgroup$label)),
         div(class = "card",
             div(class = "card-title", icon("ranking-star"), "Outlier score table"),
-            p(class = "submodule-desc", "Number of the selected methods that flagged each sample. Nothing is excluded automatically - select rows below and click \"Apply Sample Exclusions\" to remove them from the sample scope every QC method reads from."),
+            p(class = "submodule-desc", "Number of selected methods that flagged each sample. Nothing is excluded automatically - select rows below and click \"Apply Sample Exclusions\" to remove them from the shared QC scope."),
             DT::dataTableOutput(ns("outlier_score_table")),
             div(style = "margin-top:8px;", actionButton(ns("apply_outlier_exclusions_btn"), "Apply Sample Exclusions", icon = icon("user-slash"), class = "btn-warning btn-sm")),
             uiOutput(ns("manual_exclude_summary"))
@@ -1331,11 +1330,11 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
         ),
         div(class = "card",
             div(class = "card-title", icon("file-lines"), "QC report & figures"),
-            p(class = "submodule-desc", "A self-contained report (every figure baked in as an image, opens standalone in any browser) plus every figure as a separate PNG - built from whichever tabs have been run; sections not yet run are listed as skipped."),
+            p(class = "submodule-desc", "A self-contained HTML report (figures baked in, opens in any browser) plus every figure as a separate PNG. Built from whichever tabs have run; unrun sections are listed as skipped."),
             downloadButton(ns("dl_report_html"), "QC report (HTML)", class = "btn-primary btn-sm"),
             if (isTRUE(pdf_report_available())) downloadButton(ns("dl_report_pdf"), "QC report (PDF)", class = "btn-default btn-sm", style = "margin-left:8px;")
             else p(class = "empty-note", style = "margin-top:6px;", icon("circle-info"),
-                   "PDF export needs a LaTeX toolchain (rmarkdown + tinytex) that isn't installed in this deployment - the HTML report above opens in any browser and can be printed to PDF from there."),
+                   "PDF export needs a LaTeX toolchain (rmarkdown + tinytex) not installed here. The HTML report above opens in any browser and can be printed to PDF from there."),
             downloadButton(ns("dl_figures_zip"), "All figures (ZIP)", class = "btn-default btn-sm", style = "margin-left:8px;")
         ),
         if (isTRUE(probe_qc_has_run())) div(class = "card",

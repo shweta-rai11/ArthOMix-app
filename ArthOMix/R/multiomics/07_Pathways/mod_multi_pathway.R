@@ -1,6 +1,5 @@
 ## R/multiomics/07_Pathways/mod_multi_pathway.R
-## Submodule: Pathways - a live GO/KEGG/Reactome/WikiPathways pathway-
-## enrichment engine (ORA + GSEA) over either the app's preloaded multi-omics
+## Pathways: live GO/KEGG/Reactome/WikiPathways enrichment (ORA + GSEA).
 
 mod_multi_pathway_config <- list(
   id = "pathway", title = "Pathways", icon = "sitemap", group = "Interpretation",
@@ -45,10 +44,13 @@ mod_multi_pathway_ui <- function(id) {
                           numericInput(ns("gsea_fdr_cut"), "FDR cutoff", value = 0.25, min = 0, max = 1, step = 0.01)),
         fluidRow(column(6, numericInput(ns("min_size"), "Min gene-set size", value = 5, min = 1, step = 1)),
                  column(6, numericInput(ns("max_size"), "Max gene-set size", value = 500, min = 5, step = 10))),
+        checkboxInput(ns("probe_bias"), "Correct CpG-derived candidates for probe-number bias (missMethyl gometh; GO and KEGG)", value = TRUE),
+        conditionalPanel(condition = sprintf("input['%s'] == true", ns("probe_bias")),
+                          selectInput(ns("array_type"), "Methylation array (for gometh)", choices = c("Illumina 450K" = "450K", "Illumina EPIC" = "EPIC"), selected = "450K"),
+                          p(class = "submodule-desc", "CpG candidates are tested with gometh, which adjusts for probes-per-gene and multi-gene probes. Gene candidates use the ordinary hypergeometric ORA. Without this, CpG-derived genes would be treated as if measured only once.")),
         selectInput(ns("background"), "Background / universe", choices = c(
           "Auto (measured features in active dataset)" = "auto_experimental",
-          "Preloaded cohort's own candidate gene list (already filtered to significant hits - not a valid statistical background, use for highlighting only)" = "preloaded_universe",
-          "Uploaded file's own identifier list" = "uploaded_background",
+          "Preloaded cohort's candidate gene list (already significant - not a valid background, for highlighting only)" = "preloaded_universe",
           "Entire selected database (no experimental universe)" = "entire_database"
         ), selected = "auto_experimental"),
         conditionalPanel(condition = sprintf("input['%s'] == 'entire_database'", ns("background")),
@@ -76,7 +78,7 @@ mod_multi_pathway_ui <- function(id) {
 mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
+    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset, multi_results))
 
     output$layer_pick_ui <- renderUI({
       layers <- multi_dataset$layers %||% list()
@@ -196,7 +198,12 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
           has_run(TRUE); return()
         }
 
-        genes_entrez <- unique(stats::na.omit(mapped$df$entrez_id))
+        ## Probe-bias route: CpGs go to gometh, only gene IDs go to hypergeometric ORA.
+        is_cpg_row <- mapped$df$match_type %in% "cpg_mapped" | grepl("^cg[0-9]+$", mapped$df$feature)
+        use_gometh <- identical(input$method, "ORA") && isTRUE(input$probe_bias) && any(is_cpg_row) && mp_gometh_available()
+        sig_cpgs <- if (use_gometh) unique(mapped$df$feature[is_cpg_row]) else character(0)
+        all_cpgs <- if (use_gometh && !is.null(meth_layer_val()) && meth_layer_val() %in% names(multi_dataset$layers %||% list())) colnames(multi_dataset$layers[[meth_layer_val()]]) else NULL
+        genes_entrez <- if (use_gometh) unique(stats::na.omit(mapped$df$entrez_id[!is_cpg_row])) else unique(stats::na.omit(mapped$df$entrez_id))
         univ <- mp_resolve_universe(input$background, multi_dataset, expr_layer_val(), meth_layer_val(),
                                      uploaded_universe_ids = if (identical(input$data_source, "upload")) bi$df$feature else NULL)
         if (!isTRUE(univ$ok) && !identical(input$background, "entire_database")) {
@@ -223,9 +230,18 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
             if (!isTRUE(ov$ok)) { errs <- c(errs, ov$error); next }
             mp_run_topology(genes_entrez, univ$universe_entrez, params)
           } else {
-            if (!isTRUE(ov$ok)) { errs <- c(errs, ov$error); next }
+            if (use_gometh) {
+              g <- mp_run_gometh(db, sig_cpgs, all_cpgs, input$array_type %||% "450K", params)
+              if (isTRUE(g$ok) && !is.null(g$df)) rows[[paste0(db, "_gometh")]] <- g$df else errs <- c(errs, sprintf("%s (gometh): %s", db, g$error %||% "no result"))
+            }
+            if (length(genes_entrez) == 0) {
+              if (!use_gometh) errs <- c(errs, sprintf("%s: no gene identifiers mapped.", db))
+              next
+            }
+            if (!isTRUE(ov$ok) && !use_gometh) { errs <- c(errs, ov$error); next }
             mp_run_ora(db, genes_entrez, univ$universe_entrez, params)
           }
+          if (is.null(r)) next
           if (isTRUE(r$ok) && !is.null(r$df)) rows[[db]] <- r$df else errs <- c(errs, sprintf("%s: %s", db, r$error %||% "no result"))
         }
 
@@ -249,9 +265,11 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
         meta <- mp_build_metadata(input$database, input$method, "Homo sapiens", univ$universe_label, if (identical(input$method, "GSEA")) input$ranking_method else NULL,
                                    summ$n_input, summ$n_mapped, fdr_thresh, input$min_size, input$max_size)
 
+        if (use_gometh) meta <- rbind(meta, data.frame(Field = "CpG probe-number bias", Value = sprintf("Corrected with missMethyl gometh (%s array; %d candidate CpGs; background %s)", input$array_type %||% "450K", length(sig_cpgs), if (is.null(all_cpgs)) "all array probes" else sprintf("%s measured CpGs", format(length(all_cpgs), big.mark = ","))), stringsAsFactors = FALSE))
+        else if (any(is_cpg_row) && identical(input$method, "ORA")) meta <- rbind(meta, data.frame(Field = "CpG probe-number bias", Value = "Not corrected - CpG-derived genes were added to the gene list once each (first-listed gene per probe).", stringsAsFactors = FALSE))
         result(list(ok = TRUE, table = tab_show, mapping = summ, mapping_df = mapped$df, cpg_map = mapped$cpg_map,
                      input_df = df, metadata = meta, warnings = errs, fdr_thresh = fdr_thresh,
-                     method = input$method, background_label = univ$universe_label))
+                     method = input$method, background_label = univ$universe_label, probe_bias_corrected = use_gometh))
         has_run(TRUE)
       })
     })
@@ -276,7 +294,8 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
                          downloadButton(ns("dl_bar_png"), "Download (PNG)", class = "btn-sm")))
         ),
         box(width = NULL, title = "Pathway x Omics evidence heatmap", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mp_omics_heatmap(r$table), ns("heatmap_plot"), "Not enough evidence-scored pathways for a heatmap.", height = "460px")),
+            multi_plot_or_empty(function() mp_omics_heatmap(r$table), ns("heatmap_plot"), "Not enough evidence-scored pathways for a heatmap.", height = "460px"),
+            downloadButton(ns("dl_heatmap_png"), "Download (PNG)", class = "btn-sm")),
         box(width = NULL, title = "Gene-Pathway network", status = "primary", solidHeader = FALSE,
             uiOutput(ns("network_pathway_pick_ui")),
             multi_plot_or_empty(function() mp_gene_pathway_network(r$table, r$input_df, input$network_pathway_pick), ns("network_plot"), "Select pathway(s), or too few overlapping genes for a readable network.", height = "460px"),
@@ -291,6 +310,7 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
     output$bar_plot <- multi_render_plotly(function() mp_bar_plot(req(res_ok())$table, 20, input$bar_sort %||% "FDR"))
     output$dl_bar_png <- multi_png_download(function() mp_bar_plot(req(res_ok())$table, 20, input$bar_sort %||% "FDR"), function() "pathway_barplot.png")
     output$heatmap_plot <- multi_render_plotly(function() mp_omics_heatmap(req(res_ok())$table))
+    output$dl_heatmap_png <- multi_png_download(function() mp_omics_heatmap(req(res_ok())$table), function() "pathway_omics_heatmap.png")
 
     output$network_pathway_pick_ui <- renderUI({
       r <- req(res_ok())
@@ -413,6 +433,19 @@ mod_multi_pathway_server <- function(id, multi_dataset = NULL, multi_results = N
       r <- res_ok()
       if (is.null(r) || is.null(multi_results)) return()
       multi_results$pathway <- list(df = r$table, mapping = r$mapping, metadata = r$metadata)
+    })
+
+    ## ---- provenance record (session-wide Analysis records log) ----
+    observeEvent(result(), {
+      r <- result(); if (is.null(r) || !isTRUE(r$ok)) return()
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_pathway",
+        checksum_input = list(table = r$table[, intersect(c("source", "ID", "pvalue", "p.adjust"), colnames(r$table)), drop = FALSE]),
+        params = c(stats::setNames(as.list(r$metadata$Value), make.names(r$metadata$Field)),
+                   list(n_terms = nrow(r$table), n_significant = sum(r$table$significant %in% TRUE), probe_bias_corrected = isTRUE(r$probe_bias_corrected))),
+        seed = NULL, packages = c("clusterProfiler", "ReactomePA", "fgsea", "msigdbr", "missMethyl", "org.Hs.eg.db"),
+        extra = list(warnings = r$warnings)
+      ), session = session, dedupe = TRUE)
     })
   })
 }

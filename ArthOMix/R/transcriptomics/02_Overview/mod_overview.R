@@ -1,6 +1,4 @@
-## Overview and Datasets submodule: GEO source catalog, metadata/expression
-## browsers, and QC (missing values, outlier detection, normalisation check,
-## group filtering) for the selected raw dataset.
+## Overview and Datasets: GEO source catalog, metadata/expression browsers, and QC.
 
 mod_overview_config <- list(
   id = "overview", group = "Data",
@@ -90,7 +88,7 @@ mod_overview_ui <- function(id) {
         ),
         tabPanel(
           "Normalised data", br(),
-          p(class = "submodule-desc", "Checks whether samples are on a comparable scale: per-sample distribution, a spread diagnostic, a scree plot and PCA - the same checks used to decide on quantile normalisation in Preprocessing."),
+          p(class = "submodule-desc", "Checks whether samples are on a comparable scale, using per-sample distribution, a spread diagnostic, a scree plot, and PCA. Same checks used to decide on quantile normalisation in Preprocessing."),
           fluidRow(
             column(
               4,
@@ -147,7 +145,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           if (!is.null(eset)) {
             tagList(
               p(class = "module-card-tagline",
-                tryCatch(Biobase::experimentData(eset)@title, error = function(e) NULL)),
+                tryCatch(Biobase::experimentData(eset)@title, error = arthomix_null_on_error)),
               if (!is.null(src)) p(strong("Role: "), src$role, br(), strong("Used for: "), src$used_in),
               p(strong("Platform: "), Biobase::annotation(eset), br(),
                 strong("Samples: "), ncol(eset), ", ", strong("Probes: "), format(nrow(eset), big.mark = ","))
@@ -253,7 +251,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           valueBox(length(unique(na.omit(meta$sex))), "Sex categories", icon = icon("venus-mars"), color = "red", width = 3)
         ),
         p(class = "submodule-desc",
-          "Next: browse the full metadata table below or the Expression data tab for the matrix itself, check Missing values and Outliers for data quality issues, Normalised data for whether samples are on a comparable scale, or filter by any metadata column to explore a subset.")
+          "Next: browse the metadata table below or the Expression data tab for the matrix. Check Missing values and Outliers for data quality, Normalised data for scale comparability, or filter by a metadata column to explore a subset.")
       )
     })
 
@@ -392,7 +390,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           "; max value in matrix: ", strong(format(round(d$max_value, 1), big.mark = ",")), "."),
         p(class = "empty-note", icon(if (!needs) "check" else "triangle-exclamation"),
           if (!needs) "Samples look well aligned and log-scaled - quantile normalisation likely isn't needed."
-          else "This looks like it needs quantile normalisation: either samples disagree by more than 0.5 on the log scale, or values are still on a linear (not log2) scale - the same rule Preprocessing uses to decide. See Normalise this dataset below.")
+          else "This looks like it needs quantile normalisation: samples disagree by more than 0.5 on the log scale, or values are still on a linear (not log2) scale. Same rule Preprocessing uses. See Normalise this dataset below.")
       )
     })
 
@@ -454,6 +452,13 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     norm_apply_result <- eventReactive(input$apply_norm_btn, {
       expr <- as.matrix(qc_target()$expr)
       normalized <- limma::normalizeBetweenArrays(expr, method = "quantile")
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_overview_quantile_normalisation",
+        checksum_input = list(expr = expr),
+        params = list(method = "limma::normalizeBetweenArrays(method = 'quantile')", target = input$qc_source %||% "active",
+                      n_genes = nrow(expr), n_samples = ncol(expr), adopted = FALSE),
+        seed = NULL, packages = "limma"
+      ))
       list(
         diag_before = summarize_norm_diagnostics(expr), diag_after = summarize_norm_diagnostics(normalized),
         box_before = norm_check()$box_df,
@@ -473,7 +478,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
         box(
           width = 12, title = "Normalise this dataset", status = if (needs) "warning" else "primary", solidHeader = FALSE,
           p(class = "submodule-desc",
-            "Runs the same quantile normalisation (limma::normalizeBetweenArrays) Preprocessing applies to the merged training cohort, live, on whatever's selected above - so if you uploaded your own, un-normalised data, you can check it and fix it right here."),
+            "Runs the same quantile normalisation (limma::normalizeBetweenArrays) that Preprocessing applies to the merged training cohort, live on whatever's selected above. Check and fix your own un-normalised upload right here."),
           actionButton(ns("apply_norm_btn"), "Apply quantile normalisation", icon = icon("wand-magic-sparkles"), class = "btn-primary btn-sm"),
           uiOutput(ns("norm_apply_result_ui"))
         )
@@ -501,7 +506,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
           actionButton(ns("adopt_norm_btn"), "Use this normalised version for every sub-module", icon = icon("check"), class = "btn-success btn-sm")
         } else {
           p(class = "empty-note", icon("circle-info"),
-            "This is one of the app's fixed reference datasets, so it stays read-only here - only its diagnostics change, not the data every sub-module reads. Upload your own data, or fetch from NCBI GEO, on the Dataset tab to normalise it and use the result app-wide.")
+            "This is one of the app's fixed reference datasets, so it stays read-only here - only its diagnostics change, not the data other sub-modules read. To normalise and use the result app-wide, upload data or fetch from GEO on the Dataset tab.")
         }
       )
     })
@@ -519,6 +524,14 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     observeEvent(input$adopt_norm_btn, {
       req(norm_apply_result(), identical(input$qc_source, "active"))
       dataset$expr <- norm_apply_result()$expr_after
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_overview_quantile_normalisation",
+        checksum_input = list(expr = norm_apply_result()$expr_after),
+        params = list(method = "limma::normalizeBetweenArrays(method = 'quantile')", target = "active",
+                      n_genes = nrow(dataset$expr), n_samples = ncol(dataset$expr), adopted = TRUE,
+                      note = "adopted as the active dataset - every downstream sub-module now reads this matrix"),
+        seed = NULL, packages = "limma"
+      ))
       if (!grepl("(quantile-normalised)", dataset$source, fixed = TRUE)) {
         dataset$source <- paste0(dataset$source, " (quantile-normalised)")
       }
@@ -556,7 +569,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       for (cl in cols) {
         x <- meta[[cl]]
         if (is.numeric(x)) {
-          rng <- suppressWarnings(range(x, na.rm = TRUE))
+          rng <- arthomix_quiet(range(x, na.rm = TRUE))
           if (is.finite(rng[1]) && is.finite(rng[2]) && rng[1] < rng[2]) {
             specs[[cl]] <- list(type = "numeric", min = floor(rng[1]), max = ceiling(rng[2]))
           }

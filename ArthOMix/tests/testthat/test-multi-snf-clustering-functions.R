@@ -218,6 +218,8 @@ test_that("sfc_stability_run() (real repeated SNF reruns + ARI) reports high sta
   expect_true(out$ok)
   expect_true(out$mean_ari > 0.5)
   expect_equal(out$verdict, sfc_stability_verdict(out$mean_ari))
+  ## every resample must be a different subsample (the seeded SNF rerun must not reset the draw)
+  expect_gt(out$n_distinct_subsamples, 1)
 })
 
 test_that("sfc_stability_verdict() classifies at the documented 0.5/0.75 thresholds", {

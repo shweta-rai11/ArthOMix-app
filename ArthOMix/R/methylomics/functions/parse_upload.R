@@ -1,6 +1,5 @@
 ## R/methylomics/functions/parse_upload.R
-## Upload parsing for the Methylomics Dataset tab. Never throws - each parser
-## returns list(ok = FALSE, error = <message>) instead, same fail-soft pattern
+## Upload parsing for the Methylomics Dataset tab. Never throws; returns list(ok=FALSE, error=...) instead.
 
 methyl_parse_matrix <- function(datapath, filename) {
   df <- tryCatch(
@@ -59,12 +58,12 @@ methyl_validate_matrix_upload <- function(mat, declared_scale) {
   frac_in_unit <- mean(vals >= -0.05 & vals <= 1.05)
   if (identical(declared_scale, "beta") && frac_in_unit < 0.95) {
     return(list(ok = FALSE, error = sprintf(
-      "\"Beta values (0-1)\" is selected as the input scale, but %.0f%% of the values in this matrix fall outside 0-1 - this looks like M-values or a non-methylation dataset, not beta values. Switch \"Input scale\" to M-values if that's what this is, or double check this file is really methylation data.",
+      "\"Beta values (0-1)\" is selected as the input scale, but %.0f%% of the values fall outside 0-1. This looks like M-values or a non-methylation dataset, not beta values. Switch \"Input scale\" to M-values if that's what this is, or check this is really methylation data.",
       100 * (1 - frac_in_unit)
     )))
   }
   if (identical(declared_scale, "m") && frac_in_unit > 0.99 && stats::sd(vals) < 0.5) {
-    notes <- c(notes, "Note: these values look like they could already be beta values (all within 0-1, low spread) rather than M-values - double-check \"Input scale\" above if downstream results look off.")
+    notes <- c(notes, "Note: these values look like they could already be beta values (all within 0-1, low spread), not M-values. Double-check \"Input scale\" above if downstream results look off.")
   }
   list(ok = TRUE, mat = mat, note = if (length(notes) > 0) paste(notes, collapse = " ") else NULL)
 }

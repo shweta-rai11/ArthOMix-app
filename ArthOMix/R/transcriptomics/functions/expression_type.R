@@ -1,12 +1,11 @@
 ## R/transcriptomics/functions/expression_type.R
-## Shared expression-matrix scale/type heuristics and the declare-then-verify
-## upload validator for the Transcriptomics module. Promoted out of
+## Shared expression-matrix scale/type heuristics and upload validator.
 
 looks_like_raw_counts <- function(m) {
   vals <- as.numeric(m)
   vals <- vals[is.finite(vals)]
   if (length(vals) == 0 || any(vals < 0)) return(FALSE)
-  q99 <- suppressWarnings(stats::quantile(vals[vals > 0], 0.99, na.rm = TRUE))
+  q99 <- arthomix_quiet(stats::quantile(vals[vals > 0], 0.99, na.rm = TRUE))
   isTRUE(!is.na(q99) && q99 > 100)
 }
 
@@ -28,17 +27,17 @@ tx_looks_like_results_table <- function(mat) {
 
 tx_validate_expr_upload <- function(mat, declared_type) {
   if (isTRUE(tx_looks_like_results_table(mat))) {
-    return(list(ok = FALSE, error = "This looks like a differential-expression results table (column names like logFC/p-value/padj/baseMean), not a sample-level expression matrix - each row should be a gene and each column a sample. Upload the underlying expression matrix instead."))
+    return(list(ok = FALSE, error = "This looks like a differential-expression results table (columns like logFC/p-value/padj/baseMean), not a sample-level expression matrix. Each row should be a gene and each column a sample. Upload the expression matrix instead."))
   }
 
   notes <- character(0)
   if (!is.null(ncol(mat)) && ncol(mat) < 3) {
-    notes <- c(notes, "This matrix has fewer than 3 sample columns - double check this is really a sample-level expression matrix, not a summary/results table.")
+    notes <- c(notes, "This matrix has fewer than 3 sample columns. Double check this is a sample-level expression matrix, not a summary/results table.")
   }
 
   vals <- mat[is.finite(mat)]
   if (length(vals) == 0) {
-    return(list(ok = FALSE, error = "No finite numeric values found in this matrix - check it isn't entirely NA/blank."))
+    return(list(ok = FALSE, error = "No finite numeric values found in this matrix. Check it isn't entirely NA/blank."))
   }
 
   has_negative <- any(vals < 0)
@@ -47,24 +46,24 @@ tx_validate_expr_upload <- function(mat, declared_type) {
 
   if (identical(declared_type, "raw")) {
     if (has_negative) {
-      return(list(ok = FALSE, error = "\"Raw counts\" is selected as the data type, but this matrix has negative values - raw sequencing counts can't be negative. This looks like normalized or log-transformed data instead; change \"Data type\" above, or upload the actual raw count matrix."))
+      return(list(ok = FALSE, error = "\"Raw counts\" is selected, but this matrix has negative values. Raw counts can't be negative - this looks like normalized or log-transformed data. Change \"Data type\" above, or upload the actual raw count matrix."))
     }
     if (is_norm_totals) {
-      return(list(ok = FALSE, error = "\"Raw counts\" is selected as the data type, but this matrix's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalized expression, not raw sequencing counts. Change \"Data type\" above to \"Normalized\", or upload the actual raw count matrix."))
+      return(list(ok = FALSE, error = "\"Raw counts\" is selected, but per-sample totals are tightly pinned near a fixed value (e.g. ~1e6). That's the signature of TPM/FPKM/CPM data, not raw counts. Change \"Data type\" to \"Normalized\", or upload the actual raw count matrix."))
     }
     if (!is_raw) {
-      notes <- c(notes, "Note: this data doesn't show the usual wide dynamic range of raw sequencing counts (99th percentile of values <= 100) - double-check \"Data type\" above if downstream results look off.")
+      notes <- c(notes, "Note: this data lacks the usual wide range of raw sequencing counts (99th percentile <= 100). Double-check \"Data type\" above if downstream results look off.")
     }
   } else if (identical(declared_type, "normalized")) {
     if (is_raw && !is_norm_totals) {
-      return(list(ok = FALSE, error = "\"Normalized (TPM/FPKM/CPM)\" is selected as the data type, but this data looks like raw, un-normalized sequencing counts (wide, unpinned per-sample totals), not normalized expression. Change \"Data type\" above to \"Raw counts\", or upload the actual normalized matrix."))
+      return(list(ok = FALSE, error = "\"Normalized (TPM/FPKM/CPM)\" is selected, but this looks like raw, un-normalized sequencing counts (wide, unpinned per-sample totals). Change \"Data type\" to \"Raw counts\", or upload the actual normalized matrix."))
     }
     if (has_negative) {
-      notes <- c(notes, "Note: this matrix has negative values, which is unusual for TPM/FPKM/CPM-normalized data (though possible after further transformation) - double-check \"Data type\" above if this is actually log-transformed data.")
+      notes <- c(notes, "Note: this matrix has negative values, unusual for TPM/FPKM/CPM data (though possible after further transformation). Double-check \"Data type\" above if this is actually log-transformed data.")
     }
   } else if (identical(declared_type, "logtransformed")) {
     if (is_raw && !is_norm_totals) {
-      return(list(ok = FALSE, error = "\"Already log-transformed\" is selected as the data type, but this data looks like raw, un-normalized sequencing counts, not log-transformed values. Change \"Data type\" above to \"Raw counts\", or upload the actual log-transformed matrix."))
+      return(list(ok = FALSE, error = "\"Already log-transformed\" is selected, but this looks like raw, un-normalized sequencing counts, not log-transformed values. Change \"Data type\" to \"Raw counts\", or upload the actual log-transformed matrix."))
     }
   }
 

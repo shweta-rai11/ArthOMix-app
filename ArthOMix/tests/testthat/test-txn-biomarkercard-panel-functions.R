@@ -163,7 +163,7 @@ test_that("tbc_evidence_classification reaches Supported candidate with diagnost
   expect_equal(cl$tier, "Supported candidate")
 })
 
-test_that("tbc_evidence_classification never reaches Strong candidate - external validation is never persisted in this deployment", {
+test_that("tbc_evidence_classification tops out at Supported candidate on training + internal + biological evidence alone - external validation is never inferred from those", {
   d <- list(live = list(ok = FALSE),
             dge_hits = data.frame(direction = "Up", adj.P.Val = 0.001, stringsAsFactors = FALSE),
             diagnostic_match = list())
@@ -172,5 +172,64 @@ test_that("tbc_evidence_classification never reaches Strong candidate - external
   ext <- list(genetics = list(ok = TRUE, n_diseases = 5), drugs = list(ok = TRUE, drugs = data.frame(Drug = "X")))
   cl <- tbc_evidence_classification(d, ext = ext, sgd = sgd, sgcv = sgcv)
   expect_equal(cl$tier, "Supported candidate")
-  expect_false(Filter(function(x) x$label == "External validation", cl$checklist)[[1]]$met)
+  expect_false(Filter(function(x) startsWith(x$label, "External validation"), cl$checklist)[[1]]$met)
+})
+
+## ---- External-validation evidence tier (audit 2026-09-05): reachable only from a persisted
+## frozen-model scoring written by the Diagnostic Model's External Validation tab ----
+
+bmc_min_d <- function(external = NULL) {
+  list(
+    live = list(ok = FALSE), dge_hits = data.frame(direction = "Up", adj.P.Val = 0.001, stringsAsFactors = FALSE),
+    diagnostic_match = list(female = list(in_panel = TRUE, panel_size = 5, n_samples = 100,
+                                          lr_auc = 0.9, lr_cv_auc = 0.85, enet_auc = 0.9, enet_cv_auc = 0.86,
+                                          rf_auc = 0.95, rf_cv_auc = 0.84, svm_auc = 0.9, svm_cv_auc = 0.83,
+                                          genes = c("TNF", "IL6"), external = external))
+  )
+}
+
+bmc_external_fixture <- function(available = TRUE) {
+  list(cohort = "GSE15573 (bundled external blood cohort, PBMC, 33 samples, log2-transformed on load)", cohort_source = "bundled",
+       n_ref = 10, n_comp = 14, ref_group = "HC", comp_group = "RA", sex_restricted = TRUE,
+       n_genes_present = 2, n_genes_panel = 2, genes = c("TNF", "IL6"), models_scored = available,
+       models = list(
+         list(key = "lr", label = "Logistic Regression", available = available, auc = if (available) 0.81 else NA_real_,
+              ci_lo = 0.7, ci_hi = 0.92, sensitivity = 0.8, specificity = 0.7, reason = if (available) "" else "Could not score"),
+         list(key = "rf", label = "Random Forest", available = available, auc = if (available) 0.77 else NA_real_,
+              ci_lo = 0.65, ci_hi = 0.89, sensitivity = 0.75, specificity = 0.7, reason = "")))
+}
+
+test_that("tbc_external_validation_best()/rows() read the persisted frozen-model scoring and pick the best model", {
+  expect_null(tbc_external_validation_rows(NULL))
+  expect_null(tbc_external_validation_rows(bmc_min_d()$diagnostic_match))
+  expect_true(is.na(tbc_external_validation_best(bmc_min_d()$diagnostic_match)$auc))
+
+  dm <- bmc_min_d(external = bmc_external_fixture())$diagnostic_match
+  best <- tbc_external_validation_best(dm)
+  expect_equal(best$auc, 0.81)
+  expect_match(best$label, "female panel, Logistic Regression, on GSE15573")
+  rows <- tbc_external_validation_rows(dm)
+  expect_equal(nrow(rows), 2)
+  expect_equal(rows$Stratum, c("female", "female"))
+  expect_equal(rows$`External AUC (95% CI)`[1], "0.810 (0.700-0.920)")
+
+  dm_unavail <- bmc_min_d(external = bmc_external_fixture(available = FALSE))$diagnostic_match
+  expect_true(is.na(tbc_external_validation_best(dm_unavail)$auc))
+  expect_null(tbc_external_validation_rows(dm_unavail))
+})
+
+test_that("tbc_evidence_classification() reaches 'Strong candidate' only when a frozen-model external scoring is persisted", {
+  cl_no_ext <- tbc_evidence_classification(bmc_min_d(), ext = NULL)
+  expect_equal(cl_no_ext$tier, "Supported candidate")
+  ext_item <- Filter(function(it) grepl("External validation", it$label), cl_no_ext$checklist)[[1]]
+  expect_false(ext_item$met)
+
+  cl_ext <- tbc_evidence_classification(bmc_min_d(external = bmc_external_fixture()), ext = NULL)
+  expect_equal(cl_ext$tier, "Strong candidate")
+  ext_item <- Filter(function(it) grepl("External validation", it$label), cl_ext$checklist)[[1]]
+  expect_true(ext_item$met)
+  expect_true("Strong candidate" %in% names(TBC_TIER_CLASS))
+
+  cl_unavail <- tbc_evidence_classification(bmc_min_d(external = bmc_external_fixture(available = FALSE)), ext = NULL)
+  expect_equal(cl_unavail$tier, "Supported candidate")
 })

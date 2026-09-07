@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("uploading the chen2021 merged fixture completes the full upload -> map -> load flow", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   expr_path <- get_example_path("transcriptomics_upload", "merged", "chen2021_merged_expression_matrix.csv")
   meta_path <- get_example_path("transcriptomics_upload", "merged", "chen2021_merged_sample_metadata.csv")
@@ -20,7 +19,7 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "transcriptomics")
   app$wait_for_idle(timeout = 20 * 1000)

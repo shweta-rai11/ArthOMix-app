@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("every Methylomics sub-module tab opens and renders with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-mx-submodules",
@@ -15,7 +14,7 @@ test_that("every Methylomics sub-module tab opens and renders with no output err
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "methylomics")
   app$wait_for_idle(timeout = 20 * 1000)
@@ -35,7 +34,6 @@ test_that("every Methylomics sub-module tab opens and renders with no output err
 })
 
 test_that("Dataset -> QC data flow: loading the preloaded whole-blood dataset makes it visible to the QC tab", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-mx-qc-flow",
@@ -44,7 +42,7 @@ test_that("Dataset -> QC data flow: loading the preloaded whole-blood dataset ma
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "methylomics")
   app$wait_for_idle(timeout = 20 * 1000)

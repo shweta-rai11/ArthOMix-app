@@ -1,6 +1,5 @@
 ## R/methylomics/03_Normalisation/mod_methyl_normalization.R
-## Methylomics sub-module: Normalization. Reads the shared `methyl_dataset`
-## reactiveValues (R/methylomics/functions/normalization.R has the method
+## Normalization sub-module. Reads shared `methyl_dataset` (methods live in functions/normalization.R).
 
 mod_methyl_normalization_config <- list(
   id = "normalization", title = "Normalization", icon = "wave-square", group = "Data",
@@ -271,7 +270,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
         return(div(class = "card",
           div(class = "card-title", icon("circle-info"), "No separate normalization step for this dataset"),
           p(class = "submodule-desc",
-            "The preloaded whole-blood dataset's live beta matrix isn't available in this deployment, so there is nothing to run diagnostics against. The dataset was analyzed from its original author-normalized data - see the Dataset tab.")
+            "The preloaded whole-blood dataset's live beta matrix isn't available here, so there's nothing to run diagnostics against. It was analyzed from its original author-normalized data - see the Dataset tab.")
         ))
       }
       d <- diag_result(); st <- status_result()
@@ -281,9 +280,9 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
             div(class = "card-title", icon("circle-check"), "Normalization status"),
             fluidRow(valueBox("Using existing (author) normalization", "Status", icon = icon("circle-check"), color = "green", width = 12)),
             p(class = "submodule-desc",
-              "This is the app's own reference dataset, analyzed from its original author-normalized data (Liu et al. 2013, deposited on GEO) rather than reprocessed here - a deliberate choice that preserves direct comparability with the originally published beta values (see the Dataset tab). \"Re-normalize\" and \"Compare normalization methods\" are intentionally not offered for this dataset."),
+              "This is the app's own reference dataset, analyzed from its original author-normalized data (Liu et al. 2013, GEO) rather than reprocessed here. This preserves direct comparability with the published beta values (see Dataset tab). \"Re-normalize\" and \"Compare normalization methods\" aren't offered for this dataset."),
             if (!is.null(st$bias)) div(class = "empty-note", icon("flask"), sprintf(
-              "Technical note: an automatic check for residual Type I/II probe-design bias reads %s (Kolmogorov-Smirnov statistic = %.3f) for this dataset. This check detects one specific technical signal, not whether normalization was performed at all - a dataset can be fully corrected for background, dye, and batch effects without a probe-design-aware step such as BMIQ or SWAN ever being applied. Either way, this dataset's author-normalized values are kept as-is rather than reprocessed here.",
+              "Technical note: an automatic check for residual Type I/II probe-design bias reads %s (Kolmogorov-Smirnov statistic = %.3f) for this dataset. This detects one specific technical signal, not whether normalization ran at all - a dataset can be fully corrected for background, dye, and batch effects without a probe-design step like BMIQ or SWAN. Either way, this dataset's author-normalized values are kept as-is.",
               if (identical(st$status, "bias_detected")) "substantial residual Type I/II difference" else if (identical(st$status, "no_bias_detected")) "little residual Type I/II difference" else "an inconclusive result",
               st$bias$ks_stat))
         )
@@ -456,7 +455,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
             if (!isTRUE(manifest_available())) p(class = "empty-note", icon("circle-info"),
               sprintf("No manifest annotation for %s - BMIQ, PBC, and Noob+BMIQ (all need Type I/II probe design) are hidden below.", methyl_dataset$array_type %||% "this array type")),
             if (isTRUE(manifest_available()) && !isTRUE(is_beta_scale())) p(class = "empty-note", icon("circle-info"),
-              "Uploaded matrix is on the M-value scale - BMIQ and PBC both require actual beta values (0-1) and are hidden below. Re-upload as beta values, or use plain quantile normalization instead."),
+              "Uploaded matrix is on the M-value scale. BMIQ and PBC both require beta values (0-1) and are hidden below. Re-upload as beta values, or use plain quantile normalization instead."),
             radioButtons(ns("method"), NULL, choices = am, selected = default_method()),
             uiOutput(ns("method_info_ui")),
             conditionalPanel(condition = cond_any("method", c("noob", "noob_bmiq", "noob_swan")),
@@ -664,7 +663,7 @@ mod_methyl_normalization_server <- function(id, methyl_dataset, methyl_results) 
     output$bvsa_body <- renderUI({
       req(norm_result())
       tagList(
-        p(class = "submodule-desc", "Type I and Type II probes have systematically different beta-value distributions before normalization; a well-normalized dataset shows the two largely converge. Each line/box is one sample."),
+        p(class = "submodule-desc", "Type I and Type II probes have different beta-value distributions before normalization. A well-normalized dataset shows the two largely converge. Each line/box is one sample."),
         withSpinner(plotOutput(ns("density_plot"), height = 340), color = "#2563EB", type = 6),
         withSpinner(plotOutput(ns("boxplot_plot"), height = 340), color = "#2563EB", type = 6),
         fluidRow(

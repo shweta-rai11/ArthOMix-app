@@ -1,0 +1,9 @@
+services:
+  arthomix:
+    build: .
+    image: arthomix:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "3838:3838"

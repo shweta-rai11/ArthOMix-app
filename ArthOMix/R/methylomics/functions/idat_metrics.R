@@ -1,6 +1,5 @@
 ## R/methylomics/functions/idat_metrics.R
-## QC metrics derivable only from raw IDAT (RGChannelSet): detection p-values,
-## bead counts, bisulfite conversion, median meth/unmeth intensity. Each function
+## QC metrics from raw IDAT only: detection p-values, bead counts, bisulfite conversion, intensity.
 
 methyl_idat_derive <- function(rg_set) {
   if (is.null(rg_set) || !requireNamespace("minfi", quietly = TRUE)) {

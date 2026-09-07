@@ -1,6 +1,5 @@
 ## R/methylomics/08_WGCNA_Co_Methylation_Network/mod_methyl_wgcna.R
-## WGCNA (Co-Methylation Network) submodule. CpGs are network nodes, samples
-## are observations. mx_wgcna_* helpers here are independent of
+## WGCNA (Co-Methylation Network): CpGs are nodes, samples are observations.
 
 mod_methyl_wgcna_config <- list(
   id = "wgcna", title = "WGCNA (Co-Methylation Network)", icon = "circle-nodes", group = "Network",
@@ -124,7 +123,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
                     format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta)))
       } else {
         div(class = "empty-note", icon("circle-info"),
-            "Preloaded whole-blood dataset (metadata only) - the live beta matrix isn't available in this deployment, so live computation is disabled here. The Results & Export tab's \"Compare with published results\" panel still works from static reference tables.")
+            "Preloaded whole-blood dataset (metadata only). The live beta matrix isn't available here, so live computation is disabled. The Results & Export tab's \"Compare with published results\" panel still works from static reference tables.")
       }
     }
 
@@ -133,7 +132,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       mat <- methyl_dataset$beta
       if (nrow(mat) < ncol(mat)) {
         p(class = "empty-note", icon("triangle-exclamation"), sprintf(
-          "This matrix has more columns (%d) than rows (%d) - CpG methylation matrices normally have far more probes than samples. If this is actually samples-in-rows, tick \"transpose\" below.",
+          "This matrix has more columns (%d) than rows (%d). Methylation matrices normally have far more probes than samples. If this is actually samples-in-rows, tick \"transpose\" below.",
           ncol(mat), nrow(mat)))
       } else NULL
     })
@@ -147,7 +146,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       tagList(
         checkboxGroupInput(ns("resid_covariates"), NULL, choices = cand, selected = covariate_default_selected()),
         if (!is.null(ref_ct)) p(class = "empty-note", icon("circle-info"), sprintf(
-          "\"%s\" (the cell-type column with the highest mean fraction) is left unticked by default and used as an implicit reference, avoiding a rank-deficient design when the other cell-type columns are included - matches the published script's own approach.", ref_ct))
+          "\"%s\" (the cell-type column with the highest mean fraction) is left unticked by default, used as an implicit reference to avoid a rank-deficient design. Matches the published script's approach.", ref_ct))
       )
     })
 
@@ -170,7 +169,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
               )
             ),
             h5("Optional covariate residualization (limma)"),
-            p(class = "empty-note", icon("circle-info"), "Regresses out the selected covariates (on the M-value scale) before ranking CpGs by variability - the group/disease-status column is never offered here, so any group-associated signal stays in the residuals for Module-Trait Analysis to detect later."),
+            p(class = "empty-note", icon("circle-info"), "Regresses out selected covariates (M-value scale) before ranking CpGs by variability. The group/disease-status column is never offered here, so group-associated signal stays in the residuals for Module-Trait Analysis."),
             uiOutput(ns("covariate_ui")),
             actionButton(ns("filter_btn"), "Build filtered matrix", icon = icon("play"), class = "btn-primary btn-sm")
         ),
@@ -200,10 +199,10 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
           if (rng[1] < -0.1 || rng[2] > 1.1) {
             if (rng[2] <= 100 && rng[2] > 1.1) {
               validate(need(FALSE, sprintf(
-                "Values range from %.2f to %.2f - this looks like a 0-100 percentage scale, not 0-1 beta values. Rescale to 0-1 before uploading, or mark the dataset's scale correctly on the Dataset tab.", rng[1], rng[2])))
+                "Values range from %.2f to %.2f. This looks like a 0-100 percentage scale, not 0-1 beta values. Rescale to 0-1 before uploading, or mark the dataset's scale correctly on the Dataset tab.", rng[1], rng[2])))
             } else {
               validate(need(FALSE, sprintf(
-                "Values range from %.2f to %.2f, well outside the expected 0-1 beta-value range. If this is M-value or log-transformed data, mark it as such on the Dataset tab; otherwise this doesn't look like methylation beta-value data.", rng[1], rng[2])))
+                "Values range from %.2f to %.2f, well outside the expected 0-1 beta-value range. If this is M-value or log-transformed data, mark it on the Dataset tab. Otherwise this doesn't look like methylation data.", rng[1], rng[2])))
             }
           }
           mat[mat < 1e-6] <- 1e-6
@@ -474,7 +473,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
               if (!isTRUE(methyl_dataset$preloaded)) fluidRow(
                 column(3, numericInput(ns("net_seed"), "Random seed", value = 1234, min = 1, step = 1))
               ),
-              p(class = "empty-note", icon("circle-info"), "Maximum block size controls memory use on large probe sets - the published pipeline lowered this from 20,000 to 5,000 after a single 20,000×20,000 signed TOM exceeded available RAM; raise it only if this deployment has memory to spare."),
+              p(class = "empty-note", icon("circle-info"), "Maximum block size controls memory use on large probe sets. The published pipeline lowered this from 20,000 to 5,000 after a 20,000x20,000 signed TOM exceeded available RAM. Raise it only if you have memory to spare."),
               actionButton(ns("modules_btn"), "Run WGCNA", icon = icon("play"), class = "btn-primary")
             )
         ),
@@ -544,7 +543,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             if (gr$all_grey) p(class = "empty-note", icon("triangle-exclamation"), "No real modules were detected - everything fell into the grey (unassigned) module. Try a lower minimum module size, a different power, or less aggressive variability filtering."),
             if (!gr$all_grey && gr$single_module) p(class = "empty-note", icon("triangle-exclamation"), "Only one real module was detected - the network may be under-resolved at these settings."),
             if (length(res$net$dendrograms) > 1) p(class = "submodule-desc", icon("circle-info"), sprintf(
-              "This CpG set was split into %d WGCNA blocks; the dendrogram below shows block 1 of %d only (%s of %s total CpGs). Module sizes, hub CpGs, and enrichment results elsewhere in this tab are computed across all blocks.",
+              "This CpG set was split into %d WGCNA blocks. The dendrogram below shows only block 1 of %d (%s of %s total CpGs). Module sizes, hub CpGs, and enrichment elsewhere in this tab cover all blocks.",
               length(res$net$dendrograms), length(res$net$dendrograms),
               format(length(res$net$blockGenes[[1]]), big.mark = ","), format(length(res$module_colors), big.mark = ","))),
             fluidRow(
@@ -595,7 +594,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             div(class = "card-title", icon("table-cells"), "Module-Trait Analysis"),
             if (is.null(net)) p(class = "empty-note", icon("circle-info"), "Run WGCNA (Network & Modules) before continuing.")
             else if (is.null(sheet)) p(class = "empty-note", icon("circle-info"), "No sample sheet available - module-trait correlation needs phenotype metadata.")
-            else if (length(trait_choices) == 0) p(class = "empty-note", icon("triangle-exclamation"), "Every sample-sheet column was already used as a residualization covariate - no trait column remains to correlate against. Rebuild the filtered matrix without residualizing the column you want to test.")
+            else if (length(trait_choices) == 0) p(class = "empty-note", icon("triangle-exclamation"), "Every sample-sheet column was already used as a residualization covariate, so none remain to correlate against. Rebuild the filtered matrix without residualizing the column you want to test.")
             else tagList(
               if (length(used_covariates) > 0) p(class = "empty-note", icon("circle-info"), sprintf(
                 "Column(s) already regressed out during residualization (%s) are excluded below, to avoid comparing the network against a signal already subtracted from it.",
@@ -623,7 +622,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
       used_covariates <- if (!is.null(f)) f$resid_covariates %||% character(0) else character(0)
       validate(need(
         !(input$trait_col %in% used_covariates),
-        sprintf("\"%s\" was already regressed out as a residualization covariate when the filtered matrix was built - correlating the network against it now would compare the signal against itself. Pick a different trait column, or rebuild the filtered matrix (Data & Filtering) without residualizing this column.", input$trait_col)
+        sprintf("\"%s\" was already regressed out as a residualization covariate when the filtered matrix was built. Correlating the network against it now would compare the signal to itself. Pick a different trait column, or rebuild the filtered matrix (Data & Filtering) without residualizing it.", input$trait_col)
       ))
       ids <- methyl_sheet_sample_ids(sheet, rownames(net$texpr))
       common <- intersect(rownames(net$texpr), ids)
@@ -877,7 +876,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
           div(class = "card-title", icon("flask"), "Functional Enrichment"),
           if (is.null(mt)) p(class = "empty-note", icon("circle-info"), "Run Module-Trait Analysis before continuing.")
           else tagList(
-            p(class = "submodule-desc", "Fisher's exact test of each significant module's CpGs against the DMP/DMR biomarker panel (script04_dmr_sexstratified) - the same convergent-evidence check the published pipeline itself performs."),
+            p(class = "submodule-desc", "Fisher's exact test of each significant module's CpGs against the DMP/DMR biomarker panel (script04_dmr_sexstratified). Same convergent-evidence check the published pipeline performs."),
             actionButton(ns("enrich_btn"), "Run Functional Enrichment", icon = icon("play"), class = "btn-primary btn-sm"),
             withSpinner(uiOutput(ns("enrich_result_ui")), color = "#2563EB", type = 6)
           )
@@ -967,7 +966,7 @@ mod_methyl_wgcna_server <- function(id, dataset, results = NULL) {
             div(class = "card-title", icon("venus-mars"), "Sex Stratum"),
             radioButtons(ns("sex_stratum"), NULL, inline = TRUE, choices = sex_choices_r(), selected = mx_default_sex()),
             if (isTRUE(methyl_dataset$preloaded) && !is.null(sex_col()))
-              p(class = "empty-note", icon("circle-info"), "The published analysis is sex-stratified - pick Female or Male to reproduce it per sex. \"All samples\" runs a live network across both sexes together, which was not part of the published methodology.")
+              p(class = "empty-note", icon("circle-info"), "The published analysis is sex-stratified - pick Female or Male to reproduce it. \"All samples\" runs a live network across both sexes together, which wasn't part of the published methodology.")
             else if (length(sex_choices_r()) <= 1)
               p(class = "empty-note", icon("circle-info"), "No usable sex information was found for this dataset - showing pooled analysis only.")
         )

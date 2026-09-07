@@ -1,6 +1,5 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_dataset.R
-## Multi-Omics Dataset Workspace - the front door for the Multi-Omics module.
-## Lets the user pick a preloaded dataset, upload their own, or retrieve one
+## Front door for the Multi-Omics module: pick preloaded data, upload, or fetch from GEO.
 
 mod_multi_dataset_config <- list(
   id = "dataset", title = "Dataset Workspace", icon = "database",
@@ -559,7 +558,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
               (identical(otype, "methylation") && identical(det$detected, "rnaseq"))
             if (mismatch) {
               showNotification(sprintf(
-                "%s: rejected. %s This dataset was selected as %s, but its structure %s. Supported omics types here are Transcriptomics and DNA Methylomics - if this is one of those, check the feature-ID column and value scale; otherwise pick its correct omics type above.",
+                "%s: rejected. %s You picked %s, but its structure %s. Supported types are Transcriptomics and DNA Methylomics: check the feature-ID column and value scale, or pick the correct type above.",
                 label, det$reason,
                 names(MULTI_LIVE_OMICS_TYPES)[match(otype, MULTI_LIVE_OMICS_TYPES)] %||% otype,
                 if (identical(det$detected, "unclassifiable")) "could not be confidently classified as either" else sprintf("looks like %s instead", if (identical(det$detected, "methylation")) "DNA Methylomics" else "Transcriptomics")
@@ -698,9 +697,11 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     overlap <- reactive({
       req(length(raw$mats) >= 2)
       mats <- raw$mats
+      dropped <- list()
       if (identical(input$matching_method, "patient_id")) {
         res <- mo_apply_matching(mats, "patient_id", meta = raw$meta, patient_col = input$patient_id_col)
         mats <- res$mats
+        dropped <- res$dropped
       } else if (identical(input$matching_method, "mapping")) {
         mf <- input[[paste0("mapping_file_g", block_reset_gen())]]
         mapping_df <- if (!is.null(mf)) tryCatch(as.data.frame(data.table::fread(mf$datapath, showProgress = FALSE)), error = function(e) NULL) else NULL
@@ -709,8 +710,27 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         }
         res <- mo_apply_matching(mats, "mapping", mapping_df = mapping_df)
         mats <- res$mats
+        dropped <- res$dropped
       }
-      multi_live_sample_overlap(mats)
+      ov <- multi_live_sample_overlap(mats)
+      ov$dropped <- dropped
+      ov
+    })
+
+    ## Same-patient gate: every layer must hold the same patient IDs (order-insensitive).
+    same_patient <- reactive({
+      ov <- tryCatch(overlap(), error = function(e) NULL)
+      multi_live_same_patient_check(ov, dropped = if (!is.null(ov)) ov$dropped else NULL)
+    })
+    mo_same_patient_note <- function(sp) {
+      div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("circle-xmark"),
+          " ", tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail))
+    }
+    observeEvent(same_patient(), {
+      sp <- same_patient()
+      if (isTRUE(sp$ok) || isTRUE(sp$pending)) return()
+      showNotification(tagList(tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail)),
+                       type = "error", duration = 20, id = ns("same_patient_notice"))
     })
 
     output$matching_ui <- renderUI({
@@ -725,19 +745,23 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
                 div(style = sprintf("font-size:1.3em; font-weight:600; color:%s;", ARTHOMIX_COLORS$aqua), ov$n_shared),
                 div(style = "font-size:0.82em; color:var(--color-ink-muted, #898781);", "Common across all"))
         ),
-        if (ov$n_shared < 3) div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
+        if (!isTRUE(same_patient()$ok)) mo_same_patient_note(same_patient())
+        else if (ov$n_shared < 3) div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
                                    " Fewer than 3 samples shared across selected datasets. Try a different matching method or provide a mapping file.")
         else div(class = "empty-note", icon("circle-check"), sprintf(" Matched-sample integration below will use exactly these %d samples.", ov$n_shared)),
         hr(),
         h5("Missing-data QC"),
         selectInput(ns("miss_layer"), "Dataset", choices = names(raw$mats)),
         multi_plot_or_empty(function() multi_live_missingness_by_omics_plot(raw$validations), ns("miss_by_omics"), height = "260px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_miss_by_omics_png"), "Download plot (PNG)", class = "btn-sm")),
         fluidRow(
           column(6, sliderInput(ns("max_sample_missing"), "Max sample missingness (%)", min = 0, max = 100, value = 50)),
           column(6, sliderInput(ns("max_feature_missing"), "Max feature missingness (%)", min = 0, max = 100, value = 50))
         ),
         multi_plot_or_empty(sample_miss_plot_fn, ns("sample_miss_plot"), height = "300px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_sample_miss_png"), "Download plot (PNG)", class = "btn-sm")),
         multi_plot_or_empty(feature_miss_plot_fn, ns("feature_miss_plot"), height = "260px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_feature_miss_png"), "Download plot (PNG)", class = "btn-sm")),
         selectInput(ns("impute_method"), "Missing-value handling (applied per dataset before normalization)",
                     choices = c("Leave as-is" = "none", "Mean imputation" = "mean", "Median imputation" = "median",
                                 "Remove samples/features exceeding thresholds" = "remove_rows"), selected = "none"),
@@ -745,10 +769,13 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )
     })
     output$miss_by_omics <- multi_render_plotly(function() multi_live_missingness_by_omics_plot(raw$validations))
+    output$dl_miss_by_omics_png <- multi_png_download(function() multi_live_missingness_by_omics_plot(raw$validations), function() "multiomics_missingness_by_omics.png")
     sample_miss_plot_fn <- reactive(multi_live_sample_missingness_plot(multi_live_missingness(raw$mats[[req(input$miss_layer)]]), threshold = input$max_sample_missing))
     output$sample_miss_plot <- multi_render_plotly(function() sample_miss_plot_fn())
+    output$dl_sample_miss_png <- multi_png_download(function() sample_miss_plot_fn(), function() "multiomics_sample_missingness.png")
     feature_miss_plot_fn <- reactive(multi_live_feature_missingness_plot(multi_live_missingness(raw$mats[[req(input$miss_layer)]])))
     output$feature_miss_plot <- multi_render_plotly(function() feature_miss_plot_fn())
+    output$dl_feature_miss_png <- multi_png_download(function() feature_miss_plot_fn(), function() "multiomics_feature_missingness.png")
 
     output$preprocess_ui <- renderUI({
       if (length(raw$mats) < 2) return(multi_empty_state(mo_load_first_msg(input$dataset_source)))
@@ -772,12 +799,19 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
 
     observeEvent(input$preprocess_btn, {
+      sp <- same_patient()
+      if (!isTRUE(sp$ok)) {
+        showNotification(tagList(tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail)),
+                         type = "error", duration = 20, id = ns("same_patient_notice"))
+        return()
+      }
       ov <- tryCatch(overlap(), error = function(e) NULL)
       validate(need(!is.null(ov) && isTRUE(ov$ok) && ov$n_shared >= 3, "Need at least 3 matched samples across datasets before preprocessing."))
       matched <- ov$shared_ids
       use_mats <- ov$mats %||% raw$mats
 
       out_mats <- list()
+      skip_log_notes <- character(0)
       for (label in names(use_mats)) {
         m <- use_mats[[label]][matched, , drop = FALSE]
         imp <- multi_live_handle_missing(m, method = input$impute_method %||% "none",
@@ -788,6 +822,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         otype <- mo_label_omics_type(label, input, n_upload_blocks(), 0L, input$dataset_source)
         norm <- multi_live_normalize(m, otype, input[[paste0("norm_", make.names(label))]] %||% "none")
         m <- norm$mat
+        if (!is.null(norm$note)) skip_log_notes <- c(skip_log_notes, sprintf("%s: %s", label, norm$note))
         top_n <- input[[paste0("topvar_", make.names(label))]]
         if (!is.null(top_n) && !is.na(top_n) && top_n > 0) {
           filt <- multi_live_filter_features(m, criterion = "variance", keep_top_n = top_n)
@@ -798,6 +833,10 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       req(length(out_mats) >= 2)
       proc$filtered_mats <- out_mats
       proc$scaled_mats <- lapply(out_mats, multi_live_scale)
+      if (length(skip_log_notes) > 0) {
+        showNotification(tagList(tags$strong("Log2 skipped on already log-scaled data:"), tags$br(), paste(skip_log_notes, collapse = " ")),
+                         type = "warning", duration = 20, id = ns("log2_skip_notice"))
+      }
       showNotification("Preprocessing applied.", type = "message")
     })
 
@@ -806,28 +845,35 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       tagList(
         h5("Feature retention"),
         fluidRow(lapply(names(proc$filtered_mats), function(nm) column(6,
-          multi_plot_or_empty(function() multi_live_retention_plot(ncol(raw$mats[[nm]]), ncol(proc$filtered_mats[[nm]])), ns(paste0("retention_", make.names(nm))), height = "220px")
+          multi_plot_or_empty(function() multi_live_retention_plot(ncol(raw$mats[[nm]]), ncol(proc$filtered_mats[[nm]])), ns(paste0("retention_", make.names(nm))), height = "220px"),
+          div(class = "table-toolbar", downloadButton(ns(paste0("dl_retention_", make.names(nm), "_png")), "Download plot (PNG)", class = "btn-sm"))
         ))),
         h5("Distribution before / after normalization"),
         selectInput(ns("dist_layer"), "Dataset", choices = names(proc$filtered_mats)),
         radioButtons(ns("dist_kind"), NULL, choices = c("Boxplot" = "box", "Density" = "density"), inline = TRUE),
         fluidRow(
-          column(6, p(tags$strong("Before")), multi_plot_or_empty(before_dist_fn, ns("dist_before"), height = "280px")),
-          column(6, p(tags$strong("After")), multi_plot_or_empty(after_dist_fn, ns("dist_after"), height = "280px"))
+          column(6, p(tags$strong("Before")), multi_plot_or_empty(before_dist_fn, ns("dist_before"), height = "280px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_dist_before_png"), "Download plot (PNG)", class = "btn-sm"))),
+          column(6, p(tags$strong("After")), multi_plot_or_empty(after_dist_fn, ns("dist_after"), height = "280px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_dist_after_png"), "Download plot (PNG)", class = "btn-sm")))
         ),
         h5("Cross-dataset scale comparison (after z-score standardization)"),
-        multi_plot_or_empty(scale_compare_fn, ns("scale_compare"), height = "300px")
+        multi_plot_or_empty(scale_compare_fn, ns("scale_compare"), height = "300px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_scale_compare_png"), "Download plot (PNG)", class = "btn-sm"))
       )
     })
     before_dist_fn <- reactive(multi_live_distribution_plot(raw$mats[[req(input$dist_layer)]], kind = input$dist_kind %||% "box"))
     output$dist_before <- multi_render_plotly(function() before_dist_fn())
+    output$dl_dist_before_png <- multi_png_download(function() before_dist_fn(), function() "multiomics_distribution_before.png")
     after_dist_fn <- reactive(multi_live_distribution_plot(proc$filtered_mats[[req(input$dist_layer)]], kind = input$dist_kind %||% "box"))
     output$dist_after <- multi_render_plotly(function() after_dist_fn())
+    output$dl_dist_after_png <- multi_png_download(function() after_dist_fn(), function() "multiomics_distribution_after.png")
     scale_compare_fn <- reactive({
       req(proc$scaled_mats)
       multi_live_scale_comparison_plot(proc$scaled_mats, names(proc$scaled_mats))
     })
     output$scale_compare <- multi_render_plotly(function() scale_compare_fn())
+    output$dl_scale_compare_png <- multi_png_download(function() scale_compare_fn(), function() "multiomics_scale_comparison.png")
 
     observe({
       req(proc$filtered_mats)
@@ -835,6 +881,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         local({
           nm_local <- nm
           output[[paste0("retention_", make.names(nm_local))]] <- multi_render_plotly(function() multi_live_retention_plot(ncol(raw$mats[[nm_local]]), ncol(proc$filtered_mats[[nm_local]])))
+          output[[paste0("dl_retention_", make.names(nm_local), "_png")]] <- multi_png_download(function() multi_live_retention_plot(ncol(raw$mats[[nm_local]]), ncol(proc$filtered_mats[[nm_local]])), function() sprintf("multiomics_retention_%s.png", make.names(nm_local)))
         })
       }
     })
@@ -852,8 +899,10 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
         ),
         h5("Before correction"),
         fluidRow(
-          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_before_fn, ns("pca_before"), height = "340px")),
-          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_before_fn, ns("corr_before"), height = "340px"))
+          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_before_fn, ns("pca_before"), height = "340px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_pca_before_png"), "Download plot (PNG)", class = "btn-sm"))),
+          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_before_fn, ns("corr_before"), height = "340px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_corr_before_png"), "Download plot (PNG)", class = "btn-sm")))
         ),
         uiOutput(ns("confound_ui")),
         conditionalPanel(condition = sprintf("input['%s'] != '' && input['%s'] != ''", ns("batch_col"), ns("phenotype_col")), tagList(
@@ -867,12 +916,14 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
     pca_before_fn <- reactive(multi_live_pca_plot(multi_live_pca(proc$scaled_mats[[req(input$batch_layer)]]), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL))
     output$pca_before <- multi_render_plotly(function() pca_before_fn())
+    output$dl_pca_before_png <- multi_png_download(function() pca_before_fn(), function() "multiomics_pca_before_correction.png")
     corr_before_fn <- reactive({
       d <- multi_live_sample_correlation_data(proc$scaled_mats[[req(input$batch_layer)]])
       req(isTRUE(d$ok))
       multi_live_correlation_heatmap_plot(d$df)
     })
     output$corr_before <- multi_render_plotly(function() corr_before_fn())
+    output$dl_corr_before_png <- multi_png_download(function() corr_before_fn(), function() "multiomics_sample_correlation_before_correction.png")
 
     output$confound_ui <- renderUI({
       req(input$batch_col, input$phenotype_col, nzchar(input$batch_col), nzchar(input$phenotype_col), raw$meta)
@@ -880,7 +931,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       if (is.null(cc)) return(NULL)
       if (isTRUE(cc$confounded)) {
         div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"),
-            " Potential confounding detected. The batch column and the phenotype column are strongly associated - batch correction may remove genuine biological signal and cannot reliably separate batch from phenotype. Correction is blocked below unless you explicitly override this.")
+            " Potential confounding detected. Batch and phenotype are strongly associated, so correction may remove real biology and can't reliably separate the two. Correction is blocked below unless you override this.")
       } else {
         div(class = "empty-note", icon("circle-check"), sprintf(" No strong batch/phenotype confounding detected (chi-square p = %.3f).", cc$p_value %||% NA))
       }
@@ -924,19 +975,23 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       multi_live_pca_plot(multi_live_pca(proc$batch_corrected), raw$meta, if (nzchar(input$color_by %||% "")) input$color_by else NULL)
     })
     output$pca_after <- multi_render_plotly(function() pca_after_fn())
+    output$dl_pca_after_png <- multi_png_download(function() pca_after_fn(), function() "multiomics_pca_after_correction.png")
     corr_after_fn <- reactive({
       d <- multi_live_sample_correlation_data(req(proc$batch_corrected))
       req(isTRUE(d$ok))
       multi_live_correlation_heatmap_plot(d$df)
     })
     output$corr_after <- multi_render_plotly(function() corr_after_fn())
+    output$dl_corr_after_png <- multi_png_download(function() corr_after_fn(), function() "multiomics_sample_correlation_after_correction.png")
 
     output$batch_after_ui <- renderUI({
       tagList(
         h5("After correction"),
         fluidRow(
-          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_after_fn, ns("pca_after"), height = "340px")),
-          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_after_fn, ns("corr_after"), height = "340px"))
+          column(6, p(tags$strong("PCA")), multi_plot_or_empty(pca_after_fn, ns("pca_after"), height = "340px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_pca_after_png"), "Download plot (PNG)", class = "btn-sm"))),
+          column(6, p(tags$strong("Sample correlation")), multi_plot_or_empty(corr_after_fn, ns("corr_after"), height = "340px"),
+                 div(class = "table-toolbar", downloadButton(ns("dl_corr_after_png"), "Download plot (PNG)", class = "btn-sm")))
         ),
         uiOutput(ns("variance_diagnostic_ui")),
         if (!is.null(proc$batch_corrected)) div(class = "table-toolbar", downloadButton(ns("dl_batch_corrected_csv"), "Download corrected data (CSV)", class = "btn-sm"))
@@ -989,7 +1044,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     compat <- reactive({
       req(length(raw$validations) > 0)
       ov <- tryCatch(overlap(), error = function(e) NULL)
-      multi_dataset_compatibility(raw$validations, ov, has_metadata = !is.null(raw$meta))
+      multi_dataset_compatibility(raw$validations, ov, has_metadata = !is.null(raw$meta), same_patient = same_patient())
     })
 
     output$compat_ui <- renderUI({
@@ -1005,10 +1060,12 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
                           lapply(cmp$per_layer, function(p) tags$tr(tags$td(p$label), tags$td(mo_status_badge(p$status)))),
                           tags$tr(tags$td(tags$strong("Sample matching")), tags$td(
                             if (cmp$sample_matching_ok) span(style = sprintf("color:%s;", ARTHOMIX_COLORS$aqua), icon("circle-check"), " OK")
+                            else if (isTRUE(cmp$same_patient_failed)) span(style = sprintf("color:%s;", ARTHOMIX_COLORS$red), icon("circle-xmark"), " Patient IDs differ")
                             else span(style = sprintf("color:%s;", ARTHOMIX_COLORS$red), icon("circle-xmark"), " Insufficient"))),
                           tags$tr(tags$td(tags$strong("Metadata")), tags$td(if (cmp$has_metadata) "Available" else "Not provided"))
                         )),
-            div(style = sprintf("margin-top:10px; font-weight:700; color:%s;", overall_color), sprintf("Overall status: %s", cmp$overall_label))
+            div(style = sprintf("margin-top:10px; font-weight:700; color:%s;", overall_color), sprintf("Overall status: %s", cmp$overall_label)),
+            if (isTRUE(cmp$same_patient_failed)) mo_same_patient_note(same_patient())
         ),
         box(width = NULL, title = "Datasets Available", status = "primary", solidHeader = FALSE,
             uiOutput(ns("active_checkbox_ui")),
@@ -1025,6 +1082,12 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     })
 
     observeEvent(input$activate_btn, {
+      sp <- same_patient()
+      if (!isTRUE(sp$ok)) {
+        showNotification(tagList(tags$strong(sp$message), if (!is.null(sp$detail)) tagList(tags$br(), sp$detail)),
+                         type = "error", duration = 20, id = ns("same_patient_notice"))
+        return()
+      }
       chosen <- input$active_layers
       validate(need(length(chosen) >= 2, "Select at least two compatible datasets."))
       cmp <- compat()
@@ -1055,6 +1118,21 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       multi_dataset$sample_meta <- raw$meta
       multi_dataset$overlap <- ov_now
       multi_dataset$loaded_at <- Sys.time()
+
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_dataset",
+        checksum_input = lapply(final_mats, function(m) list(ids = rownames(m), features = colnames(m))),
+        params = list(source = input$dataset_source, layers = names(final_mats), omics_types = vapply(layer_meta, function(l) l$omics_type %||% "other", character(1)),
+                      n_matched = if (!is.null(ov_now)) ov_now$n_shared else NA_integer_, matching_method = input$matching_method %||% "exact",
+                      same_patient_check = isTRUE(same_patient()$ok),
+                      normalisation = stats::setNames(lapply(names(final_mats), function(nm) input[[paste0("norm_", make.names(nm))]] %||% "none"), names(final_mats)),
+                      top_variable_features = stats::setNames(lapply(names(final_mats), function(nm) input[[paste0("topvar_", make.names(nm))]]), names(final_mats)),
+                      missing_value_handling = input$impute_method %||% "none",
+                      batch_corrected_layer = if (!is.null(proc$batch_corrected)) input$batch_layer else NULL, batch_method = if (!is.null(proc$batch_corrected)) input$correct_method %||% "combat" else NULL,
+                      provenance = lapply(raw$provenance[names(final_mats)], function(p) p$detail)),
+        seed = NULL, packages = c("limma", "sva", "data.table"),
+        extra = list()
+      ), session = session, dedupe = TRUE)
 
       output$activate_message_ui <- renderUI(
         div(class = "empty-note", icon("circle-check"),

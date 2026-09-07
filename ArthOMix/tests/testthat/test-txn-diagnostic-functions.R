@@ -180,7 +180,7 @@ test_that("diag_validate_nested() fold-specific feature selection only ever sees
   }
 })
 
-test_that("diag_attach_headline() marks the automatic nested-CV AUC as the primary/headline metric only when the run is not leakage-safe and nested-CV succeeded", {
+test_that("diag_attach_headline() makes the nested-CV AUC the headline metric whenever it is available - for selection-leakage-safe runs too, because the candidate genes were chosen on the full pool upstream", {
   fit_leaky <- list(leakage_safe = FALSE)
   nested_ok <- list(pooled = list(available = TRUE, auc = 0.55, ci_lo = 0.4, ci_hi = 0.7, n = 40),
                      per_fold = data.frame(), outer_k = 5, n_folds_completed = 5)
@@ -200,6 +200,63 @@ test_that("diag_attach_headline() marks the automatic nested-CV AUC as the prima
 
   fit_safe <- list(leakage_safe = TRUE)
   out4 <- diag_attach_headline(fit_safe, nested_ok)
-  expect_equal(out4$headline_metric, "test_split")
-  expect_null(out4$nested_cv)
+  expect_equal(out4$headline_metric, "nested_cv")
+  expect_identical(out4$nested_cv, nested_ok)
+})
+
+test_that("diag_fit_sex() flags a stratum with fewer than 20 samples in the smaller group as exploratory and reports events per variable", {
+  fx <- diag_separable_fixture(n_per_group = 15)
+  fit <- diag_fit_sex(fx$expr, fx$y, params = list(
+    rf_mtry_mode = "manual", rf_mtry_manual = 3, rf_ntree = 100,
+    svm_cost_mode = "manual", svm_cost_manual = 1, test_frac = 0.3
+  ))
+  expect_true(isTRUE(fit$small_stratum))
+  expect_equal(fit$min_group_n, 15L)
+  expect_equal(fit$events_per_variable, round(15 / 8, 2))
+
+  fx_big <- diag_separable_fixture(n_per_group = 25)
+  fit_big <- diag_fit_sex(fx_big$expr, fx_big$y, params = list(
+    rf_mtry_mode = "manual", rf_mtry_manual = 3, rf_ntree = 100,
+    svm_cost_mode = "manual", svm_cost_manual = 1, test_frac = 0.3
+  ))
+  expect_false(isTRUE(fit_big$small_stratum))
+})
+
+## ---- External Validation: bundled GSE15573 cohort + frozen-model scoring (audit 2026-09-05) ----
+
+test_that("diag_bundled_external_cohort() loads GSE15573 on the log2 analysis scale with HC/RA groups and F/M sex, never overlapping the training cohort", {
+  skip_if_not(file.exists(file.path(RAW_DIR, "GSE15573_raw.rds")), "bundled GSE15573 raw data not present")
+  b <- diag_bundled_external_cohort()
+  expect_false(is.null(b))
+  expect_true(is.matrix(b$expr))
+  expect_identical(colnames(b$expr), b$meta$sample)
+  expect_true(isTRUE(b$log2_applied))
+  expect_lt(max(b$expr, na.rm = TRUE), 30)
+  expect_setequal(unique(b$meta$group), c("HC", "RA"))
+  expect_true(all(table(b$meta$group) >= 6))
+  expect_true(all(stats::na.omit(unique(b$meta$sex)) %in% c("F", "M")))
+  expect_true(all(c("TNF", "IL6", "STAT3") %in% rownames(b$expr)))
+  train <- load_default_dataset()
+  expect_length(intersect(colnames(b$expr), colnames(train$expr)), 0)
+})
+
+test_that("diag_apply_models_external() scores frozen models on a new cohort without refitting and returns one AUC per model", {
+  fx <- diag_separable_fixture(n_per_group = 20)
+  fit <- diag_fit_sex(fx$expr, fx$y, params = list(
+    rf_mtry_mode = "manual", rf_mtry_manual = 3, rf_ntree = 100,
+    svm_cost_mode = "manual", svm_cost_manual = 1, test_frac = 0.3
+  ))
+  ext <- diag_separable_fixture(n_per_group = 12, seed = 999)
+  colnames(ext$expr) <- paste0("EXT", seq_len(ncol(ext$expr)))
+  out <- diag_apply_models_external(fit, ext$expr, ext$y)
+  expect_equal(out$n_genes_panel, length(fit$genes))
+  expect_equal(out$n_genes_present, length(fit$genes))
+  expect_length(out$models, 4)
+  for (mm in out$models) {
+    expect_true(isTRUE(mm$available))
+    expect_true(is.finite(mm$auc) && mm$auc >= 0 && mm$auc <= 1)
+    expect_true(mm$ci_lo <= mm$auc && mm$auc <= mm$ci_hi)
+  }
+  ## the two separable genes must be recovered externally by every model
+  expect_true(all(vapply(out$models, function(mm) mm$auc, numeric(1)) > 0.8))
 })

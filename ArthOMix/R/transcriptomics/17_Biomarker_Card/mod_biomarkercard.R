@@ -1,6 +1,4 @@
-## Biomarker Card submodule: single-gene transcriptomic profile combining
-## live dataset evidence, saved DGE/candidate/signature/classifier results,
-## and opt-in pathway/external-database lookups into one report.
+## Biomarker Card: single-gene profile combining live evidence, saved results, and opt-in external lookups.
 
 .tbc_identity_cache <- new.env(parent = emptyenv())
 
@@ -90,7 +88,7 @@ tbc_go_terms <- function(entrez, n = 8) {
     terms <- suppressMessages(AnnotationDbi::select(GO.db::GO.db, keys = ids, keytype = "GOID", columns = "TERM"))
     terms <- unique(stats::na.omit(terms[, c("GOID", "TERM")]))
     utils::head(terms, n)
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (inherits(res, "error")) return(NULL)
   res
 }
@@ -99,7 +97,7 @@ tbc_go_terms <- function(entrez, n = 8) {
 tbc_kegg_pathway_names <- function() {
   if (!is.null(.tbc_kegg_names_cache$v)) return(.tbc_kegg_names_cache$v)
   if (!requireNamespace("KEGGREST", quietly = TRUE)) return(NULL)
-  v <- tryCatch(KEGGREST::keggList("pathway", "hsa"), error = function(e) NULL)
+  v <- tryCatch(KEGGREST::keggList("pathway", "hsa"), error = arthomix_null_on_error)
   .tbc_kegg_names_cache$v <- v
   v
 }
@@ -132,7 +130,7 @@ tbc_reactome_pathways_for_gene <- function(symbol) {
       resp <- httr2::request(url) %>% httr2::req_timeout(15) %>%
         httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
       if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = TRUE)
-    }, error = function(e) NULL)
+    }, error = arthomix_null_on_error)
     if (!is.null(res) && is.data.frame(res) && nrow(res) > 0) {
       out <- res[, intersect(c("stId", "displayName"), colnames(res)), drop = FALSE]
       return(list(ok = TRUE, pathways = out, reason = NULL, uniprot = uid))
@@ -143,7 +141,7 @@ tbc_reactome_pathways_for_gene <- function(symbol) {
 
 tbc_wikipathways_pathways_for_gene <- function(entrez) {
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, pathways = NULL, reason = "No NCBI Gene ID available for WikiPathways lookup."))
-  t2g <- tryCatch(mp_get_wikipathways_termgene(), error = function(e) NULL)
+  t2g <- tryCatch(mp_get_wikipathways_termgene(), error = arthomix_null_on_error)
   if (is.null(t2g)) return(list(ok = FALSE, pathways = NULL, reason = "WikiPathways gene sets (msigdbr) are not available in this deployment."))
   hit <- t2g$TERM2GENE[!is.na(t2g$TERM2GENE$ncbi_gene) & as.character(t2g$TERM2GENE$ncbi_gene) == as.character(entrez), , drop = FALSE]
   if (nrow(hit) == 0) return(list(ok = TRUE, pathways = data.frame(id = character(0), name = character(0)), reason = NULL))
@@ -167,7 +165,7 @@ tbc_opentargets_evidence_for_gene <- function(ensembl, top_n_diseases = 8) {
       httr2::req_body_json(list(query = query, variables = list(id = ensembl, size = as.integer(top_n_diseases)))) %>%
       httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
     if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   tgt <- res$data$target
   if (is.null(tgt)) return(list(ok = FALSE, reason = sprintf("No Open Targets entry found for Ensembl ID \"%s\".", ensembl)))
 
@@ -202,7 +200,7 @@ tbc_hpa_evidence_for_gene <- function(ensembl) {
     resp <- httr2::request(sprintf("https://www.proteinatlas.org/%s.json", ensembl)) %>%
       httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
     if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (is.null(res)) return(list(ok = FALSE, reason = sprintf("No Human Protein Atlas entry found for Ensembl ID \"%s\".", ensembl)))
 
   named_list_to_df <- function(x, value_label) {
@@ -232,7 +230,7 @@ tbc_string_ppi_for_gene <- function(symbol, top_n = 10, required_score = 400) {
     if (httr2::resp_status(resp) == 404) list(status = 404, body = NULL)
     else if (httr2::resp_status(resp) == 200) list(status = 200, body = httr2::resp_body_json(resp, check_type = FALSE, simplifyVector = TRUE))
     else list(status = httr2::resp_status(resp), body = NULL)
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (is.null(out)) return(list(ok = FALSE, reason = "STRING lookup failed (network error or timeout)."))
   if (identical(out$status, 404)) return(list(ok = TRUE, partners = NULL, reason = NULL))
   if (!identical(out$status, 200)) return(list(ok = FALSE, reason = sprintf("STRING lookup failed (HTTP %s).", out$status)))
@@ -255,7 +253,7 @@ tbc_string_network_image <- function(symbol, top_n = 10, required_score = 400) {
     httr2::request("https://string-db.org/api/image/network") %>%
       httr2::req_url_query(identifiers = symbol, species = 9606, limit = top_n, required_score = required_score, network_flavor = "confidence") %>%
       httr2::req_timeout(20) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (is.null(resp) || httr2::resp_status(resp) != 200) return(list(ok = FALSE, reason = "STRING network image unavailable (network error, timeout, or unresolvable gene symbol)."))
   tf <- tempfile(fileext = ".png")
   writeBin(httr2::resp_body_raw(resp), tf)
@@ -273,7 +271,7 @@ tbc_dgidb_drugs_for_gene <- function(symbol, top_n = 12) {
       httr2::req_body_json(list(query = query, variables = list(name = symbol))) %>%
       httr2::req_timeout(15) %>% httr2::req_error(is_error = function(resp) FALSE) %>% httr2::req_perform()
     if (httr2::resp_status(resp) != 200) NULL else httr2::resp_body_json(resp, simplifyVector = FALSE)
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (is.null(res)) return(list(ok = FALSE, reason = "DGIdb lookup failed (network error or timeout)."))
   nodes <- res$data$genes$nodes
   if (length(nodes) == 0 || length(nodes[[1]]$interactions) == 0) return(list(ok = TRUE, drugs = NULL, reason = NULL))
@@ -318,7 +316,7 @@ tbc_literature_search <- function(query, max_results = 12) {
                  Year = substr(r$pubdate %||% "", 1, 4), PMID = pmid, stringsAsFactors = FALSE)
     })
     do.call(rbind, Filter(Negate(is.null), rows))
-  }, error = function(e) NULL)
+  }, error = arthomix_null_on_error)
   if (is.null(res)) return(list(ok = FALSE, papers = NULL, reason = "PubMed lookup failed (network error, timeout, or malformed response)."))
   list(ok = TRUE, papers = if (is.data.frame(res) && nrow(res) > 0) res else NULL, reason = NULL)
 }
@@ -339,7 +337,7 @@ tbc_literature_query <- function(gene, preset, custom_disease = NULL) {
 tbc_kegg_diagram_for_gene <- function(kegg_id, entrez, log2fc, pathway_name = NULL) {
   if (is.null(kegg_id) || !nzchar(kegg_id)) return(list(ok = FALSE, path = NULL, error = "No KEGG pathway selected."))
   if (is.null(entrez) || is.na(entrez) || !nzchar(entrez)) return(list(ok = FALSE, path = NULL, error = "No NCBI Gene ID available to color onto the pathway map."))
-  val <- suppressWarnings(as.numeric(log2fc))
+  val <- arthomix_quiet(as.numeric(log2fc))
   if (length(val) == 0 || is.na(val)) val <- 0
   effect <- stats::setNames(val, entrez)
   out <- tryCatch(mp_kegg_pathway_map(kegg_id, effect, out_dir = tempdir()), error = function(e) list(ok = FALSE, path = NULL, error = conditionMessage(e)))
@@ -386,7 +384,7 @@ tbc_gene_expr_values <- function(gene, expr) {
   row <- expr[gene, ]
   transformed <- FALSE
   if (identical(data_type, "counts")) {
-    cpm_mat <- tryCatch(edgeR::cpm(expr, log = TRUE, prior.count = 1), error = function(e) NULL)
+    cpm_mat <- tryCatch(edgeR::cpm(expr, log = TRUE, prior.count = 1), error = arthomix_null_on_error)
     if (!is.null(cpm_mat)) { row <- cpm_mat[gene, ]; transformed <- TRUE }
   }
   list(values = row, data_type = data_type, transformed = transformed)
@@ -400,7 +398,7 @@ tbc_live_stats <- function(expr_row, group_vec, case_label, control_label) {
     return(list(ok = FALSE, reason = "Fewer than 2 non-missing samples in one of the two groups - cannot compute a t-test.",
                 case_label = case_label, control_label = control_label, n_case = length(case_vals), n_control = length(ctrl_vals)))
   }
-  tt <- tryCatch(stats::t.test(case_vals, ctrl_vals), error = function(e) NULL)
+  tt <- tryCatch(stats::t.test(case_vals, ctrl_vals), error = arthomix_null_on_error)
   mc <- mean(case_vals); mo <- mean(ctrl_vals)
   list(ok = TRUE, mean_case = mc, mean_control = mo, log2fc = mc - mo,
        p_value = if (!is.null(tt)) tt$p.value else NA_real_,
@@ -471,10 +469,10 @@ tbc_single_gene_roc <- function(expr_row, group_vec, case_label, control_label) 
   if (n_case < 3 || n_control < 3) {
     return(list(ok = FALSE, reason = sprintf("Fewer than 3 samples in one of the two groups (case=%d, control=%d) - cannot compute a reliable single-gene ROC curve.", n_case, n_control)))
   }
-  roc_obj <- tryCatch(pROC::roc(y, x, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+  roc_obj <- tryCatch(pROC::roc(y, x, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = arthomix_null_on_error)
   if (is.null(roc_obj)) return(list(ok = FALSE, reason = "pROC could not fit a ROC curve for this gene (e.g. constant expression)."))
   ci <- tryCatch(as.numeric(pROC::ci.auc(roc_obj, quiet = TRUE)), error = function(e) c(NA_real_, NA_real_, NA_real_))
-  best <- tryCatch(pROC::coords(roc_obj, "best", best.method = "youden", ret = c("threshold", "sensitivity", "specificity", "accuracy", "ppv", "npv"), transpose = FALSE), error = function(e) NULL)
+  best <- tryCatch(pROC::coords(roc_obj, "best", best.method = "youden", ret = c("threshold", "sensitivity", "specificity", "accuracy", "ppv", "npv"), transpose = FALSE), error = arthomix_null_on_error)
   if (is.null(best) || nrow(best) == 0) return(list(ok = FALSE, reason = "Could not determine an optimal threshold for this gene."))
   best <- best[1, ]
   pred_case <- if (identical(roc_obj$direction, "<")) x >= best$threshold else x <= best$threshold
@@ -504,9 +502,9 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
   for (f in seq_len(k_eff)) {
     te <- fold == f; tr <- !te
     if (sum(tr & y == case_label) < 2 || sum(tr & y == control_label) < 2) next
-    roc_tr <- tryCatch(pROC::roc(y[tr], x[tr], levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+    roc_tr <- tryCatch(pROC::roc(y[tr], x[tr], levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = arthomix_null_on_error)
     if (is.null(roc_tr)) next
-    best_tr <- tryCatch(pROC::coords(roc_tr, "best", best.method = "youden", ret = "threshold", transpose = FALSE), error = function(e) NULL)
+    best_tr <- tryCatch(pROC::coords(roc_tr, "best", best.method = "youden", ret = "threshold", transpose = FALSE), error = arthomix_null_on_error)
     if (is.null(best_tr) || nrow(best_tr) == 0) next
     thr <- best_tr$threshold[1]
     oof_score[te] <- x[te]
@@ -515,7 +513,7 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
   usable <- !is.na(oof_pred)
   if (sum(usable) < 6) return(list(ok = FALSE, reason = "Cross-validation could not produce enough out-of-fold predictions (folds too small, or this gene wasn't separable in any training fold)."))
   y_used <- y[usable]; pred_used <- oof_pred[usable]; score_used <- oof_score[usable]
-  roc_pooled <- tryCatch(pROC::roc(y_used, score_used, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = function(e) NULL)
+  roc_pooled <- tryCatch(pROC::roc(y_used, score_used, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = arthomix_null_on_error)
   auc_pooled <- if (!is.null(roc_pooled)) as.numeric(pROC::auc(roc_pooled)) else NA_real_
   obs_case <- y_used == case_label; pred_case <- pred_used == case_label
   tp <- sum(pred_case & obs_case); fn <- sum(!pred_case & obs_case)
@@ -530,7 +528,7 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
 
 tbc_pr_from_roc <- function(roc_obj) {
   if (is.null(roc_obj)) return(list(ok = FALSE, reason = "No ROC curve available."))
-  co <- tryCatch(pROC::coords(roc_obj, "all", ret = c("recall", "precision"), transpose = FALSE), error = function(e) NULL)
+  co <- tryCatch(pROC::coords(roc_obj, "all", ret = c("recall", "precision"), transpose = FALSE), error = arthomix_null_on_error)
   if (is.null(co) || nrow(co) == 0) return(list(ok = FALSE, reason = "Could not derive a precision-recall curve from this ROC curve."))
   df <- data.frame(recall = co$recall, precision = co$precision)
   df <- df[order(df$recall), , drop = FALSE]
@@ -600,9 +598,46 @@ tbc_diagnostic_lookup <- function(gene, results) {
     r <- diag[[s]]
     list(in_panel = !is.null(r$genes) && gene %in% r$genes, panel_size = r$n_input, n_samples = r$n_samples,
          lr_auc = r$lr_auc, lr_cv_auc = r$lr_cv_auc, enet_auc = r$enet_auc, enet_cv_auc = r$enet_cv_auc,
-         rf_auc = r$rf_auc, rf_cv_auc = r$rf_cv_auc, svm_auc = r$svm_auc, svm_cv_auc = r$svm_cv_auc, genes = r$genes)
+         rf_auc = r$rf_auc, rf_cv_auc = r$rf_cv_auc, svm_auc = r$svm_auc, svm_cv_auc = r$svm_cv_auc, genes = r$genes,
+         ## frozen-model scoring on an external cohort, persisted by the Diagnostic Model's External Validation tab
+         external = r$external)
   }), sexes)
   Filter(function(x) isTRUE(x$in_panel), out)
+}
+
+## One row per (stratum, model) of persisted external-cohort scoring for the panels this gene sits in.
+tbc_external_validation_rows <- function(diagnostic_match) {
+  if (length(diagnostic_match %||% list()) == 0) return(NULL)
+  rows <- list()
+  for (s in names(diagnostic_match)) {
+    ex <- diagnostic_match[[s]]$external
+    if (is.null(ex) || !isTRUE(ex$models_scored)) next
+    for (m in ex$models) {
+      rows[[length(rows) + 1L]] <- data.frame(
+        Stratum = s, Cohort = ex$cohort %||% "", Model = m$label %||% m$key,
+        `External AUC (95% CI)` = if (isTRUE(m$available)) sprintf("%.3f (%.3f-%.3f)", m$auc, m$ci_lo, m$ci_hi) else "Not available",
+        Sensitivity = if (isTRUE(m$available)) tbc_fmt_num(m$sensitivity) else "Not available",
+        Specificity = if (isTRUE(m$available)) tbc_fmt_num(m$specificity) else "Not available",
+        `n (case / control)` = sprintf("%d / %d", ex$n_comp %||% NA_integer_, ex$n_ref %||% NA_integer_),
+        check.names = FALSE, stringsAsFactors = FALSE)
+    }
+  }
+  if (length(rows) == 0) return(NULL)
+  do.call(rbind, rows)
+}
+
+tbc_external_validation_best <- function(diagnostic_match) {
+  best <- NA_real_; label <- NULL
+  for (s in names(diagnostic_match %||% list())) {
+    ex <- diagnostic_match[[s]]$external
+    if (is.null(ex) || !isTRUE(ex$models_scored)) next
+    for (m in ex$models) {
+      if (isTRUE(m$available) && is.finite(m$auc) && (is.na(best) || m$auc > best)) {
+        best <- m$auc; label <- sprintf("%s panel, %s, on %s", s, m$label %||% m$key, ex$cohort %||% "external cohort")
+      }
+    }
+  }
+  list(auc = best, label = label)
 }
 
 tbc_plot_expression_dist <- function(df, y_label, facet_sex = FALSE) {
@@ -749,7 +784,7 @@ tbc_section_dataset_cohort <- function(dataset, live) {
     "Analysis group / contrast" = sprintf("%s (grouping column: %s)", case_label, group_label),
     "Cases / Controls" = if (!is.na(n_case)) sprintf("%s / %s", n_case, n_ctrl) else NA,
     "Sex / group breakdown" = sex_breakdown,
-    "Dataset designation" = "Training / discovery dataset (this session's loaded dataset). Internal validation = cross-validation folds within it; external validation = a separate cohort, not available in this session's shared results.",
+    "Dataset designation" = "Training / discovery dataset (this session's loaded dataset). Internal validation = CV folds within it. External validation = a separate cohort scored with the frozen models in Diagnostic Model's External Validation tab (bundled GSE15573 or an upload), if it's been run.",
     "Feature identifier" = "Gene symbol (rows of the loaded expression matrix)",
     "Gene mapping" = "org.Hs.eg.db (NCBI Entrez / Ensembl Gene ID resolution) - see Gene description tab"
   )
@@ -789,7 +824,7 @@ tbc_section_differential_expression <- function(d) {
   }
   body <- if (length(rows) == 0) {
     div(class = "empty-note", icon("circle-info"),
-        "No differential-expression evidence is available for this gene yet - it is either absent from the loaded expression matrix, the grouping column could not be auto-detected, or no Differential Expression run this session included it. Run the Differential Expression tab, or check the Dataset tab.")
+        "No differential-expression evidence available yet for this gene. It's either absent from the loaded expression matrix, the grouping column couldn't be auto-detected, or no DE run this session included it. Run the Differential Expression tab, or check the Dataset tab.")
   } else {
     DT::datatable(do.call(rbind, rows), rownames = FALSE, options = list(dom = "ft", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
   }
@@ -805,7 +840,7 @@ tbc_section_signature <- function(d) {
   if (length(sig) == 0) {
     return(div(class = "card",
         div(class = "card-title", icon("layer-group"), "Single-Gene vs Multi-Gene Signature"),
-        div(class = "empty-note", icon("circle-info"), "ML Feature Selection has not been run this session, so no multi-gene signature membership can be shown yet - this gene is only viewable as a single-gene candidate. Run the ML Feature Selection tab to build a consensus signature.")
+        div(class = "empty-note", icon("circle-info"), "ML Feature Selection hasn't been run this session, so no multi-gene signature membership can be shown yet. This gene is only viewable as a single-gene candidate. Run ML Feature Selection to build a consensus signature.")
     ))
   }
   rows <- lapply(names(sig), function(s) {
@@ -866,12 +901,12 @@ tbc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
 
   multi_table <- tbc_multi_gene_perf_table(d$diagnostic_match)
   multi_body <- if (is.null(multi_table)) {
-    div(class = "empty-note", icon("circle-info"), "This gene is not part of any Diagnostic Classifier panel evaluated this session. Run the Diagnostic Classifier tab on a panel that includes it (e.g. its consensus signature below) to populate this section.")
+    div(class = "empty-note", icon("circle-info"), "This gene isn't part of any Diagnostic Classifier panel evaluated this session. Run the Diagnostic Classifier tab on a panel that includes it (e.g. its consensus signature below) to populate this section.")
   } else DT::datatable(multi_table, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
 
   comparison <- NULL
   if (isTRUE(sgd$ok) && !is.null(multi_table)) {
-    best_multi_cv <- suppressWarnings(max(attr(multi_table, "best_cv_auc"), na.rm = TRUE))
+    best_multi_cv <- arthomix_quiet(max(attr(multi_table, "best_cv_auc"), na.rm = TRUE))
     if (is.finite(best_multi_cv)) {
       diff <- best_multi_cv - sgd$auc
       comparison <- div(class = "empty-note", icon("scale-balanced"),
@@ -884,7 +919,7 @@ tbc_section_signature_comparison <- function(d, sgd, roc_widget = NULL) {
   tagList(
     div(class = "card",
         div(class = "card-title", icon("layer-group"), "Single-Gene Performance"),
-        p(class = "submodule-desc", "Live computation: this gene's own expression used as a single classifier on the currently loaded dataset (\"Training\" / full-fit sense - see Biomarker Performance tab for internal-validation numbers)."),
+        p(class = "submodule-desc", "Live computation: this gene's own expression used as a single classifier on the currently loaded dataset (\"Training\"/full-fit sense - see Biomarker Performance tab for internal-validation numbers)."),
         single_body,
         if (!is.null(roc_widget)) tagList(tags$div(style = "margin-top:10px;"), roc_widget) else NULL
     ),
@@ -948,14 +983,18 @@ tbc_section_diagnostic_evidence <- function(d, sgd) {
       tags$div(style = "margin-top:10px;", tags$b("Multi-gene panel")), multi_body)
 }
 
-tbc_section_validation_evidence <- function(sgd, sgcv) {
+tbc_section_validation_evidence <- function(sgd, sgcv, d = NULL) {
+  ext_best <- tbc_external_validation_best(d$diagnostic_match)
+  ext_ok <- is.finite(ext_best$auc)
   rows <- data.frame(
     Stage = c("Training", "Internal Validation", "External Validation"),
-    Status = c(if (isTRUE(sgd$ok)) "Available" else "Not available", if (isTRUE(sgcv$ok)) "Available" else "Not available", "Not available"),
-    AUC = c(tbc_fmt_num(sgd$auc), tbc_fmt_num(sgcv$auc), "Not available"),
+    Status = c(if (isTRUE(sgd$ok)) "Available" else "Not available", if (isTRUE(sgcv$ok)) "Available" else "Not available",
+               if (ext_ok) "Available" else "Not available"),
+    AUC = c(tbc_fmt_num(sgd$auc), tbc_fmt_num(sgcv$auc), if (ext_ok) tbc_fmt_num(ext_best$auc) else "Not available"),
     Note = c("Single-gene, full-fit on the whole currently loaded dataset.",
              if (isTRUE(sgcv$ok)) sprintf("Single-gene, %d-fold cross-validation, pooled out-of-fold predictions.", sgcv$k) else (sgcv$reason %||% "Not available."),
-             "Run and view this in the Diagnostic Classifier tab's own External Validation panel."),
+             if (ext_ok) sprintf("Multi-gene panel containing this gene, frozen model scored on an external cohort (best: %s).", ext_best$label)
+             else "Not run this session - run the Diagnostic Model's External Validation tab (bundled GSE15573 or an upload) for a panel containing this gene."),
     stringsAsFactors = FALSE
   )
   div(class = "card", div(class = "card-title", icon("shield-halved"), "Validation Evidence"),
@@ -977,10 +1016,11 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
   cv_auc_present <- length(d$diagnostic_match %||% list()) > 0 &&
     any(!is.na(unlist(lapply(d$diagnostic_match, function(x) c(x$lr_cv_auc, x$enet_cv_auc, x$rf_cv_auc, x$svm_cv_auc)))))
   validation_internal_ok <- isTRUE(sgcv$ok) || cv_auc_present
-  validation_external_ok <- FALSE
+  ## External-cohort validation is read from Diagnostic Model's External Validation tab (frozen-model scoring).
+  validation_external_ok <- is.finite(tbc_external_validation_best(d$diagnostic_match)$auc)
 
   tier <- if (!statistical_ok) "Insufficient evidence"
-          else if (validation_external_ok) "Strong candidate"
+          else if ((diagnostic_ok || biological_ok) && validation_internal_ok && validation_external_ok) "Strong candidate"
           else if ((diagnostic_ok || biological_ok) && validation_internal_ok) "Supported candidate"
           else "Candidate biomarker"
 
@@ -992,12 +1032,12 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
     list(label = "Therapeutic/drug-target evidence", met = therapeutic_ok),
     list(label = "Training evidence", met = validation_training_ok),
     list(label = "Internal validation (cross-validation)", met = validation_internal_ok),
-    list(label = "External validation", met = validation_external_ok)
+    list(label = "External validation (frozen models scored on an external cohort in the Diagnostic Model's External Validation tab)", met = validation_external_ok)
   )
   list(tier = tier, checklist = checklist)
 }
 
-TBC_TIER_CLASS <- c("Strong candidate" = "status-done", "Supported candidate" = "status-pending",
+TBC_TIER_CLASS <- c("Strong candidate" = "status-done", "Supported candidate" = "status-done",
                     "Candidate biomarker" = "status-pending", "Insufficient evidence" = "status-neutral")
 
 tbc_section_evidence_glance <- function(d, ext, sgd, sgcv) {
@@ -1019,7 +1059,7 @@ tbc_section_evidence_glance <- function(d, ext, sgd, sgcv) {
     tier_card,
     tbc_section_expression_evidence(d),
     tbc_section_diagnostic_evidence(d, sgd),
-    tbc_section_validation_evidence(sgd, sgcv)
+    tbc_section_validation_evidence(sgd, sgcv, d)
   )
 }
 
@@ -1046,8 +1086,14 @@ tbc_section_biomarker_performance <- function(d, sgd, sgcv, train_roc_widget = N
     )
   } else div(class = "empty-note", icon("circle-info"), sgcv$reason %||% "Not available.")
 
-  external_body <- div(class = "empty-note", icon("triangle-exclamation"),
-    "Not available here - the Diagnostic Classifier tab's External Validation panel isn't persisted to shared results. Open that tab to run/view it.")
+  ext_rows <- tbc_external_validation_rows(d$diagnostic_match)
+  external_body <- if (!is.null(ext_rows)) {
+    tagList(
+      p(class = "submodule-desc", "Multi-gene panel(s) containing this gene, scored on an external cohort with the frozen models from Model Training (no refitting; z-scored within the external cohort; training Youden threshold reused). Sensitivity/specificity are threshold-dependent, so AUC is the primary metric."),
+      DT::datatable(ext_rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
+    )
+  } else div(class = "empty-note", icon("circle-info"),
+    "Not run this session. Run the Diagnostic Model's External Validation tab (bundled GSE15573 blood cohort or an uploaded cohort) for a panel containing this gene - the frozen-model result then shows here.")
 
   multi_table <- tbc_multi_gene_perf_table(d$diagnostic_match)
 
@@ -1077,7 +1123,7 @@ tbc_section_go <- function(ext) {
                   options = list(dom = "t", paging = FALSE), class = "stripe hover compact")
   } else div(class = "empty-note", icon("circle-info"), "No Gene Ontology (biological process) terms found, or GO.db is not installed in this deployment.")
   div(class = "card", div(class = "card-title", icon("circle-nodes"), "Gene Ontology (Biological Process)"),
-      p(class = "submodule-desc", "Functional annotation via GO.db. Only Biological Process terms are curated for a single gene here (Molecular Function / Cellular Component are shown for gene panels - see the Gene Panel Enrichment section)."),
+      p(class = "submodule-desc", "Functional annotation via GO.db. Only Biological Process terms are curated for a single gene here (Molecular Function/Cellular Component show for gene panels - see Gene Panel Enrichment)."),
       go_body)
 }
 
@@ -1300,12 +1346,12 @@ tbc_report_css <- function() {
 tbc_build_report_tags <- function(d, dataset, ext = NULL) {
   sgd <- d$single_gene_diag; sgcv <- d$single_gene_cv
   dist_plot <- if (isTRUE(d$live$ok) && isTRUE(d$live$overall$ok))
-    tryCatch(tbc_plot_expression_dist(data.frame(expr = d$live$values, group = d$live$group_vec), "Expression (analysis scale)"), error = function(e) NULL) else NULL
+    tryCatch(tbc_plot_expression_dist(data.frame(expr = d$live$values, group = d$live$group_vec), "Expression (analysis scale)"), error = arthomix_null_on_error) else NULL
   volcano_plot <- if (!is.null(d$selected_run_table))
-    tryCatch(tbc_plot_volcano_highlight(d$selected_run_table, d$gene), error = function(e) NULL) else NULL
-  train_roc_plot <- if (isTRUE(sgd$ok)) tryCatch(tbc_plot_roc(sgd$roc_obj, "Single-gene ROC (Training)", sgd$auc, sgd$ci_lo, sgd$ci_hi), error = function(e) NULL) else NULL
-  train_pr_plot <- if (isTRUE(sgd$ok)) tryCatch(tbc_plot_pr(tbc_pr_from_roc(sgd$roc_obj)), error = function(e) NULL) else NULL
-  internal_roc_plot <- if (isTRUE(sgcv$ok)) tryCatch(tbc_plot_roc(sgcv$roc_obj, "Single-gene ROC (Internal Validation, pooled CV)", sgcv$auc), error = function(e) NULL) else NULL
+    tryCatch(tbc_plot_volcano_highlight(d$selected_run_table, d$gene), error = arthomix_null_on_error) else NULL
+  train_roc_plot <- if (isTRUE(sgd$ok)) tryCatch(tbc_plot_roc(sgd$roc_obj, "Single-gene ROC (Training)", sgd$auc, sgd$ci_lo, sgd$ci_hi), error = arthomix_null_on_error) else NULL
+  train_pr_plot <- if (isTRUE(sgd$ok)) tryCatch(tbc_plot_pr(tbc_pr_from_roc(sgd$roc_obj)), error = arthomix_null_on_error) else NULL
+  internal_roc_plot <- if (isTRUE(sgcv$ok)) tryCatch(tbc_plot_roc(sgcv$roc_obj, "Single-gene ROC (Internal Validation, pooled CV)", sgcv$auc), error = arthomix_null_on_error) else NULL
 
   img_tag <- function(p) {
     uri <- tbc_ggsave_datauri(p)
@@ -1386,8 +1432,8 @@ tbc_panel_enrichment <- function(genes_entrez, universe_entrez) {
 
 tbc_panel_network <- function(genes) {
   degrees <- tryCatch(fetch_string_degrees(genes), error = function(e) list())
-  hub_lookup <- tryCatch(build_wgcna_hub_lookup(), error = function(e) NULL)
-  png <- tryCatch(fetch_string_network_png(genes), error = function(e) NULL)
+  hub_lookup <- tryCatch(build_wgcna_hub_lookup(), error = arthomix_null_on_error)
+  png <- tryCatch(fetch_string_network_png(genes), error = arthomix_null_on_error)
   hub_table <- do.call(rbind, lapply(genes, function(g) {
     sd <- degrees[[g]]
     w <- if (!is.null(hub_lookup)) hub_lookup(g) else list(module = NA_character_, disease_module = FALSE, kme = NA_real_, is_hub = FALSE, connectivity = NA_real_)
@@ -1669,7 +1715,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
                                 uiOutput(ns("bmc_sig_results_ui"))
                               )),
             conditionalPanel(condition = sprintf("input['%s'] == 'upload'", ns("bmc_search_mode")),
-                              p(class = "submodule-desc", "Upload a gene-identifier list (symbols, Entrez, or Ensembl IDs, one per line or first CSV/TSV column) or a Diagnostic Classifier RDS export - auto-detected by extension. Every identifier is resolved and reported; none are silently dropped."),
+                              p(class = "submodule-desc", "Upload a gene-identifier list (symbols, Entrez, or Ensembl IDs, one per line or first CSV/TSV column) or a Diagnostic Classifier RDS export, auto-detected by extension. Every identifier is resolved and reported - none are silently dropped."),
                               fileInput(ns("bmc_upload_file"), "Biomarker list (.csv, .txt, or .rds)", accept = c(".csv", ".txt", ".rds")),
                               actionButton(ns("bmc_upload_load_btn"), "Load Uploaded List", icon = icon("play"), class = "btn-sm"),
                               conditionalPanel(condition = sprintf("input['%s'] == 'panel'", ns("bmc_mode")),
@@ -1798,7 +1844,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
         validate(need(length(ids) > 0, "No gene symbols were found in the uploaded file."))
         df <- data.frame(gene = ids, stringsAsFactors = FALSE)
       } else {
-        up <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = function(e) NULL)
+        up <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = arthomix_null_on_error)
         validate(need(!is.null(up) && nrow(up) > 0, "Could not parse the uploaded file as a delimited table (CSV/TSV)."))
         gene_col <- intersect(c("gene", "Gene", "symbol", "Symbol", "GENE_SYMBOL", "ID"), colnames(up))[1]
         ids <- if (!is.na(gene_col)) as.character(up[[gene_col]]) else as.character(up[[1]])
@@ -1818,7 +1864,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       res <- upload_resolution()
       tagList(p(class = "submodule-desc",
                 if (isTRUE(res$ok))
-                  sprintf("%d gene(s) loaded from the uploaded file - %d resolved, %d unresolved (see status column below). Click a row to select a single gene, then click \"Generate Biomarker Card\" - or switch Mode to \"Gene panel\" above and use the whole list.", res$n_submitted, res$n_resolved, res$n_unresolved)
+                  sprintf("%d gene(s) loaded from the uploaded file - %d resolved, %d unresolved (see status column below). Click a row to select a gene, then click \"Generate Biomarker Card\", or switch Mode to \"Gene panel\" to use the whole list.", res$n_submitted, res$n_resolved, res$n_unresolved)
                 else
                   sprintf("%d gene(s) loaded from the uploaded file (identifier resolution unavailable: %s). Click a row to select it, then click \"Generate Biomarker Card\".", nrow(upload_table()), res$reason %||% "unknown reason")),
               DT::dataTableOutput(ns("bmc_upload_table")))
@@ -1858,7 +1904,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
         NULL
       )
       validate(need(!is.null(gene) && nzchar(gene),
-                    "Select or enter a gene symbol before generating the Biomarker Card - type a gene symbol, or pick one from a saved Differential Expression run / the candidate list / a feature-selected signature / your uploaded list."))
+                    "Select or enter a gene symbol before generating the Biomarker Card. Type one, or pick from a saved DE run, the candidate list, a feature-selected signature, or your uploaded list."))
 
       in_dataset <- tryCatch(gene %in% rownames(dataset$expr), error = function(e) FALSE)
       gene_identity <- tbc_gene_identity(gene)
@@ -1895,6 +1941,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
            single_gene_diag = single_gene_diag, single_gene_cv = single_gene_cv)
     }, ignoreInit = TRUE)
 
+    ## Do NOT add ignoreInit here - it would swallow the first real click on this eventReactive-keyed observer.
     observeEvent(card_data(), {
       d <- card_data()
       best_adjp <- if (!is.null(d$dge_hits) && nrow(d$dge_hits) > 0) min(d$dge_hits$adj.P.Val, na.rm = TRUE) else NA_real_
@@ -1904,12 +1951,40 @@ mod_biomarkercard_server <- function(id, dataset, results) {
         in_signature = length(d$signature_membership) > 0 && any(vapply(d$signature_membership, function(x) isTRUE(x$in_signature), logical(1))),
         best_adj_p = best_adjp
       )
-    }, ignoreInit = TRUE)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_biomarkercard",
+        checksum_input = list(gene = d$gene, dataset_source = dataset$source, dge_run = d$selected_run_id),
+        params = list(
+          mode = "single gene", gene = d$gene, in_dataset = isTRUE(d$in_dataset), search_mode = input$bmc_search_mode %||% "gene",
+          dge_run_used = d$selected_run_id %||% NA_character_, best_adj_p = best_adjp,
+          candidate = isTRUE(d$candidate_status$any),
+          panels_containing_gene = paste(names(d$diagnostic_match %||% list()), collapse = ", ")
+        ),
+        seed = NULL,
+        packages = c("org.Hs.eg.db", "pROC")
+      ), dedupe = TRUE)
+    })
 
     observeEvent(input$bmc_generate_panel_btn, {
       has_panel_card(TRUE)
       updateTabsetPanel(session, "bmc_subtabs", selected = "Biomarker Card")
     }, ignoreInit = TRUE)
+
+    ## Do NOT add ignoreInit here - it would swallow the first real click on this eventReactive-keyed observer.
+    observeEvent(panel_card_data(), {
+      pd <- panel_card_data()
+      req(pd)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_biomarkercard_panel",
+        checksum_input = list(genes = sort(pd$pid$df$input_id %||% character(0)), dataset_source = dataset$source),
+        params = list(
+          mode = "gene panel", search_mode = input$bmc_search_mode %||% "gene",
+          n_submitted = pd$pid$n_submitted, n_resolved = pd$pid$n_resolved, n_unresolved = pd$pid$n_unresolved
+        ),
+        seed = NULL,
+        packages = "org.Hs.eg.db"
+      ), dedupe = TRUE)
+    })
 
     panel_card_data <- eventReactive(input$bmc_generate_panel_btn, {
       raw_genes <- switch(input$bmc_search_mode,
@@ -1945,9 +2020,10 @@ mod_biomarkercard_server <- function(id, dataset, results) {
     panel_net_data <- reactiveVal(NULL)
     panel_disease_data <- reactiveVal(NULL)
     panel_drug_data <- reactiveVal(NULL)
+    ## No ignoreInit here (see the note on the provenance observer above): the eventReactive errors silently at init.
     observeEvent(panel_card_data(), {
       panel_enrich_data(NULL); panel_net_data(NULL); panel_disease_data(NULL); panel_drug_data(NULL)
-    }, ignoreInit = TRUE)
+    })
 
     observeEvent(input$run_panel_enrichment, {
       pcd <- panel_card_data(); req(pcd)
@@ -1986,7 +2062,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
       ot_data(NULL); hpa_data(NULL); string_data(NULL); string_image_path(NULL); dgidb_data(NULL)
       go_data(NULL); kegg_data(NULL); reactome_data(NULL); wikipathways_data(NULL)
       kegg_map_data(NULL); reactome_map_data(NULL); literature_data(NULL); literature_query_used(NULL)
-    }, ignoreInit = TRUE)
+    })
 
     observeEvent(input$run_ot, {
       d <- card_data(); req(d)
@@ -2163,7 +2239,7 @@ mod_biomarkercard_server <- function(id, dataset, results) {
           actionButton(ns("run_ot"), "Run Open Targets Query", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         hpa = tagList(
-          p(class = "submodule-desc", "Human Protein Atlas has no adjustable query parameters here - it's a fixed gene-profile lookup. Shown here as an external reference; \"Your Dataset\" expression is on the Differential Expression section above."),
+          p(class = "submodule-desc", "Human Protein Atlas has no adjustable query parameters here - it's a fixed gene-profile lookup, shown as an external reference. \"Your Dataset\" expression is in the Differential Expression section above."),
           actionButton(ns("run_hpa"), "Run Human Protein Atlas Query", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         dgidb = tagList(

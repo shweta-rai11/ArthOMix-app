@@ -1,6 +1,5 @@
 ## R/methylomics/09_Candidate_CpGs/mod_methyl_candidates.R
 ## Submodule: Candidate CpGs (Module-DMR Overlap).
-##
 
 MCD_CPG_ID_PATTERNS   <- c("^cpg_id$", "^cpg$", "^probe_id$", "^probeid$", "^probe$", "^illumina_id$", "^id$", "cpg", "probe")
 MCD_MODULE_PATTERNS   <- c("^module_color$", "^modulecolor$", "^module$", "^color$", "module", "color")
@@ -381,7 +380,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
           if (isTRUE(ma_pos$ok)) { annot <- ma_pos$df; annot_note <- NULL }
         }
         if (is.null(annot)) {
-          annot_note <- annot_note %||% "No CpG chromosome/position information was found - upload a CpG annotation/coordinate file, or include chromosome/position columns in the module assignment file. Genomic overlap cannot run without it."
+          annot_note <- annot_note %||% "No CpG chromosome/position information was found. Upload a CpG annotation/coordinate file, or include chromosome/position columns in the module assignment file. Genomic overlap needs it."
         }
 
         cs <- mcd_standardize_cpg_stats(ma_raw)
@@ -444,7 +443,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
                          choiceNames = choice_names, choiceValues = choice_values, selected = default_selected),
             if (is_preloaded) conditionalPanel(
               condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
-              p(class = "submodule-desc", "Reproduces the sex-stratified WGCNA module assignments and DMR results already computed by this app's preloaded methylomics pipeline (script05_wgcna_sexstratified / script04_dmr_sexstratified) - nothing here reruns WGCNA or DMR calling."),
+              p(class = "submodule-desc", "Reproduces the sex-stratified WGCNA module assignments and DMR results already computed by the preloaded pipeline (script05_wgcna_sexstratified / script04_dmr_sexstratified). Nothing here reruns WGCNA or DMR calling."),
               radioButtons(ns("pre_sex"), "Sex / stratum", inline = TRUE, choices = c("Female" = "female", "Male" = "male"), selected = "female"),
               actionButton(ns("load_btn"), "Load Preloaded Data", icon = icon("play"), class = "btn-primary btn-sm")
             ),
@@ -696,7 +695,7 @@ mod_methyl_candidates_server <- function(id, dataset, results = NULL) {
       tagList(
         div(class = "card",
             div(class = "card-title", icon("layer-group"), "Module-DMR Overlap"),
-            p(class = "submodule-desc", "For every module (using the same DMR filters as the overlap tab, but every module rather than only a selected one): the number of CpGs overlapping the filtered DMRs, and a one-sided Fisher's exact test for enrichment against the tested CpG universe."),
+            p(class = "submodule-desc", "For every module (same DMR filters as the overlap tab, but all modules, not just one): the number of CpGs overlapping the filtered DMRs, and a one-sided Fisher's exact test for enrichment against the tested CpG universe."),
             actionButton(ns("modoverlap_run_btn"), "Run Module-DMR Overlap", icon = icon("play"), class = "btn-primary btn-sm")
         ),
         uiOutput(ns("modoverlap_results_ui"))

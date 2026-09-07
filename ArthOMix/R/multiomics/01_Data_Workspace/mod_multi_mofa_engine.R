@@ -1,6 +1,5 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_mofa_engine.R
-## Nested sub-module mounted inside mod_multi_mofa.R (sections 5-8: MOFA2
-## Integration, Factor Results, Cross-Omics Correlation, Export). Reads the
+## Nested in mod_multi_mofa.R: MOFA2 Integration, Factor Results, Cross-Omics Correlation, Export.
 
 mod_multi_mofa_engine_ui <- function(id) {
   ns <- NS(id)
@@ -311,6 +310,19 @@ mod_multi_mofa_engine_server <- function(id, live_state, multi_results = NULL) {
     observe({
       if (is.null(multi_results) || is.null(model_state$model)) return()
       multi_results$live_mofa <- list(trained_at = model_state$trained_at, params = model_state$params, n_factors = model_state$params$num_factors)
+    })
+
+    ## ---- provenance record (session-wide Analysis records log) ----
+    observeEvent(model_state$model, {
+      if (is.null(model_state$model)) return()
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_mofa",
+        checksum_input = list(variance = model_state$variance_df, factors = model_state$factors_df),
+        params = c(model_state$params %||% list(), list(views = tryCatch(names(live_state$mats), error = function(e) NULL),
+                                                        n_samples = tryCatch(nrow(live_state$mats[[1]]), error = function(e) NA_integer_), trained_at = model_state$trained_at)),
+        seed = model_state$params$seed, packages = c("MOFA2", "reticulate"),
+        extra = list()
+      ), session = session, dedupe = TRUE)
     })
   })
 }

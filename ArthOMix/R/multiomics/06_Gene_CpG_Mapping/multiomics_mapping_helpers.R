@@ -379,15 +379,23 @@ mcc_priority_score <- function(df) {
   region_component <- ifelse(is.na(df$canonical), 0.3, ifelse(df$canonical, 1, 0))
   diablo_component <- as.numeric(isTRUE(df$diablo) | df$diablo %in% TRUE)
   snf_component <- as.numeric(df$snf %in% TRUE)
-  joint_component <- as.numeric(df$joint %in% TRUE)
 
-  parts <- data.frame(expr_component, meth_component, fdr_component, cor_component, region_component, diablo_component, snf_component, joint_component)
-  w <- c(expr_component = 0.15, meth_component = 0.15, fdr_component = 0.15, cor_component = 0.15, region_component = 0.1, diablo_component = 0.1, snf_component = 0.1, joint_component = 0.1)
+  ## `joint` mirrors `diablo`, so it's not scored separately (avoids double-counting).
+  parts <- data.frame(expr_component, meth_component, fdr_component, cor_component, region_component, diablo_component, snf_component)
+  w <- c(expr_component = 0.15, meth_component = 0.15, fdr_component = 0.2, cor_component = 0.2, region_component = 0.1, diablo_component = 0.1, snf_component = 0.1)
   score <- rowSums(mapply(function(col, wt) ifelse(is.na(parts[[col]]), 0, parts[[col]]) * wt, names(w), w))
   parts$priority_score <- round(100 * score, 1)
-  parts$evidence_label <- ifelse(parts$priority_score >= 60, "Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker")
+  ## "Supported" needs significance in both layers plus canonical direction.
+  both_sig <- (df$sig_expression %in% TRUE) & (df$sig_methylation %in% TRUE)
+  parts$evidence_label <- ifelse(both_sig & (df$canonical %in% TRUE), MCC_LABEL_SUPPORTED,
+                          ifelse(parts$priority_score >= 60, MCC_LABEL_PRIORITISED, MCC_LABEL_CANDIDATE))
   parts
 }
+
+MCC_LABEL_SUPPORTED <- "Supported multi-omics pair (both layers significant, canonical)"
+MCC_LABEL_PRIORITISED <- "Prioritised candidate pair"
+MCC_LABEL_CANDIDATE <- "Candidate pair"
+MCC_EVIDENCE_LABELS <- c(MCC_LABEL_SUPPORTED, MCC_LABEL_PRIORITISED, MCC_LABEL_CANDIDATE)
 
 mcc_design_candidates <- function(sample_meta, sample_ids) {
   if (is.null(sample_meta) || ncol(sample_meta) == 0) return(character(0))
@@ -447,7 +455,8 @@ mcc_summary_counts <- function(pairs_df, sex_col_present = FALSE) {
     n_significant = sum(sig, na.rm = TRUE),
     n_canonical = sum(pairs_df$canonical %in% TRUE),
     n_noncanonical = sum(pairs_df$canonical %in% FALSE),
-    n_potential = sum(pairs_df$evidence_label == "Potential Multi-Omics Biomarker", na.rm = TRUE),
+    n_supported = sum(pairs_df$evidence_label == MCC_LABEL_SUPPORTED, na.rm = TRUE),
+    n_potential = sum(pairs_df$evidence_label == MCC_LABEL_PRIORITISED, na.rm = TRUE),
     n_female = if (sex_col_present && "sex" %in% colnames(pairs_df)) sum(tolower(pairs_df$sex) == "female", na.rm = TRUE) else NA_integer_,
     n_male = if (sex_col_present && "sex" %in% colnames(pairs_df)) sum(tolower(pairs_df$sex) == "male", na.rm = TRUE) else NA_integer_,
     n_diablo = sum(pairs_df$diablo %in% TRUE),

@@ -1,6 +1,5 @@
 ## R/multiomics/07_Pathways/multiomics_pathway_helpers.R
-## Data-adaptive engine for the "Pathways" sub-module (mod_multi_pathway.R) -
-## live GO/KEGG/Reactome/WikiPathways ORA + GSEA, on either the app's
+## Engine for the "Pathways" sub-module: live GO/KEGG/Reactome/WikiPathways ORA + GSEA.
 
 MP_REACTOME_AVAILABLE <- requireNamespace("ReactomePA", quietly = TRUE) && requireNamespace("reactome.db", quietly = TRUE)
 MP_FGSEA_AVAILABLE    <- requireNamespace("fgsea", quietly = TRUE)
@@ -616,4 +615,56 @@ mp_build_metadata <- function(database, method, species, background_label, ranki
               padj_thresh, min_size, max_size, format(timestamp %||% Sys.time())),
     stringsAsFactors = FALSE
   )
+}
+
+## Probe-bias-corrected ORA for CpG candidates (missMethyl gometh; Phipson et al. 2016). GO/KEGG only.
+MP_GOMETH_DATABASES <- c("GO_BP", "GO_MF", "GO_CC", "KEGG")
+
+mp_gometh_available <- function() requireNamespace("missMethyl", quietly = TRUE)
+
+## Passes the Illumina manifest annotation explicitly, so it need not be attached.
+mp_gometh_annotation <- function(array_type = "450K") {
+  pkg <- if (identical(array_type, "EPIC")) "IlluminaHumanMethylationEPICanno.ilm10b4.hg19" else "IlluminaHumanMethylation450kanno.ilmn12.hg19"
+  if (!requireNamespace(pkg, quietly = TRUE) || !requireNamespace("minfi", quietly = TRUE)) return(NULL)
+  ## minfi::getAnnotation() needs the annotation package attached to the search path.
+  if (!paste0("package:", pkg) %in% search()) tryCatch(suppressPackageStartupMessages(attachNamespace(pkg)), error = function(e) NULL)
+  tryCatch(minfi::getAnnotation(getExportedValue(pkg, pkg)), error = function(e) NULL)
+}
+
+mp_run_gometh <- function(database, sig_cpgs, all_cpgs = NULL, array_type = "450K", params = list()) {
+  if (!database %in% MP_GOMETH_DATABASES) return(list(ok = FALSE, df = NULL, error = sprintf("%s: probe-bias-corrected ORA (gometh) is available for GO and KEGG only.", database)))
+  if (!mp_gometh_available()) return(list(ok = FALSE, df = NULL, error = "The missMethyl package is not installed in this deployment."))
+  sig_cpgs <- unique(sig_cpgs[!is.na(sig_cpgs) & nzchar(sig_cpgs)])
+  if (length(sig_cpgs) < 2) return(list(ok = FALSE, df = NULL, error = "Fewer than 2 CpG identifiers to test."))
+  all_cpgs <- if (!is.null(all_cpgs)) unique(union(all_cpgs, sig_cpgs)) else NULL
+  collection <- if (identical(database, "KEGG")) "KEGG" else "GO"
+  anno <- mp_gometh_annotation(array_type)
+  if (is.null(anno)) return(list(ok = FALSE, df = NULL, error = sprintf("The %s annotation package required by gometh is not installed in this deployment.", array_type)))
+  res <- tryCatch(suppressMessages(suppressWarnings(missMethyl::gometh(
+    sig.cpg = sig_cpgs, all.cpg = all_cpgs, collection = collection,
+    array.type = if (identical(array_type, "EPIC")) "EPIC" else "450K", anno = anno,
+    prior.prob = TRUE, plot.bias = FALSE, sig.genes = TRUE))), error = function(e) e)
+  if (inherits(res, "error")) return(list(ok = FALSE, df = NULL, error = paste("gometh failed:", conditionMessage(res))))
+  if (is.null(res) || nrow(res) == 0) return(list(ok = FALSE, df = NULL, error = "gometh returned no terms."))
+  if (collection == "GO") {
+    ont <- sub("^GO_", "", database)
+    res <- res[res$ONTOLOGY == ont, , drop = FALSE]
+    desc <- res$TERM
+  } else desc <- res$Description
+  min_size <- params$minGSSize %||% 5; max_size <- params$maxGSSize %||% 500
+  keep <- !is.na(res$N) & res$N >= min_size & res$N <= max_size
+  res <- res[keep, , drop = FALSE]; desc <- desc[keep]
+  if (nrow(res) == 0) return(list(ok = FALSE, df = NULL, error = sprintf("%s (gometh): no gene sets within the size limits.", database)))
+  label <- sprintf("%s (CpG probe-bias corrected, missMethyl gometh)", switch(database, GO_BP = "GO BP", GO_MF = "GO MF", GO_CC = "GO CC", KEGG = "KEGG"))
+  n_univ <- max(res$N, na.rm = TRUE)
+  df <- data.frame(
+    source = label, ID = rownames(res), Description = desc,
+    GeneRatio = NA_character_, gene_ratio_numeric = NA_real_,
+    BgRatio = sprintf("%d/%s", as.integer(res$N), format(n_univ, big.mark = "")), Count = as.integer(res$DE),
+    pvalue = res$P.DE, p.adjust = res$FDR, qvalue = NA_real_,
+    geneID = if ("SigGenesInSet" %in% colnames(res)) gsub(",", "/", res$SigGenesInSet) else NA_character_,
+    method = "ORA (gometh, probe-bias corrected)", stringsAsFactors = FALSE
+  )
+  df <- df[order(df$p.adjust, df$pvalue), , drop = FALSE]
+  list(ok = TRUE, df = df, error = NULL, n_sig_cpgs = length(sig_cpgs), n_all_cpgs = if (is.null(all_cpgs)) NA_integer_ else length(all_cpgs))
 }

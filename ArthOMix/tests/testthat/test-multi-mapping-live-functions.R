@@ -214,11 +214,17 @@ test_that("mcc_regression() refuses when there are too few complete observations
 test_that("mcc_priority_score() gives a canonical, multiply-flagged, highly-significant pair a higher score than an unflagged, non-canonical one", {
   df <- data.frame(
     log2fc = c(3, 0.1), dbeta = c(0.3, 0.01), expr_fdr = c(0.0001, 0.5), meth_fdr = c(0.0001, 0.5),
-    correlation_r = c(0.9, 0.1), canonical = c(TRUE, FALSE), diablo = c(TRUE, FALSE), snf = c(TRUE, FALSE), joint = c(TRUE, FALSE)
+    correlation_r = c(0.9, 0.1), canonical = c(TRUE, FALSE), diablo = c(TRUE, FALSE), snf = c(TRUE, FALSE), joint = c(TRUE, FALSE),
+    sig_expression = c(TRUE, FALSE), sig_methylation = c(TRUE, FALSE)
   )
   out <- mcc_priority_score(df)
   expect_true(out$priority_score[1] > out$priority_score[2])
-  expect_equal(out$evidence_label[1], "Potential Multi-Omics Biomarker")
+  expect_equal(out$evidence_label[1], MCC_LABEL_SUPPORTED)
+  expect_equal(out$evidence_label[2], MCC_LABEL_CANDIDATE)
+  ## a high-scoring pair that is NOT significant in both layers is never called "supported"
+  df2 <- df; df2$sig_methylation[1] <- FALSE
+  expect_equal(mcc_priority_score(df2)$evidence_label[1], MCC_LABEL_PRIORITISED)
+  expect_false(any(grepl("iomarker", mcc_priority_score(df2)$evidence_label)))
   expect_true(all(out$priority_score >= 0 & out$priority_score <= 100))
 })
 
@@ -263,7 +269,7 @@ test_that("mcc_summary_counts() tallies genes/CpGs/significant/canonical/biomark
   df <- data.frame(
     gene_symbol = c("G1", "G1", "G2"), cpg = c("cg1", "cg2", "cg3"),
     sig_expression = c(TRUE, TRUE, FALSE), sig_methylation = c(TRUE, FALSE, FALSE),
-    canonical = c(TRUE, FALSE, NA), evidence_label = c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker", NA),
+    canonical = c(TRUE, FALSE, NA), evidence_label = c(MCC_LABEL_SUPPORTED, MCC_LABEL_PRIORITISED, NA),
     diablo = c(TRUE, FALSE, FALSE), snf = c(FALSE, TRUE, FALSE), joint = c(FALSE, FALSE, FALSE),
     stringsAsFactors = FALSE
   )

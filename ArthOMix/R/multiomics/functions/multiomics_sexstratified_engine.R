@@ -1,6 +1,5 @@
 ## R/multiomics/functions/multiomics_sexstratified_engine.R
-## Live sex-stratified DIABLO/Random-Forest engine - a parameterized,
-## general-dataset port of Research_05_multiomics_sexstratified's own
+## Live sex-stratified DIABLO/Random-Forest engine, ported for general datasets.
 
 MSS_DEFAULTS <- list(
   top_expr = 50L, top_meth = 100L,
@@ -94,17 +93,25 @@ mss_diablo_fold <- function(expr, meth, outcome_full, covariate_full, train_idx,
   design_mat <- matrix(abs(block_cor), 2, 2, dimnames = list(names(Xtr), names(Xtr)))
   diag(design_mat) <- 0
 
-  keepX <- lapply(Xtr, function(x) max(params$keepx_min, min(params$keepx_max, ncol(x) - 1)))
+  keepX <- lapply(Xtr, function(x) rep(max(params$keepx_min, min(params$keepx_max, ncol(x) - 1)), params$ncomp))
 
   fit <- tryCatch(mixOmics::block.splsda(X = Xtr, Y = outcome_train, ncomp = params$ncomp, keepX = keepX, design = design_mat), error = function(e) NULL)
   if (is.null(fit)) return(NULL)
   pred <- tryCatch(stats::predict(fit, newdata = Xte), error = function(e) NULL)
   if (is.null(pred)) return(NULL)
-  vote <- tryCatch(pred$WeightedVote$max.dist[, params$ncomp], error = function(e) NULL)
-  if (is.null(vote)) return(NULL)
-
   positive_class <- levels(outcome_full)[2]
-  list(score = as.numeric(vote == positive_class), selected = list(expr = sel$expr, meth = sel$meth))
+  ## Continuous weighted-prediction score (not the 0/1 class) for a real discriminant AUROC.
+  score <- tryCatch({
+    wp <- pred$WeightedPredict[, , params$ncomp, drop = FALSE]
+    wp <- matrix(as.numeric(wp), nrow = dim(wp)[1], dimnames = list(dimnames(wp)[[1]], dimnames(wp)[[2]]))
+    if (!positive_class %in% colnames(wp)) NULL else as.numeric(wp[, positive_class])
+  }, error = function(e) NULL)
+  if (is.null(score)) {
+    vote <- tryCatch(pred$WeightedVote$max.dist[, params$ncomp], error = function(e) NULL)
+    if (is.null(vote)) return(NULL)
+    score <- as.numeric(vote == positive_class)
+  }
+  list(score = score, selected = list(expr = sel$expr, meth = sel$meth))
 }
 
 mss_rf_fold <- function(expr, meth, outcome_full, covariate_full, train_idx, test_idx, params) {

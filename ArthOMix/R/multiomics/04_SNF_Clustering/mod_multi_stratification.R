@@ -1,6 +1,5 @@
 ## R/multiomics/04_SNF_Clustering/mod_multi_stratification.R
-## Submodule: SNF Clustering - a live, data-adaptive unsupervised patient
-## stratification workflow (Similarity Network Fusion, Wang et al. 2014,
+## SNF Clustering: live unsupervised patient stratification (Similarity Network Fusion, Wang et al. 2014).
 
 mod_multi_stratification_config <- list(
   id = "stratification", title = "SNF Clustering", icon = "diagram-project", group = "Data",
@@ -18,7 +17,7 @@ mod_multi_stratification_ui <- function(id) {
         box(
           width = NULL, title = "1. Data selection", status = "primary", solidHeader = FALSE,
           radioButtons(ns("data_source"), "Data source",
-                       choices = c("Active Multi-Omics Dataset (Dataset Workspace)" = "active", "Preloaded RA anti-TNF cohort" = "preloaded"),
+                       choices = c("Active Multi-Omics Dataset (Dataset Workspace)" = "active", "Fused network from the Integration tab" = "integration", "Preloaded RA anti-TNF cohort" = "preloaded"),
                        selected = "active", inline = TRUE),
           conditionalPanel(condition = sprintf("input['%s'] == 'preloaded'", ns("data_source")),
                             selectInput(ns("preloaded_cell"), "Analysis cell", choices = MULTI_CELL_CHOICES, width = "100%")),
@@ -43,22 +42,26 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     ns <- session$ns
     blk_id <- function(prefix, b) paste0(prefix, "_", make.names(b))
 
-    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
+    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset, multi_results))
 
     sc_dataset <- reactive({
       if (identical(input$data_source, "preloaded")) {
         req(input$preloaded_cell)
         sfc_preloaded_dataset(input$preloaded_cell)
+      } else if (identical(input$data_source, "integration")) {
+        sfc_carried_dataset(multi_results)
       } else {
         sfc_active_dataset(multi_dataset)
       }
     })
+    sc_carried <- reactive({ d <- sc_dataset(); if (isTRUE(d$ok) && !is.null(d$carried)) d$carried else NULL })
 
     output$source_note <- renderUI({
       d <- sc_dataset()
       if (!isTRUE(d$ok)) return(mi_warn(d$error))
       if (!MULTI_SNF_LIVE_AVAILABLE) return(mi_stop("SNFtool is not installed in this deployment - SNF Clustering is unavailable."))
-      mi_ok(d$provenance)
+      tagList(mi_ok(d$provenance),
+              if (!identical(input$data_source, "preloaded")) multi_harmonisation_note(multi_results, n_here = tryCatch(sc_val_raw()$n_shared, error = function(e) NULL)))
     })
 
     output$blocks_ui <- renderUI({
@@ -105,6 +108,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     output$preproc_ui <- renderUI({
       d <- sc_dataset(); v <- sc_val_raw()
       if (!isTRUE(d$ok) || is.null(v) || !isTRUE(v$ok)) return(NULL)
+      if (!is.null(d$carried)) return(box(width = NULL, title = "4. Preprocessing", status = "primary", solidHeader = FALSE,
+                                          mi_ok("Not applicable: the fused network was built on the Integration tab and is carried over unchanged.")))
       box(
         width = NULL, title = "4. Preprocessing", status = "primary", solidHeader = FALSE,
         p(class = "submodule-desc", "Order: missing values, then transform, then feature filter - applied per modality."),
@@ -184,17 +189,21 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       k_range <- mi_snf_feasible_k_range(max(n, 4))
       multi_mode <- identical(e$mode, "multi_omics_snf")
 
+      carried <- sc_carried()
       box(
         width = NULL, title = "SNF parameters", status = "primary", solidHeader = FALSE,
         if (!isTRUE(e$ok)) mi_stop(e$reason) else mi_ok(sprintf("%s is available for this dataset (%d matched patients).", if (multi_mode) "SNF" else "Single-Omics Clustering", n)),
+        if (!is.null(carried)) mi_ok(sprintf("Network parameters are carried from Integration (K = %d, alpha = %.2f, T = %d, standardised = %s) and can't be changed here; only partition settings below apply. Stability reruns SNF on subsamples with the same parameters.",
+                                             carried$params$k, carried$params$alpha, carried$params$t, if (isTRUE(carried$params$standardize)) "yes" else "no")),
         div(style = if (!isTRUE(e$ok)) "opacity:0.5; pointer-events:none;" else NULL,
+          if (is.null(carried)) tagList(
           h5("Scaling"),
           checkboxInput(ns("standardize"), "Standardize each block (z-score) before building the similarity network", value = TRUE),
           p(class = "submodule-desc", "SNFtool::standardNormalization(). Disable if already Autoscaled under Data > Preprocessing."),
           hr(),
           h5("Distance / similarity"),
-          selectInput(ns("dist_method"), NULL, choices = c("Squared Euclidean distance (SNFtool::dist2)" = "dist2")),
-          p(class = "submodule-desc", "Feeds SNFtool::affinityMatrix() - the only distance metric this engine implements."),
+          selectInput(ns("dist_method"), NULL, choices = c("Euclidean distance (square root of SNFtool::dist2)" = "dist2")),
+          p(class = "submodule-desc", "Feeds SNFtool::affinityMatrix() as in the SNFtool documentation - the only distance metric this engine implements."),
           hr(),
           h5("K - Nearest neighbors"),
           numericInput(ns("k"), "K", value = k_range$default, min = 2, max = k_range$max, step = 1),
@@ -212,7 +221,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
             p(class = "submodule-desc", "Number of network-fusion diffusion iterations (commonly 20-50)."),
             checkboxInput(ns("t_auto"), sprintf("Auto-converge T instead (stops early once the fused network stabilizes, searched %d-%d)", MI_SNF_T_CANDIDATES[1], max(MI_SNF_T_CANDIDATES)), value = FALSE),
             hr()
-          ) else p(class = "submodule-desc", "T does not apply - only one modality selected, no fusion step."),
+          ) else p(class = "submodule-desc", "T does not apply - only one modality selected, no fusion step.")
+          ),
           h5("Number of clusters"),
           numericInput(ns("n_clusters"), "Number of clusters", value = 2, min = 2, max = min(6, max(n - 1, 2)), step = 1),
           checkboxInput(ns("cluster_auto"), sprintf("Auto-estimate instead (eigengap search, 2-%d)", min(6, max(n - 1, 2))), value = FALSE),
@@ -273,12 +283,13 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     }
 
     if (isTRUE(ARTHOMIX_ASYNC_AVAILABLE)) {
-      run_task <- ExtendedTask$new(function(layers, params) promises::future_promise(sfc_snf_run_with_stability(layers, params), seed = TRUE))
+      run_task <- ExtendedTask$new(function(layers, params, carried) promises::future_promise(
+        if (is.null(carried)) sfc_snf_run_with_stability(layers, params) else sfc_carried_run_with_stability(carried, layers, params), seed = TRUE))
       observeEvent(input$run_btn, {
         validate(need(isTRUE(sc_elig()$ok), sc_elig()$reason))
         layers <- snapshot_inputs()
-        p <- sc_params()
-        session$onFlushed(function() run_task$invoke(layers, p), once = TRUE)
+        p <- sc_params(); carried <- sc_carried()
+        session$onFlushed(function() run_task$invoke(layers, p, carried), once = TRUE)
       })
       observe({
         out <- tryCatch(run_task$result(), error = function(e) e)
@@ -295,7 +306,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
         validate(need(isTRUE(sc_elig()$ok), sc_elig()$reason))
         showNotification("Running SNF Clustering synchronously - the app will be briefly unresponsive.", type = "message", duration = 5)
         layers <- snapshot_inputs()
-        out <- sfc_snf_run_with_stability(layers, sc_params())
+        carried <- sc_carried()
+        out <- if (is.null(carried)) sfc_snf_run_with_stability(layers, sc_params()) else sfc_carried_run_with_stability(carried, layers, sc_params())
         state$submitted <- FALSE
         if (!isTRUE(out$ok)) { state$error <- out$error } else { state$result <- out$res; state$stability <- out$stability }
       })
@@ -352,24 +364,30 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
                 lapply(names(cl_tab), function(cl) mi_stat_card(sprintf("%d (%.0f%%)", cl_tab[[cl]], 100 * cl_tab[[cl]] / sum(cl_tab)), sprintf("Cluster %s", cl))))),
         box(width = NULL, title = "Patient cluster plot", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() sfc_spectral_embedding_plot(res$W, res$clusters), ns("cl_embed_plot"), height = "380px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_cl_embed_png"), "Download plot (PNG)", class = "btn-sm")),
             p(class = "submodule-desc", "Spectral embedding of the fused patient similarity network.")),
         box(width = NULL, title = "Cluster heatmap", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() sfc_feature_heatmap(state$layers_used, res$clusters), ns("cl_heatmap"), height = "420px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_cl_heatmap_png"), "Download plot (PNG)", class = "btn-sm")),
             p(class = "submodule-desc", "Top-variance features per modality, used to build the similarity network, ordered by cluster.")),
         box(width = NULL, title = "Fused similarity network", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() mi_snf_fused_heatmap(res$W, res$clusters), ns("cl_fused"), height = "380px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_cl_fused_png"), "Download plot (PNG)", class = "btn-sm")),
             if (length(res$Wall) >= 1) tagList(
               selectInput(ns("cl_inspect_block"), "Inspect one modality's own network", choices = names(res$Wall)),
-              multi_plot_or_empty(function() { req(input$cl_inspect_block); mi_snf_fused_heatmap(res$Wall[[input$cl_inspect_block]], res$clusters) }, ns("cl_block_net"), height = "340px")
+              multi_plot_or_empty(function() { req(input$cl_inspect_block); mi_snf_fused_heatmap(res$Wall[[input$cl_inspect_block]], res$clusters) }, ns("cl_block_net"), height = "340px"),
+              div(class = "table-toolbar", downloadButton(ns("dl_cl_block_net_png"), "Download plot (PNG)", class = "btn-sm"))
             )),
         box(width = NULL, title = "Modality contribution", status = "primary", solidHeader = FALSE,
             if (!multi_mode) multi_empty_state("Not applicable - only one modality was used (Single-Omics Clustering).") else tagList(
               p(class = "submodule-desc", "Normalized Mutual Information between each modality's network and the fused network (SNFtool::concordanceNetworkNMI)."),
               multi_plot_or_empty(function() sfc_concordance_bar_plot(mi_snf_concordance(res)), ns("cl_conc_plot"), height = "260px"),
+              div(class = "table-toolbar", downloadButton(ns("dl_cl_conc_png"), "Download plot (PNG)", class = "btn-sm")),
               DT::dataTableOutput(ns("cl_conc_table"))
             )),
         box(width = NULL, title = "Cluster quality (candidate cluster counts)", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mi_snf_cluster_estimate_plot(res$cluster_estimate), ns("cl_estimate_plot"), height = "260px")),
+            multi_plot_or_empty(function() mi_snf_cluster_estimate_plot(res$cluster_estimate), ns("cl_estimate_plot"), height = "260px"),
+            div(class = "table-toolbar", downloadButton(ns("dl_cl_estimate_png"), "Download plot (PNG)", class = "btn-sm"))),
         box(width = NULL, title = "Patient-to-cluster assignments", status = "primary", solidHeader = FALSE,
             DT::dataTableOutput(ns("cl_assign_table")),
             div(class = "table-toolbar", downloadButton(ns("dl_assign"), "Download cluster assignments (CSV)", class = "btn-sm")))
@@ -392,14 +410,23 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
     })
 
     output$cl_embed_plot <- multi_render_plotly(function() { res <- req(state$result); sfc_spectral_embedding_plot(res$W, res$clusters) })
+    output$dl_cl_embed_png <- multi_png_download(function() { res <- req(state$result); sfc_spectral_embedding_plot(res$W, res$clusters) }, function() "snf_patient_cluster_plot.png")
     output$cl_heatmap <- multi_render_plotly(function() { res <- req(state$result); sfc_feature_heatmap(state$layers_used, res$clusters) })
+    output$dl_cl_heatmap_png <- multi_png_download(function() { res <- req(state$result); sfc_feature_heatmap(state$layers_used, res$clusters) }, function() "snf_cluster_heatmap.png")
     output$cl_fused <- multi_render_plotly(function() { res <- req(state$result); mi_snf_fused_heatmap(res$W, res$clusters) })
+    output$dl_cl_fused_png <- multi_png_download(function() { res <- req(state$result); mi_snf_fused_heatmap(res$W, res$clusters) }, function() "snf_fused_similarity_network.png")
     output$cl_block_net <- multi_render_plotly(function() {
       res <- req(state$result); req(input$cl_inspect_block)
       mi_snf_fused_heatmap(res$Wall[[input$cl_inspect_block]], res$clusters)
     })
+    output$dl_cl_block_net_png <- multi_png_download(function() {
+      res <- req(state$result); req(input$cl_inspect_block)
+      mi_snf_fused_heatmap(res$Wall[[input$cl_inspect_block]], res$clusters)
+    }, function() sprintf("snf_modality_network_%s.png", make.names(input$cl_inspect_block %||% "block")))
     output$cl_conc_plot <- multi_render_plotly(function() { res <- req(state$result); sfc_concordance_bar_plot(mi_snf_concordance(res)) })
+    output$dl_cl_conc_png <- multi_png_download(function() { res <- req(state$result); sfc_concordance_bar_plot(mi_snf_concordance(res)) }, function() "snf_modality_contribution.png")
     output$cl_estimate_plot <- multi_render_plotly(function() { res <- req(state$result); mi_snf_cluster_estimate_plot(res$cluster_estimate) })
+    output$dl_cl_estimate_png <- multi_png_download(function() { res <- req(state$result); mi_snf_cluster_estimate_plot(res$cluster_estimate) }, function() "snf_cluster_quality.png")
 
     output$stability_ui <- renderUI(gate(function() {
       stab <- state$stability
@@ -411,7 +438,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
                   mi_stat_card(sprintf("%.2f", stab$mean_ari), "Mean ARI"), mi_stat_card(sprintf("%.2f", stab$sd_ari), "SD ARI"),
                   mi_stat_card(stab$n_resamples, "Successful resamples")),
               multi_plot_or_empty(function() sfc_stability_plot(stab), ns("st_plot"), height = "300px"),
-              p(class = "submodule-desc", sprintf("Verdict thresholds: mean ARI >= %.2f = Stable, >= %.2f = Moderately stable, else Unstable. (This is a per-sample cluster-membership-agreement stability, distinct from Biomarker Discovery's feature-selection-frequency stability, which uses its own >=%.0f%% “Stable” cutoff on a different, uncorrected-proportion scale.)", SFC_STABILITY_THRESHOLDS$stable, SFC_STABILITY_THRESHOLDS$moderate, MB_STABILITY_THRESHOLDS$stable * 100)),
+              div(class = "table-toolbar", downloadButton(ns("dl_st_plot_png"), "Download plot (PNG)", class = "btn-sm")),
+              p(class = "submodule-desc", sprintf("Verdict thresholds: mean ARI >= %.2f = Stable, >= %.2f = Moderately stable, else Unstable. This differs from Biomarker Discovery's feature-selection-frequency stability, which uses its own >=%.0f%% “Stable” cutoff on a different scale.", SFC_STABILITY_THRESHOLDS$stable, SFC_STABILITY_THRESHOLDS$moderate, MB_STABILITY_THRESHOLDS$stable * 100)),
               div(class = "table-toolbar", downloadButton(ns("dl_stability"), "Download stability metrics (CSV)", class = "btn-sm"))
             )),
         box(width = NULL, title = "Recompute stability with custom settings", status = "primary", solidHeader = FALSE,
@@ -441,7 +469,8 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       tagList(
         div(style = "display:flex; gap:10px; flex-wrap:wrap;",
             mi_stat_card(stab$verdict, "Verdict"), mi_stat_card(sprintf("%.2f", stab$mean_ari), "Mean ARI"), mi_stat_card(stab$n_resamples, "Successful resamples")),
-        multi_plot_or_empty(function() sfc_stability_plot(stab), ns("st_custom_plot"), height = "280px")
+        multi_plot_or_empty(function() sfc_stability_plot(stab), ns("st_custom_plot"), height = "280px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_st_custom_plot_png"), "Download plot (PNG)", class = "btn-sm"))
       )
     })
     output$dl_stability <- downloadHandler(function() "snf_stability_metrics.csv", function(file) {
@@ -449,7 +478,9 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       utils::write.csv(data.frame(resample = seq_along(stab$ari), ari = stab$ari), file, row.names = FALSE)
     })
     output$st_plot <- multi_render_plotly(function() { req(isTRUE(state$stability$ok)); sfc_stability_plot(state$stability) })
+    output$dl_st_plot_png <- multi_png_download(function() { req(isTRUE(state$stability$ok)); sfc_stability_plot(state$stability) }, function() "snf_stability.png")
     output$st_custom_plot <- multi_render_plotly(function() { stab <- req(st_custom()); req(isTRUE(stab$ok)); sfc_stability_plot(stab) })
+    output$dl_st_custom_plot_png <- multi_png_download(function() { stab <- req(st_custom()); req(isTRUE(stab$ok)); sfc_stability_plot(stab) }, function() "snf_stability_custom.png")
 
     sens <- eventReactive(input$sens_run_btn, {
       req(state$result, state$layers_used)
@@ -460,6 +491,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       if (is.null(s)) return(NULL)
       tagList(
         multi_plot_or_empty(function() sfc_sensitivity_plot(s), ns("sens_plot"), height = "280px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_sens_plot_png"), "Download plot (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("sens_table")),
         p(class = "submodule-desc", "Low sensitivity = stable assignments across the range; high = they change substantially.")
       )
@@ -468,6 +500,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       DT::datatable(req(sens())$summary, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
     output$sens_plot <- multi_render_plotly(function() { sfc_sensitivity_plot(req(sens())) })
+    output$dl_sens_plot_png <- multi_png_download(function() { sfc_sensitivity_plot(req(sens())) }, function() "snf_parameter_sensitivity.png")
 
     sc_clinical <- reactive({
       req(state$result)
@@ -503,10 +536,12 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       tagList(
         if (length(res) > 1) p(class = "submodule-desc", "Multiple variables selected - p-values BH-corrected across the selection shown."),
         multi_plot_or_empty(function() sfc_categorical_multi_plot(state$result$clusters, state$sample_meta, input$clin_cat_vars), ns("clin_cat_plot"), height = "300px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_clin_cat_png"), "Download plot (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("clin_cat_table"))
       )
     })
     output$clin_cat_plot <- multi_render_plotly(function() { req(length(input$clin_cat_vars) > 0); sfc_categorical_multi_plot(state$result$clusters, state$sample_meta, input$clin_cat_vars) })
+    output$dl_clin_cat_png <- multi_png_download(function() { req(length(input$clin_cat_vars) > 0); sfc_categorical_multi_plot(state$result$clusters, state$sample_meta, input$clin_cat_vars) }, function() "snf_clinical_categorical.png")
     output$clin_cat_table <- DT::renderDataTable({
       res <- req(clin_cat_results())
       df <- do.call(rbind, lapply(names(res), function(v) {
@@ -527,10 +562,12 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       tagList(
         if (length(res) > 1) p(class = "submodule-desc", "Multiple variables selected - p-values BH-corrected across the selection shown."),
         multi_plot_or_empty(function() sfc_continuous_multi_plot(state$result$clusters, state$sample_meta, input$clin_cont_vars), ns("clin_cont_plot"), height = "300px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_clin_cont_png"), "Download plot (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("clin_cont_table"))
       )
     })
     output$clin_cont_plot <- multi_render_plotly(function() { req(length(input$clin_cont_vars) > 0); sfc_continuous_multi_plot(state$result$clusters, state$sample_meta, input$clin_cont_vars) })
+    output$dl_clin_cont_png <- multi_png_download(function() { req(length(input$clin_cont_vars) > 0); sfc_continuous_multi_plot(state$result$clusters, state$sample_meta, input$clin_cont_vars) }, function() "snf_clinical_continuous.png")
     output$clin_cont_table <- DT::renderDataTable({
       res <- req(clin_cont_results())
       df <- do.call(rbind, lapply(names(res), function(v) {
@@ -552,6 +589,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       if (!isTRUE(surv$ok)) return(mi_warn(surv$error))
       tagList(
         multi_plot_or_empty(function() sfc_km_plot(surv), ns("clin_km_plot"), height = "360px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_clin_km_png"), "Download plot (PNG)", class = "btn-sm")),
         div(style = "display:flex; gap:10px; flex-wrap:wrap;",
             mi_stat_card(sprintf("%.3g", surv$logrank_p), "Log-rank p"),
             if (!is.null(surv$hr)) mi_stat_card(sprintf("%.2f (%.2f-%.2f)", surv$hr$hr, surv$hr$lo, surv$hr$hi), "Hazard ratio (95% CI)"),
@@ -566,6 +604,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       DT::datatable(sfc_km_risk_table(surv), rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
     output$clin_km_plot <- multi_render_plotly(function() { surv <- req(clin_surv()); req(isTRUE(surv$ok)); sfc_km_plot(surv) })
+    output$dl_clin_km_png <- multi_png_download(function() { surv <- req(clin_surv()); req(isTRUE(surv$ok)); sfc_km_plot(surv) }, function() "snf_survival_km.png")
 
     output$features_ui <- renderUI(gate(function() {
       res <- state$result
@@ -586,6 +625,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       if (!isTRUE(r$ok)) return(mi_warn(r$error))
       tagList(
         multi_plot_or_empty(function() sfc_feature_rank_plot(r$table), ns("feat_plot"), height = "420px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_feat_plot_png"), "Download plot (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("feat_table")),
         div(class = "table-toolbar", downloadButton(ns("dl_feat"), "Download feature ranking (CSV)", class = "btn-sm")),
         p(class = "submodule-desc", sprintf("%d features tested in this modality; BH-FDR corrected.", r$n_features_tested))
@@ -595,6 +635,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       DT::datatable(req(feat_rank())$table, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
     })
     output$feat_plot <- multi_render_plotly(function() { r <- req(feat_rank()); req(isTRUE(r$ok)); sfc_feature_rank_plot(r$table) })
+    output$dl_feat_plot_png <- multi_png_download(function() { r <- req(feat_rank()); req(isTRUE(r$ok)); sfc_feature_rank_plot(r$table) }, function() sprintf("snf_feature_ranking_%s.png", make.names(input$feat_block %||% "block")))
     output$dl_feat <- downloadHandler(function() sprintf("snf_feature_ranking_%s.csv", make.names(input$feat_block %||% "block")), function(file) {
       utils::write.csv(req(feat_rank())$table, file, row.names = FALSE)
     })
@@ -633,6 +674,23 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
         stability = if (!is.null(state$stability) && isTRUE(state$stability$ok)) state$stability$verdict else NULL,
         clusters = if (!is.null(state$result)) state$result$clusters else NULL
       )
+    })
+
+    ## ---- provenance record (session-wide Analysis records log) ----
+    observeEvent(state$result, {
+      r <- state$result; if (is.null(r) || !isTRUE(r$ok)) return()
+      st <- state$stability
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_stratification",
+        checksum_input = list(ids = names(r$clusters), clusters = as.integer(r$clusters), blocks = r$params$blocks),
+        params = c(r$params[intersect(c("blocks", "n_samples", "k", "alpha", "t", "k_mode", "alpha_mode", "t_mode", "n_clusters", "cluster_mode", "cluster_method", "standardize", "mode"), names(r$params))],
+                   list(carried_from_integration = identical(r$params$mode, "carried_fused_network"),
+                        stability_mean_ari = if (!is.null(st) && isTRUE(st$ok)) st$mean_ari else NA_real_,
+                        stability_verdict = if (!is.null(st) && isTRUE(st$ok)) st$verdict else NA_character_,
+                        stability_distinct_subsamples = if (!is.null(st) && isTRUE(st$ok)) st$n_distinct_subsamples else NA_integer_)),
+        seed = r$params$seed, packages = c("SNFtool", "cluster"),
+        extra = list(dataset = state$dataset_label, cluster_sizes = as.list(table(r$clusters)))
+      ), session = session, dedupe = TRUE)
     })
   })
 }

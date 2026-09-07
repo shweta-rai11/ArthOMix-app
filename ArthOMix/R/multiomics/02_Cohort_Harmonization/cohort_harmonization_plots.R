@@ -1,6 +1,5 @@
 ## R/multiomics/02_Cohort_Harmonization/cohort_harmonization_plots.R
-## Plotting helpers for the "Cohort Harmonization" sub-module
-## (mod_multi_overview.R). PCA and cross-modality correlation reuse
+## Plotting helpers for the Cohort Harmonization sub-module (mod_multi_overview.R).
 
 ch_overlap_heatmap_plot <- function(overlap_matrix) {
   if (is.null(overlap_matrix) || nrow(overlap_matrix) == 0) return(NULL)

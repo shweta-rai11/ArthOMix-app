@@ -1,6 +1,5 @@
 ## R/methylomics/functions/qc.R
-## Probe- and sample-level QC for the Methylomics module (mod_methyl_qc.R).
-## Each probe filter returns list(keep = <logical>, note = <summary>) instead of filtering in place,
+## Probe/sample QC for mod_methyl_qc.R. Each filter returns list(keep=<logical>, note=<summary>).
 
 methyl_row_vars <- function(m) {
   if (requireNamespace("matrixStats", quietly = TRUE)) {
@@ -76,7 +75,7 @@ methyl_filter_sex_chr <- function(mat, anno_result, mode = "remove_xy") {
 methyl_filter_cross_reactive <- function(mat, exclusion_ids = NULL) {
   if (is.null(exclusion_ids) || length(exclusion_ids) == 0) {
     return(list(keep = rep(TRUE, nrow(mat)), note =
-      "No cross-reactive probe list is bundled in this deployment - upload a probe-exclusion list (one probe ID per line, e.g. a published Chen et al. 2013 / Pidsley et al. 2016 / McCartney et al. 2016 list) to enable this filter."))
+      "No cross-reactive probe list is bundled here. Upload a probe-exclusion list (one probe ID per line, e.g. a published Chen et al. 2013 / Pidsley et al. 2016 / McCartney et al. 2016 list) to enable this filter."))
   }
   keep <- !(rownames(mat) %in% exclusion_ids)
   list(keep = keep, note = sprintf("%d probe(s) removed via the uploaded exclusion list.", sum(!keep)))

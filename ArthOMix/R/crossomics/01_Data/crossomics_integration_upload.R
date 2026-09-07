@@ -1,6 +1,5 @@
 ## R/crossomics/01_Data/crossomics_integration_upload.R
-## Upload parsing for the "Expression and Methylation" Cross-Omics sub-module -
-## CSV/TSV/TXT via data.table::fread, XLSX via openxlsx (both already
+## Upload parsing for "Expression and Methylation": CSV/TSV/TXT and XLSX.
 
 CX_UPLOAD_NA_STRINGS <- c("NA", "", "NaN", "null", "NULL", "#N/A")
 

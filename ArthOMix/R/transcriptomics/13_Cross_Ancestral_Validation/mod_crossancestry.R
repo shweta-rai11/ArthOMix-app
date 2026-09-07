@@ -1,11 +1,10 @@
 ## R/transcriptomics/13_Cross_Ancestral_Validation/mod_crossancestry.R
-## Submodule: Cross-Ancestry Validation (Section 2.12)
-## "Your analysis" recomputes, on a per-sex Run click, which prioritised
+## Submodule: Cross-Ancestry Validation - recomputes prioritised genes per sex on Run.
 
 mod_crossancestry_config <- list(
-  id = "crossancestry", group = "Validation",
-  title = "Cross-Ancestry Validation",
-  description = "Cross-ancestry and sex-stratified validation of the diagnostic model, on preloaded or uploaded data.",
+  id = "crossancestry", group = "Genetics",
+  title = "Cross-Ancestry MR Replication",
+  description = "Mendelian-randomisation replication of the bundled RA cohort's prioritised genes across three GWAS arms (Okada European discovery, Stahl European replication, BioBank Japan East-Asian transfer), per sex. Any arm can be replaced by an upload. This replicates a fixed reference gene list only - it doesn't read, validate or transfer the diagnostic model, or use the currently loaded dataset.",
   icon = "earth-americas"
 )
 
@@ -74,7 +73,7 @@ mod_crossancestry_ui <- function(id) {
               selected = "eas", width = "100%"
             ),
             p(class = "submodule-desc",
-              "A delimited file (CSV/TSV), one row per SNP: any second GWAS, tested against this project's own cis-eQTL instruments (the same ones the European/Okada discovery arm uses) for whichever genes are in the panel below. SNP IDs must be rsIDs to match those instruments."),
+              "A delimited file (CSV/TSV), one row per SNP: any second GWAS, tested against this project's cis-eQTL instruments (the same ones the European/Okada discovery arm uses) for genes in the panel below. SNP IDs must be rsIDs to match those instruments."),
             textInput(ns("gwas_label"), "GWAS label (for display only)", value = "Uploaded GWAS", width = "100%"),
             fileInput(ns("gwas_file"), "GWAS file", accept = c(".csv", ".tsv", ".txt")),
             uiOutput(ns("gwas_map_ui"))
@@ -148,14 +147,14 @@ mod_crossancestry_server <- function(id, dataset, results) {
       instr <- instr_all[instr_all$gene %in% genes & instr_all$pval.exposure <= 5e-8 & instr_all$Fstat >= 10, , drop = FALSE]
       if (nrow(instr) == 0) return(list(table = NULL, n_input_genes = length(unique(genes)), n_output_genes = 0L, label = out$label))
 
-      dat <- tryCatch(TwoSampleMR::harmonise_data(instr[, exp_cols, drop = FALSE], out$dat, action = 2), error = function(e) NULL)
+      dat <- tryCatch(TwoSampleMR::harmonise_data(instr[, exp_cols, drop = FALSE], out$dat, action = 2), error = arthomix_null_on_error)
       if (is.null(dat) || nrow(dat) == 0) return(list(table = NULL, n_input_genes = length(unique(instr$gene)), n_output_genes = 0L, label = out$label))
       dat <- dat[dat$mr_keep, , drop = FALSE]
       if (nrow(dat) == 0) return(list(table = NULL, n_input_genes = length(unique(instr$gene)), n_output_genes = 0L, label = out$label))
       dat$gene <- instr$gene[match(paste(dat$SNP, dat$id.exposure), paste(instr$SNP, instr$id.exposure))]
 
       rows <- lapply(split(dat, dat$gene), function(dg) {
-        est <- tryCatch(estimate_mr_set(dg, full = FALSE), error = function(e) NULL)
+        est <- tryCatch(estimate_mr_set(dg, full = FALSE), error = arthomix_null_on_error)
         if (is.null(est)) return(NULL)
         prim <- est$res_table[est$res_table$primary, , drop = FALSE][1, ]
         data.frame(gene = dg$gene[1], OR = exp(prim$estimate), p = prim$p, nSNP = est$n_snp, stringsAsFactors = FALSE)
@@ -214,6 +213,17 @@ mod_crossancestry_server <- function(id, dataset, results) {
           uploaded = !is.null(res$live_note), arm_replaced = res$live_note$arm %||% NA_character_
         )), sex_label)
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_crossancestry",
+        checksum_input = list(genes = df$gene, class = df$ancestry_class),
+        params = list(
+          stratum = sex_label, gene_source = "bundled RA reference candidates (independent of the loaded dataset)",
+          p_eur = input$p_eur %||% 0.05, p_eas = input$p_eas %||% 0.05, require_direction = !identical(input$require_dir %||% "yes", "no"),
+          arm_replaced_by_upload = res$live_note$arm %||% "none", uploaded_gwas = res$live_note$label %||% NA_character_,
+          n_tested = nrow(df), n_replicated_both = sum(df$biomarker, na.rm = TRUE)
+        ),
+        seed = NULL, packages = c("TwoSampleMR", "MendelianRandomization")
+      ))
     }
     observeEvent(result_female(), save_result("female", result_female()))
     observeEvent(result_male(), save_result("male", result_male()))
@@ -227,13 +237,15 @@ mod_crossancestry_server <- function(id, dataset, results) {
         n_bio <- sum(df$biomarker, na.rm = TRUE)
         n_untestable <- sum(!df$testable_EAS, na.rm = TRUE)
         tagList(
+          if (!isTRUE(dataset$is_bundled_reference)) div(class = "empty-note", style = "border-left: 3px solid #b8860b;", icon("triangle-exclamation"),
+            " These genes are the bundled RA reference cohort's genetically prioritised candidates (MR against Okada 2014), not genes from the dataset loaded on the Dataset tab. The three-arm replication below is independent of the loaded expression data."),
           if (!is.null(rr$live_note)) p(class = "empty-note", icon("upload"), sprintf(
             "%s arm replaced with your uploaded GWAS (%s) - %d of %d panel genes produced a usable harmonised instrument.",
             if (identical(rr$live_note$arm, "eur")) "European replication" else "Transfer ancestry",
             rr$live_note$label, rr$live_note$n_output_genes, rr$live_note$n_input_genes
           )),
           fluidRow(
-            valueBox(n_bio, "Validated cross-ancestry biomarkers", icon = icon("award"), color = "green", width = 3),
+            valueBox(n_bio, "Genes replicated in both ancestries (MR)", icon = icon("award"), color = "green", width = 3),
             valueBox(sprintf("%d / %d", n_eur, n_total), "Replicated in Europeans", icon = icon("check-double"), color = "light-blue", width = 3),
             valueBox(sprintf("%d / %d", n_eas, n_testable), "Transferable to East Asian", icon = icon("earth-asia"), color = "purple", width = 3),
             valueBox(n_untestable, "Untestable in East Asian", icon = icon("triangle-exclamation"), color = "yellow", width = 3)
@@ -245,7 +257,7 @@ mod_crossancestry_server <- function(id, dataset, results) {
         df <- res()$df
         d <- df[df$testable_EAS & !is.na(df$OR_stahl) & !is.na(df$OR_bbj) & df$OR_stahl > 0 & df$OR_bbj > 0, , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Validated biomarker", "Not validated"), levels = c("Validated biomarker", "Not validated"))
+        d$Status <- factor(ifelse(d$biomarker, "Replicated in both ancestries", "Not replicated"), levels = c("Replicated in both ancestries", "Not replicated"))
         d$log_or_stahl <- log2(d$OR_stahl); d$log_or_bbj <- log2(d$OR_bbj)
         ggplot(d, aes(x = log_or_stahl, y = log_or_bbj, color = Status)) +
           geom_hline(yintercept = 0, color = ARTHOMIX_COLORS$axis, linewidth = 0.3) +
@@ -253,8 +265,8 @@ mod_crossancestry_server <- function(id, dataset, results) {
           geom_point(aes(size = Status), alpha = 0.9) +
           ggrepel::geom_text_repel(data = d[d$biomarker, , drop = FALSE], aes(label = gene), size = 3.4,
                                     color = ARTHOMIX_COLORS$ink, fontface = "bold", show.legend = FALSE, max.overlaps = 30) +
-          scale_color_manual(values = c(`Validated biomarker` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Validated biomarker` = 3.6, `Not validated` = 2.2), guide = "none") +
+          scale_color_manual(values = c(`Replicated in both ancestries` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Replicated in both ancestries` = 3.6, `Not validated` = 2.2), guide = "none") +
           labs(title = "Ancestry concordance", subtitle = "European (Stahl) vs. East Asian (BioBank Japan) MR estimate",
                x = "log2 OR - European replication", y = "log2 OR - East Asian transfer", color = NULL) +
           theme_arthomix(base_size = 12)
@@ -269,7 +281,7 @@ mod_crossancestry_server <- function(id, dataset, results) {
         df <- res()$df
         d <- df[df$testable_EAS & !is.na(df$p_bbj), , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Validated biomarker", "Not validated"), levels = c("Validated biomarker", "Not validated"))
+        d$Status <- factor(ifelse(d$biomarker, "Replicated in both ancestries", "Not replicated"), levels = c("Replicated in both ancestries", "Not replicated"))
         d$neglogp <- -log10(pmax(d$p_bbj, 1e-300))
         d$gene <- factor(d$gene, levels = d$gene[order(d$neglogp)])
         CAP <- 20
@@ -282,10 +294,10 @@ mod_crossancestry_server <- function(id, dataset, results) {
           geom_point(aes(size = Status)) +
           geom_text(data = d[d$biomarker, , drop = FALSE], aes(x = neglogp_plot, label = sprintf("OR=%.2f", OR_bbj)),
                     hjust = -0.15, size = 3.2, color = ARTHOMIX_COLORS$ink, show.legend = FALSE) +
-          scale_color_manual(values = c(`Validated biomarker` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Validated biomarker` = 3.4, `Not validated` = 2.4), guide = "none") +
+          scale_color_manual(values = c(`Replicated in both ancestries` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Replicated in both ancestries` = 3.4, `Not validated` = 2.4), guide = "none") +
           scale_x_continuous(expand = expansion(mult = c(0.02, 0.16))) +
-          labs(title = "Cross-ancestry biomarkers", subtitle = subtitle,
+          labs(title = "Cross-ancestry MR replication", subtitle = subtitle,
                x = "-log10(p), BioBank Japan", y = NULL, color = NULL) +
           theme_arthomix(base_size = 12) + theme(legend.position = "bottom")
       }, height = rank_plot_height, alt = sprintf("Ranked dot plot of each testable %s gene's East Asian transfer significance, with validated cross-ancestry biomarkers highlighted and labelled against the current p-value cutoff.", sex_label))

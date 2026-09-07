@@ -1,6 +1,5 @@
 ## R/methylomics/11_Mendelian_Randomization/mod_methyl_mr.R
-## Two-sample MR for methylation exposures: cis/trans mQTL instruments for
-## a CpG -> GWAS outcome. Separate from R/transcriptomics/07_Mendelian_Randomization/mod_mr.R (eQTL MR).
+## Two-sample MR: cis/trans mQTL instruments for a CpG -> GWAS outcome. Separate from transcriptomics' eQTL MR.
 
 .mmr_tip <- function(text) tags$span(icon("circle-info", style = "color:#8A929C; cursor: help; margin-left: 4px;"), title = text)
 
@@ -110,14 +109,14 @@ mmr_filters_controls <- function(ns) {
     ),
     div(style = "display:flex; align-items:center; gap:4px;",
         numericInput(ns("f_maf"), "MAF / EAF threshold", value = 0, min = 0, max = 0.5, step = 0.01, width = "100%"),
-        .mmr_tip("Minimum minor allele frequency (min(EAF, 1-EAF)). Only applied to instruments with an EAF value - rows missing EAF are flagged, not silently dropped, unless you also require EAF below.")),
+        .mmr_tip("Minimum minor allele frequency (min(EAF, 1-EAF)). Only applies to instruments with an EAF value. Rows missing EAF are flagged, not dropped, unless you also require EAF below.")),
     checkboxInput(ns("f_require_eaf"), "Require EAF to be present", value = FALSE),
     div(style = "display:flex; align-items:center; gap:4px;",
         numericInput(ns("f_min_instruments"), "Minimum instruments per CpG", value = 1, min = 1, step = 1, width = "100%"),
         numericInput(ns("f_max_instruments"), "Maximum instruments per CpG (strongest by p-value)", value = NA, min = 1, step = 1, width = "100%")),
     div(style = "display:flex; align-items:center; gap:4px;",
         numericInput(ns("f_min_f"), "Minimum F-statistic", value = MMR_DEFAULT_MIN_F, min = 0, step = 1, width = "100%"),
-        .mmr_tip("Default F >= 10, the conventional weak-instrument threshold and this project's own MIN_F_STAT. Weak instruments are flagged, not silently removed - see the retained/excluded breakdown below.")),
+        .mmr_tip("Default F >= 10: the conventional weak-instrument threshold, and this project's own MIN_F_STAT. Weak instruments are flagged, not removed - see the retained/excluded breakdown below.")),
     checkboxInput(ns("f_exclude_weak"), "Exclude weak instruments (F below threshold) from downstream MR", value = TRUE),
     div(style = "margin-top: 6px;",
         actionButton(ns("instruments_btn"), "Select Instruments", icon = icon("filter"), class = "btn-primary btn-sm"))
@@ -131,7 +130,7 @@ mmr_clump_ui <- function(ns) {
 mmr_clump_controls <- function(ns) {
   tagList(
     div(class = "empty-note", icon("circle-info"),
-        "Only OpenGWAS-API-based clumping (ieugwasr::ld_clump()) is available in this deployment - no local PLINK binary/LD reference is bundled, so \"Local PLINK reference\" is shown disabled below."),
+        "Only OpenGWAS-API-based clumping (ieugwasr::ld_clump()) is available here. No local PLINK binary/LD reference is bundled, so \"Local PLINK reference\" is shown disabled below."),
     fluidRow(
       column(6, selectInput(ns("clump_pop"), "LD population", c("European (EUR)" = "EUR", "African (AFR)" = "AFR", "Admixed American (AMR)" = "AMR", "East Asian (EAS)" = "EAS", "South Asian (SAS)" = "SAS"), selected = "EUR", width = "100%")),
       column(6, div(style = "opacity:0.5;", checkboxInput(ns("clump_local_plink"), "Use local PLINK reference (unavailable)", value = FALSE)))
@@ -162,7 +161,7 @@ mmr_harmonise_controls <- function(ns, editable = TRUE) {
       choiceValues = list("1", "2", "3"), selected = "2"
     ),
     if (!editable) div(class = "empty-note", icon("circle-info"),
-      "The Preloaded route's cached instrument set was harmonised with strategy 2 (script08_mendelian_randomization's default) - switch to Upload Dataset to harmonise your own data with a different strategy."),
+      "The Preloaded route's cached instrument set was harmonised with strategy 2 (script08_mendelian_randomization's default). Switch to Upload Dataset to harmonise your own data with a different strategy."),
     div(style = "margin-top: 6px;",
         actionButton(ns("harmonise_btn"), "Harmonise", icon = icon("link"), class = "btn-primary btn-sm"))
   )
@@ -206,7 +205,7 @@ mmr_analysis_controls <- function(ns) {
     ),
     p(class = "submodule-desc", "Applied per CpG per this project's own tiered rule: 1 instrument -> Wald ratio only, 2 -> IVW only, >=3 -> your selection above (intersected with what's estimable)."),
     p(class = "empty-note", style = "font-size:12px;", icon("circle-info"),
-      "Contamination mixture and Radial MR are not wired into method selection in this deployment (contamination mixture isn't provided by the installed TwoSampleMR version; Radial MR uses a different interface than the other methods here)."),
+      "Contamination mixture and Radial MR aren't wired into method selection here. Contamination mixture isn't provided by the installed TwoSampleMR version; Radial MR uses a different interface than the other methods."),
     div(style = "display:flex; align-items:center; gap:4px;",
         checkboxInput(ns("mr_run_presso"), "Also run MR-PRESSO outlier test (>=4 instruments)", value = FALSE),
         .mmr_tip("Simulation-based horizontal-pleiotropy/outlier test (MRPRESSO::mr_presso). Off by default - adds runtime per CpG.")),
@@ -542,7 +541,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
         counts <- load_default_mr_instrument_counts()
         clump_state(list(mode = "preloaded", d = d, counts = counts,
                           n_before = NA_integer_, n_after = if (!is.null(counts)) sum(counts$n_snp[counts$cpg %in% unique(d$exposure)]) else nrow(d),
-                          note = "Preloaded route: already LD-clumped when this cached instrument set was built (r2<0.001, 10,000kb, GoDMC's own reference) - not re-run live. Counts below are the recorded per-CpG instrument counts after that clumping."))
+                          note = "Preloaded route: already LD-clumped when this cached instrument set was built (r2<0.001, 10,000kb, GoDMC's own reference), not re-run live. Counts below are the recorded per-CpG instrument counts after that clumping."))
       } else {
         n_before <- nrow(d)
         clumped <- tryCatch(
@@ -878,7 +877,7 @@ mod_methyl_mr_server <- function(id, methyl_dataset, methyl_results = NULL) {
       anno <- cpg_annotation(ms$cpgs)
       tagList(
         box(width = 12, title = "Primary MR results", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "One row per CpG per MR method actually estimable given its instrument count. A single nominal p < 0.05 is not, on its own, evidence of a causal effect - check the Sensitivity tab and the adjusted p-value below."),
+            p(class = "submodule-desc", "One row per CpG per MR method estimable given its instrument count. A single nominal p < 0.05 alone isn't evidence of a causal effect - check the Sensitivity tab and adjusted p-value below."),
             div(class = "table-toolbar", downloadButton(ns("dl_mr_results"), "MR results (CSV)", class = "btn-sm")),
             DT::dataTableOutput(ns("primary_results_table"))),
         box(width = 12, title = "Adjusted results (multiple-testing correction)", status = "primary", solidHeader = FALSE,

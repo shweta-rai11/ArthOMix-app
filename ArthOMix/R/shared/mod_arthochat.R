@@ -5,11 +5,11 @@ ARTHOCHAT_MAX_TURNS <- 40L
 
 ARTHOCHAT_MAX_EXECUTIONS <- 5L
 
-## Fixed seed/temperature=0 for deterministic sampling - see tests/arthochat_verification/README.md.
+## Fixed seed/temperature=0 for deterministic sampling.
 ARTHOCHAT_TEMPERATURE <- 0
 ARTHOCHAT_SEED <- 20260904L
 
-## Live sub-module titles from *_MODULES, not a hardcoded list - a hand-copied list would drift out of sync with real titles.
+## Live sub-module titles from *_MODULES, not a hardcoded list, to avoid drift.
 .arthochat_known_modules <- function() {
   registries <- list(
     mget("TX_MODULES", envir = .GlobalEnv, ifnotfound = list(NULL))[[1]],
@@ -24,7 +24,7 @@ ARTHOCHAT_SEED <- 20260904L
   unique(titles[!is.na(titles) & nzchar(titles)])
 }
 
-## Classifies each "##/### <header>" section of context_text as run/not-run per-section, so one module's marker can't leak into a neighboring section.
+## Classifies each "##/### <header>" section as run/not-run, section by section.
 .arthochat_classify_context_modules <- function(context_text, known_modules = .arthochat_known_modules()) {
   empty <- list(not_run = character(0), grounded = character(0))
   if (is.null(context_text) || !nzchar(trimws(context_text %||% ""))) return(empty)
@@ -66,7 +66,7 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
     sep = "|"
   )
   hedged <- grepl(hedge_pattern, resp_lower, perl = TRUE)
-  ## Also match a title's parenthetical-stripped form and leading acronym, since responses rarely echo the full canonical title.
+  ## Also match a title's stripped form and leading acronym, not just the full title.
   .mod_variants <- function(mod) {
     core <- trimws(sub("\\s*\\([^)]*\\)\\s*$", "", mod))
     acronym <- if (grepl("^[A-Z]{2,}\\b", mod)) sub("^([A-Z]{2,})\\b.*", "\\1", mod) else NA_character_
@@ -222,7 +222,7 @@ mod_arthochat_ui <- function(id) {
         icon("robot", class = "coming-soon-icon"),
         h4("ArthOChat isn't reachable"),
         p(sprintf(
-          "No AI backend is configured. Either set ANTHROPIC_API_KEY, or run a local Ollama server (install Ollama, run \"ollama pull %s\", make sure it's running at %s), then reload this page.",
+          "No AI backend is configured. Set ANTHROPIC_API_KEY, or run a local Ollama server: install Ollama, run \"ollama pull %s\", and make sure it's running at %s. Then reload this page.",
           ARTHOMIX_OLLAMA_MODEL, ollama_base_url()
         ))
       )
@@ -366,7 +366,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
               contrast_col = contrast_col, ref_group = ref_group, comp_group = comp_group, method = method,
               covariate_col = covariate_col %||% "(none)", covariate_mode = covariate_mode %||% "filter",
               covariate_level = covariate_level,
-              padj_cut = padj_cut %||% 0.05, lfc_cut = lfc_cut %||% 0.1
+              padj_cut = padj_cut %||% 0.05, lfc_cut = lfc_cut %||% 0.5
             )
             summary_txt <- sprintf(
               "Run Differential Expression: %s vs %s on \"%s\"%s, method = %s, adj.P cutoff = %s, |log2FC| cutoff = %s.",
@@ -393,7 +393,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
             covariate_mode = ellmer::type_string("\"filter\" or \"adjust\" - required if covariate_col is set.", required = FALSE),
             covariate_level = ellmer::type_string("Level to filter covariate_col to - required if covariate_mode is \"filter\".", required = FALSE),
             padj_cut = ellmer::type_number("Adjusted p-value cutoff for significance. Defaults to 0.05.", required = FALSE),
-            lfc_cut = ellmer::type_number("Absolute log2 fold-change cutoff. Defaults to 0.1.", required = FALSE)
+            lfc_cut = ellmer::type_number("Absolute log2 fold-change cutoff. Defaults to 0.5.", required = FALSE)
           ),
           name = "propose_run_dge"
         ))

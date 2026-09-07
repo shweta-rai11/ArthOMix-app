@@ -1,6 +1,5 @@
 ## R/modules_index.R
-## Assembles TX_MODULES from every mod_<id>.R file's config/ui/server trio.
-## Sourced after all of them: Shiny sources R/*.R alphabetically
+## Assembles *_MODULES from each mod_<id>.R's config/ui/server trio; sourced last.
 
 TX_MODULES <- list(
   list(config = mod_overview_config,        ui = mod_overview_ui,        server = mod_overview_server),
@@ -72,16 +71,72 @@ MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m)
       "do not answer with a number from methodology/literature instead."
     ))
   }
-  kv <- vapply(names(res), function(nm) {
-    v <- res[[nm]]
-    if (is.matrix(v) || is.data.frame(v)) {
-      sprintf("- %s: %d x %d table (columns: %s)", nm, nrow(v), ncol(v),
-              paste(utils::head(colnames(v), 10), collapse = ", "))
-    } else {
-      sprintf("- %s: %s", nm, paste(utils::head(as.character(v), 20), collapse = ", "))
+  lines <- .summarise_result_value(res, path = NULL, depth = 0L)
+  c(sprintf("### %s", title), utils::head(lines, .ARTHOCHAT_MAX_LINES_PER_BLOCK))
+}
+
+## Field names that mark a vector as a list of per-sample / per-subject identifiers.
+## Such vectors are never transmitted to the LLM backend - only their count is.
+## Matched case-insensitively against the field's own name (not its parent path).
+.ARTHOCHAT_SAMPLE_ID_PATTERN <- paste0(
+  "(sample|patient|subject|participant|donor|individual|holdout|train|test|reserved|matched)",
+  "[_.]?ids?$|^ids$|_ids$|^rownames$|^colnames$"
+)
+.ARTHOCHAT_MAX_DEPTH <- 3L
+.ARTHOCHAT_MAX_LINES_PER_BLOCK <- 60L
+.ARTHOCHAT_MAX_VALUES <- 20L
+
+## Recursively summarise one stored result value into prompt lines, so that
+## nothing sample-level ever reaches the LLM backend, at any nesting depth:
+##
+##   * data.frame (any depth) -> dimensions + first 10 column names (schema only).
+##   * matrix (any depth) -> dimensions only. Matrix dimnames are data, not
+##     schema: genes x samples and sample x sample matrices carry sample IDs there.
+##   * list (any depth, up to .ARTHOCHAT_MAX_DEPTH) -> recurse into each element,
+##     labelling nested fields "parent.child". Deeper structures collapse to a
+##     count of elements. This closes the gap where a data.frame / matrix / ID
+##     vector wrapped one level inside list() used to be deparsed verbatim.
+##   * atomic vector whose field name matches .ARTHOCHAT_SAMPLE_ID_PATTERN ->
+##     "<n> identifiers (withheld)". Feature-level vectors (gene symbols, CpG
+##     probes, top hits) keep the first .ARTHOCHAT_MAX_VALUES values: these are
+##     the intended grounding signal, and are not sample-level.
+##   * any other object (S4, model fit, closure, environment) -> class name only.
+.summarise_result_value <- function(v, path, depth) {
+  label <- if (is.null(path)) "(value)" else paste(path, collapse = ".")
+  leaf <- if (is.null(path)) "" else path[[length(path)]]
+  if (is.null(v)) return(sprintf("- %s: (none)", label))
+  if (is.data.frame(v)) {
+    ## data.frame column names are schema (gene, logFC, adj.P.Val, ...), safe to show.
+    return(sprintf("- %s: %d x %d table (columns: %s)", label, nrow(v), ncol(v),
+                   paste(utils::head(colnames(v), 10), collapse = ", ")))
+  }
+  if (is.matrix(v)) {
+    ## Matrix dimnames are data, not schema: genes x samples and sample x sample
+    ## (similarity) matrices both carry sample IDs in their dimnames. Shape only.
+    return(sprintf("- %s: %d x %d matrix", label, nrow(v), ncol(v)))
+  }
+  if (is.list(v)) {
+    if (depth >= .ARTHOCHAT_MAX_DEPTH) {
+      return(sprintf("- %s: nested structure with %d elements (not expanded)", label, length(v)))
     }
-  }, character(1))
-  c(sprintf("### %s", title), kv)
+    nms <- names(v)
+    if (is.null(nms)) nms <- rep("", length(v))
+    nms <- ifelse(nzchar(nms), nms, paste0("[", seq_along(v), "]"))
+    out <- unlist(lapply(seq_along(v), function(i) {
+      .summarise_result_value(v[[i]], c(path, nms[[i]]), depth + 1L)
+    }), use.names = FALSE)
+    return(if (length(out)) out else sprintf("- %s: (empty list)", label))
+  }
+  if (is.atomic(v)) {
+    if (nzchar(leaf) && grepl(.ARTHOCHAT_SAMPLE_ID_PATTERN, leaf, ignore.case = TRUE)) {
+      return(sprintf("- %s: %d identifiers (withheld)", label, length(v)))
+    }
+    vals <- as.character(unname(v))
+    shown <- utils::head(vals, .ARTHOCHAT_MAX_VALUES)
+    suffix <- if (length(vals) > length(shown)) sprintf(" ... (%d total)", length(vals)) else ""
+    return(sprintf("- %s: %s%s", label, paste(shown, collapse = ", "), suffix))
+  }
+  sprintf("- %s: <%s object, not shown>", label, paste(class(v), collapse = "/"))
 }
 
 build_tx_context <- function(dataset, results, focus_id = NULL) {
@@ -95,6 +150,9 @@ build_tx_context <- function(dataset, results, focus_id = NULL) {
     if ("sex" %in% names(meta) && any(!is.na(meta$sex))) {
       sex_tbl <- table(meta$sex)
       sprintf("- Sex: %s", paste(sprintf("%s (n=%d)", names(sex_tbl), sex_tbl), collapse = ", "))
+    },
+    if (length(dataset$reserved_ids %||% character(0)) > 0) {
+      sprintf("- Sealed validation hold-out: %d samples reserved on the Dataset tab and hidden from every analysis above; scored only in Diagnostic Model → External Validation.", length(dataset$reserved_ids))
     },
     "",
     "## Computed analysis results (this session)"
@@ -151,7 +209,7 @@ build_mx_context <- function(methyl_dataset, methyl_results, focus_id = NULL) {
   )
 }
 
-## Always emits a "currently loaded dataset" line, even for sub-modules with no dataset info of their own - see tests/arthochat_verification/README.md.
+## Always emits a "currently loaded dataset" line, even with no per-submodule data.
 .format_cx_dataset_scope <- function(cross_dataset) {
   expr_source <- cross_dataset$user_expr_source
   meth_source <- cross_dataset$user_meth_source

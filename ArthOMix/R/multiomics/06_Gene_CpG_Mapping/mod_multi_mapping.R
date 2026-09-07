@@ -1,6 +1,5 @@
 ## R/multiomics/06_Gene_CpG_Mapping/mod_multi_mapping.R
-## Submodule: Gene–CpG Mapping - connects transcriptomics gene-level
-## changes to methylation CpG-level changes for the candidate multi-omics
+## Gene-CpG Mapping: links gene expression changes to CpG methylation changes.
 
 mod_multi_mapping_config <- list(
   id = "mapping", title = "Gene–CpG Mapping", icon = "arrows-left-right", group = "Biomarker modeling",
@@ -99,7 +98,7 @@ mod_multi_mapping_ui <- function(id) {
 mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
+    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset, multi_results))
     state <- reactiveValues(result = NULL)
 
     output$layer_pick_ui <- renderUI({
@@ -160,7 +159,7 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
           div(class = "empty-note", icon("circle-check"), state$result$overview_note),
           if (identical(input$data_source, "active")) div(
             class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
-            "Circularity warning: for the Active Multi-Omics Dataset, the candidate genes/CpGs analyzed above were already selected using this SAME data (DIABLO's own feature selection, run on this dataset) - the correlation/significance results below therefore re-test features on the data that picked them, and are not independent corroborating evidence. Only the Preloaded cohort path cross-references a separately-run pipeline.")
+            "Circularity warning: for the Active Multi-Omics Dataset, these candidate genes/CpGs were already selected using this same data (DIABLO's own feature selection). The results below re-test features on the data that picked them - not independent evidence. Only the Preloaded cohort path cross-references a separately-run pipeline.")
         )
       )
     })
@@ -255,10 +254,12 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
       if (!"chr" %in% colnames(r$pairs_df) || all(is.na(r$pairs_df$chr))) return(multi_empty_state("Genomic coordinates are not available for this data source/annotation."))
       tagList(
         multi_plot_or_empty(function() mcc_plot_location(r$pairs_df), ns("plot_location"), "No candidates with known genomic coordinates.", height = "420px"),
+        div(class = "table-toolbar", downloadButton(ns("dl_location_png"), "Download (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("location_table"))
       )
     })
     output$plot_location <- multi_render_plotly(function() mcc_plot_location(req(mcc_ok(state$result))$pairs_df))
+    output$dl_location_png <- multi_png_download(function() mcc_plot_location(req(mcc_ok(state$result))$pairs_df), function() "mapping_location.png")
     output$location_table <- DT::renderDataTable({
       r <- req(mcc_ok(state$result))
       cols <- intersect(c("gene_symbol", "chr", "pos", "gene_id", "cpg", "region_fine", "island_context", "tss_distance"), colnames(r$pairs_df))
@@ -280,7 +281,7 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
     })
     output$dl_candidates_csv <- downloadHandler(function() "mapping_candidate_biomarkers.csv", function(file) {
       r <- req(mcc_ok(state$result))
-      utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker"), , drop = FALSE], file, row.names = FALSE)
+      utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% MCC_EVIDENCE_LABELS, , drop = FALSE], file, row.names = FALSE)
     })
 
     output$plots_ui <- renderUI({
@@ -293,13 +294,15 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
             multi_plot_or_empty(function() mcc_plot_quadrant(r$pairs_df), ns("plot_quadrant"), height = "380px"),
             downloadButton(ns("dl_quadrant_png"), "Download (PNG)", class = "btn-sm")),
         box(width = NULL, title = "Multi-Omics Evidence Heatmap", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mcc_plot_evidence_heatmap(r$pairs_df), ns("plot_heatmap"), "Not enough scored candidates for a heatmap.", height = "420px")),
+            multi_plot_or_empty(function() mcc_plot_evidence_heatmap(r$pairs_df), ns("plot_heatmap"), "Not enough scored candidates for a heatmap.", height = "420px"),
+            downloadButton(ns("dl_heatmap_png"), "Download (PNG)", class = "btn-sm")),
         box(width = NULL, title = "Gene–CpG Network", status = "primary", solidHeader = FALSE,
             multi_plot_or_empty(function() mcc_plot_network(r$pairs_df), ns("plot_network"), "Too few (or too many) significant pairs for a readable network.", height = "420px"),
             downloadButton(ns("dl_network_png"), "Download (PNG)", class = "btn-sm")),
         box(width = NULL, title = "Gene–CpG Correlation (single pair)", status = "primary", solidHeader = FALSE,
             uiOutput(ns("pair_picker_ui")),
-            multi_plot_or_empty(function() pair_corr_plot_fn(), ns("plot_pair"), "Select a pair with computed correlation, or matched samples aren't available.", height = "380px"))
+            multi_plot_or_empty(function() pair_corr_plot_fn(), ns("plot_pair"), "Select a pair with computed correlation, or matched samples aren't available.", height = "380px"),
+            downloadButton(ns("dl_pair_png"), "Download (PNG)", class = "btn-sm"))
       )
     })
     output$plot_scatter <- multi_render_plotly(function() mcc_plot_scatter(req(mcc_ok(state$result))$pairs_df))
@@ -307,8 +310,10 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
     output$plot_quadrant <- multi_render_plotly(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df))
     output$dl_quadrant_png <- multi_png_download(function() mcc_plot_quadrant(req(mcc_ok(state$result))$pairs_df), function() "mapping_quadrant.png")
     output$plot_heatmap <- multi_render_plotly(function() mcc_plot_evidence_heatmap(req(mcc_ok(state$result))$pairs_df))
+    output$dl_heatmap_png <- multi_png_download(function() mcc_plot_evidence_heatmap(req(mcc_ok(state$result))$pairs_df), function() "mapping_evidence_heatmap.png")
     output$plot_network <- multi_render_plotly(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df))
     output$dl_network_png <- multi_png_download(function() mcc_plot_network(req(mcc_ok(state$result))$pairs_df), function() "mapping_network.png")
+    output$dl_pair_png <- multi_png_download(function() pair_corr_plot_fn(), function() "mapping_pair_correlation.png")
 
     output$pair_picker_ui <- renderUI({
       r <- req(mcc_ok(state$result))
@@ -337,7 +342,7 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
         div(style = "display:flex; flex-wrap:wrap; gap:8px;",
             card("Genes tested", sc$n_genes), card("CpGs tested", sc$n_cpgs), card("Gene–CpG pairs", sc$n_pairs),
             card("Significant pairs", sc$n_significant), card("Canonical", sc$n_canonical), card("Non-canonical", sc$n_noncanonical),
-            card("Potential biomarkers", sc$n_potential), card("Female candidates", sc$n_female), card("Male candidates", sc$n_male),
+            card("Supported pairs", sc$n_supported), card("Prioritised candidates", sc$n_potential), card("Female candidates", sc$n_female), card("Male candidates", sc$n_male),
             card("DIABLO-supported", sc$n_diablo), card("SNF-supported", sc$n_snf), card("Joint-supported", sc$n_joint)),
         br(),
         box(width = NULL, title = "Analysis settings (reproducibility)", status = "primary", solidHeader = FALSE,
@@ -355,7 +360,7 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
     output$dl_pairs_csv2 <- downloadHandler(function() "mapping_gene_cpg_results.csv", function(file) utils::write.csv(req(mcc_ok(state$result))$pairs_df, file, row.names = FALSE))
     output$dl_candidates_csv2 <- downloadHandler(function() "mapping_candidate_biomarkers.csv", function(file) {
       r <- req(mcc_ok(state$result))
-      utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% c("Potential Multi-Omics Biomarker", "Candidate Multi-Omics Biomarker"), , drop = FALSE], file, row.names = FALSE)
+      utils::write.csv(r$pairs_df[r$pairs_df$evidence_label %in% MCC_EVIDENCE_LABELS, , drop = FALSE], file, row.names = FALSE)
     })
     output$dl_annotation_csv2 <- downloadHandler(function() "mapping_annotation.csv", function(file) {
       r <- req(mcc_ok(state$result))
@@ -367,6 +372,21 @@ mod_multi_mapping_server <- function(id, multi_dataset = NULL, multi_results = N
       r <- mcc_ok(state$result)
       if (is.null(r) || is.null(multi_results)) return()
       multi_results$mapping <- list(df = r$pairs_df, cohort = r$label)
+    })
+
+    ## ---- provenance record (session-wide Analysis records log) ----
+    observeEvent(state$result, {
+      r <- mcc_ok(state$result); if (is.null(r)) return()
+      sc <- tryCatch(mcc_summary_counts(r$pairs_df, "sex" %in% colnames(r$pairs_df)), error = function(e) NULL)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_mapping",
+        checksum_input = list(pairs = r$pairs_df[, intersect(c("gene_symbol", "cpg", "log2fc", "dbeta", "expr_fdr", "meth_fdr", "correlation_r"), colnames(r$pairs_df)), drop = FALSE]),
+        params = c(list(data_source = input$data_source, cohort = r$label),
+                   if (!is.null(r$settings)) stats::setNames(as.list(r$settings$Value), make.names(r$settings$Parameter)) else list(),
+                   if (!is.null(sc)) list(n_pairs = sc$n_pairs, n_significant = sc$n_significant, n_canonical = sc$n_canonical, n_supported = sc$n_supported, n_prioritised = sc$n_potential) else list()),
+        seed = NULL, packages = c("IlluminaHumanMethylation450kanno.ilmn12.hg19", "org.Hs.eg.db"),
+        extra = list()
+      ), session = session, dedupe = TRUE)
     })
   })
 }

@@ -1,0 +1,15 @@
+.git
+.Rproj.user
+.Rhistory
+.RData
+renv/library
+renv/staging
+data/.cache
+data/uploads/*
+!data/uploads/.gitkeep
+results/**/*
+!results/**/.gitkeep
+test_results_thesis.txt
+test_results_thesis_console.txt
+tests
+.env

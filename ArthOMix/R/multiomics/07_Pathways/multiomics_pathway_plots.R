@@ -1,6 +1,5 @@
 ## R/multiomics/07_Pathways/multiomics_pathway_plots.R
-## The 6 required Pathways-tab plots. Same split/conventions as
-## multiomics_plots.R: every plot reuses ARTHOMIX_COLORS/theme_arthomix() and
+## The 6 Pathways-tab plots. Reuses ARTHOMIX_COLORS/theme_arthomix() like multiomics_plots.R.
 
 mp_dot_plot <- function(df, method = c("ORA", "GSEA"), top_n = 20) {
   method <- match.arg(method)

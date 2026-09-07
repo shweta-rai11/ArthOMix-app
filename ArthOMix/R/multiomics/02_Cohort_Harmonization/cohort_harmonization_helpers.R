@@ -1,6 +1,5 @@
 ## R/multiomics/02_Cohort_Harmonization/cohort_harmonization_helpers.R
-## Pure data-processing logic for the "Cohort Harmonization" sub-module
-## (mod_multi_overview.R) - data-adaptive: every function here inspects
+## Data-processing logic for the Cohort Harmonization sub-module (mod_multi_overview.R).
 
 ch_sample_master_table <- function(id_sets, meta = NULL) {
   id_sets <- Filter(function(x) length(x) > 0, id_sets)

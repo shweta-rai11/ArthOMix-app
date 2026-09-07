@@ -1,6 +1,5 @@
 ## R/methylomics/01_Data/mod_methyl_dataset.R
-## Methylomics Dataset tab: loads the shared `methyl_dataset` reactiveValues every
-## Methylomics sub-module reads from. Mirrors the Transcriptomics Dataset tab's
+## Dataset tab: loads shared `methyl_dataset` reactiveValues. Mirrors Transcriptomics Dataset tab.
 
 mod_methyl_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
@@ -131,7 +130,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       if (input$array_type %in% c("450K", "EPIC")) {
         p(class = "empty-note", icon("circle-check"), "Manifest annotation available for this array type.")
       } else if (identical(input$array_type, "EPICv2")) {
-        p(class = "empty-note", icon("triangle-exclamation"), "No manifest annotation is wired up for EPICv2 in this deployment - SNP filtering, sex-chromosome filtering, the raw-intensity sex check, and manifest-dependent normalization methods are unavailable for this array type. Sample-level QC that doesn't need a manifest still works.")
+        p(class = "empty-note", icon("triangle-exclamation"), "No manifest annotation for EPICv2 here. SNP filtering, sex-chromosome filtering, the sex check, and manifest-based normalization are unavailable. Manifest-free sample-level QC still works.")
       } else {
         p(class = "empty-note", icon("circle-info"), "No manifest annotation for this array type - sample-level QC still works.")
       }
@@ -171,7 +170,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
           "Raw IDAT-only metrics (detection p-value, bead count, bisulfite conversion, sex-check) stay unavailable, since only the derived beta matrix is bundled."
         )
       } else {
-        sprintf("Loaded the preloaded whole-blood dataset's metadata (%d samples). The live beta matrix isn't available in this deployment, so Quality Control, Normalization, Differential Methylation, and Differentially Methylated Regions show their default, already-completed pipeline analysis rather than a recomputable live tool.", nrow(pheno))
+        sprintf("Loaded the preloaded whole-blood dataset's metadata (%d samples). The live beta matrix isn't available here, so QC, Normalization, and Differential Methylation/Regions show their already-completed pipeline results instead of a live recomputable tool.", nrow(pheno))
       }
       output$preloaded_load_message <- renderUI(
         span(style = "color: var(--color-success); font-size: 13px; font-weight: 600;", icon("check"), " ", msg)
@@ -183,7 +182,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       req(input$preloaded_choice)
       req(identical(preloaded_loaded_choice(), input$preloaded_choice))
       p(class = "empty-note", icon("circle-info"),
-        "689-sample whole-blood cohort (Liu et al. 2013), sex-stratified in every downstream sub-module's default analysis. The live beta matrix (2.1GB) loads in the background so the rest of the app stays usable.")
+        "689-sample whole-blood cohort (Liu et al. 2013). Every downstream sub-module's default analysis is sex-stratified. The live beta matrix (2.1GB) loads in the background so the app stays usable.")
     })
 
     output$preloaded_geo_card_ui <- renderUI({
@@ -292,7 +291,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         has_probe_rownames <- !is.null(rownames(m)) && mean(grepl(probe_pattern, rownames(m), ignore.case = TRUE)) > 0.5
         has_probe_colnames <- !is.null(colnames(m)) && mean(grepl(probe_pattern, colnames(m), ignore.case = TRUE)) > 0.5
         if (!has_probe_rownames && !has_probe_colnames) {
-          return(list(ok = FALSE, error = "The uploaded matrix RDS file has no row or column names that look like methylation probe IDs (e.g. \"cg00000029\") - an RDS matrix must have probe IDs as rownames (probes x samples) or colnames (samples x probes, auto-transposed on upload)."))
+          return(list(ok = FALSE, error = "No row or column names look like probe IDs (e.g. \"cg00000029\"). The matrix needs probe IDs as rownames (probes x samples) or colnames (samples x probes, auto-transposed)."))
         }
         storage.mode(m) <- "double"
         list(ok = TRUE, mat = m)
@@ -485,7 +484,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
 
     geo_fetch_result <- eventReactive(input$geo_fetch_btn, {
       if (!requireNamespace("GEOquery", quietly = TRUE)) {
-        return(simpleError("The GEOquery package is not installed in this deployment. Install it with BiocManager::install(\"GEOquery\") to enable fetching by GEO accession, or use \"Upload your own data\" instead."))
+        return(simpleError("The GEOquery package isn't installed here. Install it with BiocManager::install(\"GEOquery\") to fetch by GEO accession, or use \"Upload your own data\" instead."))
       }
       acc <- toupper(trimws(input$geo_accession %||% ""))
       if (!grepl("^GSE[0-9]+$", acc)) {
@@ -530,7 +529,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         eset <- geo_eset()
         ex <- Biobase::exprs(eset)
         if (nrow(ex) == 0 || ncol(ex) == 0) {
-          stop("This GEO series has no data matrix in its series matrix file - common for series that only deposit raw IDAT/supplementary files. Download those from the GEO page and use \"Upload your own data\" instead.")
+          stop("This GEO series has no data matrix in its series matrix file. This is common for series that only deposit raw IDAT/supplementary files. Download those from the GEO page and use \"Upload your own data\" instead.")
         }
         gpl <- Biobase::annotation(eset)
         array_type <- unname(MX_METHYLATION_GPL[gpl])
@@ -542,13 +541,13 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
         platform_note <- NULL
         if (!recognized) {
           if (frac_in_unit < 0.95) {
-            stop(sprintf("Platform %s is not a recognized Illumina methylation array (450K/EPIC/EPICv2/27K), and its values don't look like methylation beta values (0-1 range) either - this looks like a gene-expression or other non-methylation dataset. Use the Transcriptomics module's GEO fetch instead.", gpl))
+            stop(sprintf("Platform %s isn't a recognized Illumina methylation array (450K/EPIC/EPICv2/27K), and its values don't look like beta values (0-1 range) either. This looks like a non-methylation dataset. Use the Transcriptomics module's GEO fetch instead.", gpl))
           }
           array_type <- "Custom array"
-          platform_note <- sprintf("Platform %s was not recognized as a standard Illumina methylation array, but its values fall within the expected 0-1 beta-value range, so this was accepted as methylation data - verify the platform manually before relying on downstream results.", gpl)
+          platform_note <- sprintf("Platform %s wasn't recognized as a standard Illumina methylation array, but its values fall within the expected 0-1 beta-value range. It was accepted as methylation data - verify the platform manually before trusting downstream results.", gpl)
         } else if (frac_in_unit < 0.95) {
           platform_note <- sprintf(
-            "Platform %s is a recognized methylation array (%s), but only %d%% of its values fall within the expected 0-1 beta-value range - this looks like it may be M-values (or another non-beta scale), not beta values. This app assumes GEO methylation series matrices are beta values; verify before relying on downstream results, or re-upload via \"Upload your own data\" with the correct input scale selected.",
+            "Platform %s is a recognized methylation array (%s), but only %d%% of its values fall in the expected 0-1 beta-value range. This may be M-values, not beta values. GEO methylation matrices are assumed to be beta values here - verify, or re-upload with the correct input scale.",
             gpl, array_type, round(100 * frac_in_unit))
         }
         list(expr = ex, meta = as.data.frame(Biobase::pData(eset)), array_type = array_type,
@@ -568,7 +567,7 @@ mod_methyl_dataset_server <- function(id, methyl_dataset) {
       }
       tagList(
         div(class = "empty-note", icon("circle-info"),
-            sprintf("Fetched %s (%s, %s): %s samples x %s probes. Beta values are assumed (the near-universal convention for GEO methylation series matrices). Map the columns below, then click \"Load this dataset\".",
+            sprintf("Fetched %s (%s, %s): %s samples x %s probes. Beta values are assumed (the standard for GEO methylation series matrices). Map the columns below, then click \"Load this dataset\".",
                     res$acc, em$platform, em$array_type, ncol(em$expr), format(nrow(em$expr), big.mark = ","))),
         if (!is.null(em$platform_note)) div(class = "empty-note", icon("triangle-exclamation"), em$platform_note)
       )

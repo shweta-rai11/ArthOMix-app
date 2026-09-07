@@ -1,6 +1,5 @@
 ## R/multiomics/01_Data_Workspace/mod_multi_mofa.R
-## "Integrated Analysis (MOFA2)" - the one part of the Multi-Omics module
-## that computes on data the user supplies, rather than browsing the
+## Integrated Analysis (MOFA2): the part of Multi-Omics that runs on user-supplied data.
 
 mod_multi_mofa_config <- list(
   id = "mofa", title = "MOFA", icon = "chart-line", group = "Data",

@@ -167,3 +167,83 @@ test_that("mb_cv_roc() returns NULL (never a crash) for a non-binary outcome", {
   out <- mb_cv_roc(list(), y3, list(folds = 3))
   expect_null(out)
 })
+
+## ---- Sealed hold-out and external panel transfer (added 2026-09-06) ----
+
+mb_toy_cohort <- function(n = 40, seed = 7, gene_ids = paste0("G", 1:30), cpg_ids = paste0("cg", sprintf("%08d", 1:30))) {
+  set.seed(seed)
+  ids <- sprintf("S%02d", seq_len(n))
+  y <- factor(rep(c("A", "B"), length.out = n), levels = c("A", "B"))
+  e <- matrix(rnorm(n * length(gene_ids)), n, length(gene_ids), dimnames = list(ids, gene_ids))
+  m <- matrix(rnorm(n * length(cpg_ids)), n, length(cpg_ids), dimnames = list(ids, cpg_ids))
+  e[y == "B", 1:6] <- e[y == "B", 1:6] + 2.5
+  m[y == "B", 1:6] <- m[y == "B", 1:6] - 2.5
+  list(layers = list(Transcriptomics = e, Methylomics = m), outcome = stats::setNames(y, ids), ids = ids)
+}
+
+test_that("mb_holdout_split() seals a stratified share of the samples and refuses splits that leave too few per class", {
+  cohort <- mb_toy_cohort()
+  sp <- mb_holdout_split(cohort$outcome, cohort$ids, 0.25, seed = 1)
+  expect_true(sp$ok)
+  expect_equal(length(intersect(sp$train_ids, sp$test_ids)), 0)
+  expect_setequal(c(sp$train_ids, sp$test_ids), cohort$ids)
+  expect_equal(length(sp$test_ids), 10)
+  expect_true(all(table(cohort$outcome[sp$test_ids]) >= 1))
+  none <- mb_holdout_split(cohort$outcome, cohort$ids, 0, seed = 1)
+  expect_true(none$ok); expect_equal(length(none$test_ids), 0)
+  small <- mb_toy_cohort(n = 8)
+  expect_false(mb_holdout_split(small$outcome, small$ids, 0.5, seed = 1)$ok)
+})
+
+test_that("mb_holdout_evaluate() scores sealed samples with the trained model and reports an AUROC with a DeLong CI", {
+  cohort <- mb_toy_cohort()
+  sp <- mb_holdout_split(cohort$outcome, cohort$ids, 0.25, seed = 1)
+  params <- list(ncomp_mode = "manual", ncomp = 1, keepx_mode = "manual", keepx_manual = list(Transcriptomics = 8, Methylomics = 8),
+                 validation_mode = "manual", validation_method = "mfold", folds = 3, nrepeat = 1, distance = "max.dist", scale = TRUE, seed = 1)
+  dr <- mi_diablo_run(cohort$layers, cohort$outcome, sp$train_ids, params)
+  expect_true(dr$ok)
+  ev <- mb_holdout_evaluate(dr, cohort$layers, cohort$outcome, sp$test_ids)
+  expect_true(ev$ok)
+  expect_equal(ev$n, length(sp$test_ids))
+  expect_true(ev$auc >= 0 && ev$auc <= 1)
+  expect_true(ev$ci_lo <= ev$auc && ev$auc <= ev$ci_hi)
+  expect_gt(ev$auc, 0.8)
+  expect_setequal(ev$scores$sample_id, sp$test_ids)
+})
+
+test_that("mi_diablo_align_keepx() recycles a short keepX to ncomp so no component is silently non-sparse", {
+  X <- list(A = matrix(0, 5, 40), B = matrix(0, 5, 12))
+  k <- mi_diablo_align_keepx(list(A = c(20, 10), B = c(20, 10)), X, ncomp = 3)
+  expect_equal(k$A, c(20, 10, 10))
+  expect_equal(k$B, c(12, 10, 10))
+  expect_equal(mi_diablo_align_keepx(list(A = 5, B = 5), X, ncomp = 2)$A, c(5, 5))
+})
+
+test_that("mb_panel_transfer() refits the selected panel on the discovery samples and scores an external cohort, refusing low feature coverage", {
+  disc <- mb_toy_cohort(n = 40, seed = 7)
+  ext <- mb_toy_cohort(n = 30, seed = 99)
+  rownames(ext$layers$Transcriptomics) <- rownames(ext$layers$Methylomics) <- names(ext$outcome) <- sprintf("E%02d", 1:30)
+  params <- list(ncomp_mode = "manual", ncomp = 1, keepx_mode = "manual", keepx_manual = list(Transcriptomics = 8, Methylomics = 8),
+                 validation_mode = "manual", validation_method = "mfold", folds = 3, nrepeat = 1, distance = "max.dist", scale = TRUE, seed = 1)
+  dr <- mi_diablo_run(disc$layers, disc$outcome, disc$ids, params)
+  expect_true(dr$ok)
+  tr <- mb_panel_transfer(dr, disc$layers, disc$ids, disc$outcome, ext$layers, ext$outcome)
+  expect_true(tr$ok)
+  expect_equal(tr$n, 30)
+  expect_equal(tr$overall_coverage, 1)
+  expect_gt(tr$auc, 0.8)
+  ## drop most of the panel features from the external cohort -> refused under the default coverage guard
+  ext_sparse <- ext$layers
+  ext_sparse$Transcriptomics <- ext_sparse$Transcriptomics[, 25:30, drop = FALSE]
+  ext_sparse$Methylomics <- ext_sparse$Methylomics[, 25:30, drop = FALSE]
+  bad <- mb_panel_transfer(dr, disc$layers, disc$ids, disc$outcome, ext_sparse, ext$outcome)
+  expect_false(bad$ok)
+  expect_match(bad$error, "panel features")
+})
+
+test_that("mb_map_external_outcome() maps chosen external levels onto the discovery classes and drops the rest", {
+  meta <- data.frame(row.names = c("a", "b", "c", "d"), group = c("flare", "ID", "NO ID", "flare"))
+  out <- mb_map_external_outcome(meta, "group", pos_levels = "ID", neg_levels = "flare", pos_class = "resp", neg_class = "non resp")
+  expect_equal(unname(out), c("non resp", "resp", NA, "non resp"))
+  expect_equal(names(out), c("a", "b", "c", "d"))
+})

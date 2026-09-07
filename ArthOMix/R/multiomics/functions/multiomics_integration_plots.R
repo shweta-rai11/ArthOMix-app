@@ -1,6 +1,5 @@
 ## R/multiomics/functions/multiomics_integration_plots.R
-## Plot functions for the live DIABLO/SNF/Compare engine
-## (multiomics_integration_helpers.R / mod_multi_integration.R). Reuses
+## Plot functions for the live DIABLO/SNF/Compare engine.
 
 mi_diablo_error_bar_plot <- function(perf_summary) {
   if (is.null(perf_summary)) return(NULL)

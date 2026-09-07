@@ -1,6 +1,5 @@
 ## R/methylomics/13_Diagnostic_Classifier/mod_methyl_diagnostic.R
-## Diagnostic Classifier submodule (script09_diagnostic_classifier). Methylomics only -
-## transcriptomics' mod_diagnostic.R is a separate, unrelated tab.
+## Diagnostic Classifier (script09_diagnostic_classifier). Methylomics only; unrelated to transcriptomics' mod_diagnostic.R.
 
 mod_methyl_diagnostic_config <- list(
   id = "diagnostic", title = "Diagnostic Classifier", icon = "stethoscope", group = "Biomarker modeling",
@@ -125,7 +124,7 @@ dxm_xgb_grid <- function(input, mid) {
 
 dxm_fit_xgb_native <- function(X, y, input, mid, ctrl, seed) {
   validate(need(!identical(input$imbalance_mode, "smote"),
-                "SMOTE imbalance handling isn't available for Gradient Boosting/XGBoost (this model trains via its own native cross-validation path, not caret's fold-safe sampling hook) - choose \"None\" or \"Class weighting\" on the Filters & Parameters tab instead."))
+                "SMOTE imbalance handling isn't available for Gradient Boosting/XGBoost (it trains via its own native cross-validation path, not caret's fold-safe sampling hook). Choose \"None\" or \"Class weighting\" on Filters & Parameters instead."))
   grid <- dxm_xgb_grid(input, mid)
   if (identical(ctrl$search, "random") && nrow(grid) > 12) grid <- grid[sample(nrow(grid), 12), , drop = FALSE]
   nrounds_max <- input[[paste0(mid, "_nrounds")]] %||% 200
@@ -285,7 +284,7 @@ dxm_overfitting_note <- function(train_auc, cv_auc, test_auc, test_label = "inde
 
 DXM_MAX_CANDIDATE_CPGS <- 200
 
-## Leakage-safe nested-CV validator (no held-out split): reselects the panel inside every outer fold, training-fold labels only.
+## Leakage-safe nested-CV validator: reselects the panel inside every outer fold, training labels only.
 dxm_validate_nested <- function(X_full, y_full, outer_k = 5, uni_top_n = 100, lasso_alpha = 1, seed = 42) {
   y_full <- droplevels(factor(as.character(y_full), levels = c(DXM_NEG, DXM_POS)))
   validate(need(nlevels(y_full) == 2, "Leakage-safe nested-CV validation needs exactly two classes."))
@@ -348,7 +347,7 @@ dxm_validate_nested <- function(X_full, y_full, outer_k = 5, uni_top_n = 100, la
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
-## Headline AUC: naive Test AUC if leakage_safe, else nested-CV AUC when available (Test AUC still shown, just demoted).
+## Headline AUC: naive Test AUC if leakage-safe, else nested-CV AUC (Test AUC still shown, demoted).
 dxm_attach_headline <- function(leakage_safe, nested_cv = NULL) {
   if (isTRUE(leakage_safe)) {
     return(list(headline_metric = "test_split", nested_cv = NULL))
@@ -533,7 +532,7 @@ DXM_MODEL_SPECS <- list(
   knn = list(id = "knn", label = "k-Nearest Neighbors", icon = "circle-nodes", kind = "caret",
     params_ui = function(ns, mid) tagList(
       textInput(ns(paste0(mid, "_k")), "Number of neighbors k (comma-separated)", value = "3, 5, 7, 9, 11, 15, 21"),
-      helpText("Weights fixed to uniform and distance metric fixed to Euclidean: the optional kknn package (needed for distance-weighted kNN / Minkowski p / leaf size) isn't installed in this deployment.")
+      helpText("Weights fixed to uniform and distance metric fixed to Euclidean: the optional kknn package (needed for distance-weighted kNN / Minkowski p / leaf size) isn't installed here.")
     ),
     fit = function(X, y, input, mid, ctrl, seed) {
       grid <- data.frame(k = round(dxm_parse_num_list(input[[paste0(mid, "_k")]], seq(3, 21, 2))))
@@ -604,7 +603,7 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms, headline
                        "Outer folds completed (auto-run)", icon = icon("layer-group"), color = "purple", width = 6)
             ),
             p(class = "submodule-desc", icon("circle-info"),
-              "Computed automatically because this run has no confirmed leakage-safe held-out split. Reselects the CpG panel with limma (moderated t) + LASSO inside every outer fold, on this cohort's candidate CpGs - see \"Results: Test Internal Data\" below for the exploratory, not-leakage-safe Test AUC."))
+              "Computed automatically because this run has no confirmed leakage-safe held-out split. Reselects the CpG panel with limma (moderated t) + LASSO inside every outer fold on this cohort's candidate CpGs. See \"Results: Test Internal Data\" below for the exploratory, not-leakage-safe Test AUC."))
         } else {
           div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;", icon("triangle-exclamation"),
               sprintf("Not leakage-safe, and the automatic nested-CV headline metric is unavailable: %s The Test AUC below is exploratory only.",
@@ -619,7 +618,7 @@ dxm_render_model_panel <- function(mid, spec, ns, input, dxm, feat, ms, headline
     out <- c(out, list(box(width = 12, status = if (leak_safe) "success" else "warning", solidHeader = TRUE, title = test_box_title,
       if (!leak_safe)
         div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px; margin-bottom: 8px;", icon("triangle-exclamation"),
-            "This panel's Test AUC below was not confirmed to be selected without seeing these test samples - exploratory only, not a validated estimate. See the leakage-safe headline metric above.")
+            "This panel's Test AUC below wasn't confirmed to be selected without seeing these test samples. Exploratory only, not a validated estimate. See the leakage-safe headline metric above.")
       else NULL,
       fluidRow(
         valueBox(sprintf("%.3f", ms$test_internal_metrics$auc), test_auc_label, icon = icon("chart-area"), color = if (leak_safe) "blue" else "orange", width = 3),
@@ -1163,7 +1162,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
             (if (isTRUE(dxm$leakage_safe))
                p(class = "empty-note", icon("shield-halved"), "Leakage-safe: the internal test set below is the held-out sample set this panel's CpGs were never selected against.")
              else
-               p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this panel's CpGs were not confirmed to be selected without seeing the internal test-set samples - treat any internal-test AUC as exploratory, not a validated estimate."))
+               p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this panel's CpGs weren't confirmed to be selected without seeing the internal test-set samples. Treat any internal-test AUC as exploratory, not a validated estimate."))
           else NULL,
           radioButtons(ns("analysis_type"), "Analysis Type", choices = c("Single CpG" = "single", "Combined CpG Panel" = "combined"), selected = "combined", inline = TRUE),
           conditionalPanel(sprintf("input['%s'] == 'single'", ns("analysis_type")),
@@ -1268,7 +1267,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       tagList(
         box(width = 12, status = "primary", solidHeader = TRUE, title = "Model Comparison",
           p(class = "submodule-desc", icon("triangle-exclamation"),
-            " \"Test AUC\" is drawn from the same cohort the WGCNA- and Feature-Selection-derived CpG panels were originally selected on, so it can be optimistically biased for those two feature sources - it is internal-test performance only. For a fully independent held-out cohort, evaluate the trained model in the Validation sub-module (External Validation)."),
+            " \"Test AUC\" is drawn from the same cohort the WGCNA- and Feature-Selection-derived CpG panels were selected on, so it can be optimistically biased for those two sources - internal-test performance only. For a fully independent cohort, use the Validation sub-module (External Validation)."),
           DT::dataTableOutput(ns("compare_table")),
           downloadButton(ns("compare_download"), "Download comparison (CSV)", class = "btn-sm")
         ),

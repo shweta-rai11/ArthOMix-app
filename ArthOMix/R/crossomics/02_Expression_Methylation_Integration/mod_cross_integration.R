@@ -1,6 +1,5 @@
 ## R/crossomics/02_Expression_Methylation_Integration/mod_cross_integration.R
-## Cross-Omics sub-module: "Expression and Methylation" - integrates the
-## Transcriptomics DGE output (gene, log2FC, FDR) and the Methylomics DMP
+## "Expression and Methylation": integrates Transcriptomics DGE + Methylomics DMP.
 
 mod_cross_integration_config <- list(
   id = "integration", title = "Expression and Methylation", icon = "dna", group = "Data",
@@ -98,8 +97,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       raw$meth_unavailable_reason <- NULL
     })
 
-    ## ---- "Use live session results" data source ------------------------
-    ## Writes adapted live results/methyl_results into cross_dataset, same as mod_cross_dataset_server's "Use this data" button.
+    ## ---- Live session results: adapted into cross_dataset (same as mod_cross_dataset_server) ----
     live_dge_choices <- reactive({
       runs <- (results %||% list())$dge_runs %||% list()
       if (length(runs) == 0) return(NULL)
@@ -195,7 +193,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       )
     })
 
-    observeEvent(input$run_integration, withProgress(message = "Running Integration - harmonizing gene identifiers across both panels can take up to a minute for a genome-wide (pooled/ALL) dataset...", value = 0.2, {
+    observeEvent(input$run_integration, withProgress(message = "Running Integration - can take up to a minute for a genome-wide (pooled/ALL) dataset...", value = 0.2, {
       if (is.null(raw$expr_df)) { showNotification("No Transcriptomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
       if (is.null(raw$meth_df)) { showNotification("No Methylomics data loaded - go to the Cross-Omics \"Dataset\" tab first.", type = "error"); return() }
 
@@ -326,7 +324,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     output$expr_data_ui <- renderUI({
       if (is.null(raw$expr_df) && is.null(integ$df)) {
         return(div(class = "empty-note", icon("circle-info"),
-          "No Transcriptomics data loaded yet - go to the Cross-Omics \"Dataset\" tab and load or upload it there. It will appear here automatically."))
+          "No Transcriptomics data loaded yet - load or upload it on the \"Dataset\" tab and it will appear here."))
       }
       n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$expr_df)
       status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" in the Integration tab" else "genes analyzed"
@@ -354,7 +352,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
     output$meth_data_ui <- renderUI({
       if (is.null(raw$meth_df) && is.null(integ$df)) {
         return(div(class = "empty-note", icon("circle-info"),
-          "No Methylomics data loaded yet - go to the Cross-Omics \"Dataset\" tab and load or upload it there. It will appear here automatically."))
+          "No Methylomics data loaded yet - load or upload it on the \"Dataset\" tab and it will appear here."))
       }
       n <- if (!is.null(integ$df)) nrow(integ$df) else nrow(raw$meth_df)
       status <- if (is.null(integ$df)) "not yet integrated - click \"Run Integration\" in the Integration tab" else "genes analyzed"
@@ -396,7 +394,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
                         downloadButton(ns("dl_quadrant_pdf"), "PDF", class = "btn-sm"),
                         downloadButton(ns("dl_quadrant_svg"), "SVG", class = "btn-sm")))
         ),
-        p(class = "submodule-desc", "Each point is a gene. This shows a statistical association between methylation and expression change - it does not establish that one causes the other."),
+        p(class = "submodule-desc", "Each point is a gene. This shows an association between methylation and expression change, not causation."),
         plotly::plotlyOutput(ns("quadrant_plot"), height = "520px")
       )
     })

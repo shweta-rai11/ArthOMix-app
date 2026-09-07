@@ -1,6 +1,5 @@
 ## R/multiomics/04_SNF_Clustering/snf_clustering_helpers.R
-## Pure data-processing logic for the "SNF Clustering" submodule
-## (mod_multi_stratification.R) - a live, data-adaptive unsupervised patient
+## Data-processing logic for the SNF Clustering submodule (mod_multi_stratification.R).
 
 sfc_preloaded_dataset <- function(cell_key) {
   base <- mi_preloaded_cell_dataset(cell_key)
@@ -50,7 +49,7 @@ sfc_validate_dataset <- function(layers, sample_meta = NULL, outcome_col = NULL)
     ids <- rownames(layers[[1]])
     if (anyDuplicated(ids) > 0) {
       return(list(ok = FALSE, error = sprintf(
-        "Duplicate sample IDs detected in this omics block (%d duplicate row name(s)) - resolve before clustering, since a repeated ID would silently keep only its first row and discard the rest.",
+        "Duplicate sample IDs in this omics block (%d duplicate row name(s)). Resolve before clustering: a repeated ID would silently keep only its first row.",
         sum(duplicated(ids))
       ), n_blocks = 1L))
     }
@@ -130,7 +129,11 @@ sfc_preprocess_block <- function(mat, transform = "none", missing_method = "none
   }
   if (!identical(transform, "none") && !is.null(transform)) {
     tr <- multi_live_normalize(out, omics_type = NULL, method = transform)
-    if (isTRUE(tr$ok)) { out <- tr$mat; log <- c(log, sprintf("Transformation applied: %s.", transform)) }
+    if (isTRUE(tr$ok)) {
+      out <- tr$mat
+      log <- c(log, sprintf("Transformation applied: %s.", transform))
+      if (!is.null(tr$note)) log <- c(log, tr$note)
+    }
   }
   if (!identical(filter_criterion, "none") && !is.null(filter_criterion) && !is.null(filter_top_n) && filter_top_n < ncol(out)) {
     ff <- multi_live_filter_features(out, criterion = filter_criterion, keep_top_n = filter_top_n)
@@ -303,10 +306,12 @@ sfc_stability_run <- function(layers, ref_clusters, params, n_resamples = 20, su
   n <- length(ids)
   n_sub <- max(MI_MIN_MATCHED_SAMPLES, round(n * subsample_frac))
   if (n_sub < MI_MIN_MATCHED_SAMPLES + 2 || n_sub >= n) return(list(ok = FALSE, error = "Cohort too small for a meaningful resampling-based stability check at this subsample fraction."))
+  ## Draw all subsamples up front, since each rerun resets the RNG seed.
   set.seed(seed)
+  subsamples <- lapply(seq_len(n_resamples), function(i) sample(ids, n_sub))
   ari_vals <- numeric(0); failures <- 0L
   for (i in seq_len(n_resamples)) {
-    sub_ids <- sample(ids, n_sub)
+    sub_ids <- subsamples[[i]]
     sub_layers <- lapply(layers, function(m) m[sub_ids, , drop = FALSE])
     res <- tryCatch(sfc_snf_run(sub_layers, params), error = function(e) list(ok = FALSE))
     if (!isTRUE(res$ok) || length(unique(res$clusters)) < 2) { failures <- failures + 1L; next }
@@ -316,6 +321,7 @@ sfc_stability_run <- function(layers, ref_clusters, params, n_resamples = 20, su
   if (length(ari_vals) < 3) return(list(ok = FALSE, error = "Too few successful resamples to summarize stability - try more resamples or a larger subsample fraction."))
   mean_ari <- mean(ari_vals); sd_ari <- stats::sd(ari_vals)
   list(ok = TRUE, ari = ari_vals, mean_ari = mean_ari, sd_ari = sd_ari, n_resamples = length(ari_vals), n_requested = n_resamples,
+       n_distinct_subsamples = length(unique(lapply(subsamples, sort))),
        n_failed = failures, subsample_frac = subsample_frac, n_sub = n_sub, seed = seed, verdict = sfc_stability_verdict(mean_ari))
 }
 
@@ -383,4 +389,60 @@ sfc_summary_lines <- function(res, stability = NULL, clinical_note = NULL) {
     sprintf("Cluster stability: %s", if (!is.null(stability) && isTRUE(stability$ok)) sprintf("%s (mean ARI = %.2f across %d resamples)", stability$verdict, stability$mean_ari, stability$n_resamples) else "Not computed"),
     if (!is.null(clinical_note)) clinical_note
   )
+}
+
+## Fused-network hand-off from Integration: partitioned here with this tab's cluster settings, not re-run.
+sfc_carried_dataset <- function(multi_results) {
+  h <- tryCatch(multi_results$integration$snf, error = function(e) NULL)
+  if (is.null(h) || is.null(h$result) || !isTRUE(h$result$ok) || length(h$layers %||% list()) < 1) {
+    return(list(ok = FALSE, error = "No fused network has been published yet - run SNF on the Integration (DIABLO / SNF) tab first, then choose this option."))
+  }
+  p <- h$result$params
+  list(
+    ok = TRUE, layers = h$layers, sample_meta = h$sample_meta, layer_meta = NULL, carried = h$result,
+    label = sprintf("Fused network carried from the Integration tab (%s)", h$dataset_label %||% "active dataset"),
+    provenance = sprintf("Carried from Integration (run %s): %d matched samples, blocks %s; K = %d, alpha = %.2f, T = %d, standardised = %s. Not rebuilt here; only the partition and stress tests run on this tab.",
+                         format(h$run_at %||% Sys.time(), "%d %b %Y %H:%M"), p$n_samples, paste(p$blocks, collapse = " + "), p$k, p$alpha, p$t, if (isTRUE(p$standardize)) "yes" else "no")
+  )
+}
+
+## Partition the carried fused network with this tab's cluster settings.
+sfc_carried_run <- function(carried, params = list()) {
+  W <- carried$W; n <- nrow(W)
+  max_k_clusters <- min(6, n - 1)
+  est <- tryCatch(SNFtool::estimateNumberOfClustersGivenGraph(W, NUMC = 2:max_k_clusters), error = function(e) NULL)
+  cluster_mode <- params$cluster_mode %||% "manual"
+  n_clusters <- if (identical(cluster_mode, "manual") && !is.null(params$n_clusters)) max(2, min(as.integer(params$n_clusters), max_k_clusters))
+    else if (!is.null(est)) est[["Eigen-gap best"]] else 2
+  method <- params$cluster_method %||% "spectral"
+  set.seed(as.integer(params$seed %||% 1))
+  clusters <- mi_cluster_from_network(W, n_clusters, method)
+  if (is.null(clusters)) return(list(ok = FALSE, error = sprintf("%s clustering failed on the carried fused network.", names(MI_SNF_CLUSTER_METHODS)[MI_SNF_CLUSTER_METHODS == method])))
+  names(clusters) <- rownames(W)
+  p <- carried$params
+  p$n_clusters <- n_clusters; p$cluster_mode <- cluster_mode; p$cluster_method <- method; p$seed <- as.integer(params$seed %||% 1)
+  ## the resolved K / alpha / T are fixed for every downstream rerun (stability, sensitivity)
+  p$k_mode <- "manual"; p$alpha_mode <- "manual"; p$t_mode <- "manual"
+  p$mode <- "carried_fused_network"
+  list(ok = TRUE, Wall = carried$Wall, W = W, clusters = clusters, cluster_estimate = est, params = p)
+}
+
+## Parameters that rebuild the carried network identically on a subsample.
+sfc_carried_snf_params <- function(carried, params = list()) {
+  p <- carried$params
+  list(standardize = isTRUE(p$standardize), k_mode = "manual", k = p$k, alpha_mode = "manual", alpha = p$alpha, t_mode = "manual", t = p$t,
+       cluster_mode = params$cluster_mode %||% "manual", n_clusters = params$n_clusters %||% p$n_clusters,
+       cluster_method = params$cluster_method %||% "spectral", seed = as.integer(params$seed %||% 1))
+}
+
+sfc_carried_run_with_stability <- function(carried, layers, params) {
+  ## the stability reruns must rebuild the network from the same blocks and samples that built it
+  missing_blocks <- setdiff(carried$params$blocks, names(layers))
+  if (length(missing_blocks) > 0) return(list(ok = FALSE, error = sprintf("The carried network was built from %s; block(s) %s are not selected here.", paste(carried$params$blocks, collapse = " + "), paste(missing_blocks, collapse = ", "))))
+  layers <- lapply(layers[carried$params$blocks], function(m) m[rownames(carried$W), , drop = FALSE])
+  res <- sfc_carried_run(carried, params)
+  if (!isTRUE(res$ok)) return(list(ok = FALSE, error = res$error))
+  stab <- tryCatch(sfc_stability_run(layers, res$clusters, sfc_carried_snf_params(carried, params), n_resamples = 20, subsample_frac = 0.8, seed = 1),
+                   error = function(e) list(ok = FALSE, error = conditionMessage(e)))
+  list(ok = TRUE, res = res, stability = stab)
 }

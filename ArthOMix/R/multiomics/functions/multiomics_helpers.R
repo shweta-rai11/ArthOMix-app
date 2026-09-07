@@ -1,6 +1,5 @@
 ## R/multiomics/functions/multiomics_helpers.R
-## Shared low-level utilities for the Multi-Omics module: cell/cohort
-## metadata (MULTI_CELLS), generic CSV table loaders, sample-harmonization
+## Shared low-level utilities for the Multi-Omics module: cell/cohort metadata, CSV loaders, sample-harmonization.
 
 multi_read_table <- function(path) {
   if (is.null(path) || !MULTI_DATA_AVAILABLE || !file.exists(path)) {
@@ -43,7 +42,7 @@ multi_filter_cell <- function(df, sex = NULL, drug = NULL) {
 
 multi_sex_candidates <- function(sample_meta) {
   if (is.null(sample_meta) || ncol(sample_meta) == 0) return(character(0))
-  colnames(sample_meta)[grepl("^sex$|^gender$", colnames(sample_meta), ignore.case = TRUE)]
+  colnames(sample_meta)[grepl("sex|gender", colnames(sample_meta), ignore.case = TRUE)]
 }
 
 multi_sex_groups <- function(sample_meta, sex_col, sample_ids) {
@@ -132,20 +131,23 @@ multi_mapping_add_fdr <- function(df) {
   out
 }
 
-multi_active_dataset_banner <- function(multi_dataset) {
+multi_active_dataset_banner <- function(multi_dataset, multi_results = NULL) {
   md <- multi_dataset %||% list()
   source <- md$source
+  progress <- if (!is.null(multi_results)) multi_pipeline_progress_ui(multi_dataset, multi_results) else NULL
   if (is.null(source) || !isTRUE(md$active %||% FALSE)) {
     return(div(class = "empty-note", icon("circle-info"),
-               "No active Multi-Omics dataset yet - pick one on the Dataset tab, or choose the Preloaded/Reference option in this tab's own data-source selector to use the bundled RA anti-TNF cohort."))
+               "No active Multi-Omics dataset yet. Pick one on the Dataset tab, or choose Preloaded/Reference here to use the bundled RA anti-TNF cohort.",
+               progress))
   }
   if (identical(source, "preloaded")) {
     return(div(class = "empty-note", icon("circle-check"),
-               tags$strong("Data source: Preloaded Dataset."), " Existing results are available and shown below."))
+               tags$strong("Data source: Preloaded Dataset."), " Existing results are available and shown below.", progress))
   }
   div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
       tags$strong(sprintf("Data source: %s.", if (identical(source, "geo")) "NCBI GEO" else "User Upload")),
-      " No stored results for this dataset yet - select \"Active Multi-Omics Dataset\" above to run this module's analysis on it directly.")
+      " No stored results for this dataset yet. Select \"Active Multi-Omics Dataset\" above to run this module directly.",
+      progress)
 }
 
 multi_package_versions <- function() {
@@ -158,3 +160,70 @@ multi_package_versions <- function() {
   )
 }
 
+
+## Pipeline hand-offs: Cohort Harmonisation -> Integration (fused network) -> Biomarker Discovery/SNF Clustering -> Gene-CpG Mapping -> Pathways/Biomarker Card.
+
+multi_harmonisation_state <- function(multi_results) {
+  if (is.null(multi_results)) return(NULL)
+  h <- tryCatch(multi_results$overview$harmonization, error = function(e) NULL)
+  if (is.null(h) || !isTRUE(h$ok)) return(NULL)
+  h
+}
+
+## One-line status of the Cohort Harmonisation hand-off for a downstream sub-module.
+multi_harmonisation_note <- function(multi_results, n_here = NULL) {
+  h <- multi_harmonisation_state(multi_results)
+  if (is.null(h)) {
+    return(div(class = "empty-note", style = "border-color: var(--color-warning, #eda100);", icon("triangle-exclamation"),
+               " Cohort Harmonisation hasn't been run on this dataset, so readiness, identifier audit and phenotype classification aren't available here. Run it first (Sub-modules > Cohort Harmonisation)."))
+  }
+  rd <- h$readiness %||% list(label = "Not assessed", reason = "")
+  color <- switch(rd$level %||% "unknown", ready = ARTHOMIX_COLORS$aqua, limited = ARTHOMIX_COLORS$yellow, ARTHOMIX_COLORS$red)
+  mismatch <- !is.null(n_here) && !is.na(h$n_matched) && n_here != h$n_matched
+  div(class = "empty-note", icon("link"),
+      tags$strong(" Cohort Harmonisation: "), span(style = sprintf("color:%s; font-weight:600;", color), rd$label),
+      sprintf(" - %s", rd$reason %||% ""),
+      sprintf(" %d of %d identifiers matched across %s; %d unmatched/duplicate/ambiguous.", h$n_matched, h$n_total, paste(h$modalities, collapse = " + "), h$n_unmatched_ids %||% 0L),
+      if (length(h$phenotype_candidates) > 0) sprintf(" Phenotype column(s) classified: %s.", paste(h$phenotype_candidates, collapse = ", ")),
+      if (mismatch) tags$span(style = "color: var(--color-danger, #d9534f);", sprintf(" This analysis currently matches %d samples, which differs from the harmonised %d - check the modality selection.", n_here, h$n_matched)))
+}
+
+## Default outcome column: first offered phenotype candidate, else first offered column.
+multi_harmonisation_outcome_default <- function(multi_results, candidates) {
+  if (length(candidates) == 0) return(NULL)
+  h <- multi_harmonisation_state(multi_results)
+  hit <- if (!is.null(h)) intersect(h$phenotype_candidates %||% character(0), candidates) else character(0)
+  if (length(hit) > 0) hit[1] else candidates[1]
+}
+
+## Stage-by-stage status of the Multi-Omics pipeline for the shared banner.
+MULTI_PIPELINE_STAGES <- c("Dataset Workspace", "Cohort Harmonisation", "Integration (DIABLO / SNF)", "SNF Clustering",
+                           "Biomarker Discovery", "Gene-CpG Mapping", "Pathways", "Biomarker Card")
+
+multi_pipeline_progress <- function(multi_dataset, multi_results) {
+  md <- multi_dataset %||% list(); mr <- multi_results
+  g <- function(expr) tryCatch(expr, error = function(e) NULL)
+  done <- c(
+    isTRUE(md$active) && length(md$layers %||% list()) >= 2,
+    !is.null(multi_harmonisation_state(mr)),
+    !is.null(g(mr$integration$perf)) || !is.null(g(mr$integration$snf)),
+    !is.null(g(mr$stratification$clusters)),
+    !is.null(g(mr$biomarker$df)),
+    !is.null(g(mr$mapping)),
+    !is.null(g(mr$pathway)),
+    NA
+  )
+  stats::setNames(done, MULTI_PIPELINE_STAGES)
+}
+
+multi_pipeline_progress_ui <- function(multi_dataset, multi_results) {
+  pr <- multi_pipeline_progress(multi_dataset, multi_results)
+  items <- lapply(seq_along(pr), function(i) {
+    st <- pr[[i]]
+    icn <- if (isTRUE(st)) icon("circle-check") else if (is.na(st)) icon("circle") else icon("circle-xmark")
+    col <- if (isTRUE(st)) ARTHOMIX_COLORS$aqua else "var(--color-ink-muted, #898781)"
+    tagList(span(style = sprintf("color:%s; white-space:nowrap;", col), icn, " ", names(pr)[i]), if (i < length(pr)) span(style = "color:var(--color-ink-muted, #898781);", " → "))
+  })
+  div(style = "font-size:0.82em; margin-top:6px; display:flex; flex-wrap:wrap; gap:2px 4px; align-items:center;",
+      tags$strong("Pipeline: "), items)
+}

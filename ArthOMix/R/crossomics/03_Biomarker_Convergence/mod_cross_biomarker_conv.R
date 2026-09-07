@@ -1,6 +1,5 @@
 ## R/crossomics/03_Biomarker_Convergence/mod_cross_biomarker_conv.R
-## Submodule: Biomarker Convergence - loads the pipeline's own already-joined
-## eQTL-MR x mQTL-MR x DEG x DMP x DMR table (cross_Omics_Sexstratified_COPY/
+## Biomarker Convergence: loads the pipeline's joined eQTL-MR/mQTL-MR/DEG/DMP/DMR table.
 
 mod_cross_biomarker_conv_config <- list(
   id = "biomarkerconv", title = "Biomarker Convergence", icon = "diagram-project", group = "Data",
@@ -30,7 +29,7 @@ mod_cross_biomarker_conv_ui <- function(id) {
           fileInput(ns("upload_eqtl_file"), "eQTL-MR results (optional)",
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per gene. Required: gene. Optional: eQTL_MR_OR, eQTL_MR_pval, eQTL_MR_FDR (when given, eQTL-MR significance = FDR < 0.05; otherwise every listed gene counts as significant), eQTL_MHC_region."),
+            "One row per gene. Required: gene. Optional: eQTL_MR_OR, eQTL_MR_pval, eQTL_MR_FDR, eQTL_MHC_region. If FDR is given, significance = FDR < 0.05; otherwise every listed gene counts as significant."),
           fileInput(ns("upload_mqtl_file"), "mQTL-MR results (optional)",
                     accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
@@ -96,7 +95,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       raw$missing_layer <- if (is.null(input$upload_eqtl_file)) "eQTL-MR" else if (is.null(input$upload_mqtl_file)) "mQTL-MR" else NULL
       showNotification(sprintf("Loaded %s genes from %s.", format(nrow(merged$df), big.mark = ","), files_desc), type = "message")
       if (!is.null(raw$missing_layer)) {
-        showNotification(sprintf("You only uploaded %s data - the eQTL-mQTL tab needs both files to find genes with evidence in both, so it will show 0. Upload %s results too if you want that tab populated.",
+        showNotification(sprintf("You only uploaded %s data. The eQTL-mQTL tab needs both files, so it will show 0. Upload %s results too to populate it.",
                                   if (raw$missing_layer == "eQTL-MR") "mQTL-MR" else "eQTL-MR", raw$missing_layer),
                           type = "warning", duration = 15)
       }
@@ -136,7 +135,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       n_mhc <- sum(d$eQTL_MHC_region %in% TRUE)
       if (n_mhc == 0) return(NULL)
       p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
-        sprintf("%d of %d row(s) here fall in the MHC region - treat these as considerably less reliable than non-MHC hits, regardless of how significant they look.", n_mhc, nrow(d)))
+        sprintf("%d of %d row(s) fall in the MHC region - treat these as less reliable than non-MHC hits, regardless of significance.", n_mhc, nrow(d)))
     }
 
     output$eqtl_tab_ui <- renderUI({
@@ -190,11 +189,11 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       n_both <- sum(df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE)
       tagList(
         if (!is.null(raw$missing_layer)) p(class = "empty-note", icon("triangle-exclamation"), style = "border-color: var(--color-warning, #e0a800);",
-          sprintf("This tab is empty because you only uploaded %s data - there's nothing to intersect it against. Upload %s results too (on the \"1. Cohort\" panel) and click \"Merge & Load\" again to see genes with evidence in both.",
+          sprintf("This tab is empty because you only uploaded %s data. Upload %s results too (on \"1. Cohort\") and click \"Merge & Load\" again to see genes with evidence in both.",
                   if (identical(raw$missing_layer, "eQTL-MR")) "mQTL-MR" else "eQTL-MR", raw$missing_layer))
         else if (n_both == 0) p(class = "empty-note", icon("circle-info"),
-          "0 here doesn't necessarily mean something is wrong: both files/panels are loaded, but this loaded data's eQTL-MR and mQTL-MR gene sets simply don't share any genes (this is expected for independently-uploaded files with unrelated candidate gene lists; the preloaded pipeline data always has some overlap, once genes with real mQTL-MR evidence that this table's own join had dropped are backfilled)."),
-        p(class = "submodule-desc", sprintf("%s genes have BOTH an eQTL-MR and an mQTL-MR instrument - genetic evidence for a causal effect on both expression and methylation, independent of the DEG/DMP/DMR observational layers.", format(n_both, big.mark = ","))),
+          "0 doesn't necessarily mean something is wrong. Both panels are loaded, but their gene sets just don't overlap - expected for independently-uploaded files with unrelated gene lists. Preloaded pipeline data always has some overlap."),
+        p(class = "submodule-desc", sprintf("%s genes have BOTH an eQTL-MR and an mQTL-MR instrument: genetic evidence for a causal effect on expression and methylation, independent of the DEG/DMP/DMR layers.", format(n_both, big.mark = ","))),
         cx_bc_mhc_warning(eqtl_mqtl_df()),
         div(class = "table-toolbar", downloadButton(ns("dl_eqtl_mqtl_csv"), "CSV", class = "btn-sm")),
         DT::dataTableOutput(ns("eqtl_mqtl_table"))

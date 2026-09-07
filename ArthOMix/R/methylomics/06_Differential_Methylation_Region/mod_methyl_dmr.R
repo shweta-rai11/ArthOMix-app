@@ -1,6 +1,5 @@
 ## R/methylomics/06_Differential_Methylation_Region/mod_methyl_dmr.R
-## Methylomics sub-module: Differentially Methylated Regions (DMRs).
-##
+## Differentially Methylated Regions (DMRs) sub-module.
 
 mod_methyl_dmr_config <- list(
   id = "dmr", title = "Differentially Methylated Regions (DMRs)", icon = "map-location-dot", group = "Data",
@@ -131,7 +130,7 @@ mod_methyl_dmr_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
     div(class = "card",
         div(class = "card-title", icon("flask"), "SVA-adjusted DMR Analysis (live)"),
         p(class = "empty-note", icon("circle-info"),
-          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva, full-vs-null contrast) and applies bacon bias/inflation correction on a per-CpG limma model, then calls regions from the corrected statistics with DMRcate - the same method used for the preloaded cohort's reproduced analysis above, run live here against your own data.",
+          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva) and applies bacon bias/inflation correction on a per-CpG limma model, then calls regions from the corrected statistics with DMRcate. Same method as the preloaded cohort's analysis above, run live here on your data.",
                   methyl_dataset$source %||% "(unnamed)",
                   format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta))),
         fluidRow(
@@ -203,7 +202,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
           return(div(class = "card",
             div(class = "card-title", icon("upload"), "SVA-adjusted DMR Analysis"),
             p(class = "submodule-desc",
-              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Methylomics Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected differentially methylated region analysis - the same statistical method used for the preloaded reference cohort's reproduced analysis.")
+              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected DMR analysis. Same method used for the preloaded reference cohort's analysis.")
           ))
         }
         if (is.null(methyl_dataset$sample_sheet)) {
@@ -234,7 +233,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       n_m <- if (!is.null(d$pheno)) sum(d$pheno$sex == "M", na.rm = TRUE) else NA
       tagList(
         div(class = "empty-note", icon("map-location-dot"),
-            sprintf("Default analysis: DMRcate region calling (lambda=1000, C=2, hg19) on the SVA-adjusted, bacon-corrected per-CpG statistics from the Differentially Methylation (DMPs) tab's own default analysis, sex-stratified%s. Comparison: RA vs Control (the dataset's only case/control contrast).",
+            sprintf("Default analysis: DMRcate region calling (lambda=1000, C=2, hg19) on the SVA-adjusted, bacon-corrected per-CpG statistics from the DMPs tab's default analysis, sex-stratified%s. Comparison: RA vs Control (the dataset's only case/control contrast).",
                     if (!is.na(n_f)) sprintf(" (%d female / %d male)", n_f, n_m) else "")),
         div(class = "card",
             div(class = "card-title", icon("map-location-dot"), "DMR configuration"),
@@ -323,7 +322,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
             withSpinner(plotOutput(ns("d_manhattan"), height = 320), color = "#2563EB", type = 6)),
         div(class = "card",
             div(class = "card-title", icon("table"), sprintf("%s DMR Analysis: results table", if (identical(d_run()$sex, "male")) "Male" else "Female")),
-            p(class = "submodule-desc", "Additional per-column filtering (chromosome, gene, direction, CpG count) is available in the table's own search boxes. Click a row to inspect that region's constituent CpGs below."),
+            p(class = "submodule-desc", "Filter further by chromosome, gene, direction, or CpG count using the table's search boxes. Click a row to inspect that region's CpGs below."),
             div(class = "table-toolbar",
                 downloadButton(ns("d_download_full"), "Complete results", class = "btn-default btn-sm"),
                 downloadButton(ns("d_download_sig"), "Significant DMRs", class = "btn-default btn-sm"),
@@ -403,7 +402,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
           div(class = "card-title", icon("magnifying-glass-chart"), "Region-level inspection"),
           if (is.null(input$d_table_rows_selected) || length(input$d_table_rows_selected) == 0)
             p(class = "empty-note", icon("circle-info"),
-              "Select a row in the table above to inspect that region's constituent CpGs (per-CpG Δβ and FDR from the DMP tab's default analysis; per-sample values aren't available for the preloaded pipeline's reproduced results).")
+              "Select a row above to inspect that region's CpGs (per-CpG Δβ and FDR from the DMP tab's default analysis). Per-sample values aren't available for the preloaded pipeline's results.")
           else tagList(
             uiOutput(ns("d_region_summary")),
             DT::dataTableOutput(ns("d_region_table"))
@@ -468,7 +467,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     observeEvent(methyl_dataset$beta, svalive_has_run(FALSE), ignoreNULL = TRUE)
 
     svalive_result <- eventReactive(input$svalive_run_btn, withProgress(
-      message = "Estimating surrogate variables and fitting the bacon-corrected model, then calling regions with DMRcate - slower than the plain DMR model, and can take several minutes on a full genome-wide array...",
+      message = "Estimating surrogate variables, fitting the bacon-corrected model, then calling regions with DMRcate. Slower than the plain DMR model - can take several minutes on a full genome-wide array...",
       value = 0.15, {
       validate(need(!is.null(methyl_dataset$beta), "Load a dataset first."))
       sheet <- methyl_dataset$sample_sheet
@@ -746,7 +745,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         ),
         div(class = "card",
             div(class = "card-title", icon("table"), sprintf("%s SVA-adjusted DMR Analysis: results table", sex_heading)),
-            p(class = "submodule-desc", "Additional per-column filtering (chromosome, gene, direction, CpG count) is available in the table's own search boxes. Click a row to inspect that region's constituent CpGs below."),
+            p(class = "submodule-desc", "Filter further by chromosome, gene, direction, or CpG count using the table's search boxes. Click a row to inspect that region's CpGs below."),
             div(class = "table-toolbar",
                 downloadButton(ns("download_svalive_full"), "Complete results", class = "btn-default btn-sm"),
                 downloadButton(ns("download_svalive_sig"), "Significant DMRs", class = "btn-default btn-sm"),
@@ -881,7 +880,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     output$svalive_region_ui <- renderUI({
       if (is.null(input$svalive_table_rows_selected) || length(input$svalive_table_rows_selected) == 0) {
         return(p(class = "empty-note", icon("circle-info"),
-                  "Select a row in the results table above to inspect that region's constituent CpGs and verify it reflects a coordinated, multi-CpG methylation change rather than a single isolated CpG."))
+                  "Select a row above to inspect that region's CpGs and verify it's a coordinated, multi-CpG change rather than a single isolated CpG."))
       }
       tagList(
         uiOutput(ns("svalive_region_summary")),
@@ -944,9 +943,9 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
       }
       if (is.null(methyl_dataset$beta)) {
         msg <- if (isTRUE(methyl_dataset$preloaded))
-          "The preloaded dataset's live beta matrix isn't available in this deployment, so only the sex-stratified reproduced analysis above is available (no live All-Samples/Female-only/Male-only option)."
+          "The preloaded dataset's live beta matrix isn't available here, so only the sex-stratified reproduced analysis above is available (no live All-Samples/Female-only/Male-only option)."
         else
-          "Upload a beta/M-value matrix or IDAT files on the Methylomics Dataset tab to configure and run a live region-level differential methylation (DMR) analysis - including an All-Samples (combined) option."
+          "Upload a beta/M-value matrix or IDAT files on the Dataset tab to configure and run a live DMR analysis, including an All-Samples (combined) option."
         return(div(class = "card",
           div(class = "card-title", icon("upload"), "DMR Analysis"),
           p(class = "submodule-desc", msg)
@@ -1342,7 +1341,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
         ),
         div(class = "card",
             div(class = "card-title", icon("table"), sprintf("%s DMR Analysis: results table", sex_heading)),
-            p(class = "submodule-desc", "Additional per-column filtering (chromosome, gene, direction, CpG count) is available in the table's own search boxes. Click a row to inspect that region's constituent CpGs below."),
+            p(class = "submodule-desc", "Filter further by chromosome, gene, direction, or CpG count using the table's search boxes. Click a row to inspect that region's CpGs below."),
             div(class = "table-toolbar",
                 downloadButton(ns("download_live_full"), "Complete results", class = "btn-default btn-sm"),
                 downloadButton(ns("download_live_sig"), "Significant DMRs", class = "btn-default btn-sm"),
@@ -1475,7 +1474,7 @@ mod_methyl_dmr_server <- function(id, methyl_dataset, methyl_results) {
     output$live_region_ui <- renderUI({
       if (is.null(input$live_table_rows_selected) || length(input$live_table_rows_selected) == 0) {
         return(p(class = "empty-note", icon("circle-info"),
-                  "Select a row in the results table above to inspect that region's constituent CpGs and verify it reflects a coordinated, multi-CpG methylation change rather than a single isolated CpG."))
+                  "Select a row above to inspect that region's CpGs and verify it's a coordinated, multi-CpG change rather than a single isolated CpG."))
       }
       tagList(
         uiOutput(ns("live_region_summary")),

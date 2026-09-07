@@ -1,6 +1,5 @@
 ## R/methylomics/functions/annotation.R
-## Illumina manifest-based probe annotation (chromosome, SNP overlap) for
-## mod_methyl_qc.R's probe filters. Only 450K and EPIC(v1) have an installed
+## Illumina manifest probe annotation (chromosome, SNP overlap) for mod_methyl_qc.R; only 450K/EPICv1 supported.
 
 METHYL_ARRAY_TYPES <- c("450K", "EPIC", "EPICv2", "WGBS", "RRBS", "Custom array")
 
@@ -19,7 +18,7 @@ methyl_get_annotation <- function(array_type) {
   pkg <- METHYL_ANNOTATION_PACKAGES[[array_type]]
   if (is.null(pkg)) {
     return(list(ok = FALSE, anno = NULL, reason = sprintf(
-      "No Bioconductor manifest annotation is available for %s in this deployment - SNP and sex-chromosome probe filters, and the raw-intensity sex check, are unavailable for this array type.",
+      "No Bioconductor manifest annotation is available for %s here. SNP and sex-chromosome probe filters, and the raw-intensity sex check, are unavailable for this array type.",
       array_type
     )))
   }

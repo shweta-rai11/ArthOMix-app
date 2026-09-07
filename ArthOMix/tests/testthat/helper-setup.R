@@ -27,13 +27,6 @@ new_app_driver <- function(..., shiny_args = list()) {
   shinytest2::AppDriver$new(app_dir = app_dir, ..., shiny_args = shiny_args)
 }
 
-login_test_user <- function(app) {
-  app$set_inputs(`auth-login_email` = Sys.getenv("ARTHOMIX_TEST_EMAIL"))
-  app$set_inputs(`auth-login_password` = Sys.getenv("ARTHOMIX_TEST_PASSWORD"))
-  app$click("auth-login_btn")
-  app$wait_for_idle(timeout = 20 * 1000)
-}
-
 wait_for_html_containing <- function(app, selector, pattern, timeout = 30, interval = 0.5) {
   deadline <- Sys.time() + timeout
   repeat {

@@ -1,6 +1,5 @@
 ## R/multiomics/08_Biomarker_Card/mod_multi_biomarkercard.R
-## Multi-Omics sub-module: Biomarker Card - integrated per-biomarker
-## interpretation, mirroring the "Select Biomarker" -> "Biomarker Card"
+## Biomarker Card: integrated per-biomarker interpretation view.
 
 mod_multi_biomarkercard_config <- list(
   id = "biomarkercard", title = "Biomarker Card", icon = "id-card", group = "Interpretation",
@@ -89,13 +88,13 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
       df <- evidence_df()
       if (is.null(df)) {
         return(tagList(
-          multi_active_dataset_banner(multi_dataset),
+          multi_active_dataset_banner(multi_dataset, multi_results),
           div(class = "empty-note", icon("circle-info"), tags$b("Not analyzed yet."), " ", mbc_missing_data_note(multi_dataset))
         ))
       }
       n_meaningful <- sum(df$evidence_tier != "Insufficient evidence", na.rm = TRUE)
       tagList(
-        multi_active_dataset_banner(multi_dataset),
+        multi_active_dataset_banner(multi_dataset, multi_results),
         if (n_meaningful == 0) div(class = "empty-note", icon("circle-info"), tags$b("No integrated biomarkers found."), " All gene–CpG pairs are below the significance thresholds used by Gene–CpG Mapping."),
         div(
           class = "card",
@@ -204,7 +203,7 @@ mod_multi_biomarkercard_server <- function(id, multi_dataset = NULL, multi_resul
           id = ns("mbc_card_subtabs"), type = "tabs",
           tabPanel("Overview", br(), mbc_section_overview(r)),
           tabPanel("Biomarker Status", br(), mbc_section_status(r)),
-          tabPanel("Dataset", br(), tagList(multi_active_dataset_banner(multi_dataset), mbc_section_dataset(rows))),
+          tabPanel("Dataset", br(), tagList(multi_active_dataset_banner(multi_dataset, multi_results), mbc_section_dataset(rows))),
           tabPanel("Expression", br(), mbc_section_expression(r)),
           tabPanel("Methylation", br(), mbc_section_methylation(r)),
           tabPanel("Integrated Evidence", br(), mbc_section_integrated(r)),

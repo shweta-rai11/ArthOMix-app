@@ -3,6 +3,9 @@
 ## Shared setup: packages, data paths, and the module/submodule registry.
 
 source("data_paths.R")
+## Shared provenance-record + diagnostics helpers; sourced here (not only via Shiny's R/ auto-load)
+## so tests and scripts that source global.R alone also get arthomix_null_on_error()/arthomix_quiet().
+source(file.path("R", "provenance.R"))
 
 if (file.exists(".Renviron")) readRenviron(".Renviron")
 
@@ -358,8 +361,8 @@ load_default_diagnostic_train_test <- function() {
 GEO_SOURCES <- list(
   list(gse = "GSE93272",  role = "Training (whole blood)",   used_in = "Merged into the example cohort"),
   list(gse = "GSE110169", role = "Training (whole blood)",   used_in = "Merged into the example cohort"),
-  list(gse = "GSE15573",  role = "Validation (blood, PBMC)", used_in = "Used later, for cross-ancestry validation"),
-  list(gse = "GSE89408",  role = "Validation (synovium)",    used_in = "Used later, for cross-tissue validation")
+  list(gse = "GSE15573",  role = "External validation (blood, PBMC)", used_in = "Bundled external cohort in Diagnostic Model → External Validation (frozen models scored, never trained on it)"),
+  list(gse = "GSE89408",  role = "Replication (synovium)",   used_in = "Cross-Tissue Replication (gene-level replication; classifiers refit, not transferred)")
 )
 geo_link <- function(gse) paste0("https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=", gse)
 
@@ -634,10 +637,10 @@ ARTHOMIX_METHODS_TOPICS <- list(
        aliases = c("diagnostic model", "classifier", "auc", "roc", "cross-validation")),
   list(id = "interaction",      title = "Sex Interaction Analysis",    section = "2.10", satellite = NULL,
        aliases = c("interaction", "sex interaction", "sex-differential", "sex differential")),
-  list(id = "crosstissue",      title = "Cross-Tissue Validation",     section = "2.11", satellite = "METHODS_2.11_crosstissue.md",
-       aliases = c("cross-tissue", "cross tissue", "synovium", "synovial")),
-  list(id = "crossancestry",    title = "Cross-Ancestry Validation",   section = "2.12", satellite = "METHODS_2.12_crossancestry.md",
-       aliases = c("cross-ancestry", "cross ancestry", "ancestry")),
+  list(id = "crosstissue",      title = "Cross-Tissue Replication",    section = "2.11", satellite = "METHODS_2.11_crosstissue.md",
+       aliases = c("cross-tissue", "cross tissue", "synovium", "synovial", "cross-tissue validation")),
+  list(id = "crossancestry",    title = "Cross-Ancestry MR Replication", section = "2.12", satellite = "METHODS_2.12_crossancestry.md",
+       aliases = c("cross-ancestry", "cross ancestry", "ancestry", "cross-ancestry validation")),
   list(id = "enrichment",       title = "Functional Enrichment",       section = "2.13", satellite = "METHODS_2.13_functional_enrichment.md",
        aliases = c("enrichment", "go term", "kegg", "pathway analysis", "gene ontology")),
   list(id = "deconvolution",    title = "Immune Deconvolution",        section = "2.14", satellite = "METHODS_2.14_deconvolution.md",

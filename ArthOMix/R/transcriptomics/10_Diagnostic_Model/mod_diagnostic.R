@@ -1,6 +1,5 @@
 ## R/transcriptomics/10_Diagnostic_Model/mod_diagnostic.R
-## Diagnostic Model submodule: fits logistic regression, elastic net, random
-## forest and SVM classifiers on a user-chosen gene panel, sex-stratified.
+## Diagnostic Model: fits logistic regression, elastic net, RF and SVM on a gene panel, sex-stratified.
 
 mod_diagnostic_config <- list(
   id = "diagnostic", group = "Biomarker modeling",
@@ -74,11 +73,11 @@ diag_cv_auc <- function(Xraw, y, n_folds, refit_fn, predict_fn, seed = 1234) {
     sg[is.na(sg) | sg == 0] <- 1
     Ztr <- scale(Xraw[tr, , drop = FALSE], center = mu, scale = sg)
     Zte <- scale(Xraw[te, , drop = FALSE], center = mu, scale = sg)
-    fit_i <- tryCatch(refit_fn(Ztr, y[tr]), error = function(e) NULL)
+    fit_i <- tryCatch(refit_fn(Ztr, y[tr]), error = arthomix_null_on_error)
     if (is.null(fit_i)) return(NA_real_)
-    p <- tryCatch(predict_fn(fit_i, Zte), error = function(e) NULL)
+    p <- tryCatch(predict_fn(fit_i, Zte), error = arthomix_null_on_error)
     if (is.null(p)) return(NA_real_)
-    roc_i <- tryCatch(pROC::roc(y[te], p, quiet = TRUE, levels = levels(y), direction = "<"), error = function(e) NULL)
+    roc_i <- tryCatch(pROC::roc(y[te], p, quiet = TRUE, levels = levels(y), direction = "<"), error = arthomix_null_on_error)
     if (is.null(roc_i)) NA_real_ else as.numeric(pROC::auc(roc_i))
   }, numeric(1))
 }
@@ -87,9 +86,9 @@ diag_auc_ci <- function(r) {
   n <- length(r$cases) + length(r$controls)
   ci <- if (n < 20) {
     set.seed(1234)
-    suppressWarnings(tryCatch(as.numeric(pROC::ci.auc(r, method = "bootstrap", boot.n = 2000)), error = function(e) c(NA, NA, NA)))
+    arthomix_quiet(tryCatch(as.numeric(pROC::ci.auc(r, method = "bootstrap", boot.n = 2000)), error = function(e) c(NA, NA, NA)))
   } else {
-    suppressWarnings(tryCatch(as.numeric(pROC::ci.auc(r)), error = function(e) c(NA, NA, NA)))
+    arthomix_quiet(tryCatch(as.numeric(pROC::ci.auc(r)), error = function(e) c(NA, NA, NA)))
   }
   c(auc = as.numeric(pROC::auc(r)), lo = ci[1], hi = ci[3])
 }
@@ -217,7 +216,7 @@ diag_gene_roc <- function(expr_sub, y) {
   aucs <- setNames(numeric(length(genes)), genes)
   pvals <- setNames(numeric(length(genes)), genes)
   for (g in genes) {
-    r <- tryCatch(pROC::roc(y, as.numeric(expr_sub[g, ]), quiet = TRUE, levels = levels(y), direction = "auto"), error = function(e) NULL)
+    r <- tryCatch(pROC::roc(y, as.numeric(expr_sub[g, ]), quiet = TRUE, levels = levels(y), direction = "auto"), error = arthomix_null_on_error)
     rocs[[g]] <- r
     aucs[g] <- if (is.null(r)) NA_real_ else as.numeric(pROC::auc(r))
     pvals[g] <- tryCatch(stats::wilcox.test(as.numeric(expr_sub[g, ]) ~ y)$p.value, error = function(e) NA_real_)
@@ -260,7 +259,7 @@ diag_calibration <- function(y, prob, positive_level, bins = 10) {
   n_bin <- as.data.frame(table(bin = df$bin)); names(n_bin) <- c("bin", "n")
   agg <- merge(agg, n_bin, by = "bin", all.x = TRUE)
   df$logit_prob <- stats::qlogis(pmin(pmax(prob, 1e-6), 1 - 1e-6))
-  fit <- tryCatch(stats::glm(y ~ logit_prob, family = stats::binomial(), data = df), error = function(e) NULL)
+  fit <- tryCatch(stats::glm(y ~ logit_prob, family = stats::binomial(), data = df), error = arthomix_null_on_error)
   list(table = agg, brier = mean((prob - y_bin)^2),
        slope = if (!is.null(fit)) unname(stats::coef(fit)[2]) else NA_real_,
        intercept = if (!is.null(fit)) unname(stats::coef(fit)[1]) else NA_real_)
@@ -318,7 +317,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
 
   score_eval <- function(pred_eval, y_eval, avail, reason) {
     if (!avail) return(list(available = FALSE, reason = reason))
-    roc_e <- tryCatch(pROC::roc(y_eval, pred_eval, quiet = TRUE, levels = levels(y), direction = "<"), error = function(e) NULL)
+    roc_e <- tryCatch(pROC::roc(y_eval, pred_eval, quiet = TRUE, levels = levels(y), direction = "<"), error = arthomix_null_on_error)
     if (is.null(roc_e)) return(list(available = FALSE, reason = "ROC could not be computed for this split/contrast."))
     ci <- diag_auc_ci(roc_e)
     list(available = TRUE, roc = roc_e, auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
@@ -333,7 +332,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
   set.seed(GLOBAL_SEED)
   for (a in params$enet_alpha_grid) {
     cv <- tryCatch(glmnet::cv.glmnet(Xtr_full, y, family = "binomial", alpha = a, nfolds = nf_a, standardize = TRUE,
-                                      weights = obs_w, nlambda = params$enet_nlambda, type.measure = type_measure), error = function(e) NULL)
+                                      weights = obs_w, nlambda = params$enet_nlambda, type.measure = type_measure), error = arthomix_null_on_error)
     if (!is.null(cv)) {
       m <- if (bigger_is_better) max(cv$cvm) else min(cv$cvm)
       alpha_search <- rbind(alpha_search, data.frame(alpha = a, cv_metric = m))
@@ -378,7 +377,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
     set.seed(GLOBAL_SEED)
     rf_tune <- tryCatch(caret::train(x = Xtr_full, y = y, method = "rf", metric = "ROC", trControl = ctrl,
                                       tuneGrid = expand.grid(mtry = mtry_grid), ntree = ntree,
-                                      nodesize = rf_nodesize, maxnodes = rf_maxnodes, classwt = cw_levels), error = function(e) NULL)
+                                      nodesize = rf_nodesize, maxnodes = rf_maxnodes, classwt = cw_levels), error = arthomix_null_on_error)
     rf_mtry <- if (!is.null(rf_tune)) rf_tune$bestTune$mtry else max(1, floor(sqrt(p)))
     if (!is.null(rf_tune)) { mtry_search <- rf_tune$results[, c("mtry", "ROC")]; mtry_search$chosen <- mtry_search$mtry == rf_mtry }
   }
@@ -422,7 +421,7 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
     svm_tune <- tryCatch(e1071::tune(e1071::svm, train.x = Xtr_full, train.y = y, kernel = kernel, scale = FALSE,
                                       gamma = svm_gamma, degree = svm_degree, tolerance = svm_tolerance, class.weights = cw_levels,
                                       ranges = list(cost = grid),
-                                      tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)), error = function(e) NULL)
+                                      tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)), error = arthomix_null_on_error)
     svm_cost <- if (!is.null(svm_tune)) svm_tune$best.parameters$cost else 1
     if (!is.null(svm_tune)) { cost_search <- svm_tune$performances[, c("cost", "error")]; cost_search$chosen <- cost_search$cost == svm_cost }
   }
@@ -449,13 +448,13 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
                    best = svm_best, cv_auc = svm_cv_auc, test = svm_test)
 
   lr_predict <- function(m, Znew) as.numeric(predict(m, newdata = data.frame(Znew, check.names = FALSE), type = "response"))
-  lr_model <- suppressWarnings(stats::glm(y ~ ., data = data.frame(y, Xtr_full, check.names = FALSE), family = stats::binomial, weights = obs_w))
+  lr_model <- arthomix_quiet(stats::glm(y ~ ., data = data.frame(y, Xtr_full, check.names = FALSE), family = stats::binomial, weights = obs_w))
   lr_pred_full <- as.numeric(predict(lr_model, type = "response"))
   lr_roc_full <- pROC::roc(y, lr_pred_full, quiet = TRUE, levels = levels(y), direction = "<")
   lr_best <- youden(lr_roc_full)
   lr_cv_auc <- diag_cv_auc(
     Xraw, y, params$lr_cv_folds,
-    refit_fn = function(Ztr_i, ytr_i) suppressWarnings(stats::glm(ytr_i ~ ., data = data.frame(ytr_i, Ztr_i, check.names = FALSE), family = stats::binomial,
+    refit_fn = function(Ztr_i, ytr_i) arthomix_quiet(stats::glm(ytr_i ~ ., data = data.frame(ytr_i, Ztr_i, check.names = FALSE), family = stats::binomial,
                                                                      weights = diag_obs_weights(ytr_i, params$class_weight_mode, params$class_weight_ratio))),
     predict_fn = lr_predict,
     seed = GLOBAL_SEED
@@ -471,7 +470,11 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
        n_samples = nrow(Xtr_full), n_test = nrow(Xtest_full), test_frac = params$test_frac,
        gene_roc_train = diag_gene_roc(expr_train_sub, y),
        gene_roc_test = diag_gene_roc(expr_test_sub, ytest),
-       leakage_safe = isTRUE(split$leakage_safe))
+       leakage_safe = isTRUE(split$leakage_safe),
+       ## Below 20 in the smaller group, estimates are unstable (Peduzzi 1996; Riley 2019): flagged exploratory.
+       min_group_n = as.integer(min(table(y_full))),
+       small_stratum = min(table(y_full)) < 20,
+       events_per_variable = round(min(table(y_full)) / max(1, length(genes)), 2))
 }
 
 DIAG_TECHNIQUES <- list(
@@ -480,6 +483,23 @@ DIAG_TECHNIQUES <- list(
   list(key = "rf", label = "Random Forest"),
   list(key = "svm", label = "SVM")
 )
+
+## Bundled external blood cohort for External Validation: GSE15573 (PBMC, GPL6102, 18 RA/15 HC). Scored only, never trained/tuned on.
+DIAG_BUNDLED_EXTERNAL_GSE <- "GSE15573"
+
+diag_bundled_external_cohort <- function(gse_id = DIAG_BUNDLED_EXTERNAL_GSE) {
+  expr <- tryCatch(get_collapsed_genes(gse_id), error = arthomix_null_on_error)
+  meta <- tryCatch(load_individual_dataset(gse_id)$meta, error = arthomix_null_on_error)
+  if (is.null(expr) || is.null(meta) || !is.matrix(expr) || nrow(expr) == 0) return(NULL)
+  expr <- expr[, intersect(colnames(expr), meta$sample), drop = FALSE]
+  meta <- meta[match(colnames(expr), meta$sample), , drop = FALSE]
+  q99 <- stats::quantile(expr, 0.99, na.rm = TRUE)
+  log2_applied <- is.finite(q99) && q99 > 100
+  if (log2_applied) expr <- log2(pmax(expr, 1))
+  list(expr = expr, meta = meta, gse = gse_id, log2_applied = log2_applied,
+       label = sprintf("%s (bundled external blood cohort, PBMC, %d samples%s)", gse_id, ncol(expr),
+                       if (log2_applied) ", log2-transformed on load" else ""))
+}
 
 diag_apply_models_external <- function(r, expr_ext, y_ext) {
   genes <- r$genes
@@ -503,14 +523,14 @@ diag_apply_models_external <- function(r, expr_ext, y_ext) {
       enet = as.numeric(predict(rr$model, newx = X, s = rr$lambda_choice, type = "response")),
       rf   = as.numeric(pick_pos(predict(rr$model, X, type = "prob"))),
       svm  = as.numeric(pick_pos(attr(predict(rr$model, X, probability = TRUE), "probabilities")))
-    ), error = function(e) NULL)
+    ), error = arthomix_null_on_error)
     if (is.null(prob) || length(prob) != length(y_ext) || all(is.na(prob))) {
       return(list(available = FALSE, label = tech$label, key = tech$key, reason = "Could not score the external samples with this model."))
     }
-    roc_e <- tryCatch(pROC::roc(y_ext, prob, quiet = TRUE, levels = levels(y_ext), direction = "<"), error = function(e) NULL)
+    roc_e <- tryCatch(pROC::roc(y_ext, prob, quiet = TRUE, levels = levels(y_ext), direction = "<"), error = arthomix_null_on_error)
     if (is.null(roc_e)) return(list(available = FALSE, label = tech$label, key = tech$key, reason = "ROC could not be computed."))
     ci <- diag_auc_ci(roc_e)
-    thr <- suppressWarnings(as.numeric(rr$best$threshold))
+    thr <- arthomix_quiet(as.numeric(rr$best$threshold))
     if (!is.finite(thr)) thr <- 0.5
     perf <- diag_perf_at_cutoff(prob, y_ext, thr, levels(y_ext)[2])
     list(available = TRUE, label = tech$label, key = tech$key, roc = roc_e,
@@ -544,16 +564,16 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
     expr_te <- expr_candidates[, te, drop = FALSE]
 
     design <- stats::model.matrix(~y_tr)
-    uni_fit <- tryCatch(limma::eBayes(limma::lmFit(expr_tr, design)), error = function(e) NULL)
+    uni_fit <- tryCatch(limma::eBayes(limma::lmFit(expr_tr, design)), error = arthomix_null_on_error)
     if (is.null(uni_fit)) next
-    tt <- tryCatch(limma::topTable(uni_fit, coef = 2, number = Inf, sort.by = "P"), error = function(e) NULL)
+    tt <- tryCatch(limma::topTable(uni_fit, coef = 2, number = Inf, sort.by = "P"), error = arthomix_null_on_error)
     if (is.null(tt) || nrow(tt) < 2) next
     uni_genes <- rownames(tt)[seq_len(min(uni_top_n, nrow(tt)))]
 
     Xtr_raw <- t(expr_tr[uni_genes, , drop = FALSE])
     nf_lasso <- max(2, min(5, min(table(y_tr))))
     cv <- tryCatch(glmnet::cv.glmnet(Xtr_raw, y_tr, family = "binomial", alpha = lasso_alpha, nfolds = nf_lasso),
-                   error = function(e) NULL)
+                   error = arthomix_null_on_error)
     panel <- character(0)
     if (!is.null(cv)) {
       co <- coef(cv, s = "lambda.min")[-1, 1, drop = TRUE]
@@ -567,14 +587,14 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
     Ztr <- (expr_tr[panel, , drop = FALSE] - mu) / sg
     Zte <- (expr_te[panel, , drop = FALSE] - mu) / sg
     fit_df <- data.frame(y = y_tr, t(Ztr), check.names = FALSE)
-    model <- tryCatch(suppressWarnings(stats::glm(y ~ ., data = fit_df, family = stats::binomial)), error = function(e) NULL)
+    model <- tryCatch(arthomix_quiet(stats::glm(y ~ ., data = fit_df, family = stats::binomial)), error = arthomix_null_on_error)
     if (is.null(model)) next
     pred <- tryCatch(as.numeric(predict(model, newdata = data.frame(t(Zte), check.names = FALSE), type = "response")),
-                      error = function(e) NULL)
+                      error = arthomix_null_on_error)
     if (is.null(pred)) next
     pred_oof[te] <- pred
 
-    roc_i <- tryCatch(pROC::roc(y_te, pred, quiet = TRUE, levels = levels(y_full), direction = "<"), error = function(e) NULL)
+    roc_i <- tryCatch(pROC::roc(y_te, pred, quiet = TRUE, levels = levels(y_full), direction = "<"), error = arthomix_null_on_error)
     auc_i <- if (!is.null(roc_i)) as.numeric(pROC::auc(roc_i)) else NA_real_
     per_fold[[length(per_fold) + 1]] <- data.frame(fold = fi, n_panel = length(panel), auc = round(auc_i, 3))
   }
@@ -584,7 +604,7 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
   pooled <- list(available = FALSE, reason = "Not enough folds completed to score a pooled AUC.")
   if (sum(have_oof) >= 10 && length(unique(y_full[have_oof])) == 2) {
     roc_pooled <- tryCatch(pROC::roc(y_full[have_oof], pred_oof[have_oof], quiet = TRUE, levels = levels(y_full), direction = "<"),
-                            error = function(e) NULL)
+                            error = arthomix_null_on_error)
     if (!is.null(roc_pooled)) {
       ci <- diag_auc_ci(roc_pooled)
       pooled <- list(available = TRUE, auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
@@ -594,13 +614,9 @@ diag_validate_nested <- function(expr_candidates, y_full, outer_k = 5, uni_top_n
   list(pooled = pooled, per_fold = per_fold_df, n_folds_completed = nrow(per_fold_df), outer_k = nf)
 }
 
-## Headline AUC: naive Test-split AUC if leakage_safe, else nested-CV AUC when available (Test-split AUC still shown, just demoted).
+## Headline AUC: nested-CV AUC when available (Test-split AUC is never fully leakage-safe, since candidate
+## genes were chosen on the full pool - Ambroise & McLachlan 2002). Test-split AUC always shown, demoted if nested exists.
 diag_attach_headline <- function(fit, nested_cv = NULL) {
-  if (isTRUE(fit$leakage_safe)) {
-    fit$nested_cv <- NULL
-    fit$headline_metric <- "test_split"
-    return(fit)
-  }
   fit$nested_cv <- nested_cv
   fit$headline_metric <- if (!is.null(nested_cv) && isTRUE(nested_cv$pooled$available)) "nested_cv" else "test_split"
   fit
@@ -714,9 +730,9 @@ mod_diagnostic_leakagesafe_sex_panel <- function(ns, sex_label) {
   sex_title <- tools::toTitleCase(sex_label)
   tagList(
     p(class = "empty-note", icon("triangle-exclamation"),
-      "The Test-split AUC in Model Testing (Internal) evaluates a gene panel that was already chosen using this same data - Candidate Gene Identification and Feature Selection's LASSO/RF/SVM-RFE consensus both run on the full sample pool, with no held-out split - so that AUC is optimistic. This mode reselects the panel with the Univariate + LASSO steps inside every outer fold instead, for a more honest estimate."),
+      "The Test-split AUC in Model Testing (Internal) evaluates a gene panel already chosen on this same data: Candidate Gene Identification runs on the full sample pool, and Feature Selection's hold-out split protects only the LASSO/RF/SVM-RFE step after it. So that AUC is optimistic even with a hold-out. This mode instead reselects the panel with Univariate + LASSO inside every outer fold, for a more honest estimate."),
     p(class = "empty-note", icon("circle-info"),
-      "Leakage-safe mode reselects the panel from this sex's WGCNA-candidate gene set (Candidate Gene Identification's output) using Univariate ranking + LASSO inside every outer fold - not literally the same panel shown in Feature Selection - and it does not rerun WGCNA, Random Forest, or SVM-RFE per fold, since a full discovery-pipeline refit per fold is impractical in a live session. The candidate gene list itself, and its cap above 200 genes (kept by full-pool variance), are still computed once before this outer cross-validation runs - so \"leakage-safe\" here means the supervised feature-selection step is redone per fold, not that the estimate is completely free of leakage."),
+      "Leakage-safe mode reselects the panel from this sex's WGCNA-candidate gene set using Univariate ranking + LASSO inside every outer fold - not literally the same panel shown in Feature Selection. It doesn't rerun WGCNA, Random Forest, or SVM-RFE per fold, since a full pipeline refit per fold isn't practical live. The candidate gene list itself (capped above 200 genes, kept by full-pool variance) is still computed once beforehand. So \"leakage-safe\" here means the supervised feature-selection step is redone per fold - not that the estimate is fully free of leakage."),
     fluidRow(
       column(4, numericInput(ns(paste0(sex_label, "_leakagesafe_k")), "Outer folds (k)", value = 5, min = 3, max = 10, step = 1)),
       column(4, div(style = "margin-top: 25px;",
@@ -782,7 +798,7 @@ mod_diagnostic_ui <- function(id) {
           ),
           tabPanel(
             "Model Testing (Internal)", br(),
-            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split. This scores the panel as-is - see \"Leakage-safe Validation\" for an estimate that also accounts for how that panel was chosen."),
+            p(class = "submodule-desc", "Each Train-fit model scored once on its held-out Test split. This scores the panel as-is - see \"Leakage-safe Validation\" for an estimate accounting for how the panel was chosen."),
             tabsetPanel(
               id = ns("test_sex_tabs"), type = "tabs",
               tabPanel("Female", br(), mod_diagnostic_testing_sex_panel(ns, "female")),
@@ -792,7 +808,7 @@ mod_diagnostic_ui <- function(id) {
           ),
           tabPanel(
             "Leakage-safe Validation", br(),
-            p(class = "submodule-desc", "Nested cross-validation that reselects the gene panel inside each outer fold instead of scoring the panel already chosen using this same data - see the disclosure under each sex's Run button. Needs a live Candidate Gene Identification run (\"Follow this project's pipeline\" panel source) on this dataset."),
+            p(class = "submodule-desc", "Nested cross-validation reselects the gene panel inside each outer fold, instead of scoring a panel already chosen on this data - see the disclosure under each sex's Run button. Needs a live Candidate Gene Identification run on this dataset."),
             tabsetPanel(
               id = ns("leakagesafe_sex_tabs"), type = "tabs",
               tabPanel("Female", br(), mod_diagnostic_leakagesafe_sex_panel(ns, "female")),
@@ -815,16 +831,30 @@ mod_diagnostic_external_panel <- function(ns) {
   tagList(
     box(
       width = NULL, title = "External validation dataset", status = "primary", solidHeader = FALSE,
-      p(class = "submodule-desc", "Upload a separate cohort to check whether the gene panel below holds up outside the training data. This dataset is used for validation only - it is never used to train or refit any model."),
-      fluidRow(
-        column(6,
-          fileInput(ns("ext_expr_file"), "External validation expression matrix", accept = c(".csv", ".rds", ".Rds")),
-          div(class = "empty-note", style = "font-size: 12.5px; margin-top: -8px;", icon("circle-info"),
-              "CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID.")
+      p(class = "submodule-desc", "Score the trained models on a separate cohort to check whether the gene panel holds up outside the training data. This is the only true external validation in the Transcriptomics module: models fitted in Model Training are applied unchanged (no refitting, no re-tuning), and the external cohort is never used to train anything. Use the bundled cohort (GSE15573, PBMC, 18 RA/15 HC) or upload your own."),
+      radioButtons(ns("ext_source"), "External cohort",
+        choiceNames = list(
+          tagList(icon("lock"), " Sealed validation samples reserved on the Dataset tab before any analysis ran (leakage-safe for the whole discovery pipeline)"),
+          tagList(icon("database"), sprintf(" Bundled external blood cohort (%s, PBMC microarray, 18 RA / 15 HC, both sexes)", DIAG_BUNDLED_EXTERNAL_GSE)),
+          tagList(icon("file-arrow-up"), " Upload my own external cohort")
         ),
-        column(6, fileInput(ns("ext_meta_file"), "External validation sample metadata", accept = c(".csv", ".rds", ".Rds")))
+        choiceValues = list("reserved", "bundled", "upload"), selected = "bundled"
+      ),
+      conditionalPanel(
+        condition = sprintf("input['%s'] == 'upload'", ns("ext_source")),
+        fluidRow(
+          column(6,
+            fileInput(ns("ext_expr_file"), "External validation expression matrix", accept = c(".csv", ".rds", ".Rds")),
+            div(class = "empty-note", style = "font-size: 12.5px; margin-top: -8px;", icon("circle-info"),
+                "CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID. Values should match the training data's analysis scale (log2 for arrays, logCPM for RNA-seq).")
+          ),
+          column(6, fileInput(ns("ext_meta_file"), "External validation sample metadata", accept = c(".csv", ".rds", ".Rds")))
+        )
       ),
       uiOutput(ns("ext_column_mapping")),
+      checkboxInput(ns("ext_match_sex"), "Restrict the external samples to the panel's sex (Female / Male panels only, when the cohort has a sex column)", value = TRUE),
+      div(class = "empty-note", style = "font-size: 12.5px;", icon("circle-info"),
+          "External samples are z-scored within the external cohort and the training Youden threshold is reused. AUC doesn't depend on that threshold, but sensitivity, specificity and accuracy do - the threshold may not transfer across case mix or platform, so treat AUC as the primary external metric."),
       selectInput(ns("ext_panel_choice"), "Gene panel to validate (uses the panel source set on the left)",
                   choices = c("Pooled" = "pooled", "Female" = "female", "Male" = "male"), selected = "pooled", selectize = FALSE),
       fluidRow(
@@ -944,7 +974,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
             "No live Feature Selection panel yet - using the bundled female/male panel. Pooled needs a live run first.")
       } else {
         div(class = "empty-note", icon("triangle-exclamation"),
-            "No live Feature Selection panel yet for this dataset - the bundled panel only applies to the app's default reference cohort. Run Feature Selection on the currently loaded dataset first.")
+            "No live Feature Selection panel yet for this dataset. The bundled panel only applies to the app's default reference cohort. Run Feature Selection on the currently loaded dataset first.")
       }
     })
 
@@ -963,6 +993,27 @@ mod_diagnostic_server <- function(id, dataset, results) {
     })
 
     output$ext_column_mapping <- renderUI({
+      if (identical(input$ext_source %||% "bundled", "reserved")) {
+        ids <- dataset$reserved_ids %||% character(0)
+        if (length(ids) == 0) {
+          return(div(class = "empty-note", icon("triangle-exclamation"),
+                     "No validation samples are reserved for this dataset. Go to the Dataset tab and reserve a fraction BEFORE running DE / WGCNA / Feature Selection / Model Training, then come back here. (Reserving after those steps run clears their results, since they'd have seen the reserved samples.)"))
+        }
+        rt <- table(dataset$reserved_meta$group)
+        return(tagList(
+          div(class = "empty-note", icon("lock"),
+              sprintf("%d sealed samples (%s) reserved on the Dataset tab. Hidden from every sub-module since reservation - this is the pipeline-wide leakage-safe estimate: gene selection, network, candidate choice, feature selection and model tuning all ran without them.",
+                      length(ids), paste(sprintf("%s = %d", names(rt), as.integer(rt)), collapse = ", "))),
+          uiOutput(ns("ext_group_pick_ui"))
+        ))
+      }
+      if (identical(input$ext_source %||% "bundled", "bundled")) {
+        return(tagList(
+          div(class = "empty-note", icon("database"),
+              sprintf("%s is loaded from bundled raw probe data, collapsed to gene symbols and log2-transformed. Group column is HC/RA, sex column is F/M. Never part of the merged training cohort.", DIAG_BUNDLED_EXTERNAL_GSE)),
+          uiOutput(ns("ext_group_pick_ui"))
+        ))
+      }
       req(input$ext_expr_file, ext_meta_raw())
       cols <- colnames(ext_meta_raw())
       tagList(
@@ -975,6 +1026,18 @@ mod_diagnostic_server <- function(id, dataset, results) {
     })
 
     ext_data <- reactive({
+      if (identical(input$ext_source %||% "bundled", "reserved")) {
+        ids <- dataset$reserved_ids %||% character(0)
+        validate(need(length(ids) > 0, "No validation samples are reserved - reserve them on the Dataset tab before running the discovery steps."))
+        return(list(expr = dataset$reserved_expr, meta = dataset$reserved_meta,
+                    source_label = sprintf("sealed validation samples reserved on the Dataset tab (%d samples, hidden from every analysis)", length(ids)),
+                    source = "reserved", log2_applied = FALSE))
+      }
+      if (identical(input$ext_source %||% "bundled", "bundled")) {
+        b <- diag_bundled_external_cohort()
+        validate(need(!is.null(b), sprintf("The bundled external cohort (%s) is not available in this deployment - upload an external cohort instead.", DIAG_BUNDLED_EXTERNAL_GSE)))
+        return(list(expr = b$expr, meta = b$meta, source_label = b$label, source = "bundled", log2_applied = b$log2_applied))
+      }
       req(input$ext_expr_file, input$ext_meta_file, input$ext_map_id, input$ext_map_group)
       expr <- if (grepl("\\.rds$", input$ext_expr_file$name, ignore.case = TRUE)) {
         res <- tx_parse_expr_matrix_rds(input$ext_expr_file$datapath)
@@ -992,7 +1055,8 @@ mod_diagnostic_server <- function(id, dataset, results) {
       meta$group <- as.character(meta[[input$ext_map_group]])
       common <- intersect(colnames(expr), meta$sample)
       validate(need(length(common) >= 6, "Fewer than 6 sample IDs in the external expression matrix match the metadata sample-ID column. Check the column mapping."))
-      list(expr = expr[, common, drop = FALSE], meta = meta[match(common, meta$sample), , drop = FALSE])
+      list(expr = expr[, common, drop = FALSE], meta = meta[match(common, meta$sample), , drop = FALSE],
+           source_label = sprintf("uploaded external cohort (%s)", input$ext_expr_file$name), source = "upload", log2_applied = FALSE)
     })
 
     output$ext_group_pick_ui <- renderUI({
@@ -1016,30 +1080,83 @@ mod_diagnostic_server <- function(id, dataset, results) {
         own_panel_genes(panel_sex)
       )
       genes <- intersect(cand$genes, rownames(d$expr))
-      validate(need(length(genes) >= 1, "None of the chosen gene panel's genes are present in the uploaded external dataset."))
+      validate(need(length(genes) >= 1, "None of the chosen gene panel's genes are present in the external dataset."))
 
       keep <- as.character(d$meta$group) %in% c(input$ext_ref_group, input$ext_comp_group)
+      ## A Female/Male panel is scored on the matching sex of the external cohort, when it has one.
+      sex_restricted <- FALSE
+      if (isTRUE(input$ext_match_sex %||% TRUE) && panel_sex %in% c("female", "male") && "sex" %in% colnames(d$meta)) {
+        sx <- as.character(d$meta$sex)
+        sex_keep <- if (identical(panel_sex, "female")) grepl("^f", sx, ignore.case = TRUE) else grepl("^m", sx, ignore.case = TRUE)
+        if (any(sex_keep & keep)) { keep <- keep & sex_keep; sex_restricted <- TRUE }
+      }
       meta_sub <- d$meta[keep, , drop = FALSE]
       y <- factor(as.character(meta_sub$group), levels = c(input$ext_ref_group, input$ext_comp_group))
-      validate(need(all(table(y) >= 3), "Each group needs at least 3 samples in the external dataset."))
+      validate(need(all(table(y) >= 3), sprintf("Each group needs at least 3 samples in the external dataset%s (this contrast has %s).",
+        if (sex_restricted) sprintf(" after restricting to %s samples", panel_sex) else "",
+        paste(sprintf("%s = %d", names(table(y)), as.integer(table(y))), collapse = ", "))))
       expr_sub <- d$expr[genes, meta_sub$sample, drop = FALSE]
 
       gr <- diag_gene_roc(expr_sub, y)
       r_fit <- diag_result_value(panel_sex)
       ext_models <- if (!is.null(r_fit) && length(r_fit$genes)) {
-        tryCatch(diag_apply_models_external(r_fit, d$expr[, meta_sub$sample, drop = FALSE], y), error = function(e) NULL)
+        tryCatch(diag_apply_models_external(r_fit, d$expr[, meta_sub$sample, drop = FALSE], y), error = arthomix_null_on_error)
       } else NULL
       list(gr = gr, expr_sub = expr_sub, y = y, genes = genes, panel_note = cand$note,
            n_ref = sum(y == input$ext_ref_group), n_comp = sum(y == input$ext_comp_group),
            ref_group = input$ext_ref_group, comp_group = input$ext_comp_group,
-           ext_models = ext_models, panel_sex = panel_sex)
+           ext_models = ext_models, panel_sex = panel_sex,
+           cohort_label = d$source_label, cohort_source = d$source, sex_restricted = sex_restricted,
+           n_panel = length(cand$genes))
     }, ignoreInit = TRUE)
+
+    ## Persists external-cohort scoring to shared results, so Biomarker Card's "External validation" row
+    ## can reflect a real run. Only model-scoring runs persist. Do NOT add ignoreInit here - it would
+    ## swallow the first real click (see eventReactive's ignoreInit/ignoreNULL behavior at session start).
+    observeEvent(ext_result(), {
+      r <- ext_result()
+      req(r, !is.null(r$ext_models), !is.null(results$diagnostic[[r$panel_sex]]))
+      model_rows <- lapply(r$ext_models$models, function(mm) list(
+        key = mm$key, label = mm$label, available = isTRUE(mm$available),
+        auc = if (isTRUE(mm$available)) round(mm$auc, 3) else NA_real_,
+        ci_lo = if (isTRUE(mm$available)) round(mm$ci_lo, 3) else NA_real_,
+        ci_hi = if (isTRUE(mm$available)) round(mm$ci_hi, 3) else NA_real_,
+        sensitivity = if (isTRUE(mm$available)) round(mm$perf$sensitivity, 3) else NA_real_,
+        specificity = if (isTRUE(mm$available)) round(mm$perf$specificity, 3) else NA_real_,
+        reason = mm$reason %||% ""))
+      external <- list(
+        cohort = r$cohort_label, cohort_source = r$cohort_source,
+        n_ref = r$n_ref, n_comp = r$n_comp, ref_group = r$ref_group, comp_group = r$comp_group,
+        sex_restricted = isTRUE(r$sex_restricted),
+        n_genes_present = r$ext_models$n_genes_present, n_genes_panel = r$ext_models$n_genes_panel,
+        models = model_rows, genes = r$genes,
+        models_scored = any(vapply(model_rows, function(m) isTRUE(m$available), logical(1))),
+        run_at = Sys.time()
+      )
+      entry <- results$diagnostic[[r$panel_sex]]
+      entry$external <- external
+      results$diagnostic <- utils::modifyList(results$diagnostic %||% list(), setNames(list(entry), r$panel_sex))
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_diagnostic_external_validation",
+        checksum_input = list(expr = r$expr_sub, y = as.character(r$y), genes = r$genes),
+        params = list(
+          stratum = r$panel_sex, external_cohort = r$cohort_label, external_source = r$cohort_source,
+          reference_group = r$ref_group, comparison_group = r$comp_group,
+          n_reference = r$n_ref, n_comparison = r$n_comp, sex_restricted = isTRUE(r$sex_restricted),
+          n_genes_present = r$ext_models$n_genes_present, n_genes_panel = r$ext_models$n_genes_panel,
+          scoring = "frozen models, z-scored within the external cohort, training Youden threshold reused",
+          model_auc = stats::setNames(vapply(model_rows, function(m) m$auc, numeric(1)), vapply(model_rows, function(m) m$key, character(1)))
+        ),
+        seed = NULL,
+        packages = c("glmnet", "randomForest", "e1071", "pROC")
+      ))
+    })
 
     output$ext_model_ui <- renderUI({
       r <- ext_result(); req(r)
       if (is.null(r$ext_models)) {
         return(div(class = "empty-note", icon("circle-info"),
-                   sprintf("Run Model Training for the %s panel first. The trained logistic regression, elastic net, random forest and SVM models are then scored on this external cohort exactly as trained: training Youden threshold reused, external samples z-scored within the external cohort, no refitting or re-tuning.", r$panel_sex)))
+                   sprintf("Run Model Training for the %s panel first. The trained LR, elastic net, RF and SVM models are then scored on this external cohort exactly as trained: training Youden threshold reused, external samples z-scored within the cohort, no refitting or re-tuning.", r$panel_sex)))
       }
       tagList(
         p(class = "submodule-desc", sprintf(
@@ -1097,17 +1214,20 @@ mod_diagnostic_server <- function(id, dataset, results) {
     }, ignoreInit = TRUE)
 
     output$ext_status_ui <- renderUI({
-      r <- tryCatch(ext_result(), error = function(e) NULL)
+      r <- tryCatch(ext_result(), error = arthomix_null_on_error)
       if (!is.null(r)) {
         return(div(class = "empty-note", icon("check"),
-            sprintf("%d panel genes present in the external dataset, %d samples (%d %s vs %d %s). %s",
-                    length(r$genes), length(r$y), r$n_comp, r$comp_group, r$n_ref, r$ref_group, r$panel_note)))
+            sprintf("%s: %d panel genes present, %d samples scored (%d %s vs %d %s)%s. %s%s",
+                    r$cohort_label, length(r$genes), length(r$y), r$n_comp, r$comp_group, r$n_ref, r$ref_group,
+                    if (isTRUE(r$sex_restricted)) sprintf(", restricted to %s samples", r$panel_sex) else "",
+                    r$panel_note,
+                    if (is.null(r$ext_models)) " No trained model was available for this panel, so only per-gene discrimination is shown and nothing is saved as model validation." else " The frozen-model result is saved to this session's shared results (Biomarker Card reads it).")))
       }
       err <- ext_result_error_msg()
       if (!is.null(err)) {
         div(class = "empty-note", icon("triangle-exclamation"), sprintf("External validation failed: %s", err))
       } else {
-        div(class = "empty-note", icon("circle-info"), "Not run yet. Upload files, map columns, then click Run.")
+        div(class = "empty-note", icon("circle-info"), "Not run yet. Choose the bundled cohort or upload files and map columns, pick the panel, then click Run.")
       }
     })
 
@@ -1156,7 +1276,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     })
 
     output$ext_results_ui <- renderUI({
-      r <- tryCatch(ext_result(), error = function(e) NULL)
+      r <- tryCatch(ext_result(), error = arthomix_null_on_error)
       if (is.null(r)) return(NULL)
       tagList(
         box(
@@ -1177,9 +1297,9 @@ mod_diagnostic_server <- function(id, dataset, results) {
     })
 
     diag_advanced_params <- function() {
-      alpha_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
+      alpha_grid <- arthomix_quiet(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
       alpha_grid <- alpha_grid[!is.na(alpha_grid) & alpha_grid >= 0 & alpha_grid <= 1]
-      cost_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
+      cost_grid <- arthomix_quiet(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
       cost_grid <- cost_grid[!is.na(cost_grid) & cost_grid > 0]
       list(
         test_frac = (input$test_frac_pct %||% (DIAG_DEFAULT_PARAMS$test_frac * 100)) / 100,
@@ -1226,7 +1346,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       validate(need(length(common) >= 10, sprintf("Fewer than 10 %s samples match this contrast.", sex_label)))
       meta <- meta[match(common, meta$sample), , drop = FALSE]
       y <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
-      validate(need(all(table(y) >= 6), sprintf("Each group needs at least 6 %s samples.", sex_label)))
+      validate(need(all(table(y) >= 10), sprintf("Each group needs at least 10 %s samples to fit and evaluate a classifier (this contrast has %s).", sex_label, paste(sprintf("%s = %d", names(table(y)), as.integer(table(y))), collapse = ", "))))
 
       cand <- switch(input$panel_source,
         project = project_panel_genes(sex_label),
@@ -1251,12 +1371,11 @@ mod_diagnostic_server <- function(id, dataset, results) {
       fit$n_ref <- sum(y == input$ref_group); fit$n_comp <- sum(y == input$comp_group)
       fit$ref_group <- input$ref_group; fit$comp_group <- input$comp_group
 
-      # Automatic leakage-safe headline metric: when this run's Test-split AUC is NOT
-      # leakage-safe (the default/bundled-panel path), compute the nested-CV AUC right
-      # here - so it's ready the moment results render, no separate manual tab/click
-      # needed - and make it the primary metric instead of the naive Test-split AUC.
+      # Automatic leakage-safe headline metric, computed for EVERY run: even when the Test split reused
+      # Feature Selection's hold-out, the candidate genes were chosen by DGE + WGCNA on the full pool, so
+      # the Test-split AUC is protected against selection leakage only. The nested-CV AUC is the headline.
       nested <- NULL
-      if (!isTRUE(fit$leakage_safe)) {
+      {
         compute_nested_cv <- function() {
           cand_genes <- tryCatch(diag_leakagesafe_candidate_genes(sex_label), error = function(e) character(0))
           cand_genes <- intersect(cand_genes, rownames(dataset$expr))
@@ -1282,7 +1401,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
             value = 0.7,
             compute_nested_cv()
           ),
-          error = function(e) NULL
+          error = arthomix_null_on_error
         )
       }
       fit <- diag_attach_headline(fit, nested)
@@ -1306,7 +1425,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
 
       cand_genes <- diag_leakagesafe_candidate_genes(sex_label)
       validate(need(length(cand_genes) >= 5, sprintf(
-        "Leakage-safe validation needs this session's live Candidate Gene Identification output for %s (the WGCNA-candidate list Feature Selection started from) - run Candidate Gene Identification (and Feature Selection) on this dataset first.",
+        "Leakage-safe validation needs this session's live Candidate Gene Identification output for %s. Run Candidate Gene Identification (and Feature Selection) on this dataset first.",
         sex_label
       )))
 
@@ -1318,7 +1437,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       validate(need(length(common) >= 10, sprintf("Fewer than 10 %s samples match this contrast.", sex_label)))
       meta <- meta[match(common, meta$sample), , drop = FALSE]
       y_full <- factor(as.character(meta$group), levels = c(input$ref_group, input$comp_group))
-      validate(need(all(table(y_full) >= 6), sprintf("Each group needs at least 6 %s samples.", sex_label)))
+      validate(need(all(table(y_full) >= 10), sprintf("Each group needs at least 10 %s samples for leakage-safe validation.", sex_label)))
 
       genes <- intersect(cand_genes, rownames(dataset$expr))
       validate(need(length(genes) >= 5, sprintf(
@@ -1409,7 +1528,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
       })
       output[[paste0(sex_label, "_leakagesafe_table")]] <- DT::renderDataTable({
         req(isTRUE(diag_leakagesafe_has_run[[sex_label]]))
-        r <- tryCatch(res_fn(), error = function(e) NULL)
+        r <- tryCatch(res_fn(), error = arthomix_null_on_error)
         req(r, is.list(r), !is.null(r$per_fold))
         DT::datatable(r$per_fold, rownames = FALSE, width = "100%",
                       options = list(pageLength = 10, dom = "t", scrollX = TRUE), class = "stripe hover compact")
@@ -1429,7 +1548,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
     diag_result_value <- function(sex_label) {
       if (!isTRUE(diag_valid[[sex_label]])) return(NULL)
       fr <- switch(sex_label, female = diag_result_female, male = diag_result_male, pooled = diag_result_pooled)
-      tryCatch(fr(), error = function(e) NULL)
+      tryCatch(fr(), error = arthomix_null_on_error)
     }
     lapply(c("female", "male", "pooled"), function(sex_label) {
       trigger <- switch(sex_label, female = female_run_trigger, male = male_run_trigger, pooled = pooled_run_trigger)
@@ -1560,9 +1679,28 @@ mod_diagnostic_server <- function(id, dataset, results) {
           enet_auc = round(r$enet$full_auc, 3), enet_cv_auc = round(mean(r$enet$cv_auc, na.rm = TRUE), 3),
           rf_auc = round(r$rf$full_auc, 3), rf_cv_auc = round(mean(r$rf$cv_auc, na.rm = TRUE), 3),
           svm_auc = round(r$svm$full_auc, 3), svm_cv_auc = round(mean(r$svm$cv_auc, na.rm = TRUE), 3),
-          genes = r$genes
+          genes = r$genes,
+          ## a retrained model invalidates any external scoring of the previous one (modifyList drops NULL)
+          external = NULL
         )), sex_label)
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_diagnostic",
+        checksum_input = list(genes = r$genes, n_train = r$n_samples, n_test = r$n_test, sex = sex_label,
+                              train_auc = c(r$lr$full_auc, r$enet$full_auc, r$rf$full_auc, r$svm$full_auc)),
+        params = list(
+          stratum = sex_label, panel_source = input$panel_source %||% "project", n_genes = r$n_input,
+          reference_group = r$ref_group, comparison_group = r$comp_group,
+          n_train = r$n_samples, n_test = r$n_test, test_frac = r$test_frac,
+          selection_leakage_safe = isTRUE(r$leakage_safe), headline_metric = r$headline_metric,
+          nested_cv_auc = if (identical(r$headline_metric, "nested_cv")) round(r$nested_cv$pooled$auc, 4) else NA_real_,
+          class_weight_mode = input$class_weight_mode %||% "equal",
+          enet_alpha = r$enet$alpha, rf_mtry = r$rf$mtry, svm_cost = r$svm$cost, svm_kernel = r$svm$kernel,
+          small_stratum = isTRUE(r$small_stratum)
+        ),
+        seed = ARTHOMIX_TX_ML_SEED,
+        packages = c("glmnet", "randomForest", "e1071", "caret", "pROC", "limma")
+      ))
       showNotification(
         sprintf("%s diagnostic models saved: logistic regression CV-AUC %.3f, elastic net %.3f, random forest %.3f, SVM %.3f.",
                 tools::toTitleCase(sex_label), mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE)),
@@ -1605,16 +1743,32 @@ mod_diagnostic_server <- function(id, dataset, results) {
             sprintf("%d genes, %d samples (%d vs %d), %s vs %s → CV-AUC logistic regression %.3f / elastic net %.3f / random forest %.3f / SVM %.3f.",
                     r$n_input, r$n_samples, r$n_comp, r$n_ref, r$comp_group, r$ref_group,
                     mean(r$lr$cv_auc, na.rm = TRUE), mean(r$enet$cv_auc, na.rm = TRUE), mean(r$rf$cv_auc, na.rm = TRUE), mean(r$svm$cv_auc, na.rm = TRUE))),
-          if (isTRUE(r$leakage_safe))
-            p(class = "empty-note", icon("shield-halved"), "Leakage-safe: the Test split above is the held-out sample set this gene panel was never selected against.")
-          else if (identical(r$headline_metric, "nested_cv"))
-            p(class = "empty-note", icon("shield-halved"),
+          if (isTRUE(r$small_stratum))
+            p(class = "empty-note", style = "border-left: 3px solid #b8860b; padding-left: 8px;", icon("triangle-exclamation"),
               sprintf(
-                "Not leakage-safe via the Test split above (this gene panel was chosen using the full sample pool) - the leakage-safe headline metric is instead the automatic nested-CV AUC = %.3f (95%% CI %.3f-%.3f), computed for every run. See Model Testing (Internal) for details.",
-                r$nested_cv$pooled$auc, r$nested_cv$pooled$ci_lo, r$nested_cv$pooled$ci_hi
-              ))
-          else
-            p(class = "empty-note", icon("triangle-exclamation"), "Not leakage-safe: this gene panel's Test-set AUC is exploratory, not a validated estimate - either it came from the bundled/precomputed panel, or Feature Selection's held-out split was disabled or didn't overlap this cohort.")
+                "Exploratory (power-limited): the smaller group has only %d samples (below 20), with %.2f events per candidate gene - far below the conventional minimum for a stable model (Peduzzi et al. 1996; Riley et al. 2019). CIs are wide and a single sample can move the AUC. Report these numbers as exploratory, never as a validated panel.",
+                r$min_group_n, r$events_per_variable
+              )),
+          {
+            upstream <- if (isTRUE(r$leakage_safe)) {
+              "The Test split above was held out before Feature Selection ran, but its samples were still used by DE and WGCNA to choose candidate genes - protected against feature-selection leakage only."
+            } else {
+              "This gene panel was chosen using the full sample pool (bundled/precomputed panel, or Feature Selection's held-out split was disabled or didn't overlap this cohort)."
+            }
+            if (length(dataset$reserved_ids %||% character(0)) > 0) {
+              upstream <- paste(upstream, sprintf(
+                "A sealed set of %d samples reserved on the Dataset tab was hidden from every step of this pipeline. Scoring it in External Validation → \"Sealed validation samples\" gives the estimate that's leakage-safe for the whole discovery pipeline.",
+                length(dataset$reserved_ids)))
+            }
+            if (identical(r$headline_metric, "nested_cv"))
+              p(class = "empty-note", icon("shield-halved"),
+                sprintf("%s The leakage-safe headline metric is the automatic nested-CV AUC = %.3f (95%% CI %.3f-%.3f), which re-selects the panel inside every outer fold. See Model Testing (Internal) for details.",
+                        upstream, r$nested_cv$pooled$auc, r$nested_cv$pooled$ci_lo, r$nested_cv$pooled$ci_hi))
+            else
+              p(class = "empty-note", icon("triangle-exclamation"),
+                sprintf("%s No nested-CV headline could be computed for this run (%s), so the Test-split AUC is exploratory, not a validated estimate.",
+                        upstream, r$nested_cv$pooled$reason %||% "run Candidate Gene Identification on this dataset first"))
+          }
         ))
       }
       err <- diag_result_error_msg(sex_label)
@@ -1698,7 +1852,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
 
       output[[paste0(sex_label, "_headline_ui")]] <- renderUI({
         r <- res()
-        if (is.null(r) || isTRUE(r$leakage_safe)) return(NULL)
+        if (is.null(r)) return(NULL)
         if (identical(r$headline_metric, "nested_cv")) {
           pooled <- r$nested_cv$pooled
           box(
@@ -1712,13 +1866,17 @@ mod_diagnostic_server <- function(id, dataset, results) {
                        icon = icon("layer-group"), color = "purple", width = 6)
             ),
             p(class = "empty-note", icon("circle-info"),
-              "Computed automatically because this gene panel was chosen using the full sample pool (no live held-out split) - see the disclosure under Leakage-safe Validation for how this reselects the panel per outer fold. Each technique tab below still shows its own Test-split AUC, now marked exploratory/not leakage-safe.")
+              if (isTRUE(r$leakage_safe))
+                "Computed automatically for every run. The Test split reused Feature Selection's hold-out, protecting against feature-selection leakage - but candidate genes were chosen by DE and WGCNA on all samples, including these. This nested estimate (which re-selects the panel per outer fold) is the one to quote."
+              else
+                "Computed automatically because this gene panel was chosen on the full sample pool (no live held-out split) - see the disclosure under Leakage-safe Validation for how this reselects the panel per outer fold. Each technique tab below still shows its own Test-split AUC, marked exploratory/not leakage-safe.")
           )
         } else {
           div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px;",
               icon("triangle-exclamation"),
-              sprintf("Not leakage-safe, and the automatic nested-CV headline metric is unavailable: %s Each technique tab's Test-split AUC below is exploratory only.",
-                      r$nested_cv$pooled$reason %||% "Reselect a live gene panel or provide more candidate genes."))
+              sprintf("The automatic nested-CV headline metric is unavailable: %s Each technique tab's Test-split AUC below is exploratory only%s.",
+                      r$nested_cv$pooled$reason %||% "Reselect a live gene panel or provide more candidate genes.",
+                      if (isTRUE(r$leakage_safe)) " (held out before Feature Selection, but the candidate genes were chosen on all samples)" else ""))
         }
       })
 
@@ -1837,7 +1995,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
           if (is.null(r)) return(not_yet_note())
           rr <- r[[key]]
           leak_safe <- isTRUE(r$leakage_safe)
-          test_title <- if (leak_safe) sprintf("Test-split AUC (n=%d)%s", rr$test$n, diag_separation_note(rr$test)) else
+          test_title <- if (leak_safe) sprintf("Test-split AUC (n=%d)%s - held out before feature selection only", rr$test$n, diag_separation_note(rr$test)) else
             sprintf("Test-split AUC (n=%d)%s - NOT leakage-safe, exploratory only", rr$test$n, diag_separation_note(rr$test))
           test_tile <- if (isTRUE(rr$test$available)) {
             valueBox(sprintf("%.3f", rr$test$auc), test_title,
@@ -1847,11 +2005,12 @@ mod_diagnostic_server <- function(id, dataset, results) {
           }
           n_tile <- valueBox(if (isTRUE(rr$test$available)) rr$test$n else "-", "Test samples held out", icon = icon("users"), color = "purple", width = 6)
           tagList(
-            if (!leak_safe)
-              div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px; margin-bottom: 8px;",
-                  icon("triangle-exclamation"),
-                  "This model's Test-split AUC below evaluates a gene panel chosen using the full sample pool - exploratory only, not a validated estimate. See the leakage-safe headline metric above.")
-            else NULL,
+            div(class = "empty-note", style = "border-left: 3px solid #c0392b; padding-left: 8px; margin-bottom: 8px;",
+                icon("triangle-exclamation"),
+                if (leak_safe)
+                  "These test samples were held out before LASSO/RF/SVM-RFE ran, but candidate genes were chosen by DE and WGCNA on all samples, including these. This AUC is protected against feature-selection leakage only - quote the nested-CV headline above."
+                else
+                  "This model's Test-split AUC below evaluates a gene panel chosen using the full sample pool - exploratory only, not a validated estimate. See the leakage-safe headline metric above."),
             fluidRow(test_tile, n_tile),
             if (!isTRUE(rr$test$available)) p(class = "submodule-desc", style = "font-size: 12.5px;", icon("circle-info"), rr$test$reason %||% "Test split unavailable.") else NULL
           )
@@ -1977,7 +2136,7 @@ mod_diagnostic_server <- function(id, dataset, results) {
               legend.position = "bottom"
             )
         }, height = function() {
-          r <- tryCatch(res(), error = function(e) NULL)
+          r <- tryCatch(res(), error = arthomix_null_on_error)
           if (is.null(r)) return(320)
           n <- min(nrow(gene_auc_df(r$gene_roc_train, r$gene_roc_test)), GENEROC_MAX_FACETS)
           if (n <= 0) return(320)

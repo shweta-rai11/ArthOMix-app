@@ -6,7 +6,6 @@ skip_if_not_installed("shinytest2")
 skip_if_not_installed("chromote")
 
 test_that("every Transcriptomics sub-module tab opens and renders with no output error", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-tx-submodules",
@@ -15,7 +14,7 @@ test_that("every Transcriptomics sub-module tab opens and renders with no output
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "transcriptomics")
   app$wait_for_idle(timeout = 20 * 1000)
@@ -36,7 +35,6 @@ test_that("every Transcriptomics sub-module tab opens and renders with no output
 })
 
 test_that("Dataset -> DGE data flow: loading the default preloaded dataset populates DGE's contrast-column picker with real metadata columns", {
-  skip_if(!nzchar(Sys.getenv("ARTHOMIX_TEST_EMAIL")), "no test Supabase account configured (ARTHOMIX_TEST_EMAIL/ARTHOMIX_TEST_PASSWORD)")
 
   app <- new_app_driver(
     name = "arthomix-tx-dge-flow",
@@ -45,7 +43,7 @@ test_that("Dataset -> DGE data flow: loading the default preloaded dataset popul
     load_timeout = 90 * 1000
   )
   on.exit(app$stop(), add = TRUE)
-  login_test_user(app)
+  app$wait_for_idle(timeout = 20 * 1000)
 
   app$set_inputs(sidebar_tabs = "transcriptomics")
   app$wait_for_idle(timeout = 20 * 1000)

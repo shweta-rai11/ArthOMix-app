@@ -1,6 +1,5 @@
 ## R/multiomics/02_Cohort_Harmonization/mod_multi_overview.R
-## Submodule: Cohort Harmonization - data-adaptive report on the Active
-## Multi-Omics Dataset (multi_dataset, built on the Dataset Workspace tab):
+## Cohort Harmonization: adaptive report on the Active Multi-Omics Dataset.
 
 mod_multi_overview_config <- list(
   id = "overview", title = "Cohort Harmonization", icon = "users", group = "Data",
@@ -19,7 +18,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
+    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset, multi_results))
 
     descriptors <- reactive(ch_modality_descriptors(multi_dataset))
     id_sets_all <- reactive(stats::setNames(lapply(descriptors(), function(x) x$sample_ids), names(descriptors())))
@@ -90,8 +89,9 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
         ok = TRUE, descriptors = d_sel, ids = ids,
         overlap_matrix = ch_pairwise_overlap_matrix(ids),
         cells = cells_res$cells, cells_omitted_note = cells_res$omitted_note, readiness = readiness,
-        id_table = id_table, n_total = length(union_all), n_matched = length(full_overlap),
-        matched_summary = ch_matched_sample_summary(ids)
+        id_table = id_table, n_total = length(union_all), n_matched = length(full_overlap), matched_ids = full_overlap,
+        matched_summary = ch_matched_sample_summary(ids),
+        min_overlap = min_overlap
       )
     }, ignoreInit = TRUE)
 
@@ -310,10 +310,26 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
         s36 <- multi_read_registry_table("Master six-part summary (integrated vs single-omics)")
         if (s36$ok) summary36 <- s36$df
       }
+      ## Hand-off for Integration/Biomarker Discovery/SNF: readiness, matched IDs, phenotype/batch columns.
+      all_idx <- which(vapply(h$cells, function(cl) length(cl$modalities) == length(h$ids), logical(1)))
+      full_readiness <- if (length(all_idx) > 0) h$readiness[[all_idx[1]]] else list(level = "unknown", label = "Not assessed", reason = "The all-modality cell was not among the assessed cells.")
       multi_results$overview <- list(
-        harmonization = list(ok = TRUE, n_total = h$n_total, n_matched = h$n_matched),
+        harmonization = list(ok = TRUE, n_total = h$n_total, n_matched = h$n_matched, matched_ids = h$matched_ids,
+                             modalities = names(h$ids), readiness = full_readiness,
+                             n_unmatched_ids = sum(tolower(h$id_table$status) %in% c("unmatched", "duplicate", "ambiguous", "invalid")),
+                             phenotype_candidates = tryCatch(ch_detect_candidate_columns(multi_dataset$sample_meta, "phenotype"), error = function(e) character(0)),
+                             batch_candidates = tryCatch(ch_detect_candidate_columns(multi_dataset$sample_meta, "batch"), error = function(e) character(0)),
+                             analyzed_at = Sys.time()),
         summary36 = summary36, cells = h$cells
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_overview",
+        checksum_input = h$ids,
+        params = list(modalities = names(h$ids), min_overlap = h$min_overlap, n_total = h$n_total, n_matched = h$n_matched,
+                      readiness = full_readiness$label),
+        packages = character(0),
+        extra = list(dataset = multi_dataset$source %||% NA_character_)
+      ), session = session, dedupe = TRUE)
     })
   })
 }

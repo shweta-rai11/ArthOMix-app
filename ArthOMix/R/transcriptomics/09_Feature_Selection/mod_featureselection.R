@@ -1,6 +1,4 @@
-## Feature Selection module: fits LASSO, random forest, and SVM-RFE
-## independently per sex on a candidate gene panel, then reports the
-## consensus overlap. Female/male are always modeled separately, never
+## Feature Selection: fits LASSO, random forest, SVM-RFE per sex; reports consensus overlap.
 
 tx_csv_safe <- function(x) {
   x <- as.character(x)
@@ -52,9 +50,11 @@ FS_SVM_COST_GRID <- c(0.01, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16)
 
 FS_MAX_CANDIDATE_GENES <- 200
 
-FS_MIN_GROUP_SAMPLES <- 4
+## Hard floor per group (post held-out split); 6 is the smallest count where 5-fold CV works.
+FS_MIN_GROUP_SAMPLES <- 6
 
-FS_RELIABLE_GROUP_SAMPLES <- 6
+## Below this per-group count the fit is labelled exploratory (Ambroise & McLachlan 2002; Riley 2019).
+FS_RELIABLE_GROUP_SAMPLES <- 10
 
 FS_DEFAULT_PARAMS <- list(
   # equal = unweighted (default); balanced = inverse-frequency; manual = fixed ratio
@@ -130,7 +130,7 @@ fs_fit_sex <- function(X, y, params = list()) {
       caret::train(x = X, y = y, method = "rf", metric = "ROC", trControl = ctrl,
                    tuneGrid = expand.grid(mtry = mtry_grid), ntree = ntree, importance = TRUE,
                    nodesize = rf_nodesize, maxnodes = rf_maxnodes, classwt = cw_levels),
-      error = function(e) NULL
+      error = arthomix_null_on_error
     )
     best_mtry <- if (!is.null(rf_tune)) rf_tune$bestTune$mtry else max(1, floor(sqrt(p)))
   }
@@ -159,7 +159,7 @@ fs_fit_sex <- function(X, y, params = list()) {
                   tolerance = svm_tolerance, class.weights = cw_levels,
                   ranges = list(cost = grid),
                   tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)),
-      error = function(e) NULL
+      error = arthomix_null_on_error
     )
     best_cost <- if (!is.null(svm_tune)) svm_tune$best.parameters$cost else 1
   }
@@ -453,7 +453,7 @@ mod_featureselection_server <- function(id, dataset, results) {
     })
 
     output$group_controls_ui <- renderUI({
-      meta <- tryCatch(source_expr_meta()$meta, error = function(e) NULL)
+      meta <- tryCatch(source_expr_meta()$meta, error = arthomix_null_on_error)
       if (is.null(meta) || !("group" %in% colnames(meta))) {
         return(div(class = "empty-note", icon("circle-info"), "Pick a candidate gene source above (with a group column) first."))
       }
@@ -477,7 +477,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           numericInput(ns("fs_holdout_frac"), "Held-out fraction", value = 0.3, min = 0.1, max = 0.5, step = 0.05),
           numericInput(ns("fs_holdout_seed"), "Split seed", value = 1234, min = 1, step = 1),
           div(class = "empty-note", style = "font-size: 12.5px;", icon("shield-halved"),
-              "These samples are set aside before LASSO/Random Forest/SVM-RFE ever run and are never used to choose genes - they're published as the panel's held-out set so the Diagnostic module can evaluate it without re-using a selection sample. (Only applies to a live run - the precomputed bundled-reference panel has no per-run split.)"))
+              "These samples are set aside before LASSO/Random Forest/SVM-RFE run, and are never used by those three selectors. They're published as the panel's held-out set so the Diagnostic module can evaluate it without reusing a selection sample. They were, however, still part of the pool Differential Expression and WGCNA used to choose these candidate genes - so this split protects only the selection step; the Diagnostic module's nested-CV headline covers the rest. For a hold-out sealed from the whole pipeline, reserve validation samples on the Dataset tab before running DE and WGCNA. (Live run only - the precomputed bundled-reference panel has no per-run split.)"))
       )
     })
 
@@ -545,7 +545,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       fname <- if (isTRUE(mhc_exclude)) "ml_features_noMHC.rds" else "ml_features.rds"
       path <- file.path(PROCESSED_NEW_DIR, fname)
       if (!file.exists(path)) return(NULL)
-      obj <- tryCatch(readRDS(path), error = function(e) NULL)
+      obj <- tryCatch(readRDS(path), error = arthomix_null_on_error)
       sx <- obj[[sex_label]]
       if (is.null(sx)) return(NULL)
       grp <- obj$meta$group[match(sx$samples, obj$meta$sample)]
@@ -717,7 +717,7 @@ mod_featureselection_server <- function(id, dataset, results) {
 
     # reads current values of the LASSO/RF/SVM-RFE controls, falling back to FS_DEFAULT_PARAMS
     fs_advanced_params <- function() {
-      cost_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
+      cost_grid <- arthomix_quiet(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
       cost_grid <- cost_grid[!is.na(cost_grid) & cost_grid > 0]
       list(
         class_weight_mode = input$class_weight_mode %||% FS_DEFAULT_PARAMS$class_weight_mode,
@@ -796,7 +796,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         set.seed(input$fs_holdout_seed %||% 1234)
         train_idx <- tryCatch(
           as.integer(caret::createDataPartition(y_split, p = 1 - frac, list = FALSE)[, 1]),
-          error = function(e) NULL
+          error = arthomix_null_on_error
         )
         validate(need(!is.null(train_idx) && length(train_idx) >= 6 && all(table(y_split[train_idx]) >= 2),
           sprintf("Could not create a held-out split for %s with these settings (too few samples per group) - lower the held-out fraction, disable the split, or add more samples.", sex_label)))
@@ -870,7 +870,7 @@ mod_featureselection_server <- function(id, dataset, results) {
     # pre-first-click halt (ignoreInit's req(FALSE)) always carries an EMPTY message, while a
     # validate(need(...)) failure inside fs_build_sex() always carries the real one - so
     # `nzchar()` on the caught message tells them apart. Every other read of fs_result_*()
-    # elsewhere in this file (`tryCatch(..., error = function(e) NULL)`) collapsed both cases to
+    # elsewhere in this file (`tryCatch(..., error = arthomix_null_on_error)`) collapsed both cases to
     # NULL, which made a real failure (e.g. too few female samples for this contrast) look
     # exactly like the button never having been clicked - the bug behind "Female result is not
     # showing" with no indication why.
@@ -888,7 +888,7 @@ mod_featureselection_server <- function(id, dataset, results) {
     fs_result_or_null <- function(sex_label) {
       if (fs_is_stale(sex_label)) return(NULL)
       fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
-      tryCatch(fr(), error = function(e) NULL)
+      tryCatch(fr(), error = arthomix_null_on_error)
     }
 
     # reveals the results area on the first Run click (stays visible after); raw id since shinyjs auto-namespaces
@@ -1005,8 +1005,34 @@ mod_featureselection_server <- function(id, dataset, results) {
       )
     })
 
+    # Every completed run pushes an analysis record to the session-wide provenance store (header panel).
+    fs_push_provenance <- function(sex_label, r) {
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_featureselection",
+        checksum_input = list(sets = r$sets, consensus = r$consensus, n_input = r$n_input, n_samples = r$n_samples),
+        params = list(
+          stratum = sex_label, data_source = input$data_source %||% "project",
+          reference_group = r$ref_group, comparison_group = r$comp_group,
+          n_candidate_genes = r$n_input, n_training_samples = r$n_samples,
+          n_holdout_samples = length(r$holdout_sample_ids %||% character(0)),
+          holdout_fraction = if (isTRUE(input$fs_holdout_enabled %||% TRUE)) input$fs_holdout_frac %||% 0.3 else 0,
+          holdout_seed = input$fs_holdout_seed %||% 1234,
+          fast_path_precomputed = isTRUE(r$fast_path), mhc_mode = r$mhc_mode %||% "n/a",
+          lasso_alpha = r$lasso_alpha, lasso_lambda_choice = r$lasso_lambda_choice,
+          rf_ntree = r$rf_ntree, rf_mtry = r$rf_mtry, rf_selection_rule = r$rf_selection_rule,
+          svm_cost = r$svm_cost, svm_panel_mode = r$svm_panel_mode,
+          consensus_methods = r$consensus_methods, n_consensus = length(r$consensus),
+          class_weight_mode = input$class_weight_mode %||% "equal",
+          exploratory_small_stratum = !isTRUE(r$fast_path) && !is.null(r$min_group_n) && r$min_group_n < FS_RELIABLE_GROUP_SAMPLES
+        ),
+        seed = ARTHOMIX_TX_ML_SEED,
+        packages = c("glmnet", "randomForest", "e1071", "caret")
+      ))
+    }
+
     # each sex saves into results$featureselection independently via modifyList, without clobbering the other
     observeEvent(fs_result_female(), {
+      fs_push_provenance("female", fs_result_female())
       r <- fs_result_female()
       results$featureselection <- utils::modifyList(
         results$featureselection %||% list(),
@@ -1037,6 +1063,7 @@ mod_featureselection_server <- function(id, dataset, results) {
 
     observeEvent(fs_result_male(), {
       r <- fs_result_male()
+      fs_push_provenance("male", r)
       results$featureselection <- utils::modifyList(
         results$featureselection %||% list(),
         list(
@@ -1066,6 +1093,7 @@ mod_featureselection_server <- function(id, dataset, results) {
 
     observeEvent(fs_result_pooled(), {
       r <- fs_result_pooled()
+      fs_push_provenance("pooled", r)
       results$featureselection <- utils::modifyList(
         results$featureselection %||% list(),
         list(
@@ -1311,7 +1339,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         if (is.null(r)) return(not_yet_note())
         used <- consensus_used_methods(r)
         genes <- consensus_used_genes(r, used)
-        clicked <- tryCatch(consensus_clicked_region(), error = function(e) NULL)
+        clicked <- tryCatch(consensus_clicked_region(), error = arthomix_null_on_error)
         tagList(
           p(strong(length(genes)), sprintf(" genes selected by %s: ", paste(unname(method_labels[used]), collapse = " ∩ ")),
             if (length(genes) > 0) paste(genes, collapse = ", ") else "none", "."),
@@ -1335,7 +1363,7 @@ mod_featureselection_server <- function(id, dataset, results) {
         df$random_forest <- df$gene %in% r$rf_genes
         df$svm_rfe <- df$gene %in% r$svm_genes
         df$consensus <- df$gene %in% genes
-        clicked <- tryCatch(consensus_clicked_region(), error = function(e) NULL)
+        clicked <- tryCatch(consensus_clicked_region(), error = arthomix_null_on_error)
         if (!is.null(clicked)) df <- df[df$gene %in% clicked$item, , drop = FALSE]
         df <- df[order(-df$consensus, df$gene), ]
         DT::datatable(df, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")

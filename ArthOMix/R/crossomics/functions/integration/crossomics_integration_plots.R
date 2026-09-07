@@ -1,6 +1,5 @@
 ## R/crossomics/functions/integration/crossomics_integration_plots.R
-## Plotting/rendering helpers for mod_cross_integration.R - kept separate from
-## the module file so the Shiny wiring (mod_cross_integration.R) and the
+## Plotting/rendering helpers for mod_cross_integration.R.
 
 cx_empty_state <- function(message = "Click \"Run Integration\" in the Integration tab to see results here.") {
   div(class = "empty-note", icon("circle-info"), message)
@@ -156,7 +155,7 @@ cx_build_report <- function(df, provenance) {
     "",
     "## Interpretation", "",
     "These results represent statistical associations between differential gene expression and differential DNA methylation.",
-    "They do not, on their own, establish a causal regulatory relationship - functional follow-up would be required for that.",
+    "They don't establish causality on their own - functional follow-up would be needed for that.",
     ""
   )
 }

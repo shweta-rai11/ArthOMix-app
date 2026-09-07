@@ -116,6 +116,48 @@ test_that("DESeq2 is rejected on CPM-like normalised-totals data even though it 
   })
 })
 
+test_that("limma::treat mode tests the fold-change inside the null hypothesis and is more conservative than the post-hoc gate at the same cutoff", {
+  dataset <- dge_fixture_dataset(n_per_group = 8)
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
+                        ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.5, effect_mode = "posthoc")
+    session$setInputs(run_btn = 0)
+    session$setInputs(run_btn = 1)
+    posthoc <- sig_table()
+    expect_equal(fit_result()$effect_mode, "posthoc")
+
+    session$setInputs(effect_mode = "treat")
+    session$setInputs(run_btn = 2)
+    treat <- sig_table()
+    expect_equal(fit_result()$effect_mode, "treat")
+    expect_true(grepl("treat", fit_result()$test_label, fixed = TRUE))
+    expect_setequal(treat$gene, posthoc$gene)
+    ## treat's p-values test H0: |log2FC| <= 0.5, so nothing can be significant under treat that was not under the post-hoc gate
+    expect_true(all(treat$gene[treat$significant] %in% posthoc$gene[posthoc$significant]))
+    expect_lte(sum(treat$significant), sum(posthoc$significant))
+  })
+})
+
+test_that("every completed run pushes one provenance record to the session store, with the fold-change sensitivity counts", {
+  dataset <- dge_fixture_dataset()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    arthomix_provenance_clear(session)
+    session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
+                        ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.5, effect_mode = "posthoc")
+    session$setInputs(run_btn = 0)
+    session$setInputs(run_btn = 1)
+    recs <- arthomix_provenance_records(session)
+    expect_length(recs, 1)
+    expect_equal(recs[[1]]$module, "mod_dge")
+    expect_equal(recs[[1]]$params$lfc_cut, 0.5)
+    expect_true(all(c("n_significant_lfc_0.1", "n_significant_lfc_0.5", "n_significant_lfc_1") %in% names(recs[[1]]$params)))
+    expect_gte(recs[[1]]$params$n_significant_lfc_0.1, recs[[1]]$params$n_significant_lfc_1)
+    expect_equal(recs[[1]]$software$packages$limma, as.character(utils::packageVersion("limma")))
+  })
+})
+
 test_that("identical reference and comparison levels are rejected", {
   dataset <- dge_fixture_dataset()
   results <- shiny::reactiveValues()

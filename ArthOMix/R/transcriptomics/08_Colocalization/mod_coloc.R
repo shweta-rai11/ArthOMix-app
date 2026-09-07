@@ -1,6 +1,5 @@
 ## R/transcriptomics/08_Colocalization/mod_coloc.R
-## Submodule: Colocalization (Section 2.7)
-## Runs coloc.abf between the bundled eQTL cis-window instrument (33 genes) and
+## Submodule: Colocalization - runs coloc.abf between the bundled eQTL instrument and a GWAS.
 
 mod_coloc_config <- list(
   id = "coloc", group = "Genetics",
@@ -17,7 +16,7 @@ mod_coloc_ui <- function(id) {
           4,
           box(
             width = NULL, title = "Candidate region & GWAS", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "Overlapping eQTL and GWAS peaks can mean two distinct causal variants in LD, not one variant driving both. coloc.abf tests that directly: for the chosen gene's cis-window it compares eQTL vs GWAS association patterns and returns posterior probabilities for five hypotheses, plus per-SNP evidence and regional/posterior-probability plots. The eQTL side is always this project's bundled cis-window instrument (33 genes); only the GWAS side can be swapped between the bundled RA GWAS and an uploaded GWAS for another trait."),
+            p(class = "submodule-desc", "Overlapping eQTL and GWAS peaks can mean two distinct causal variants in LD, not one variant driving both. coloc.abf tests this directly: for the chosen gene's cis-window it compares eQTL vs GWAS patterns and returns posterior probabilities for five hypotheses, plus per-SNP evidence and plots. The eQTL side is always this project's bundled cis-window instrument (33 genes); only the GWAS side can be swapped between the bundled RA GWAS and an upload."),
             radioButtons(
               ns("data_source"), NULL,
               choiceNames = list(
@@ -30,7 +29,7 @@ mod_coloc_ui <- function(id) {
             conditionalPanel(
               condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
               p(class = "submodule-desc",
-                "A delimited file (CSV/TSV), one row per SNP: any trait's GWAS summary statistics, tested against the bundled eQTL region for the gene picked above. SNP IDs must be rsIDs (dbSNP rs#) to match the bundled eQTL instrument, and a sample-size column is required (coloc.abf needs N for both sides)."),
+                "A delimited file (CSV/TSV), one row per SNP: any trait's GWAS summary statistics, tested against the bundled eQTL region for the gene above. SNP IDs must be rsIDs (dbSNP rs#), and a sample-size column is required (coloc.abf needs N for both sides)."),
               textInput(ns("gwas_label"), "GWAS trait name (for labelling only)", value = "Uploaded GWAS", width = "100%"),
               radioButtons(
                 ns("gwas_type"), "GWAS trait type", inline = TRUE,
@@ -46,20 +45,20 @@ mod_coloc_ui <- function(id) {
             conditionalPanel(
               condition = sprintf("input['%s'] == 'upload' && input['%s'] == 'quant'", ns("data_source"), ns("gwas_type")),
               p(class = "submodule-desc",
-                "Quantitative trait selected: coloc.abf needs an effect-allele-frequency column for this GWAS to analyse it without a directly-known phenotype SD - map one below (the optional \"Effect allele frequency\" field).")
+                "Quantitative trait selected: coloc.abf needs an effect-allele-frequency column to analyse it without a known phenotype SD. Map one below (the optional \"Effect allele frequency\" field).")
             ),
             tags$details(
               class = "box box-primary", style = "margin-top: 10px;",
               tags$summary(class = "box-header", style = "cursor: pointer;", tags$h3(class = "box-title", "Advanced: colocalisation priors")),
               div(class = "box-body",
                 p(class = "submodule-desc",
-                  "coloc.abf's Bayesian priors: the probability a given SNP is associated with the eQTL only (p1), the GWAS trait only (p2), or both (p12). These drive the PP.H4 (shared causal variant) conclusion, so it's worth sensitivity-testing them rather than trusting the package defaults blindly. Defaults below are coloc's own documented conventions and leave existing results unchanged unless you edit them."),
+                  "coloc.abf's Bayesian priors: probability a SNP is associated with the eQTL only (p1), the GWAS trait only (p2), or both (p12). These drive the PP.H4 (shared causal variant) conclusion, so it's worth sensitivity-testing them. Defaults below are coloc's own documented conventions."),
                 fluidRow(
                   column(4, numericInput(ns("p1"), "p1 (eQTL only)", value = 1e-4, min = 1e-8, max = 1e-2, step = 1e-6, width = "100%")),
                   column(4, numericInput(ns("p2"), "p2 (GWAS only)", value = 1e-4, min = 1e-8, max = 1e-2, step = 1e-6, width = "100%")),
                   column(4, numericInput(ns("p12"), "p12 (both)", value = 1e-5, min = 1e-8, max = 1e-2, step = 1e-7, width = "100%"))
                 ),
-                helpText("coloc's conventional defaults: p1 = 1e-4, p2 = 1e-4, p12 = 1e-5. p12 should not exceed either p1 or p2 (a SNP can't be more likely to affect both traits than it is to affect either one alone).")
+                helpText("coloc's conventional defaults: p1 = 1e-4, p2 = 1e-4, p12 = 1e-5. p12 shouldn't exceed p1 or p2 (a SNP can't be more likely to affect both traits than either alone).")
               )
             ),
             actionButton(ns("run_btn"), "Run colocalisation", icon = icon("play"), class = "btn-primary btn-sm")
@@ -124,7 +123,7 @@ mod_coloc_server <- function(id, dataset, results) {
       validate(need(is.numeric(p12) && length(p12) == 1 && !is.na(p12) && p12 > 0 && p12 < 1,
                     "p12 must be a probability strictly between 0 and 1."))
       validate(need(p12 <= min(p1, p2),
-                    "p12 (probability a SNP affects both the eQTL and the GWAS trait) cannot exceed p1 or p2 (probability it affects only one) - this is a coloc sanity convention. Lower p12, or raise p1/p2."))
+                    "p12 (probability a SNP affects both eQTL and GWAS trait) can't exceed p1 or p2 (probability it affects only one) - a coloc sanity convention. Lower p12, or raise p1/p2."))
       list(p1 = p1, p2 = p2, p12 = p12)
     }
 
@@ -147,7 +146,7 @@ mod_coloc_server <- function(id, dataset, results) {
       priors <- validated_priors()
       d1 <- list(beta = e$beta, varbeta = e$se^2, N = round(median(e$n)), MAF = pmin(e$eaf, 1 - e$eaf), type = "quant", snp = common)
       d2 <- list(beta = g$beta, varbeta = g$se^2, N = round(median(g$n)), type = "cc", s = input$case_frac, snp = common)
-      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
+      res <- tryCatch(arthomix_quiet(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
       validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
@@ -166,7 +165,7 @@ mod_coloc_server <- function(id, dataset, results) {
       gwas_type <- input$gwas_type %||% "cc"
       if (identical(gwas_type, "quant")) {
         validate(need(nzchar(input$gwas_eaf %||% ""),
-          "Quantitative-trait colocalisation needs an effect-allele-frequency column for the GWAS (coloc.abf needs it to analyse a quantitative trait without a directly-known phenotype SD) - map one in \"Effect allele frequency\" below, or switch GWAS trait type to Binary if this GWAS has no allele-frequency column."))
+          "Quantitative-trait colocalisation needs an effect-allele-frequency column (coloc.abf needs it without a known phenotype SD). Map one in \"Effect allele frequency\" below, or switch GWAS trait type to Binary if there's no such column."))
       }
 
       r <- coloc_regions[[input$gene]]
@@ -190,7 +189,7 @@ mod_coloc_server <- function(id, dataset, results) {
       )
       out_fmt$outcome <- label
 
-      dat_up <- tryCatch(TwoSampleMR::harmonise_data(exp_fmt, out_fmt, action = 2), error = function(e) NULL)
+      dat_up <- tryCatch(TwoSampleMR::harmonise_data(exp_fmt, out_fmt, action = 2), error = arthomix_null_on_error)
       validate(need(!is.null(dat_up) && nrow(dat_up) > 0,
         "Harmonisation found no overlapping SNPs between the bundled eQTL region and your uploaded GWAS - check that both use rsIDs and that allele columns are mapped correctly."))
       dat_up <- dat_up[dat_up$mr_keep, , drop = FALSE]
@@ -217,7 +216,7 @@ mod_coloc_server <- function(id, dataset, results) {
         list(beta = dat_up$beta.outcome, varbeta = dat_up$se.outcome^2,
              N = round(median(dat_up$samplesize.outcome)), type = "cc", s = input$case_frac, snp = dat_up$SNP)
       }
-      res <- tryCatch(suppressWarnings(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
+      res <- tryCatch(arthomix_quiet(coloc::coloc.abf(dataset1 = d1, dataset2 = d2, p1 = priors$p1, p2 = priors$p2, p12 = priors$p12)), error = function(e) e)
       validate(need(!inherits(res, "error"), sprintf("coloc.abf() failed: %s", if (inherits(res, "error")) conditionMessage(res) else "unknown error")))
 
       snp_df <- data.frame(
@@ -244,6 +243,18 @@ mod_coloc_server <- function(id, dataset, results) {
       existing <- results$coloc %||% list(genes_tested = list())
       existing$genes_tested[[res$gene]] <- entry
       results$coloc <- existing
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_coloc",
+        checksum_input = list(gene = res$gene, snps = res$snp_df$snp, pp = as.numeric(res$summary)),
+        params = list(
+          gene = res$gene, gwas = res$gwas_label, gwas_type = res$gwas_type,
+          case_fraction = if (identical(res$gwas_type, "cc")) input$case_frac %||% 0.33 else NA_real_,
+          prior_p1 = res$priors$p1, prior_p2 = res$priors$p2, prior_p12 = res$priors$p12,
+          n_shared_snps = res$n_snp, pp_h4 = round(unname(res$summary["PP.H4.abf"]), 4),
+          assumption = "coloc.abf: at most one causal variant per trait in the region"
+        ),
+        seed = NULL, packages = c("coloc", if (isTRUE(res$uploaded)) "TwoSampleMR")
+      ))
     })
 
     output$summary_ui <- renderUI({

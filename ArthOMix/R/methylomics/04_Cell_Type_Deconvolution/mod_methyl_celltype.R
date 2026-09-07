@@ -1,6 +1,5 @@
 ## R/methylomics/04_Cell_Type_Deconvolution/mod_methyl_celltype.R
-## Cell-Type Deconvolution submodule: estimates cell-type proportions from bulk methylation via EpiDISH
-## (Houseman CP, RPC, CBS, hepidish two-stage) against built-in reference panels or a custom upload.
+## Estimates cell-type proportions from bulk methylation via EpiDISH (Houseman/RPC/CBS/hepidish).
 
 mod_methyl_celltype_config <- list(
   id = "celltype", title = "Cell-Type Deconvolution", icon = "people-group", group = "Data",
@@ -609,7 +608,7 @@ mod_methyl_celltype_featsel_ui <- function(ns) {
       conditionalPanel(
         condition = sprintf("input['%s'] == 'dmc_unavailable'", ns("ct_fs_method")),
         div(class = "empty-note", icon("ban"),
-            "Differential methylation markers/DMCs/DMRs need per-sample sorted-cell-type data, which isn't available for the built-in reference panels (mean-beta centroids only, no replicates) - not built in this pass.")
+            "Differential methylation markers/DMCs/DMRs need per-sample sorted-cell-type data. The built-in reference panels only have mean-beta centroids with no replicates, so this isn't available.")
       ),
       div(style = "margin-top:8px;",
           actionButton(ns("ct_fs_run_btn"), "Run CpG Feature Selection", icon = icon("play"), class = "btn-primary"))
@@ -658,7 +657,7 @@ mod_methyl_celltype_refmethod_ui <- function(ns) {
           conditionalPanel(
             condition = sprintf("input['%s'] == 'hepidish'", ns("ct_method")),
             p(class = "empty-note", icon("circle-info"),
-              "Two-stage: the reference above splits the tissue into its top-level components (e.g. Epithelial/Fibroblast/Immune); a second blood reference then further decomposes the chosen component into its own cell subtypes."),
+              "Two-stage: the reference above splits tissue into top-level components (e.g. Epithelial/Fibroblast/Immune). A second blood reference then decomposes the chosen component into its own subtypes."),
             selectInput(ns("ct_hepidish_ic_col"), "Column to further decompose", choices = NULL, width = "100%"),
             selectInput(ns("ct_hepidish_ref2"), "Second-stage (immune subtype) reference",
                         choices = blood_choices, selected = "blood7", width = "100%")

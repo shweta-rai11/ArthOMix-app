@@ -54,13 +54,6 @@ jobs:
       # and renv/remotes read GITHUB_PAT to authenticate those calls,
       # raising the limit to 5000/hour.
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      # Non-secret placeholders so R/auth/auth_api.R's
-      # SUPABASE_URL/SUPABASE_ANON_KEY module-level reads don't error out;
-      # tests/testthat/test-auth-functions.R deliberately covers only pure
-      # logic and never performs a real Supabase network call, so these
-      # values never need to be real credentials.
-      SUPABASE_URL: ""
-      SUPABASE_ANON_KEY: ""
 
     steps:
       # Confirmed live: adding lfs: true below (real bundled reference data,

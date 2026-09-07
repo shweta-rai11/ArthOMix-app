@@ -1,6 +1,5 @@
 ## R/methylomics/10_ML_Feature_Selection/mod_methyl_featureselection.R
-## CpG feature-selection workflow: filter probes, run Univariate/LASSO/RF/RFE/
-## Stability selection independently, combine into a weighted Consensus panel
+## CpG feature selection: filter probes, run Univariate/LASSO/RF/RFE/Stability, combine into Consensus panel.
 
 mod_methyl_featureselection_config <- list(
   id = "featureselection", title = "ML Feature Selection", icon = "sliders", group = "Biomarker modeling",
@@ -658,7 +657,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                   format(nrow(src$mat), big.mark = ","), ncol(src$mat), toupper(src$scale))),
         if (src$frac_out_of_range > 0.001)
           p(class = "empty-note", icon("triangle-exclamation"),
-            sprintf("%.1f%% of sampled values fall outside the expected beta range [0, 1] (+/-0.05 tolerance) - confirm this is really a beta-value matrix, or set Value scale to \"Force M-value\" above.", src$frac_out_of_range * 100))
+            sprintf("%.1f%% of sampled values fall outside the expected beta range [0, 1] (+/-0.05 tolerance). Confirm this is really a beta-value matrix, or set Value scale to \"Force M-value\" above.", src$frac_out_of_range * 100))
         else NULL
       )
     })
@@ -682,7 +681,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
               numericInput(ns("fs_holdout_frac"), "Held-out fraction", value = 0.3, min = 0.1, max = 0.5, step = 0.05),
               numericInput(ns("fs_holdout_seed"), "Split seed", value = 1234, min = 1, step = 1),
               p(class = "empty-note", icon("circle-info"),
-                "These samples are set aside before Univariate/LASSO/Tree-Based/RFE/Stability/Consensus ever run and are never used to choose CpGs - only the Diagnostic module's evaluation against them is a leakage-free performance estimate."))
+                "These samples are set aside before Univariate/LASSO/Tree-Based/RFE/Stability/Consensus ever run, and are never used to choose CpGs. Only the Diagnostic module's evaluation against them is leakage-free."))
           ),
           column(4,
             tags$h5("Missingness"),
@@ -716,7 +715,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
           ),
           column(4,
             tags$h5("Beta <-> M-value"),
-            p(class = "submodule-desc", "Beta values are convenient for interpretation (0-1 scale); M-values are the better-behaved scale for statistical modeling. This module derives M-values internally wherever a method needs them - the displayed matrix stays on whichever scale was detected/selected above.")
+            p(class = "submodule-desc", "Beta values (0-1 scale) are convenient for interpretation; M-values are the better-behaved scale for statistical modeling. This module derives M-values internally wherever a method needs them - the displayed matrix stays on whichever scale was detected/selected above.")
           )
         ),
         tags$h5(icon("venus-mars"), " Sex"),
@@ -938,10 +937,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                         selected = "moderated_t"),
             conditionalPanel(condition = sprintf("['linear_regression','pearson','spearman'].includes(input['%s'])", ns("uni_method")),
               p(class = "empty-note", icon("circle-info"),
-                "Data & Filters currently defines a reference/comparison group, not an independent continuous phenotype column - this method runs against that group contrast numerically coded, equivalent to a two-group test.")),
+                "Data & Filters currently defines a reference/comparison group, not a continuous phenotype column. This method runs against that group contrast numerically coded, equivalent to a two-group test.")),
             conditionalPanel(condition = sprintf("['anova','kruskal'].includes(input['%s'])", ns("uni_method")),
               p(class = "empty-note", icon("circle-info"),
-                "If the Group/phenotype column picked in Data & Filters has more than the two Reference/Comparison levels among the retained samples, this runs a genuine multi-group test across every level of that column; otherwise it falls back to the two-group Reference-vs-Comparison contrast.")),
+                "If the Group/phenotype column picked in Data & Filters has more than the two Reference/Comparison levels among retained samples, this runs a genuine multi-group test across every level. Otherwise it falls back to the two-group Reference-vs-Comparison contrast.")),
             uiOutput(ns("uni_covariate_ui"))
           ),
           column(4,
@@ -1289,7 +1288,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
       if (length(fs_built_sexes()) == 0) return(mod_methyl_fs_need_filters_note())
       div(class = "card",
         div(class = "card-title", icon("repeat"), "Stability Selection"),
-        p(class = "submodule-desc", "Repeatedly resamples a LASSO base selector and tabulates how often each CpG is chosen - important for methylation data, where hundreds of thousands of CpGs can be highly correlated."),
+        p(class = "submodule-desc", "Repeatedly resamples a LASSO base selector and tabulates how often each CpG is chosen. Important for methylation data, where hundreds of thousands of CpGs can be highly correlated."),
         fluidRow(
           column(4, radioButtons(ns("stab_type"), "Resampling scheme", choices = c("Bootstrap" = "bootstrap", "Repeated k-fold" = "repeated_kfold", "Subsampling" = "subsampling"), selected = "bootstrap")),
           column(4,
@@ -1666,9 +1665,9 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
           div(class = "card-title", icon("vial"), "Internal training-set check"),
           p(class = "empty-note", icon("circle-info"),
             if (length(fs_filter_result_for(fs_selected_stratum())$holdout_sample_ids %||% character(0)) > 0)
-              sprintf("This panel was already selected on a training partition only (%d samples reserved as held-out in Data & Filters). Both modes below estimate performance WITHIN that same training partition - they are a diagnostic sanity check, not the model's real generalization estimate. For an unbiased estimate, evaluate this exported panel against the reserved held-out samples in the Diagnostic module.",
+              sprintf("This panel was already selected on a training partition only (%d samples reserved as held-out in Data & Filters). Both modes below estimate performance WITHIN that training partition - a sanity check, not a real generalization estimate. For an unbiased estimate, evaluate this panel against the held-out samples in Diagnostic.",
                       length(fs_filter_result_for(fs_selected_stratum())$holdout_sample_ids))
-            else "No held-out set was reserved for this run (the held-out split was disabled in Data & Filters), so neither mode below is leakage-free - re-run Data & Filters with the split enabled before treating any AUC here as an honest estimate."),
+            else "No held-out set was reserved for this run (the split was disabled in Data & Filters), so neither mode below is leakage-free. Re-run Data & Filters with the split enabled before treating any AUC here as an honest estimate."),
           fluidRow(
             column(4, radioButtons(ns("validate_mode"), "Check mode",
                                     choices = c("Quick (fit once on training data)" = "frozen", "Repeated nested CV (reselect per fold, within training data)" = "nested"), selected = "nested")),
@@ -1677,10 +1676,10 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
                    numericInput(ns("validate_seed"), "Random seed", value = 1234, min = 1, step = 1))
           ),
           conditionalPanel(condition = sprintf("input['%s'] == 'frozen'", ns("validate_mode")),
-            p(class = "empty-note", icon("triangle-exclamation"), "Fits and CVs the exact exported panel on the training partition only - fast, but every training sample already influenced which CpGs were chosen, so this still overstates generalization somewhat. Prefer the held-out evaluation in Diagnostic for the real number.")),
+            p(class = "empty-note", icon("triangle-exclamation"), "Fits and CVs the exact exported panel on the training partition only. Fast, but every training sample already influenced which CpGs were chosen, so this still overstates generalization somewhat. Prefer the held-out evaluation in Diagnostic for the real number.")),
           conditionalPanel(condition = sprintf("input['%s'] == 'nested'", ns("validate_mode")),
-            p(class = "empty-note", icon("circle-info"), "Reselects the panel using the Univariate + Regularization steps inside every outer fold of the training partition - not literally the same panel shown in Selected Features - and does not rerun Tree-Based/RFE/Stability/Consensus per fold, since a full 5-method ensemble refit per fold is impractical in a live session."),
-            p(class = "empty-note", icon("triangle-exclamation"), "This is nested CV within the training partition, not a substitute for evaluating against the held-out set reserved in Data & Filters - use it to sanity-check the training-time selection process, not as the model's reportable performance.")),
+            p(class = "empty-note", icon("circle-info"), "Reselects the panel using Univariate + Regularization inside every outer fold of the training partition - not literally the same panel shown in Selected Features. Doesn't rerun Tree-Based/RFE/Stability/Consensus per fold, since a full 5-method ensemble refit per fold is impractical live."),
+            p(class = "empty-note", icon("triangle-exclamation"), "This is nested CV within the training partition, not a substitute for evaluating against the held-out set reserved in Data & Filters. Use it to sanity-check the training-time selection process, not as reportable performance.")),
           actionButton(ns("validate_run_btn"), "Run Check", icon = icon("play"), class = "btn-primary"),
           uiOutput(ns("validate_result_ui"))
         ),

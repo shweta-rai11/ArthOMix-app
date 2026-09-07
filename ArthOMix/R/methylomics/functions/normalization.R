@@ -1,6 +1,5 @@
 ## R/methylomics/functions/normalization.R
-## Methylation normalization methods for the Normalization sub-module
-## (mod_methyl_normalization.R). Defaults follow each method's own published docs:
+## Normalization methods for mod_methyl_normalization.R. Defaults follow each method's published docs.
 
 methyl_design_vector <- function(probe_ids, anno_result) {
   if (!isTRUE(anno_result$ok)) {
@@ -50,7 +49,7 @@ methyl_norm_stratified_quantile <- function(rg_set) {
   }
   gmset <- tryCatch(minfi::preprocessQuantile(rg_set), error = function(e) e)
   if (inherits(gmset, "error")) return(list(ok = FALSE, reason = paste("preprocessQuantile failed:", conditionMessage(gmset))))
-  list(ok = TRUE, beta = minfi::getBeta(gmset), note = "minfi::preprocessQuantile() - minfi's re-implementation of Touleimat & Tost (2012) subset/stratified quantile normalization. Recommended for a single tissue/cell type without large global methylation differences between samples.")
+  list(ok = TRUE, beta = minfi::getBeta(gmset), note = "minfi::preprocessQuantile(): minfi's re-implementation of Touleimat & Tost (2012) subset/stratified quantile normalization. Recommended for a single tissue/cell type without large global methylation differences between samples.")
 }
 
 methyl_norm_dasen <- function(mset) {
@@ -140,25 +139,25 @@ methyl_norm_noob_swan <- function(rg_set, offset = 15, dye_method = "single") {
 
 METHYL_NORM_METHOD_INFO <- list(
   noob = list(category = "Background / technical correction", text =
-    "Noob (normal-exponential out-of-band) performs background correction and dye-bias correction using out-of-band Infinium I probe intensities. Appropriate whenever raw methylation-array intensity data are available; on its own it does not address Type I/II probe-design distribution differences."),
+    "Noob (normal-exponential out-of-band) performs background and dye-bias correction using out-of-band Infinium I probe intensities. Appropriate whenever raw intensity data is available; on its own it doesn't address Type I/II probe-design differences."),
   funnorm = list(category = "Background / technical correction", text =
-    "Functional normalization uses the array's built-in control probes (summarized via PCA) to estimate and remove unwanted technical variation, on top of Noob-style background correction. Useful when samples span distinct biological groups or tissues, since - unlike quantile-based methods - it does not assume similar global methylation across samples."),
+    "Functional normalization uses the array's built-in control probes (via PCA) to estimate and remove unwanted technical variation, on top of Noob-style background correction. Useful across distinct biological groups or tissues, since it doesn't assume similar global methylation like quantile-based methods do."),
   swan = list(category = "Probe-design / distribution normalization", text =
-    "SWAN (subset-quantile within-array normalization) matches the beta-value distributions of Type I and Type II probes with similar CpG density within each array. Addresses Infinium probe-design effects; it does not perform background/dye correction on its own."),
+    "SWAN (subset-quantile within-array normalization) matches beta-value distributions of Type I and Type II probes with similar CpG density within each array. Addresses Infinium probe-design effects; doesn't perform background/dye correction on its own."),
   stratified_quantile = list(category = "Probe-design / distribution normalization", text =
-    "Stratified (subset) quantile normalization - minfi's re-implementation of Touleimat & Tost (2012) - quantile-normalizes probe subsets stratified by region/probe type. Recommended for a single tissue/cell type without large expected global methylation differences between samples; it can distort real, large biological differences if they are present."),
+    "Stratified (subset) quantile normalization: minfi's re-implementation of Touleimat & Tost (2012). Quantile-normalizes probe subsets stratified by region/probe type. Recommended for a single tissue/cell type without large expected global differences; can distort real large biological differences if present."),
   dasen = list(category = "Probe-design / distribution normalization", text =
-    "Dasen separately quantile-normalizes methylated/unmethylated intensities within each probe type, then recombines them - wateRmelon's own documentation describes it as their recommended default for Illumina methylation-array data."),
+    "Dasen separately quantile-normalizes methylated/unmethylated intensities within each probe type, then recombines them. wateRmelon's own docs describe it as their recommended default for Illumina methylation-array data."),
   bmiq = list(category = "Probe-design / distribution normalization", text =
-    "BMIQ (beta-mixture quantile normalization, Teschendorff et al. 2013) fits a three-state beta-mixture model to Type II probes and transforms them onto the Type I distribution. Targets Type I/II probe-design bias specifically - it is not a general-purpose normalization method for every methylation dataset, and requires Type I/II probe-design annotation."),
+    "BMIQ (beta-mixture quantile normalization, Teschendorff et al. 2013) fits a three-state beta-mixture model to Type II probes and transforms them onto the Type I distribution. Targets Type I/II probe-design bias specifically - not a general-purpose method, and requires Type I/II annotation."),
   pbc = list(category = "Probe-design / distribution normalization", text =
-    "Peak-based correction (Dedeurwaerder et al. 2011) aligns the density peaks of the Type I and Type II probe distributions. An alternative probe-design correction to BMIQ/SWAN; also requires Type I/II probe-design annotation."),
+    "Peak-based correction (Dedeurwaerder et al. 2011) aligns the density peaks of Type I and Type II probe distributions. An alternative to BMIQ/SWAN; also requires Type I/II probe-design annotation."),
   quantile = list(category = "Universal baseline", text =
-    "Plain (non-stratified) quantile normalization forces every sample's beta-value distribution to match the same reference distribution. Works on any input, but makes a strong assumption that samples don't differ substantially in overall methylation - use carefully when biologically meaningful global methylation differences are expected, since it can remove real signal along with technical noise."),
+    "Plain (non-stratified) quantile normalization forces every sample's beta-value distribution to match the same reference. Works on any input, but assumes samples don't differ much in overall methylation. Use carefully when real global differences are expected, since it can remove signal along with noise."),
   noob_bmiq = list(category = "Sequential workflow", text =
-    "Runs Noob (background/dye-bias correction) first, then BMIQ (Type I/II probe-design correction) on the result - a two-step workflow that separately addresses two different sources of technical variation rather than treating them as one operation."),
+    "Runs Noob (background/dye-bias correction) first, then BMIQ (Type I/II probe-design correction) on the result. A two-step workflow that separately addresses two different sources of technical variation."),
   noob_swan = list(category = "Sequential workflow", text =
-    "Runs Noob (background/dye-bias correction) first, then SWAN (Type I/II probe-design correction) on the result - the same two-step logic as Noob + BMIQ, using SWAN instead of BMIQ for the probe-design correction step.")
+    "Runs Noob (background/dye-bias correction) first, then SWAN (Type I/II probe-design correction) on the result. Same two-step logic as Noob + BMIQ, using SWAN instead for the probe-design step.")
 )
 
 .methyl_norm_anno_cache <- new.env(parent = emptyenv())
@@ -313,18 +312,18 @@ methyl_norm_status <- function(mat, dataset, anno_result) {
 
 methyl_norm_recommendation <- function(dataset, status, available_methods) {
   if (!is.null(dataset$rg_set)) {
-    return("Your dataset contains raw Illumina methylation-array intensity data. A Noob-based workflow (optionally paired with BMIQ or SWAN for probe-design correction) is available and is a reasonable default for correcting background and dye-bias effects before downstream analysis.")
+    return("Your dataset contains raw Illumina methylation-array intensity data. A Noob-based workflow (optionally with BMIQ or SWAN for probe-design correction) is a reasonable default for background and dye-bias correction before downstream analysis.")
   }
   if (identical(status$status, "no_bias_detected")) {
-    return("Your dataset shows no evidence of uncorrected Type I/II probe-design bias. Re-normalizing is usually unnecessary and can occasionally distort an already-corrected distribution - consider keeping the current normalization unless you have a specific reason to reprocess it.")
+    return("Your dataset shows no evidence of uncorrected Type I/II probe-design bias. Re-normalizing is usually unnecessary and can occasionally distort an already-corrected distribution. Keep the current normalization unless you have a specific reason to reprocess.")
   }
   if (identical(status$status, "bias_detected") && "bmiq" %in% available_methods) {
-    return("Your dataset shows evidence of uncorrected Type I/II probe-design bias. Raw-intensity preprocessing methods such as Noob cannot be applied to a beta/M-value matrix directly; BMIQ or PBC (both beta-value-based, probe-design-aware methods) may be considered.")
+    return("Your dataset shows evidence of uncorrected Type I/II probe-design bias. Raw-intensity preprocessing methods like Noob can't be applied to a beta/M-value matrix directly; BMIQ or PBC (both beta-value-based, probe-design-aware) may be considered.")
   }
   if ("bmiq" %in% available_methods) {
-    return("Your dataset contains beta values with Type I/II probe-design annotation available, but no raw intensity channels. Raw-intensity preprocessing methods such as Noob cannot be applied directly; BMIQ or PBC (both beta-value-based, probe-design-aware methods) may be considered.")
+    return("Your dataset contains beta values with Type I/II probe-design annotation available, but no raw intensity channels. Raw-intensity methods like Noob can't be applied directly; BMIQ or PBC (both beta-value-based, probe-design-aware) may be considered.")
   }
-  "Your dataset contains beta or M-values without raw intensity channels or Type I/II probe-design annotation. Raw-intensity and probe-design-aware methods are unavailable here; plain quantile normalization is the only method compatible with this input."
+  "Your dataset contains beta or M-values without raw intensity channels or Type I/II probe-design annotation. Raw-intensity and probe-design-aware methods are unavailable; plain quantile normalization is the only compatible method."
 }
 
 methyl_norm_validation <- function(before, after, anno_result, group_labels = NULL) {

@@ -1,6 +1,5 @@
 ## R/methylomics/15_Biomarker_Analysis/mod_methyl_biomarkercard.R
 ## Submodule: Biomarker Card - single-CpG epigenomic profile page.
-##
 
 .bc_illumina_anno_cache <- new.env(parent = emptyenv())
 
@@ -1825,7 +1824,7 @@ bc_section_dataset_cohort <- function(dataset, live) {
     "Analysis group / contrast" = sprintf("%s (grouping column: %s)", case_label, group_label),
     "Cases / Controls" = if (!is.na(n_case)) sprintf("%s / %s", n_case, n_ctrl) else NA,
     "Sex / group breakdown" = sex_breakdown,
-    "Dataset designation" = "Training / discovery dataset (this session's loaded dataset). Internal validation = cross-validation folds within it; external validation = the preloaded panel's own external cohort (see Biomarker Performance tab), not a separate cohort loaded this session.",
+    "Dataset designation" = "Training / discovery dataset (this session's loaded dataset). Internal validation = CV folds within it. External validation = the preloaded panel's own external cohort (see Biomarker Performance tab), not a separate cohort loaded this session.",
     "Feature identifier" = "CpG probe ID (rows of the loaded beta matrix)",
     "Gene mapping" = "Illumina manifest annotation / ChAMPdata - see CpG description tab"
   )
@@ -1838,7 +1837,7 @@ bc_section_dataset_cohort <- function(dataset, live) {
 
 bc_section_sources <- function(ext = NULL) {
   used <- c(
-    "Illumina manifest annotation (IlluminaHumanMethylation450kanno.ilmn12.hg19 / IlluminaHumanMethylationEPICanno.ilm10b4.hg19) - UCSC hg19-based probe location, CpG island, RefGene, and regulatory-feature tracks",
+    "Illumina manifest annotation (IlluminaHumanMethylation450kanno.ilmn12.hg19 / EPICanno.ilm10b4.hg19): UCSC hg19 probe location, CpG island, RefGene, and regulatory-feature tracks",
     "ChAMPdata::probe.features - UCSC hg19-based gene/feature/CpG-island annotation",
     "TxDb.Hsapiens.UCSC.hg19.knownGene - UCSC knownGene transcript/exon structure (hg19)",
     "org.Hs.eg.db - NCBI Gene ID, Ensembl Gene ID, gene name, GO term mapping",
@@ -1944,11 +1943,11 @@ bc_section_disease_associations <- function(ext_all, gene_symbol, ensembl_id) {
                else if (!isTRUE(gwas$ok)) div(class = "empty-note", icon("triangle-exclamation"), gwas$reason %||% "GWAS Catalog lookup unavailable.")
                else if (is.null(gwas$traits)) div(class = "empty-note", icon("circle-info"), "No GWAS Catalog traits matched this gene symbol.")
                else tagList(
-                 p(class = "submodule-desc", sprintf("Trait-name text-index match (%d total matched trait record(s), showing top %d) - a supplementary cross-check, not a curated gene->trait join; Open Targets above is the primary curated disease-association source.", gwas$n_total %||% nrow(gwas$traits), nrow(gwas$traits))),
+                 p(class = "submodule-desc", sprintf("Trait-name text-index match (%d total matched trait record(s), showing top %d). A supplementary cross-check, not a curated gene->trait join; Open Targets above is the primary curated disease-association source.", gwas$n_total %||% nrow(gwas$traits), nrow(gwas$traits))),
                  DT::datatable(gwas$traits, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact")
                )
   tagList(
-    div(class = "empty-note", icon("circle-info"), "EWAS-derived trait associations (EWAS Catalog / EWAS Atlas) are shown on the \"EWAS Catalog\" / \"EWAS Atlas\" options of the External Databases tab. This subtab covers curated gene-level disease/genetic-association databases."),
+    div(class = "empty-note", icon("circle-info"), "EWAS-derived trait associations are shown on the \"EWAS Catalog\" / \"EWAS Atlas\" options of the External Databases tab. This subtab covers curated gene-level disease/genetic-association databases instead."),
     div(class = "card", div(class = "card-title", icon("dna"), "Genetic Association & Tractability (Open Targets)"), ot_prov,
         p(class = "submodule-desc", "Aggregates GWAS Catalog and other genetic evidence via a curated gene-to-disease join."), ot_body),
     div(class = "card", div(class = "card-title", icon("magnifying-glass"), "GWAS Catalog (trait search)"), gwas_prov, gwas_body),
@@ -2089,7 +2088,7 @@ bc_section_source_info <- function(ext_all) {
   body <- if (is.null(df) || nrow(df) == 0) div(class = "empty-note", icon("circle-info"), "No external database has been queried yet this session for this biomarker - use the subtabs above to look up evidence.")
           else DT::datatable(df[order(df$Source), , drop = FALSE], rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE), class = "stripe hover compact")
   div(class = "card", div(class = "card-title", icon("clipboard-list"), "Source & API Information"),
-      p(class = "submodule-desc", "One row per external query actually made this session for this biomarker: source, query submitted, endpoint, retrieval timestamp, response status, and record count. Every number shown elsewhere on this card traces back either to a row here, or to a locally-bundled annotation package listed on the Database Sources card below."),
+      p(class = "submodule-desc", "One row per external query made this session for this biomarker: source, query, endpoint, timestamp, response status, and record count. Every number elsewhere on this card traces to a row here, or to a locally-bundled annotation package listed on the Database Sources card below."),
       body)
 }
 
@@ -2183,7 +2182,7 @@ bc_section_panel_convergence <- function(conv, item_label, btn_label) {
   if (!isTRUE(conv$ok) || is.null(conv$table)) return(div(class = "card", div(class = "card-title", icon("circle-nodes"), sprintf("%s Convergence", item_label)),
                                     div(class = "empty-note", icon("circle-info"), conv$reason %||% "No convergence found.")))
   div(class = "card", div(class = "card-title", icon("circle-nodes"), sprintf("%s Convergence", item_label)),
-      p(class = "submodule-desc", sprintf("Which %s(s) are shared across multiple biomarkers in this list (queried %d biomarker(s), capped to avoid overloading the external service) - a real overlap count, not a synthetic score.", tolower(item_label), conv$n_queried)),
+      p(class = "submodule-desc", sprintf("Which %s(s) are shared across multiple biomarkers in this list (queried %d biomarker(s), capped to avoid overloading the external service). A real overlap count, not a synthetic score.", tolower(item_label), conv$n_queried)),
       DT::datatable(conv$table, rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact"))
 }
 
@@ -2311,7 +2310,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
             conditionalPanel(condition = sprintf("input['%s'] == 'cpg'", ns("bc_search_mode")),
                               textInput(ns("bc_cpg_input"), "CpG ID", placeholder = "cg12277888")),
             conditionalPanel(condition = sprintf("input['%s'] == 'list'", ns("bc_search_mode")),
-                              p(class = "submodule-desc", "Paste a mixed list of gene symbols and/or CpG IDs (one per line, or comma/space-separated) to explore them together as a panel - resolution status is shown for every entry, never silently dropped."),
+                              p(class = "submodule-desc", "Paste a mixed list of gene symbols and/or CpG IDs (one per line, or comma/space-separated) to explore them as a panel. Resolution status is shown for every entry, never silently dropped."),
                               textAreaInput(ns("bc_list_input"), "Gene symbols and/or CpG IDs", rows = 5, placeholder = "BRCA1\nBRCA2\nTP53\ncg00000029\ncg27665659"),
                               fileInput(ns("bc_list_upload_file"), "...or upload a list (.csv, .txt)", accept = c(".csv", ".txt")),
                               actionButton(ns("bc_list_load_btn"), "Load List", icon = icon("play"), class = "btn-sm")),
@@ -2333,7 +2332,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
             conditionalPanel(condition = sprintf("input['%s'] == 'panel'", ns("bc_search_mode")),
                               if (!METH_DATA_AVAILABLE) div(class = "empty-note", icon("circle-info"), "Not available - the preloaded results folder is not present in this deployment.")
                               else tagList(
-                                p(class = "submodule-desc", "The Diagnostic Classifier's own \"potential biomarkers\": the script07 majority-vote CpG panel (in_LASSO/in_Boruta/in_SVMRFE, n_votes) - the same table that module's own \"Feature Source\" tab reads."),
+                                p(class = "submodule-desc", "The Diagnostic Classifier's own \"potential biomarkers\": the script07 majority-vote CpG panel (in_LASSO/in_Boruta/in_SVMRFE, n_votes). Same table that module's \"Feature Source\" tab reads."),
                                 fluidRow(
                                   column(6, radioButtons(ns("bc_panel_sex"), "Sex stratum", inline = TRUE, choices = c("Female" = "female", "Male" = "male"), selected = "female")),
                                   column(6, br(), actionButton(ns("bc_panel_load_btn"), "Load Panel", icon = icon("play"), class = "btn-sm"))
@@ -2341,7 +2340,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
                                 uiOutput(ns("bc_panel_results_ui"))
                               )),
             conditionalPanel(condition = sprintf("input['%s'] == 'upload'", ns("bc_search_mode")),
-                              p(class = "submodule-desc", "Upload a plain CpG ID list (one per line, or the first column of a CSV/TSV) or a Feature Selection RDS export (that module's own \"Save Model as RDS\" download) - auto-detected by file extension."),
+                              p(class = "submodule-desc", "Upload a plain CpG ID list (one per line, or the first column of a CSV/TSV) or a Feature Selection RDS export (that module's \"Save Model as RDS\" download). Auto-detected by file extension."),
                               fileInput(ns("bc_upload_file"), "Biomarker list (.csv, .txt, or .rds)", accept = c(".csv", ".txt", ".rds")),
                               actionButton(ns("bc_upload_load_btn"), "Load Uploaded List", icon = icon("play"), class = "btn-sm"),
                               uiOutput(ns("bc_upload_results_ui")))
@@ -2486,7 +2485,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
     output$bc_upload_results_ui <- renderUI({
       req(input$bc_upload_load_btn)
       tagList(
-        p(class = "submodule-desc", sprintf("%d CpG(s) loaded from the uploaded file. Click a row to select it and \"Generate Biomarker Card\" for a single-CpG profile, or send the whole table below as a multi-biomarker panel - this is the intended handoff point for an existing candidate-biomarker table (CpG/Gene/Delta-Beta/P/FDR) from an upstream Methylomics analysis (spec: use it as the starting point, never recompute it).", nrow(upload_table()))),
+        p(class = "submodule-desc", sprintf("%d CpG(s) loaded from the uploaded file. Click a row and \"Generate Biomarker Card\" for a single-CpG profile, or send the whole table below as a multi-biomarker panel. Use this as the starting point for an existing candidate-biomarker table (CpG/Gene/Delta-Beta/P/FDR) from an upstream analysis - never recompute it.", nrow(upload_table()))),
         actionButton(ns("bc_upload_as_panel_btn"), "Use Full Table as Panel", icon = icon("layer-group"), class = "btn-sm"),
         DT::dataTableOutput(ns("bc_upload_table"))
       )
@@ -2568,7 +2567,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
     })
     output$bc_panel_tab_source_info <- renderUI({
       div(class = "card", div(class = "card-title", icon("database"), "About Panel Mode"),
-          p(class = "submodule-desc", "Panel mode aggregates evidence across multiple biomarkers at once (disease/trait and pathway convergence). For the full per-database evidence dashboard (Gene Study, Gene Ontology, EWAS Catalog, EWAS Atlas, KEGG, Reactome, WikiPathways, Disease/Genetics, Regulatory/Epigenomics, Expression, External Datasets, Literature) on one specific biomarker, switch to a single-identifier search mode and generate its individual Biomarker Card.")
+          p(class = "submodule-desc", "Panel mode aggregates evidence across multiple biomarkers at once (disease/trait and pathway convergence). For the full per-database dashboard (Gene Study, Gene Ontology, EWAS Catalog, EWAS Atlas, KEGG, Reactome, WikiPathways, Disease/Genetics, Regulatory/Epigenomics, Expression, External Datasets, Literature) on one biomarker, switch to single-identifier search and generate its Biomarker Card.")
       )
     })
 
@@ -2582,7 +2581,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
         NULL
       )
       validate(need(!is.null(cpg) && nzchar(cpg),
-                    "Select or enter a CpG ID before generating the Biomarker Card - type a CpG ID, or pick one from a gene search / the preloaded results browser / the diagnostic panel / your uploaded list."))
+                    "Select or enter a CpG ID before generating the Biomarker Card. Type one, or pick from a gene search, the preloaded results browser, the diagnostic panel, or your uploaded list."))
       source_mode <- isolate(input$bc_source)
       array_type <- if (identical(source_mode, "preloaded")) "450K" else (dataset$array_type %||% "450K")
       resolved <- bc_resolve_cpg(cpg, array_type)

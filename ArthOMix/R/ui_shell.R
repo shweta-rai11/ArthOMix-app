@@ -1,8 +1,7 @@
 ## R/ui_shell.R
-## Shared app-shell UI components for the SaaS-dashboard redesign: header,
-## per-module left sidebar, and the right-column pipeline-summary timeline.
+## Shared app-shell UI: header, per-module sidebar, pipeline-summary timeline.
 
-app_header <- function(user_email = NULL) {
+app_header <- function() {
   tagList(
     tags$div(
       class = "app-header",
@@ -16,15 +15,14 @@ app_header <- function(user_email = NULL) {
           "Ask ArthOChat", href = "#", class = "btn btn-primary btn-sm",
           onclick = ARTHOCHAT_DRAWER_OPEN_JS
         ),
+        actionButton(
+          "analysis_records_btn",
+          label = tagList(icon("clipboard-list"), " Analysis records", uiOutput("analysis_records_badge", inline = TRUE)),
+          class = "btn btn-default btn-sm app-header-records-btn",
+          title = "Every Transcriptomics run this session, with parameters, seed, and package versions (other modules aren't logged yet). Also shows why a result says \"Not available.\""
+        ),
         actionButton("theme_toggle_btn", label = "", icon = icon("moon"),
-                     class = "app-header-icon-btn", title = "Toggle light / dark mode"),
-        tags$div(
-          class = "app-header-account",
-          tags$span(class = "app-header-avatar", title = "Account", icon("user")),
-          tags$span(class = "app-header-account-email", user_email),
-          actionButton("logout_btn", "Log Out", icon = icon("right-from-bracket"),
-                       class = "btn btn-default btn-sm", title = "Log out")
-        )
+                     class = "app-header-icon-btn", title = "Toggle light / dark mode")
       )
     ),
     tags$script(HTML(
@@ -68,12 +66,6 @@ omics_sidebar <- function(module_id, module_label, nav_items, extra_sidebar_cont
     if (!is.null(dynamic_nav_output_id)) {
       uiOutput(dynamic_nav_output_id, container = function(...) tags$ul(class = "sidebar-nav", ...))
     },
-    tags$div(class = "omics-sidebar-heading", "QUICK LINKS"),
-    tags$div(
-      class = "sidebar-quicklinks",
-      tags$a(href = "#", icon("book"), "Documentation"),
-      tags$a(href = "#", icon("graduation-cap"), "Tutorials")
-    ),
     extra_sidebar_content
   )
 }
@@ -97,10 +89,6 @@ pipeline_summary_ui <- function(steps) {
           )
         )
       })
-    ),
-    tags$div(
-      class = "pipeline-summary-footer",
-      tags$a(href = "#", "View full pipeline docs ", icon("arrow-right"))
     )
   )
 }

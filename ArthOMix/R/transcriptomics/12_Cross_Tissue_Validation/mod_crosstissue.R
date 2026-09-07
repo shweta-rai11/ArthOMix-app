@@ -1,11 +1,10 @@
 ## R/transcriptomics/12_Cross_Tissue_Validation/mod_crosstissue.R
-## Submodule: Cross-Tissue Validation (Section 2.11)
-## "Your analysis" evaluates a user-chosen gene panel in the independent RA
+## Submodule: Cross-Tissue Validation - evaluates a user-chosen gene panel in an independent RA cohort.
 
 mod_crosstissue_config <- list(
-  id = "crosstissue", group = "Validation",
-  title = "Cross-Tissue Validation",
-  description = "Validation of the diagnostic model based on different tissue type and sex. Four-classifier panel model (logistic regression, elastic net, random forest, SVM). Performs analysis on both preloaded or uploaded data, based on sex.",
+  id = "crosstissue", group = "Replication",
+  title = "Cross-Tissue Replication",
+  description = "Replicates a blood-derived gene panel in synovial tissue (bundled GSE89408 RNA-seq, or an uploaded cohort), by sex: direction concordance, adjusted p-value, AUC, plus four classifiers refit in the tissue cohort. Replicates the gene-level signal only - not a transfer of the blood-trained diagnostic model.",
   icon = "shuffle"
 )
 
@@ -41,7 +40,7 @@ ct_biomarker_flag <- function(d, sig_cut) {
 }
 
 ct_gene_auc <- function(values, y) {
-  r <- tryCatch(pROC::roc(y, as.numeric(values), direction = "<", levels = levels(y), quiet = TRUE), error = function(e) NULL)
+  r <- tryCatch(pROC::roc(y, as.numeric(values), direction = "<", levels = levels(y), quiet = TRUE), error = arthomix_null_on_error)
   if (is.null(r)) return(NA_real_)
   a <- as.numeric(pROC::auc(r))
   if (is.na(a)) return(NA_real_)
@@ -89,20 +88,20 @@ ct_cv_eval <- function(Xraw, y, n_folds, refit_fn, predict_fn, stratified = TRUE
     sg[is.na(sg) | sg == 0] <- 1
     Ztr <- scale(Xraw[tr, , drop = FALSE], center = mu, scale = sg)
     Zte <- scale(Xraw[te, , drop = FALSE], center = mu, scale = sg)
-    fit_i <- tryCatch(refit_fn(Ztr, y[tr]), error = function(e) NULL)
+    fit_i <- tryCatch(refit_fn(Ztr, y[tr]), error = arthomix_null_on_error)
     if (is.null(fit_i)) next
-    p <- tryCatch(predict_fn(fit_i, Zte), error = function(e) NULL)
+    p <- tryCatch(predict_fn(fit_i, Zte), error = arthomix_null_on_error)
     if (is.null(p)) next
     pooled[te] <- p
     if (length(unique(y[te])) == 2) {
-      roc_i <- tryCatch(pROC::roc(y[te], p, quiet = TRUE, levels = levels(y), direction = "<"), error = function(e) NULL)
+      roc_i <- tryCatch(pROC::roc(y[te], p, quiet = TRUE, levels = levels(y), direction = "<"), error = arthomix_null_on_error)
       fold_auc[i] <- if (is.null(roc_i)) NA_real_ else as.numeric(pROC::auc(roc_i))
     }
   }
   ok <- !is.na(pooled)
   pooled_res <- list(available = FALSE, reason = "Fewer than 4 samples ended up with an out-of-fold prediction covering both groups - try fewer folds, or simple random folds.")
   if (sum(ok) >= 4 && length(unique(y[ok])) == 2) {
-    r <- tryCatch(pROC::roc(y[ok], pooled[ok], quiet = TRUE, levels = levels(y), direction = "<"), error = function(e) NULL)
+    r <- tryCatch(pROC::roc(y[ok], pooled[ok], quiet = TRUE, levels = levels(y), direction = "<"), error = arthomix_null_on_error)
     if (!is.null(r)) {
       ci <- diag_auc_ci(r)
       pooled_res <- list(available = TRUE, roc = r, auc = unname(ci["auc"]), ci_lo = unname(ci["lo"]), ci_hi = unname(ci["hi"]),
@@ -134,7 +133,7 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
   alpha_search <- data.frame(alpha = numeric(0), cv_deviance = numeric(0))
   set.seed(GLOBAL_SEED)
   for (a in params$enet_alpha_grid) {
-    cv <- tryCatch(glmnet::cv.glmnet(Xfull, y, family = "binomial", alpha = a, nfolds = nf_a, standardize = TRUE), error = function(e) NULL)
+    cv <- tryCatch(glmnet::cv.glmnet(Xfull, y, family = "binomial", alpha = a, nfolds = nf_a, standardize = TRUE), error = arthomix_null_on_error)
     if (!is.null(cv)) {
       alpha_search <- rbind(alpha_search, data.frame(alpha = a, cv_deviance = min(cv$cvm)))
       if (min(cv$cvm) < bcv) { bcv <- min(cv$cvm); best <- list(cv = cv, alpha = a) }
@@ -168,7 +167,7 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
     ctrl <- caret::trainControl(method = "cv", number = nf_rf, classProbs = TRUE, summaryFunction = caret::twoClassSummary)
     set.seed(GLOBAL_SEED)
     rf_tune <- tryCatch(caret::train(x = Xfull, y = y, method = "rf", metric = "ROC", trControl = ctrl,
-                                      tuneGrid = expand.grid(mtry = mtry_grid), ntree = ntree), error = function(e) NULL)
+                                      tuneGrid = expand.grid(mtry = mtry_grid), ntree = ntree), error = arthomix_null_on_error)
     rf_mtry <- if (!is.null(rf_tune)) rf_tune$bestTune$mtry else max(1, floor(sqrt(p)))
     if (!is.null(rf_tune)) { mtry_search <- rf_tune$results[, c("mtry", "ROC")]; mtry_search$chosen <- mtry_search$mtry == rf_mtry }
   }
@@ -198,7 +197,7 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
     set.seed(GLOBAL_SEED)
     svm_tune <- tryCatch(e1071::tune(e1071::svm, train.x = Xfull, train.y = y, kernel = kernel, scale = FALSE,
                                       ranges = list(cost = grid),
-                                      tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)), error = function(e) NULL)
+                                      tunecontrol = e1071::tune.control(sampling = "cross", cross = nf_svm)), error = arthomix_null_on_error)
     svm_cost <- if (!is.null(svm_tune)) svm_tune$best.parameters$cost else 1
     if (!is.null(svm_tune)) { cost_search <- svm_tune$performances[, c("cost", "error")]; cost_search$chosen <- cost_search$cost == svm_cost }
   }
@@ -218,13 +217,13 @@ ct_fit_sex <- function(expr_full, y_full, params = list()) {
                    best = svm_best, perf_full = diag_perf_at_cutoff(svm_pred_full, y, svm_best$threshold, levels(y)[2]), cv = svm_cv)
 
   lr_predict <- function(m, Znew) as.numeric(predict(m, newdata = data.frame(Znew, check.names = FALSE), type = "response"))
-  lr_model <- suppressWarnings(stats::glm(y ~ ., data = data.frame(y, Xfull, check.names = FALSE), family = stats::binomial))
+  lr_model <- arthomix_quiet(stats::glm(y ~ ., data = data.frame(y, Xfull, check.names = FALSE), family = stats::binomial))
   lr_pred_full <- as.numeric(predict(lr_model, type = "response"))
   lr_roc_full <- pROC::roc(y, lr_pred_full, quiet = TRUE, levels = levels(y), direction = "<")
   lr_best <- ct_youden(lr_roc_full)
   lr_cv <- ct_cv_eval(
     Xraw, y, params$cv_folds,
-    refit_fn = function(Ztr, ytr) suppressWarnings(stats::glm(ytr ~ ., data = data.frame(ytr, Ztr, check.names = FALSE), family = stats::binomial)),
+    refit_fn = function(Ztr, ytr) arthomix_quiet(stats::glm(ytr ~ ., data = data.frame(ytr, Ztr, check.names = FALSE), family = stats::binomial)),
     predict_fn = lr_predict, stratified = params$stratified_folds, seed = GLOBAL_SEED
   )
   lr <- list(model = lr_model, model_type = "lr", label = "Logistic Regression", tuning_search = NULL,
@@ -491,7 +490,7 @@ mod_crosstissue_discovery_sex_panel <- function(ns, sex_label) {
       ),
       div(class = "empty-note", style = "font-size: 12.5px; border-left: 3px solid #d97706;",
           icon("triangle-exclamation"),
-          "Two screening limitations to keep in mind: the synovium AUC ≥ 0.70 \"biomarker\" cutoff below is applied gene-by-gene with no multiple-testing correction (unlike the synovium adj. P-value gate, which is BH-adjusted), so it can accumulate false positives across many genes screened; and no formal batch/platform correction (e.g. ComBat) is applied between the blood and synovium cohorts, so direct cross-tissue effect-size/AUC comparisons should be interpreted cautiously."),
+          "Two screening limitations: the synovium AUC ≥ 0.70 \"biomarker\" cutoff below is applied gene-by-gene with no multiple-testing correction (unlike the BH-adjusted synovium adj. P-value gate), so it can accumulate false positives across many genes. Also, no formal batch/platform correction (e.g. ComBat) is applied between blood and synovium, so cross-tissue effect-size/AUC comparisons should be read cautiously."),
       div(class = "table-toolbar", downloadButton(ns(paste0(sex_label, "_disc_download")), "Per-gene table (CSV)", class = "btn-sm")),
       DT::dataTableOutput(ns(paste0(sex_label, "_disc_table")))
     )
@@ -576,7 +575,7 @@ mod_crosstissue_ui <- function(id) {
           ),
           conditionalPanel(
             condition = sprintf("input['%s'] == 'upload'", ns("val_source")),
-            p(class = "submodule-desc", "Provide a raw RNA-seq count matrix and sample metadata for an independent validation-tissue cohort. The same sex-stratified discovery and panel-classifier workflow below then runs on this cohort instead of the bundled synovium dataset."),
+            p(class = "submodule-desc", "Provide a raw RNA-seq count matrix and sample metadata for an independent validation-tissue cohort. The same sex-stratified workflow below then runs on this cohort instead of the bundled synovium dataset."),
             fileInput(ns("val_expr_file"), "Validation expression matrix (raw counts)", accept = c(".csv", ".rds", ".Rds")),
             div(class = "empty-note", style = "font-size: 12.5px; margin-top: -8px;", icon("circle-info"),
                 "CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
@@ -694,7 +693,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     ns <- session$ns
 
     val_bundled <- { v <- readRDS(VAL_SYNOVIUM_RDS); v$tt <- as.data.frame(v$tt); v }
-    bundled_dge <- tryCatch(readRDS(DGE_RESULTS_RDS), error = function(e) NULL)
+    bundled_dge <- tryCatch(readRDS(DGE_RESULTS_RDS), error = arthomix_null_on_error)
 
     val_meta_raw <- reactive({
       req(input$val_meta_file)
@@ -886,9 +885,9 @@ mod_crosstissue_server <- function(id, dataset, results) {
     })
 
     ct_advanced_params <- function() {
-      alpha_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
+      alpha_grid <- arthomix_quiet(as.numeric(trimws(strsplit(input$enet_alpha_grid %||% "", ",")[[1]])))
       alpha_grid <- alpha_grid[!is.na(alpha_grid) & alpha_grid >= 0 & alpha_grid <= 1]
-      cost_grid <- suppressWarnings(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
+      cost_grid <- arthomix_quiet(as.numeric(trimws(strsplit(input$svm_cost_grid %||% "", ",")[[1]])))
       cost_grid <- cost_grid[!is.na(cost_grid) & cost_grid > 0]
       list(
         cv_folds = input$cv_folds %||% CT_DEFAULT_PARAMS$cv_folds,
@@ -972,7 +971,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     lr_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "lr", "Logistic Regression",
-        "Plain logistic regression over all panel genes, with no shrinkage (this project's own methodology, Section 2.11.5). Nothing to tune here - fold count and splitting are set in \"Advanced filters\" on the left."
+        "Plain logistic regression over all panel genes, with no shrinkage (this project's own methodology). Nothing to tune here - fold count and splitting are set in \"Advanced filters\" on the left."
       )
     }
 
@@ -991,7 +990,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
     rf_params_box <- function() {
       mod_crosstissue_params_box(
         ns, "rf", "Random Forest",
-        "Random Forest builds many decision trees, each looking at a random subset of genes, and averages their votes. How many genes each tree considers (\"mtry\") is picked automatically from the grid below; the number of trees is fixed.",
+        "Random Forest builds many decision trees, each looking at a random subset of genes, then averages their votes. How many genes each tree considers (\"mtry\") is auto-picked from the grid below; the number of trees is fixed.",
         tagList(
           numericInput(ns("rf_cv_folds"), "Inner tuning folds (mtry search)", value = CT_DEFAULT_PARAMS$rf_cv_folds, min = 3, max = 10, step = 1),
           numericInput(ns("rf_ntree"), "Number of trees", value = CT_DEFAULT_PARAMS$rf_ntree, min = 100, max = 5000, step = 100),
@@ -1050,8 +1049,22 @@ mod_crosstissue_server <- function(id, dataset, results) {
           genes = r$genes, dataset_source = r$dataset_label
         )), sex_label)
       )
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_crosstissue",
+        checksum_input = list(genes = r$genes, discovery = d[, c("gene", "syn_log2FC", "syn_adjP", "auc_bestdir")], n = r$n_samples),
+        params = list(
+          stratum = sex_label, validation_cohort = r$dataset_label, panel_source = input$panel_source %||% "project",
+          blood_direction_reference = r$blood_note, n_panel_genes = r$n_input, n_present = r$n_present,
+          n_samples = r$n_samples, n_pos = r$n_pos, n_neg = r$n_neg,
+          replication_rule = sprintf("direction concordant with blood AND synovium BH-adjusted p < %s AND best-direction AUC >= %s", format(sig_cut), CT_BIOMARKER_AUC_MIN),
+          n_replicated = sum(is_bio), classifiers = "refit in the tissue cohort (not a transfer of the blood model)",
+          outer_cv_folds = input$cv_folds %||% CT_DEFAULT_PARAMS$cv_folds, stratified_folds = !identical(input$stratified_folds, "random"),
+          enet_alpha = r$enet$alpha, rf_mtry = r$rf$mtry, svm_cost = r$svm$cost
+        ),
+        seed = ARTHOMIX_TX_ML_SEED, packages = c("limma", "edgeR", "glmnet", "randomForest", "e1071", "caret", "pROC")
+      ))
       showNotification(
-        sprintf("%s: %d validated cross-tissue biomarker%s found (of %d genes present in synovium).",
+        sprintf("%s: %d cross-tissue gene%s replicated (of %d genes present in synovium).",
                 tools::toTitleCase(sex_label), sum(is_bio), if (sum(is_bio) == 1) "" else "s", r$n_present),
         type = "message", duration = 6
       )
@@ -1061,9 +1074,9 @@ mod_crosstissue_server <- function(id, dataset, results) {
     observeEvent(ct_result_male(), save_result("male", ct_result_male()))
 
     output$saved_runs_ui <- renderUI({
-      res_p <- tryCatch(ct_result_pooled(), error = function(e) NULL)
-      res_f <- tryCatch(ct_result_female(), error = function(e) NULL)
-      res_m <- tryCatch(ct_result_male(), error = function(e) NULL)
+      res_p <- tryCatch(ct_result_pooled(), error = arthomix_null_on_error)
+      res_f <- tryCatch(ct_result_female(), error = arthomix_null_on_error)
+      res_m <- tryCatch(ct_result_male(), error = arthomix_null_on_error)
       sig_cut <- input$sig_cutoff %||% 0.05
       status_row <- function(sex, r) {
         if (is.null(r)) {
@@ -1071,7 +1084,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
         } else {
           n_bio <- sum(ct_biomarker_flag(r$discovery, sig_cut))
           tags$li(icon("award", style = sprintf("color: %s;", ARTHOMIX_STATUS$good)), strong(sprintf(" %s: ", sex)),
-                  sprintf("%d biomarker%s", n_bio, if (n_bio == 1) "" else "s"))
+                  sprintf("%d replicated gene%s", n_bio, if (n_bio == 1) "" else "s"))
         }
       }
       tags$ul(style = "padding-left: 18px; margin-bottom: 0; list-style: none;",
@@ -1080,7 +1093,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
 
     res_sex <- function(sex_label) reactive({
       fr <- switch(sex_label, female = ct_result_female, male = ct_result_male, ct_result_pooled)
-      tryCatch(fr(), error = function(e) NULL)
+      tryCatch(fr(), error = arthomix_null_on_error)
     })
 
     register_discovery_outputs <- function(sex_label, res) {
@@ -1101,7 +1114,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
         n_conc <- sum(d$concordant, na.rm = TRUE)
         med_auc <- stats::median(d$auc_bestdir[d$biomarker], na.rm = TRUE)
         fluidRow(
-          valueBox(n_bio, "Validated cross-tissue biomarkers", icon = icon("award"), color = "green", width = 3),
+          valueBox(n_bio, "Replicated cross-tissue genes (concordant, adj. p, AUC >= 0.70)", icon = icon("award"), color = "green", width = 3),
           valueBox(sprintf("%d / %d", n_present, n_total), "Panel genes present in synovium", icon = icon("dna"), color = "light-blue", width = 3),
           valueBox(sprintf("%d / %d", n_conc, n_present), "Direction-concordant with blood", icon = icon("arrows-turn-to-dots"), color = "purple", width = 3),
           valueBox(if (is.na(med_auc)) "N/A" else sprintf("%.3f", med_auc), "Median AUC (biomarkers)", icon = icon("chart-line"), color = "aqua", width = 3)
@@ -1111,15 +1124,15 @@ mod_crosstissue_server <- function(id, dataset, results) {
       output[[paste0(sex_label, "_concordance_plot")]] <- renderPlot({
         d <- disc_marked(); d <- d[d$present & !is.na(d$blood_log2FC), , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Validated biomarker", "Not validated"), levels = c("Validated biomarker", "Not validated"))
+        d$Status <- factor(ifelse(d$biomarker, "Replicated gene", "Not replicated"), levels = c("Replicated gene", "Not replicated"))
         ggplot(d, aes(x = blood_log2FC, y = syn_log2FC, color = Status)) +
           geom_hline(yintercept = 0, color = ARTHOMIX_COLORS$axis, linewidth = 0.3) +
           geom_vline(xintercept = 0, color = ARTHOMIX_COLORS$axis, linewidth = 0.3) +
           geom_point(aes(size = Status), alpha = 0.9) +
           ggrepel::geom_text_repel(data = d[d$biomarker, , drop = FALSE], aes(label = gene), size = 3.4,
                                     color = ARTHOMIX_COLORS$ink, fontface = "bold", show.legend = FALSE, max.overlaps = 30) +
-          scale_color_manual(values = c(`Validated biomarker` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Validated biomarker` = 3.6, `Not validated` = 2.2), guide = "none") +
+          scale_color_manual(values = c(`Replicated gene` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Replicated gene` = 3.6, `Not validated` = 2.2), guide = "none") +
           labs(title = "Direction concordance", subtitle = "Blood vs. synovium log2 fold change",
                x = "Blood log2FC (RA vs HC)", y = "Synovium log2FC (RA vs Normal)", color = NULL) +
           theme_arthomix(base_size = 12)
@@ -1132,7 +1145,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
         d$auc_show <- if (use_train) d$auc_trainorient else d$auc_bestdir
         d <- d[!is.na(d$auc_show), , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Validated biomarker", "Not validated"), levels = c("Validated biomarker", "Not validated"))
+        d$Status <- factor(ifelse(d$biomarker, "Replicated gene", "Not replicated"), levels = c("Replicated gene", "Not replicated"))
         d$gene <- factor(d$gene, levels = d$gene[order(d$auc_show)])
         ggplot(d, aes(x = auc_show, y = gene, color = Status)) +
           geom_vline(xintercept = 0.5, linetype = "dashed", color = ARTHOMIX_COLORS$axis, linewidth = 0.4) +
@@ -1141,10 +1154,10 @@ mod_crosstissue_server <- function(id, dataset, results) {
           geom_point(aes(size = Status)) +
           geom_text(data = d[d$biomarker, , drop = FALSE], aes(label = sprintf("%.2f", auc_show)),
                     hjust = -0.4, size = 3.2, color = ARTHOMIX_COLORS$ink, show.legend = FALSE) +
-          scale_color_manual(values = c(`Validated biomarker` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Validated biomarker` = 3.4, `Not validated` = 2.4), guide = "none") +
+          scale_color_manual(values = c(`Replicated gene` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Replicated gene` = 3.4, `Not validated` = 2.4), guide = "none") +
           scale_x_continuous(limits = c(0.3, 1.05), breaks = c(0.5, CT_BIOMARKER_AUC_MIN, 1)) +
-          labs(title = "Cross-tissue biomarkers", subtitle = sprintf("Synovium AUC (%s)", if (use_train) "train-fixed" else "best-direction"),
+          labs(title = "Cross-tissue replication", subtitle = sprintf("Synovium AUC (%s)", if (use_train) "train-fixed" else "best-direction"),
                x = NULL, y = NULL, color = NULL) +
           theme_arthomix(base_size = 12) + theme(legend.position = "bottom")
       }, alt = sprintf("Ranked dot plot of each %s panel gene's synovium AUC, with validated cross-tissue biomarkers highlighted and labelled against a 0.70 validation cutoff.", sex_label))

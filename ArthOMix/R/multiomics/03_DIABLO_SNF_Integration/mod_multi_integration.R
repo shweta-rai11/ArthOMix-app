@@ -1,6 +1,5 @@
 ## R/multiomics/03_DIABLO_SNF_Integration/mod_multi_integration.R
-## Submodule: Multi-omics Integration - a live, data-adaptive DIABLO
-## (mixOmics::block.splsda, supervised) and SNF (SNFtool::SNF, unsupervised)
+## Multi-omics Integration: live DIABLO (supervised) and SNF (unsupervised) fusion.
 
 mod_multi_integration_config <- list(
   id = "integration", title = "Multi-omics Integration (DIABLO & SNF)", icon = "layer-group", group = "Data",
@@ -50,7 +49,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
-    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset))
+    output$active_dataset_banner <- renderUI(multi_active_dataset_banner(multi_dataset, multi_results))
 
     mi_dataset <- reactive({
       if (identical(input$data_source, "preloaded")) {
@@ -71,7 +70,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     output$source_note <- renderUI({
       d <- mi_dataset()
       if (!isTRUE(d$ok)) return(mi_warn(d$error))
-      mi_ok(d$provenance)
+      tagList(mi_ok(d$provenance),
+              if (!identical(input$data_source, "preloaded")) multi_harmonisation_note(multi_results, n_here = tryCatch(mi_val()$n_shared, error = function(e) NULL)))
     })
 
     outcome_candidates <- reactive({
@@ -84,7 +84,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     output$outcome_ui <- renderUI({
       cands <- outcome_candidates()
       if (length(cands) == 0) return(mi_warn("No sample metadata with a candidate outcome column is available for this dataset."))
-      selectInput(ns("outcome_col"), "Outcome variable", choices = cands, selected = cands[1], width = "100%")
+      selectInput(ns("outcome_col"), "Outcome variable", choices = cands, selected = multi_harmonisation_outcome_default(multi_results, cands), width = "100%")
     })
 
     mi_val <- reactive({
@@ -170,6 +170,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
             p(class = "submodule-desc", "Outcome variable is set once, above (Data selection) - it applies to both DIABLO and Compare."),
             hr(),
             h5("Components"),
+            checkboxInput(ns("d_ncomp_auto"), "Tune the number of components with perf() on a non-sparse block.plsda (mixOmics DIABLO workflow; at least 3 repeats)", value = TRUE),
             numericInput(ns("d_ncomp"), "Number of components (ncomp)", value = max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)), min = 1, max = max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)), step = 1),
             p(class = "submodule-desc", sprintf("Feasible range for this dataset: 1-%d.", max(mi_diablo_feasible_ncomp(o_sel$n_classes %||% 2, min_class_n)))),
             hr(),
@@ -240,7 +241,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       }
       list(
         design_mode = "custom", design_custom = design_custom,
-        ncomp_mode = "manual", ncomp = input$d_ncomp,
+        ncomp_mode = if (isTRUE(input$d_ncomp_auto %||% TRUE)) "tuned" else "manual", ncomp = input$d_ncomp,
         keepx_mode = if (isTRUE(input$d_keepx_auto)) "automatic" else "manual", keepx_manual = keepx_manual,
         validation_mode = "manual", validation_method = input$d_validation_method %||% "mfold",
         folds = input$d_folds, nrepeat = input$d_nrepeat, distance = input$d_distance %||% "automatic",
@@ -254,8 +255,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         tags$strong("Planned run: "), sprintf(
           "Blocks: %s | Samples: %d | Outcome: %s | Components: %s | keepX: %s | Validation: %s, %s-fold x %s repeats | Distance: %s",
           paste(input$d_blocks, collapse = " + "), v$n_shared, input$outcome_col %||% "-",
-          p$ncomp %||% "-",
-          if (identical(p$keepx_mode, "automatic")) "Auto-tuned (grid search)" else "Manual (set above)",
+          if (identical(p$ncomp_mode, "tuned")) "Tuned by perf() (upper bound set above)" else p$ncomp %||% "-",
+          if (identical(p$keepx_mode, "automatic")) "Auto-tuned (grid search, nested inside every CV fold for the reported performance)" else "Manual (set above)",
           if (identical(p$validation_method, "loo")) "Leave-one-out" else "M-fold CV", p$folds %||% "-", p$nrepeat %||% "-",
           if (identical(p$distance, "automatic")) "Auto-selected during tuning" else p$distance
         ))
@@ -340,11 +341,12 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       tagList(
         box(width = NULL, title = "Actual parameters used", status = "primary", solidHeader = FALSE,
             tags$ul(
-              tags$li(sprintf("Components: %d", p$ncomp)),
+              tags$li(sprintf("Components: %d (%s)", p$ncomp, if (identical(p$ncomp_mode, "tuned")) p$ncomp_note %||% "tuned" else "set manually")),
               tags$li(sprintf("keepX per block: %s", keepx_txt)),
               tags$li(sprintf("Block relationship: %s", p$design_mode)),
               tags$li(sprintf("Prediction distance: %s%s", p$distance, if (identical(p$distance_mode, "automatic")) " (auto-selected)" else "")),
               tags$li(sprintf("Validation: %s, %d-fold x %d repeat(s)", p$validation_method, p$folds, p$nrepeat)),
+              tags$li(sprintf("Reported error rates and AUROC: %s", perf_sum$error_source %||% "-")),
               if (isTRUE(p$loo_downgraded)) tags$li(mi_warn("Leave-one-out was requested but this dataset is too large for it - M-fold CV was used instead."))
             )),
         box(width = NULL, title = "Model", status = "primary", solidHeader = FALSE,
@@ -357,18 +359,22 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
                   mi_stat_card(sprintf("%.3f", perf_sum$ber), "Balanced error rate (BER)"),
                   mi_stat_card(sprintf("%.3f", perf_sum$overall_error), "Overall error rate")),
               multi_plot_or_empty(function() mi_diablo_error_bar_plot(perf_sum), ns("d_error_plot"), height = "260px"),
-              if (!is.null(perf_sum$auc)) tagList(h5("AUC"), DT::dataTableOutput(ns("d_auc_table")))
+              div(class = "table-toolbar", downloadButton(ns("d_dl_error_png"), "Download plot (PNG)", class = "btn-sm")),
+              if (!is.null(perf_sum$auc)) tagList(h5("AUROC (pooled out-of-fold predictions, per-fold refits; DeLong 95% CI)"), DT::dataTableOutput(ns("d_auc_table")))
             )),
         box(width = NULL, title = "Selected multi-omics features", status = "primary", solidHeader = FALSE,
             if (is.null(sel)) mi_warn("No features were selected.") else tagList(
               multi_plot_or_empty(function() multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(sel, 1)), ns("d_panel_plot"), height = "380px"),
+              div(class = "table-toolbar", downloadButton(ns("d_dl_panel_png"), "Download plot (PNG)", class = "btn-sm")),
               DT::dataTableOutput(ns("d_selected_table")),
               div(class = "table-toolbar", downloadButton(ns("d_dl_selected"), "Download selected features (CSV)", class = "btn-sm"))
             )),
         box(width = NULL, title = "Sample plot", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() multi_diablo_score_plot(scores_df), ns("d_score_plot"), height = "320px")),
+            multi_plot_or_empty(function() multi_diablo_score_plot(scores_df), ns("d_score_plot"), height = "320px"),
+            div(class = "table-toolbar", downloadButton(ns("d_dl_score_png"), "Download plot (PNG)", class = "btn-sm"))),
         box(width = NULL, title = "Variance explained (within block)", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() multi_diablo_variance_plot(multi_diablo_variance_df(res$fit)), ns("d_variance_plot"), height = "300px")),
+            multi_plot_or_empty(function() multi_diablo_variance_plot(multi_diablo_variance_df(res$fit)), ns("d_variance_plot"), height = "300px"),
+            div(class = "table-toolbar", downloadButton(ns("d_dl_variance_png"), "Download plot (PNG)", class = "btn-sm"))),
         if (length(p$blocks) >= 2) box(width = NULL, title = "Correlation between selected variables across blocks", status = "primary", solidHeader = FALSE,
             fluidRow(column(6, selectInput(ns("d_corr_a"), "Block A", choices = p$blocks, selected = p$blocks[1])),
                      column(6, selectInput(ns("d_corr_b"), "Block B", choices = p$blocks, selected = p$blocks[min(2, length(p$blocks))]))),
@@ -393,19 +399,38 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       req(perf_sum)
       mi_diablo_error_bar_plot(perf_sum)
     })
+    output$d_dl_error_png <- multi_png_download(function() {
+      res <- req(diablo_state$result)
+      perf_sum <- mi_diablo_performance_summary(res)
+      req(perf_sum)
+      mi_diablo_error_bar_plot(perf_sum)
+    }, function() "diablo_error_rate.png")
     output$d_panel_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       sel <- req(mi_diablo_selected_features_df(res$fit))
       multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(sel, 1))
     })
+    output$d_dl_panel_png <- multi_png_download(function() {
+      res <- req(diablo_state$result)
+      sel <- req(mi_diablo_selected_features_df(res$fit))
+      multi_diablo_panel_plot(mi_diablo_panel_df_for_plot(sel, 1))
+    }, function() "diablo_selected_features.png")
     output$d_score_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       multi_diablo_score_plot(mi_diablo_sample_scores_df(res$fit, diablo_state$outcome_used))
     })
+    output$d_dl_score_png <- multi_png_download(function() {
+      res <- req(diablo_state$result)
+      multi_diablo_score_plot(mi_diablo_sample_scores_df(res$fit, diablo_state$outcome_used))
+    }, function() "diablo_sample_scores.png")
     output$d_variance_plot <- multi_render_plotly(function() {
       res <- req(diablo_state$result)
       multi_diablo_variance_plot(multi_diablo_variance_df(res$fit))
     })
+    output$d_dl_variance_png <- multi_png_download(function() {
+      res <- req(diablo_state$result)
+      multi_diablo_variance_plot(multi_diablo_variance_df(res$fit))
+    }, function() "diablo_variance_explained.png")
 
     output$d_corr_plot_ui <- renderUI({
       req(diablo_state$result, input$d_corr_a, input$d_corr_b, input$d_corr_a != input$d_corr_b)
@@ -413,7 +438,10 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       sel <- mi_diablo_selected_features_df(diablo_state$result$fit)
       corr <- mi_diablo_selected_correlation_data(d$layers, sel, input$d_corr_a, input$d_corr_b, v$shared_ids)
       if (!isTRUE(corr$ok)) return(mi_warn(corr$error))
-      multi_plot_or_empty(function() multi_live_correlation_heatmap_plot(corr$df), ns("d_corr_plot"), height = "420px")
+      tagList(
+        multi_plot_or_empty(function() multi_live_correlation_heatmap_plot(corr$df), ns("d_corr_plot"), height = "420px"),
+        div(class = "table-toolbar", downloadButton(ns("d_dl_corr_png"), "Download plot (PNG)", class = "btn-sm"))
+      )
     })
     output$d_corr_plot <- multi_render_plotly(function() {
       req(diablo_state$result, input$d_corr_a, input$d_corr_b, input$d_corr_a != input$d_corr_b)
@@ -423,6 +451,14 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       req(isTRUE(corr$ok))
       multi_live_correlation_heatmap_plot(corr$df)
     })
+    output$d_dl_corr_png <- multi_png_download(function() {
+      req(diablo_state$result, input$d_corr_a, input$d_corr_b, input$d_corr_a != input$d_corr_b)
+      v <- mi_val(); d <- mi_dataset()
+      sel <- mi_diablo_selected_features_df(diablo_state$result$fit)
+      corr <- mi_diablo_selected_correlation_data(d$layers, sel, input$d_corr_a, input$d_corr_b, v$shared_ids)
+      req(isTRUE(corr$ok))
+      multi_live_correlation_heatmap_plot(corr$df)
+    }, function() sprintf("diablo_correlation_%s_vs_%s.png", make.names(input$d_corr_a %||% "A"), make.names(input$d_corr_b %||% "B")))
     output$d_stability_ui <- renderUI({
       res <- req(diablo_state$result)
       stab <- mi_diablo_stability_df(res, block = res$params$blocks[1], comp = 1)
@@ -434,7 +470,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       DT::datatable(mi_diablo_stability_df(res, block = res$params$blocks[1], comp = 1), rownames = FALSE, options = list(pageLength = 10), class = "stripe hover compact")
     })
 
-    snf_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE)
+    snf_state <- reactiveValues(result = NULL, error = NULL, submitted = FALSE, layers_used = NULL, sample_meta = NULL, dataset_label = NULL)
 
     snf_elig <- reactive({
       v <- val_for_blocks(input$s_blocks)
@@ -553,6 +589,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         snf_state$error <- NULL
         snf_state$result <- NULL
         snf_state$submitted <- TRUE
+        snf_state$layers_used <- layers; snf_state$sample_meta <- d$sample_meta; snf_state$dataset_label <- d$label
         p <- s_params()
         session$onFlushed(function() snf_task$invoke(layers, p), once = TRUE)
       })
@@ -568,6 +605,8 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       observeEvent(input$s_run_btn, {
         validate(need(isTRUE(snf_elig()$ok), snf_elig()$reason))
         showNotification("Running SNF synchronously (future/promises not installed).", type = "message", duration = 5)
+        d <- req(mi_dataset()); v <- req(val_for_blocks(input$s_blocks))
+        snf_state$layers_used <- lapply(d$layers[input$s_blocks], function(m) m[v$shared_ids, , drop = FALSE]); snf_state$sample_meta <- d$sample_meta; snf_state$dataset_label <- d$label
         res <- run_snf()
         snf_state$error <- if (!isTRUE(res$ok)) res$error else NULL
         if (isTRUE(res$ok)) snf_state$result <- res
@@ -612,15 +651,18 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
               tags$li(sprintf("Random seed: %s", p$seed %||% "-"))
             )),
         box(width = NULL, title = "Fused network", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mi_snf_fused_heatmap(res$W, res$clusters), ns("s_heatmap"), height = "420px")),
+            multi_plot_or_empty(function() mi_snf_fused_heatmap(res$W, res$clusters), ns("s_heatmap"), height = "420px"),
+            div(class = "table-toolbar", downloadButton(ns("s_dl_heatmap_png"), "Download plot (PNG)", class = "btn-sm"))),
         box(width = NULL, title = "Clusters", status = "primary", solidHeader = FALSE,
             div(style = "display:flex; gap:10px; flex-wrap:wrap;", lapply(names(cl_tab), function(cl) mi_stat_card(cl_tab[[cl]], sprintf("Cluster %s", cl)))),
             DT::dataTableOutput(ns("s_assign_table")),
             div(class = "table-toolbar", downloadButton(ns("s_dl_assign"), "Download cluster assignments (CSV)", class = "btn-sm"))),
         box(width = NULL, title = "Cluster visualization", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mi_snf_pca_cluster_plot(mi_dataset()$layers[input$s_blocks], res$clusters), ns("s_pca_plot"), height = "380px")),
+            multi_plot_or_empty(function() mi_snf_pca_cluster_plot(mi_dataset()$layers[input$s_blocks], res$clusters), ns("s_pca_plot"), height = "380px"),
+            div(class = "table-toolbar", downloadButton(ns("s_dl_pca_png"), "Download plot (PNG)", class = "btn-sm"))),
         box(width = NULL, title = "Cluster quality", status = "primary", solidHeader = FALSE,
-            multi_plot_or_empty(function() mi_snf_cluster_estimate_plot(res$cluster_estimate), ns("s_estimate_plot"), height = "260px")),
+            multi_plot_or_empty(function() mi_snf_cluster_estimate_plot(res$cluster_estimate), ns("s_estimate_plot"), height = "260px"),
+            div(class = "table-toolbar", downloadButton(ns("s_dl_estimate_png"), "Download plot (PNG)", class = "btn-sm"))),
         if (isTRUE(input$s_show_diagnostics)) box(width = NULL, title = "Network concordance (with fused network)", status = "primary", solidHeader = FALSE,
             p(class = "submodule-desc", "Network-agreement metric between each block's clustering and the fused clustering, not predictive accuracy."),
             DT::dataTableOutput(ns("s_concordance_table"))),
@@ -632,14 +674,26 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       res <- req(snf_state$result)
       mi_snf_fused_heatmap(res$W, res$clusters)
     })
+    output$s_dl_heatmap_png <- multi_png_download(function() {
+      res <- req(snf_state$result)
+      mi_snf_fused_heatmap(res$W, res$clusters)
+    }, function() "snf_fused_network.png")
     output$s_pca_plot <- multi_render_plotly(function() {
       res <- req(snf_state$result)
       mi_snf_pca_cluster_plot(mi_dataset()$layers[input$s_blocks], res$clusters)
     })
+    output$s_dl_pca_png <- multi_png_download(function() {
+      res <- req(snf_state$result)
+      mi_snf_pca_cluster_plot(mi_dataset()$layers[input$s_blocks], res$clusters)
+    }, function() "snf_cluster_pca.png")
     output$s_estimate_plot <- multi_render_plotly(function() {
       res <- req(snf_state$result)
       mi_snf_cluster_estimate_plot(res$cluster_estimate)
     })
+    output$s_dl_estimate_png <- multi_png_download(function() {
+      res <- req(snf_state$result)
+      mi_snf_cluster_estimate_plot(res$cluster_estimate)
+    }, function() "snf_cluster_quality.png")
 
     output$s_assign_table <- DT::renderDataTable({
       res <- req(snf_state$result)
@@ -712,6 +766,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       if (!isTRUE(res$ok)) return(mi_stop(res$error))
       tagList(
         multi_plot_or_empty(function() mi_compare_bar_plot(res$table), ns("c_sup_plot"), height = "260px"),
+        div(class = "table-toolbar", downloadButton(ns("c_dl_sup_png"), "Download plot (PNG)", class = "btn-sm")),
         DT::dataTableOutput(ns("c_sup_table")),
         p(class = "submodule-desc", tags$em(res$note))
       )
@@ -719,6 +774,9 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     output$c_sup_plot <- multi_render_plotly(function() {
       mi_compare_bar_plot(req(c_supervised())$table)
     })
+    output$c_dl_sup_png <- multi_png_download(function() {
+      mi_compare_bar_plot(req(c_supervised())$table)
+    }, function() "compare_supervised_vs_single_omics.png")
     output$c_sup_table <- DT::renderDataTable({
       DT::datatable(req(c_supervised())$table, rownames = FALSE, options = list(dom = "t"), class = "stripe hover compact")
     })
@@ -838,7 +896,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
         d <- req(mi_dataset())
         req(input$outcome_col, input$ss_expr_block, input$ss_meth_block)
         sex_mode <- input$ss_sex_mode %||% "pooled"
-        validate(need(identical(sex_mode, "pooled") || !is.null(ss_sex_col()), "No Sex/Gender column detected in this dataset's metadata - switch Sex stratification to \"All (pooled)\", or use a dataset with a Sex/Gender column."))
+        validate(need(identical(sex_mode, "pooled") || !is.null(ss_sex_col()), "No Sex/Gender column found. Switch Sex stratification to \"All (pooled)\", or use a dataset with a Sex/Gender column."))
         expr <- d$layers[[input$ss_expr_block]]; meth <- d$layers[[input$ss_meth_block]]
         meta <- d$sample_meta; outcome_col <- input$outcome_col
         covariate_col <- if (nzchar(input$ss_covariate %||% "")) input$ss_covariate else NULL
@@ -858,7 +916,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
     } else {
       observeEvent(input$ss_run_btn, {
         sex_mode <- input$ss_sex_mode %||% "pooled"
-        validate(need(identical(sex_mode, "pooled") || !is.null(ss_sex_col()), "No Sex/Gender column detected in this dataset's metadata - switch Sex stratification to \"All (pooled)\", or use a dataset with a Sex/Gender column."))
+        validate(need(identical(sex_mode, "pooled") || !is.null(ss_sex_col()), "No Sex/Gender column found. Switch Sex stratification to \"All (pooled)\", or use a dataset with a Sex/Gender column."))
         showNotification("Running Sex-Stratified analysis synchronously (future/promises not installed) - the app will be briefly unresponsive.", type = "message", duration = 5)
         res <- run_ss()
         ss_state$error <- if (!isTRUE(res$ok)) res$error else NULL
@@ -912,7 +970,7 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
               div(class = "table-toolbar", downloadButton(ns("ss_dl_panel"), "Download panel (CSV)", class = "btn-sm"))
             )),
         box(width = NULL, title = "Biomarker comparison by sex", status = "primary", solidHeader = FALSE,
-            p(class = "submodule-desc", "One row per candidate feature - a value in the Female/Male/Pooled column means that feature was selected in that stratum's own full-cohort panel; a blank cell means it wasn't."),
+            p(class = "submodule-desc", "One row per candidate feature. A value in the Female/Male/Pooled column means it was selected in that stratum's panel; blank means it wasn't."),
             if (is.null(res$panels_wide) || nrow(res$panels_wide) == 0) mi_warn("Not available - run \"Female and Male separately\" (or compare separate pooled/female/male runs) to populate this comparison.") else tagList(
               DT::dataTableOutput(ns("ss_panel_wide_table")),
               div(class = "table-toolbar", downloadButton(ns("ss_dl_panel_wide"), "Download comparison (CSV)", class = "btn-sm"))
@@ -942,9 +1000,51 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       multi_results$integration <- list(
         cell = list(label = d$label),
         perf = if (!is.null(diablo_state$result)) mi_diablo_performance_summary(diablo_state$result) else NULL,
-        snf_perf = if (!is.null(snf_state$result)) snf_state$result$params else NULL
+        snf_perf = if (!is.null(snf_state$result)) snf_state$result$params else NULL,
+        ## Hand-off so SNF Clustering can reuse this fused network without rerunning SNF.
+        snf = if (!is.null(snf_state$result)) list(
+          result = snf_state$result, layers = snf_state$layers_used, sample_meta = snf_state$sample_meta,
+          dataset_label = snf_state$dataset_label, run_at = Sys.time()
+        ) else NULL
       )
       multi_results$integration_stratified <- if (!is.null(ss_state$result)) list(cell = list(label = d$label), result = ss_state$result) else NULL
+    })
+
+    ## ---- provenance records (session-wide Analysis records log) ----
+    observeEvent(diablo_state$result, {
+      r <- diablo_state$result; if (is.null(r) || !isTRUE(r$ok)) return()
+      ps <- mi_diablo_performance_summary(r)
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_integration_diablo",
+        checksum_input = list(ids = rownames(r$fit$X[[1]]), features = lapply(r$fit$X, colnames), classes = r$params$classes),
+        params = list(blocks = r$params$blocks, n_samples = r$params$n_samples, outcome = input$outcome_col, ncomp = r$params$ncomp, ncomp_mode = r$params$ncomp_mode,
+                      keepX = r$params$keepX, keepx_mode = r$params$keepx_mode, design = r$params$design_mode, distance = r$params$distance,
+                      validation = r$params$validation_method, folds = r$params$folds, nrepeat = r$params$nrepeat, nested = isTRUE(r$nested),
+                      ber = ps$ber, oof_auroc = if (!is.null(ps$auc)) ps$auc$AUC[1] else NA_real_),
+        seed = r$params$seed, packages = c("mixOmics", "pROC", "caret"),
+        extra = list(dataset = tryCatch(mi_dataset()$label, error = function(e) NA_character_))
+      ), session = session, dedupe = TRUE)
+    })
+    observeEvent(snf_state$result, {
+      r <- snf_state$result; if (is.null(r) || !isTRUE(r$ok)) return()
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_integration_snf",
+        checksum_input = list(ids = names(r$clusters), blocks = r$params$blocks, W = round(r$W, 6)),
+        params = r$params[c("blocks", "n_samples", "k", "alpha", "t", "k_mode", "alpha_mode", "t_mode", "n_clusters", "cluster_mode", "cluster_method", "standardize")],
+        seed = r$params$seed, packages = c("SNFtool"),
+        extra = list(dataset = tryCatch(mi_dataset()$label, error = function(e) NA_character_), cluster_sizes = as.list(table(r$clusters)))
+      ), session = session, dedupe = TRUE)
+    })
+    observeEvent(ss_state$result, {
+      r <- ss_state$result; if (is.null(r) || !isTRUE(r$ok)) return()
+      arthomix_provenance_push(arthomix_provenance_record(
+        module = "mod_multi_integration_sexstratified",
+        checksum_input = list(perf = r$performance %||% r$per_stratum %||% names(r)),
+        params = list(engine = input$ss_engine, sex_mode = input$ss_sex_mode, covariate = input$ss_covariate, top_expr = input$ss_top_expr, top_meth = input$ss_top_meth,
+                      ncomp = input$ss_ncomp, folds = input$ss_folds, repeats = input$ss_repeats),
+        seed = NULL, packages = c("mixOmics", "randomForest", "limma", "pROC"),
+        extra = list(dataset = tryCatch(mi_dataset()$label, error = function(e) NA_character_))
+      ), session = session, dedupe = TRUE)
     })
   })
 }

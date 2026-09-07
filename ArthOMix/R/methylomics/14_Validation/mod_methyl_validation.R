@@ -1,6 +1,5 @@
 ## R/methylomics/14_Validation/mod_methyl_validation.R
-## Applies the Diagnostic Classifier's already-trained models (results$diagnostic_models) to an
-## independent EXTERNAL cohort - never retrains. Mirrors mod_methyl_diagnostic.R's per-model tab
+## Applies Diagnostic Classifier's trained models to an independent EXTERNAL cohort; never retrains.
 
 mod_methyl_validation_config <- list(
   id = "validation", title = "Validation", icon = "flask-vial", group = "Biomarker modeling",
@@ -373,7 +372,7 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       models <- avail_models()
       if (length(models) == 0) {
         return(p(class = "text-danger", icon("triangle-exclamation"),
-          " No trained model available yet. Go to Diagnostic Classifier, train a model on any tab, click \"Run Test Evaluation\", then return here. Every model you test-evaluate there becomes available here."))
+          " No trained model available yet. Go to Diagnostic Classifier, train a model, click \"Run Test Evaluation\", then return here. Every model you test-evaluate becomes available here."))
       }
       tagList(
         p(class = "submodule-desc", sprintf("%d trained model(s) available.", length(models))),
@@ -566,7 +565,7 @@ mod_methyl_validation_server <- function(id, dataset, results = NULL) {
       n_fail <- sum(ov$Status == "Fail")
       if (n_fail == nrow(ov)) {
         return(div(class = "alert alert-danger", icon("ban"),
-          " Validation is BLOCKED for every trained model: none of them have all their required CpGs present in this validation cohort. Load a cohort containing every required CpG, or choose a different validation cohort."))
+          " Validation is BLOCKED for every trained model: none have all their required CpGs present in this validation cohort. Load a cohort with every required CpG, or choose a different one."))
       }
       if (n_fail > 0) {
         return(div(class = "alert alert-warning", icon("triangle-exclamation"),

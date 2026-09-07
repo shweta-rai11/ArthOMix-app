@@ -1,6 +1,5 @@
 ## R/crossomics/04_Cross_Omics_MR/crossomics_mrstage_helpers.R
-## Pure data-processing logic for the "Cross-Omics MR" Cross-Omics
-## sub-module (mod_cross_mr_stage.R).
+## Data-processing logic for the "Cross-Omics MR" sub-module.
 
 CX_MR_PRECOMPUTED_FILE <- file.path(CX_RESULTS_DIR, "mr_stage_eqtl_significant_genes_mqtl_mr.csv")
 CX_MR_DATA_AVAILABLE <- CX_DATA_AVAILABLE && file.exists(CX_MR_PRECOMPUTED_FILE)

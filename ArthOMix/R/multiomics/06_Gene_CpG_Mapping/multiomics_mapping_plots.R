@@ -1,6 +1,5 @@
 ## R/multiomics/06_Gene_CpG_Mapping/multiomics_mapping_plots.R
-## Plots 1-6 for the "Gene-CpG Mapping" submodule (spec section 20).
-## Every function returns NULL (never a placeholder/fake plot) when its
+## Plots 1-6 for the "Gene-CpG Mapping" submodule. Returns NULL, never a fake plot, when data is missing.
 
 mcc_plot_scatter <- function(df, color_by = "region_fine", meth_value = c("dbeta", "delta_beta")) {
   meth_value <- match.arg(meth_value)

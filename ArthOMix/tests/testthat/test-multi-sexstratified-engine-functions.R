@@ -77,7 +77,9 @@ test_that("mss_diablo_fold() (real mixOmics::block.splsda, one fold) returns a v
   res <- mss_diablo_fold(expr, meth, outcome, NULL, train_idx, test_idx, params)
   expect_true(!is.null(res))
   expect_equal(length(res$score), length(test_idx))
-  expect_true(all(res$score %in% c(0, 1)))
+  ## continuous weighted-prediction score for the positive class, not a 0/1 vote
+  expect_true(all(is.finite(res$score)))
+  expect_false(all(res$score %in% c(0, 1)))
   expect_true(length(res$selected$expr) >= 3)
 })
 

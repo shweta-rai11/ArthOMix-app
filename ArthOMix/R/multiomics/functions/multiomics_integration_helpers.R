@@ -1,6 +1,5 @@
 ## R/multiomics/functions/multiomics_integration_helpers.R
-## Pure data-processing logic for the live DIABLO/SNF/Compare engine mounted
-## in mod_multi_integration.R - the Multi-Omics module's own "run a real
+## Data-processing logic for the live DIABLO/SNF/Compare engine (mod_multi_integration.R).
 
 mi_preloaded_cell_dataset <- function(cell_key) {
   cell <- multi_cell_by_key(cell_key)
@@ -19,7 +18,7 @@ mi_preloaded_cell_dataset <- function(cell_key) {
     outcome_col = if (!is.null(meta)) "outcome" else NULL,
     label = cell$label,
     provenance = sprintf(
-      "Preloaded RA anti-TNF cohort - %s (%s). This re-runs DIABLO/SNF live - a new fit, not the pipeline's saved result. See \"Patient Stratification\" for precomputed SNF clusters, or \"Biomarker Discovery\" for a stability/ROC-reported DIABLO panel.",
+      "Preloaded RA anti-TNF cohort: %s (%s). This is a live re-fit of DIABLO/SNF, not the pipeline's saved result. See \"Patient Stratification\" for precomputed SNF clusters, or \"Biomarker Discovery\" for the stability/ROC DIABLO panel.",
       cell$label, paste(sprintf("%s: %d features", names(layers), vapply(layers, ncol, integer(1))), collapse = ", ")
     )
   )
@@ -126,6 +125,35 @@ mi_diablo_design <- function(block_names, mode = c("automatic", "custom"), custo
   design
 }
 
+## block.splsda() pads a short keepX with ALL features; recycle the last value instead.
+mi_diablo_align_keepx <- function(keepx, X, ncomp) {
+  stats::setNames(lapply(names(X), function(b) {
+    v <- suppressWarnings(as.integer(keepx[[b]] %||% 10L))
+    v <- v[!is.na(v) & v > 0]
+    if (length(v) == 0) v <- 10L
+    if (length(v) < ncomp) v <- c(v, rep(v[length(v)], ncomp - length(v)))
+    pmin(v[seq_len(ncomp)], ncol(X[[b]]))
+  }), names(X))
+}
+
+mi_diablo_tune_ncomp <- function(X, Y, design, max_ncomp, validation_method, folds, nrepeat, dist = "max.dist", seed = NULL) {
+  fallback <- list(ncomp = max_ncomp, note = sprintf("Component number could not be tuned - using the largest feasible value (%d).", max_ncomp))
+  if (max_ncomp <= 1) return(list(ncomp = 1L, note = "Only one component is feasible for this outcome."))
+  full <- tryCatch(mixOmics::block.plsda(X = X, Y = Y, ncomp = max_ncomp, design = design), error = function(e) NULL)
+  if (is.null(full)) return(fallback)
+  pf <- tryCatch(mixOmics::perf(full, validation = validation_method, folds = folds, nrepeat = nrepeat, progressBar = FALSE, seed = seed), error = function(e) NULL)
+  if (is.null(pf)) return(fallback)
+  ch <- tryCatch(pf$choice.ncomp$WeightedVote["Overall.BER", dist], error = function(e) NA)
+  if (is.null(ch) || is.na(ch)) {
+    ## perf() returns no choice with fewer than three repeats; fall back to the BER minimum
+    ber <- tryCatch(pf$WeightedVote.error.rate[[dist]]["Overall.BER", ], error = function(e) NULL)
+    if (is.null(ber)) return(fallback)
+    ch <- which.min(ber)
+    return(list(ncomp = as.integer(ch), note = sprintf("Component number %d chosen as the balanced-error-rate minimum of a non-sparse block.plsda (perf, %d-fold x %d).", ch, folds, nrepeat)))
+  }
+  list(ncomp = as.integer(ch), note = sprintf("Component number %d chosen by perf() (choice.ncomp on the weighted-vote balanced error rate of a non-sparse block.plsda, %d-fold x %d, %s).", ch, folds, nrepeat, dist))
+}
+
 mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   X <- lapply(layers, function(m) m[sample_ids, , drop = FALSE])
   Y <- droplevels(factor(outcome[sample_ids]))
@@ -138,9 +166,6 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   design <- mi_diablo_design(block_names, mode = params$design_mode %||% "automatic", custom = params$design_custom)
 
   ncomp_choices <- mi_diablo_feasible_ncomp(nlevels(Y), min_class_n)
-  ncomp <- if (identical(params$ncomp_mode %||% "automatic", "manual") && !is.null(params$ncomp)) {
-    max(1L, min(as.integer(params$ncomp), max(ncomp_choices)))
-  } else max(ncomp_choices)
 
   manual_validation <- identical(params$validation_mode %||% "automatic", "manual")
   requested_method <- if (manual_validation) (params$validation_method %||% "mfold") else "mfold"
@@ -156,8 +181,20 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
 
   seed <- if (!is.null(params$seed)) as.integer(params$seed) else NULL
 
+  ## Components: user-set ("manual"), or tuned by perf() on a non-sparse block.plsda (needs >=3 repeats).
+  ncomp_mode <- params$ncomp_mode %||% "tuned"
+  ncomp_note <- NULL
+  ncomp <- if (identical(ncomp_mode, "manual") && !is.null(params$ncomp)) {
+    max(1L, min(as.integer(params$ncomp), max(ncomp_choices)))
+  } else if (identical(ncomp_mode, "tuned")) {
+    tn <- mi_diablo_tune_ncomp(X, Y, design, max(ncomp_choices), validation_method, folds, max(3L, nrepeat),
+                               dist = if (identical(dist_choice, "automatic")) "max.dist" else dist_choice, seed = seed)
+    ncomp_note <- tn$note
+    tn$ncomp
+  } else max(ncomp_choices)
+
   if (identical(keepx_mode, "manual") && !is.null(params$keepx_manual)) {
-    keepX <- params$keepx_manual
+    keepX <- mi_diablo_align_keepx(params$keepx_manual, X, ncomp)
   } else {
     grid <- stats::setNames(lapply(X, function(m) mi_diablo_keepx_grid(ncol(m))), block_names)
     tuned <- tryCatch(
@@ -193,10 +230,18 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   if (all(is.na(ber_by_dist))) return(list(ok = FALSE, error = "Cross-validated performance could not be computed for this configuration."))
   resolved_dist <- names(ber_by_dist)[which.min(ber_by_dist)]
 
+  ## Out-of-fold performance: keepX tuning is nested inside each outer fold if tuned.
+  nested <- !identical(keepx_mode, "manual")
+  inner_tune <- if (nested) list(grid = stats::setNames(lapply(X, function(m) mi_diablo_keepx_grid(ncol(m))), block_names),
+                                 folds = folds, nrepeat = 1L, dist = if (identical(dist_choice, "automatic")) "max.dist" else dist_choice) else NULL
+  oof <- if (nlevels(Y) == 2) tryCatch(mi_diablo_oof_auc(X, Y, ncomp = ncomp, keepX = keepX, design = design, distance = resolved_dist,
+                                                         folds = folds, nrepeat = if (use_loo) 1L else nrepeat, scale = isTRUE(params$scale %||% TRUE),
+                                                         seed = seed %||% 1L, inner_tune = inner_tune), error = function(e) NULL) else NULL
+
   list(
-    ok = TRUE, fit = fit, perf = perf_res,
+    ok = TRUE, fit = fit, perf = perf_res, oof = oof, nested = nested && !is.null(oof),
     params = list(
-      blocks = block_names, ncomp = ncomp, keepX = keepX,
+      blocks = block_names, ncomp = ncomp, ncomp_mode = ncomp_mode, ncomp_note = ncomp_note, keepX = keepX, keepx_mode = keepx_mode,
       design_mode = params$design_mode %||% "automatic", design = design,
       validation_method = validation_method, folds = folds, nrepeat = nrepeat, distance = resolved_dist,
       distance_mode = dist_choice, n_samples = length(Y),
@@ -207,6 +252,72 @@ mi_diablo_run <- function(layers, outcome, sample_ids, params = list()) {
   )
 }
 
+## Honest OOF AUROC: perf(auc=TRUE) isn't held-out (~0.99 on pure noise). Refit per fold instead for a real ROC (DeLong CI).
+mi_diablo_oof_auc <- function(X, Y, ncomp, keepX, design, distance = "max.dist", folds = 5, nrepeat = 5, scale = TRUE, seed = 1, inner_tune = NULL) {
+  Y <- droplevels(factor(Y))
+  if (nlevels(Y) != 2) return(NULL)
+  n <- length(Y); ids <- names(Y) %||% rownames(X[[1]])
+  folds_k <- max(2, min(as.integer(folds), min(table(Y))))
+  dist_use <- if (is.null(distance) || distance %in% c("automatic", "all")) "max.dist" else distance
+  pos_class <- levels(Y)[2]
+  oof <- matrix(NA_real_, n, nrepeat, dimnames = list(ids, NULL))
+  vote <- matrix(NA_character_, n, nrepeat, dimnames = list(ids, NULL))
+  inner_keepx <- list()
+  set.seed(seed)
+  for (r in seq_len(nrepeat)) {
+    fold_id <- tryCatch(caret::createFolds(Y, k = folds_k, list = FALSE), error = function(e) NULL)
+    if (is.null(fold_id)) next
+    for (f in seq_len(folds_k)) {
+      te <- which(fold_id == f); tr <- setdiff(seq_len(n), te)
+      ytr <- droplevels(Y[tr])
+      if (nlevels(ytr) < 2 || length(te) == 0) next
+      Xtr <- lapply(X, function(m) m[tr, , drop = FALSE]); Xte <- lapply(X, function(m) m[te, , drop = FALSE])
+      keepX_f <- keepX
+      if (!is.null(inner_tune)) {
+        ## nested: the feature-count grid search sees the training fold only
+        inner_folds <- max(2, min(as.integer(inner_tune$folds %||% folds_k), min(table(ytr))))
+        tuned <- tryCatch(suppressMessages(mixOmics::tune.block.splsda(
+          X = Xtr, Y = ytr, ncomp = ncomp, test.keepX = inner_tune$grid, design = design,
+          validation = "Mfold", folds = inner_folds, nrepeat = inner_tune$nrepeat %||% 1L,
+          dist = inner_tune$dist %||% dist_use, measure = "BER", progressBar = FALSE, near.zero.var = TRUE, scale = isTRUE(scale))), error = function(e) NULL)
+        if (!is.null(tuned) && !is.null(tuned$choice.keepX)) keepX_f <- tuned$choice.keepX
+        inner_keepx[[length(inner_keepx) + 1]] <- keepX_f
+      }
+      fit_f <- tryCatch(mixOmics::block.splsda(X = Xtr, Y = ytr, ncomp = ncomp, keepX = keepX_f, design = design, near.zero.var = TRUE, scale = isTRUE(scale)), error = function(e) NULL)
+      if (is.null(fit_f)) next
+      pr <- tryCatch(stats::predict(fit_f, newdata = Xte, dist = dist_use), error = function(e) NULL)
+      if (is.null(pr) || is.null(pr$WeightedPredict)) next
+      nc_use <- min(ncomp, dim(pr$WeightedPredict)[3])
+      arr <- pr$WeightedPredict[, , nc_use, drop = FALSE]
+      wp <- matrix(as.numeric(arr), nrow = dim(arr)[1], dimnames = list(dimnames(arr)[[1]], dimnames(arr)[[2]]))
+      if (!pos_class %in% colnames(wp)) next
+      oof[te, r] <- wp[, pos_class]
+      vt <- tryCatch(pr$WeightedVote[[dist_use]][, nc_use], error = function(e) NULL)
+      if (!is.null(vt)) vote[te, r] <- as.character(vt)
+    }
+  }
+  score <- rowMeans(oof, na.rm = TRUE)
+  ok <- is.finite(score)
+  if (sum(ok) < 4 || length(unique(Y[ok])) < 2) return(NULL)
+  roc_obj <- tryCatch(pROC::roc(Y[ok], score[ok], levels = levels(Y), direction = "<", quiet = TRUE), error = function(e) NULL)
+  if (is.null(roc_obj)) return(NULL)
+  auc <- as.numeric(pROC::auc(roc_obj))
+  ci <- tryCatch(suppressWarnings(as.numeric(pROC::ci.auc(roc_obj, method = "delong"))), error = function(e) c(NA_real_, auc, NA_real_))
+  ## out-of-fold error rates from the weighted vote (averaged over repeats)
+  per_class_err <- vapply(levels(Y), function(l) {
+    idx <- which(Y == l); v <- vote[idx, , drop = FALSE]; v <- v[!is.na(v)]
+    if (length(v) == 0) NA_real_ else mean(v != l)
+  }, numeric(1))
+  vv <- vote; truth <- matrix(rep(as.character(Y), nrepeat), n, nrepeat)
+  overall_err <- if (any(!is.na(vv))) mean(vv[!is.na(vv)] != truth[!is.na(vv)]) else NA_real_
+  list(auc = auc, ci_lo = ci[1], ci_hi = ci[3], n_used = sum(ok), folds = folds_k, nrepeat = nrepeat, pos_class = pos_class,
+       neg_class = levels(Y)[1], roc = roc_obj, scores = stats::setNames(score, ids),
+       ber = mean(per_class_err, na.rm = TRUE), overall_error = overall_err, per_class_error = per_class_err,
+       nested = !is.null(inner_tune), inner_keepx = inner_keepx,
+       table = data.frame(comparison = sprintf("%s vs %s", levels(Y)[1], pos_class), AUC = auc, ci_lo = ci[1], ci_hi = ci[3], n = sum(ok), folds = folds_k, repeats = nrepeat,
+                          nested_keepX_tuning = !is.null(inner_tune), row.names = NULL))
+}
+
 mi_diablo_performance_summary <- function(diablo_res) {
   if (!isTRUE(diablo_res$ok)) return(NULL)
   p <- diablo_res$perf; par <- diablo_res$params
@@ -215,9 +326,12 @@ mi_diablo_performance_summary <- function(diablo_res) {
   if (is.null(mat)) return(NULL)
   ber <- mat["Overall.BER", ncomp]; er <- mat["Overall.ER", ncomp]
   per_class <- mat[setdiff(rownames(mat), c("Overall.ER", "Overall.BER")), ncomp, drop = TRUE]
-  auc_mat <- tryCatch(p$auc[[paste0("comp", ncomp)]], error = function(e) NULL)
-  auc_df <- if (!is.null(auc_mat)) data.frame(comparison = rownames(auc_mat), AUC = auc_mat[, "AUC"], p_value = auc_mat[, "p-value"], row.names = NULL) else NULL
-  list(ber = unname(ber), overall_error = unname(er), per_class_error = per_class, auc = auc_df, distance = dist, ncomp = ncomp)
+  ## OOF AUC from mi_diablo_oof_auc, not perf(); nested loop also supplies error rates if keepX was tuned.
+  auc_df <- if (!is.null(diablo_res$oof)) diablo_res$oof$table else NULL
+  nested <- isTRUE(diablo_res$nested) && !is.null(diablo_res$oof) && is.finite(diablo_res$oof$ber %||% NA)
+  if (nested) { ber <- diablo_res$oof$ber; er <- diablo_res$oof$overall_error; per_class <- diablo_res$oof$per_class_error }
+  list(ber = unname(ber), overall_error = unname(er), per_class_error = per_class, auc = auc_df, oof = diablo_res$oof, distance = dist, ncomp = ncomp,
+       nested = nested, error_source = if (nested) "Nested cross-validation (keepX re-tuned inside every outer fold)" else "Repeated cross-validation (perf on the final feature counts)")
 }
 
 mi_diablo_selected_features_df <- function(fit) {
@@ -275,7 +389,7 @@ mi_snf_eligibility <- function(validation) {
   if (!isTRUE(validation$reliable_matching)) return(list(ok = FALSE, reason = MI_SAMPLE_MISMATCH_MESSAGE))
   n_missing <- vapply(validation$per_block, function(v) if (isTRUE(v$ok)) v$n_missing else NA_integer_, numeric(1))
   if (any(!is.na(n_missing) & n_missing > 0)) {
-    return(list(ok = FALSE, reason = "SNF requires complete data - one or more selected blocks still have missing values. Resolve missing values (impute or remove) before running SNF."))
+    return(list(ok = FALSE, reason = "SNF requires complete data. One or more selected blocks have missing values: impute or remove them before running SNF."))
   }
   list(ok = TRUE, reason = NULL)
 }
@@ -291,7 +405,8 @@ MI_SNF_T_CANDIDATES <- c(10L, 20L, 30L, 50L)
 
 mi_snf_affinity <- function(mat, k, alpha, standardize = TRUE) {
   m <- if (isTRUE(standardize)) SNFtool::standardNormalization(mat) else mat
-  d <- SNFtool::dist2(as.matrix(m), as.matrix(m))
+  ## dist2() returns SQUARED distances; sqrt before affinityMatrix() per SNFtool docs.
+  d <- sqrt(SNFtool::dist2(as.matrix(m), as.matrix(m)))
   SNFtool::affinityMatrix(d, K = k, sigma = alpha)
 }
 
@@ -463,8 +578,10 @@ mi_compare_supervised <- function(layers, outcome, sample_ids, diablo_res) {
     data.frame(model = nm, auroc = single$per_view_auc[[nm]], type = "Single-omics", stringsAsFactors = FALSE)
   }))
   rows <- rbind(rows, data.frame(model = "DIABLO (integrated)", auroc = diablo_auroc, type = "Integrated", stringsAsFactors = FALSE))
-  rows <- rbind(rows, data.frame(model = "Chance / majority-class baseline", auroc = single$majority_baseline, type = "Baseline", stringsAsFactors = FALSE))
-  list(ok = TRUE, table = rows, k_folds = single$k_folds, n = single$n, note = "DIABLO and the single-omics baselines each use their own k-fold splits (same k) - not a shared fold assignment.")
+  rows <- rbind(rows, data.frame(model = "Chance (AUROC = 0.5)", auroc = 0.5, type = "Baseline", stringsAsFactors = FALSE))
+  list(ok = TRUE, table = rows, k_folds = single$k_folds, n = single$n,
+       majority_class_accuracy = single$majority_baseline,
+       note = sprintf("DIABLO and the single-omics baselines use their own k-fold splits (same k, not shared). AUROC chance level is 0.5 regardless of class balance; this cohort's majority-class accuracy is %.2f, which is not an AUROC.", single$majority_baseline))
 }
 
 mi_compare_unsupervised <- function(snf_res) {

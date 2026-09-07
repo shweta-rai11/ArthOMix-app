@@ -1,6 +1,5 @@
 ## R/methylomics/05_Differential_Methylation_Position/mod_methyl_dmp.R
-## Methylomics sub-module: Differential Methylation (DMPs).
-##
+## Differential Methylation (DMPs) sub-module.
 
 mod_methyl_dmp_config <- list(
   id = "dmp", title = "Differential Methylation (DMPs)", icon = "chart-scatter", group = "Data",
@@ -157,7 +156,7 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
     cc <- do.call(cbind, pieces)
     complete <- stats::complete.cases(cc)
     validate(need(sum(complete) >= 6,
-      "Fewer than 6 samples have no missing values in the selected covariates (a cell-type covariate counts as missing for any sample whose ID doesn't match the computed fractions). Deselect a covariate, or pick different ones."))
+      "Fewer than 6 samples have no missing values in the selected covariates. A cell-type covariate counts as missing if the sample ID doesn't match the computed fractions. Deselect a covariate, or pick different ones."))
     beta1 <- beta1[, complete, drop = FALSE]
     ph1 <- ph1[complete, , drop = FALSE]
     grp <- grp[complete]
@@ -284,7 +283,7 @@ mod_methyl_dmp_covariate_cols <- function(sheet, exclude) {
   cols[keep]
 }
 
-## Two prefixes keep cell-type-fraction covariates unambiguous vs. sample-sheet columns of the same name.
+## Two prefixes disambiguate cell-type-fraction covariates from sample-sheet columns.
 MOD_METHYL_DMP_CT_CHOICE_PREFIX <- "celltype__"
 MOD_METHYL_DMP_CT_COLNAME_PREFIX <- "celltype_"
 
@@ -301,9 +300,7 @@ mod_methyl_dmp_split_covariates <- function(covariate_cols) {
        celltype_names = sub(paste0("^", MOD_METHYL_DMP_CT_CHOICE_PREFIX), "", covariate_cols[is_ct]))
 }
 
-## Maps internal covariate-matrix column names back to a human-readable label for display
-## (design formula text, "Covariates:" summary, CSV/JSON export) - never used for the actual
-## model.matrix()/sva::sva() calls, which must keep using the real column names.
+## Maps covariate-matrix column names to display labels only; never used in model.matrix()/sva() calls.
 mod_methyl_dmp_covariate_display <- function(cov_names) {
   is_ct <- startsWith(cov_names, MOD_METHYL_DMP_CT_COLNAME_PREFIX)
   ifelse(is_ct, paste0("Estimated cell-type: ", sub(paste0("^", MOD_METHYL_DMP_CT_COLNAME_PREFIX), "", cov_names)), cov_names)
@@ -375,7 +372,7 @@ mod_methyl_svalive_panel_ui <- function(ns, methyl_dataset, sc, anno) {
     div(class = "card",
         div(class = "card-title", icon("flask"), "SVA-adjusted Analysis (live)"),
         p(class = "empty-note", icon("circle-info"),
-          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva, full-vs-null contrast) and applies bacon bias/inflation correction on top of a limma model - the same method used for the preloaded cohort's reproduced analysis above, run live here against your own data.",
+          sprintf("Dataset: %s. %s probes x %s samples. Estimates surrogate variables (sva::sva) and applies bacon bias/inflation correction on top of a limma model. Same method as the preloaded cohort's analysis above, run live here on your data.",
                   methyl_dataset$source %||% "(unnamed)",
                   format(nrow(methyl_dataset$beta), big.mark = ","), ncol(methyl_dataset$beta))),
         fluidRow(
@@ -429,7 +426,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
           return(div(class = "card",
             div(class = "card-title", icon("upload"), "SVA-adjusted Analysis"),
             p(class = "submodule-desc",
-              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Methylomics Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected differential methylation model - the same statistical method used for the preloaded reference cohort's reproduced analysis.")
+              "Upload a beta/M-value matrix or fetch a dataset from GEO on the Dataset tab to run a live surrogate-variable-adjusted, bacon-corrected model. Same method used for the preloaded reference cohort's analysis.")
           ))
         }
         if (is.null(methyl_dataset$sample_sheet)) {
@@ -450,7 +447,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       n_sig_plain_m <- sum(!is.na(d$plain_m$fdr_bacon) & d$plain_m$fdr_bacon < 0.05)
       tagList(
         div(class = "empty-note", icon("flask"),
-            sprintf("Default analysis: preloaded whole-blood dataset, %d samples (%d RA / %d Control; %d female / %d male). Sex-stratified limma on M-values (~group + age + smoking + cell-type estimates), bacon-corrected, Benjamini-Hochberg FDR.",
+            sprintf("Default analysis: preloaded whole-blood dataset, %d samples (%d RA / %d Control; %d female / %d male). Sex-stratified limma on M-values (group + age + smoking + cell-type), bacon-corrected, Benjamini-Hochberg FDR.",
                     nrow(d$pheno), n_ra, n_ctrl, n_f, n_m)),
         div(class = "card",
             div(class = "card-title", icon("check"), "SVA-adjusted model: the usable panel"),
@@ -471,7 +468,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
         div(class = "card",
             div(class = "card-title", icon("circle-info"), "Why an SVA-adjusted stage exists"),
             p(class = "submodule-desc",
-              sprintf("The plain (unadjusted) sex-stratified model found %d female-stratum and %d male-stratum genome-wide-significant CpGs - both strata showed residual genomic inflation after bacon-correction, a real documented calibration problem, not a bug or a null biological result. The SVA-adjusted model above resolves it and is the panel actually used downstream (DMR calling, biomarker panels).",
+              sprintf("The plain (unadjusted) sex-stratified model found %d female-stratum and %d male-stratum genome-wide-significant CpGs. Both strata showed residual genomic inflation after bacon-correction - a real, documented calibration issue, not a bug or null result. The SVA-adjusted model above resolves it and is the panel used downstream (DMR calling, biomarker panels).",
                       n_sig_plain_f, n_sig_plain_m))
         )
       )
@@ -567,7 +564,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       tagList(
         checkboxGroupInput(ns("svalive_covariates"), NULL, choices = all_choices, selected = character(0)),
         if (length(ct_choices) > 0) p(class = "empty-note", icon("circle-info"),
-          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample - selecting all of them together will automatically drop one to avoid a rank-deficient design.")
+          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample, so selecting all of them together automatically drops one to avoid a rank-deficient design.")
       )
     })
 
@@ -655,9 +652,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
 
     observeEvent(svalive_result(), {
       r <- svalive_result()
-      ## Publish exactly as the plain DMP tab does below, so Cross-Omics' "My analysis
-      ## results" route can take the SVA/bacon-adjusted run too; whichever tab ran last
-      ## is the one handed on. The table carries p_bacon alongside p_raw.
+      ## Published like the plain DMP tab, so Cross-Omics can use whichever tab ran last.
       methyl_results$dmp <- list(comparison = sprintf("%s vs %s (%s; SVA + bacon)", r$comp, r$ref, r$sex_label),
                                   n_probes = r$n_probes_tested,
                                   n_sig = sum(!is.na(r$df$fdr) & r$df$fdr < 0.05, na.rm = TRUE),
@@ -838,7 +833,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
     output$live_ui <- renderUI({
       if (is.null(methyl_dataset$beta)) {
         msg <- if (isTRUE(methyl_dataset$preloaded))
-          "The preloaded dataset's live beta matrix isn't available in this deployment, so only the sex-stratified reproduced analysis above is available (no live All-Samples/Female-only/Male-only option)."
+          "The preloaded dataset's live beta matrix isn't available here, so only the sex-stratified reproduced analysis above is available (no live All-Samples/Female-only/Male-only option)."
         else
           "Upload a beta/M-value matrix or IDAT files on the Methylomics Dataset tab to configure and run a live differential methylation model - including an All-Samples (combined) option."
         return(div(class = "card",
@@ -923,7 +918,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
       tagList(
         checkboxGroupInput(ns("live_covariates"), NULL, choices = all_choices, selected = character(0)),
         if (length(ct_choices) > 0) p(class = "empty-note", icon("circle-info"),
-          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample - selecting all of them together will automatically drop one to avoid a rank-deficient design.")
+          "Estimated cell-type fractions come from the Cell-Type Deconvolution sub-module (this session). They sum to ~1 per sample, so selecting all of them together automatically drops one to avoid a rank-deficient design.")
       )
     })
 
@@ -1011,9 +1006,7 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
                                   n_probes = r$n_probes_tested,
                                   n_sig = sum(!is.na(r$df$fdr) & r$df$fdr < 0.05, na.rm = TRUE),
                                   array_type = methyl_dataset$array_type)
-      ## Full per-CpG table (cpg, gene, dbeta, p_raw, fdr, chr, pos, direction), exposed
-      ## for reuse by other modules this session (mirrors methyl_results$dmr_table in
-      ## mod_methyl_dmr.R) - e.g. Cross-Omics' "live session results" data source.
+      ## Full per-CpG table, exposed for reuse this session (mirrors dmr_table in mod_methyl_dmr.R).
       methyl_results$dmp_table <- r$df
       live_has_run(TRUE)
     })

@@ -1666,3 +1666,27 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
 @media (max-width: 992px) {
   .explore-status-facts { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 }
+
+/* Header "Analysis records" button + run-count badge (session provenance panel) */
+.app-header-records-btn {
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  background: #ffffff;
+  color: var(--color-ink-secondary);
+}
+.app-header-records-btn:hover { background: var(--color-page-bg); }
+.app-header-badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--color-primary, #2563EB);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}

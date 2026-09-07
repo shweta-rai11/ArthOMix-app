@@ -1,11 +1,10 @@
 ## R/methylomics/07_Sex_Interaction_Analysis/mod_methyl_interaction.R
-## Methylomics sub-module: Sex Interaction Analysis - a genuine disease*sex
-## interaction limma model, the methylomics port of
+## Sex Interaction Analysis: disease*sex interaction limma model (methylomics port).
 
 mod_methyl_interaction_config <- list(
   id = "interaction", group = "Biomarker modeling",
   title = "Sex Interaction Analysis",
-  description = "Diagnosis-by-sex interaction model (fit on M-values) on the currently loaded methylation data, showing which CpGs respond to the group difference differently in each sex, with the within-sex disease effects from the same fit.",
+  description = "Diagnosis-by-sex interaction model (fit on M-values) on the loaded data. Shows which CpGs respond to the group difference differently by sex, plus the within-sex disease effects from the same fit.",
   icon = "venus-mars"
 )
 
@@ -221,7 +220,7 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
         tags$tbody(lapply(rownames(ct), function(r) tags$tr(tags$td(strong(r)), lapply(colnames(ct), function(cl) tags$td(ct[r, cl])))))
       )
       power_note <- if (is.finite(res$min_detectable_effect)) {
-        sprintf("Smallest group-by-sex cell: n = %d. Minimum detectable interaction effect at 80%% power (alpha = 0.05, per CpG, before multiple-testing adjustment) is about %.2f SD of the M-value - effects smaller than this will usually be missed.",
+        sprintf("Smallest group-by-sex cell: n = %d. Minimum detectable interaction effect at 80%% power (alpha = 0.05, per CpG, before multiple-testing correction) is about %.2f SD of the M-value. Smaller effects will usually be missed.",
                 res$min_cell_n, res$min_detectable_effect)
       } else NULL
       tagList(
@@ -237,7 +236,7 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
         effect_row(sprintf("Main sex effect within %s (reference group)", res$ref_group), res$coef_names$sex, res$tables$sex),
         if (length(res$covariates)) p(class = "empty-note", icon("circle-info"), sprintf("Adjusted for: %s", paste(res$covariates, collapse = ", "))) else NULL,
         p(class = "empty-note", icon("circle-info"),
-          "All four results come from the same fit. The interaction term is the primary result - it tests whether the disease effect itself differs between sexes. The two within-sex disease effects are the secondary, stratified view (a CpG can be significant in one sex and not the other without a significant interaction, which is why the interaction term is reported first). Delta-beta columns are on the beta scale for interpretability; the test statistics are on the M-value scale.")
+          "All four results come from the same fit. The interaction term is primary: it tests whether the disease effect itself differs between sexes. The two within-sex effects are a secondary, stratified view - a CpG can be significant in one sex and not the other without a significant interaction. Delta-beta columns are on the beta scale for interpretability; test statistics are on the M-value scale.")
       )
     })
 

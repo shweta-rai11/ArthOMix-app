@@ -1,11 +1,10 @@
 ## R/transcriptomics/06_Candidate_Gene_Identification/mod_candidates.R
-## Candidate Gene Identification (Section 2.5): intersects a shared disease-associated
-## WGCNA module background with a DEG list, and visualises/exports the Venn diagram and
+## Candidate Gene Identification: intersects a WGCNA module background with a DEG list.
 
 mod_candidates_config <- list(
   id = "candidates", group = "Network",
   title = "Candidate Gene Identification",
-  description = "Intersect the disease-associated WGCNA module with the DEG list (sex-stratified when the data supports it), optionally refined by MR/Colocalization support, and visualise and export the Venn diagram and candidate table.",
+  description = "Intersect the disease-associated WGCNA module with the DEG list (sex-stratified when supported), optionally refined by MR/Colocalization support. Visualise and export the Venn diagram and candidate table.",
   icon = "star"
 )
 
@@ -74,7 +73,7 @@ mod_candidates_server <- function(id, dataset, results) {
         return(tagList(
           shared_boxes,
           div(class = "empty-note", icon("circle-info"),
-              "No male/female metadata was found for the currently loaded dataset (a GEO fetch or upload without a mapped sex column leaves this unset) - showing one pooled candidate panel instead of separate female/male ones."),
+              "No male/female metadata found for the currently loaded dataset (a GEO fetch or upload without a mapped sex column leaves this unset). Showing one pooled candidate panel instead of separate female/male ones."),
           mod_candidates_sex_panel_ui(ns, "pooled", "Candidate biomarkers (module background ∩ DEGs)", btn_label = "Compute candidates"),
           box(
             width = 12, title = "Final candidate gene set", status = "primary", solidHeader = FALSE,
@@ -114,7 +113,7 @@ mod_candidates_server <- function(id, dataset, results) {
     })
 
     output$module_picker_ui <- renderUI({
-      mc <- tryCatch(module_choices(), error = function(e) NULL)
+      mc <- tryCatch(module_choices(), error = arthomix_null_on_error)
       if (is.null(mc)) {
         return(div(class = "empty-note", icon("circle-info"),
           "Run WGCNA first (Step 3, Modules, then Step 4, Module-Trait) - detected co-expression modules will appear here."))
@@ -189,7 +188,7 @@ mod_candidates_server <- function(id, dataset, results) {
     }
 
     output$female_deg_picker_ui <- renderUI({
-      ch <- tryCatch(deg_run_choices(), error = function(e) NULL)
+      ch <- tryCatch(deg_run_choices(), error = arthomix_null_on_error)
       if (is.null(ch)) {
         return(div(class = "empty-note", icon("circle-info"),
           "Run Differential Expression for the female stratum first (e.g. contrast column \"group\", second column \"sex\" filtered to F)."))
@@ -198,7 +197,7 @@ mod_candidates_server <- function(id, dataset, results) {
     })
 
     output$male_deg_picker_ui <- renderUI({
-      ch <- tryCatch(deg_run_choices(), error = function(e) NULL)
+      ch <- tryCatch(deg_run_choices(), error = arthomix_null_on_error)
       if (is.null(ch)) {
         return(div(class = "empty-note", icon("circle-info"),
           "Run Differential Expression for the male stratum first (e.g. contrast column \"group\", second column \"sex\" filtered to M)."))
@@ -207,7 +206,7 @@ mod_candidates_server <- function(id, dataset, results) {
     })
 
     output$pooled_deg_picker_ui <- renderUI({
-      ch <- tryCatch(deg_run_choices(), error = function(e) NULL)
+      ch <- tryCatch(deg_run_choices(), error = arthomix_null_on_error)
       if (is.null(ch)) {
         return(div(class = "empty-note", icon("circle-info"),
           "Run Differential Expression first (Differential Expression tab)."))
@@ -230,7 +229,7 @@ mod_candidates_server <- function(id, dataset, results) {
         overlap <- intersect(bg, deg_genes)
         validate(need(length(overlap) > 0, "No genes are shared between the module background and this DEG list."))
 
-        panel <- tryCatch(gene_panel(), error = function(e) NULL)
+        panel <- tryCatch(gene_panel(), error = arthomix_null_on_error)
         if (!is.null(panel)) {
           overlap <- intersect(overlap, panel)
           validate(need(length(overlap) > 0, "No genes are shared between the module/DEG overlap and the selected gene panel."))
@@ -285,7 +284,7 @@ mod_candidates_server <- function(id, dataset, results) {
 
     register_panel <- function(prefix, res, btn_label = sprintf("Compute %s candidates", prefix)) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
-        r <- tryCatch(res(), error = function(e) NULL)
+        r <- tryCatch(res(), error = arthomix_null_on_error)
         if (is.null(r)) {
           return(div(class = "empty-note", icon("circle-info"),
             sprintf("Not run yet. Click \"%s\" above.", btn_label)))
@@ -293,15 +292,16 @@ mod_candidates_server <- function(id, dataset, results) {
         tagList(
           p(strong(r$n_bg), " module-background genes, ", strong(r$n_deg), " significant DEGs (", r$contrast, ")",
             if (!is.na(r$n_panel)) tagList(", ", strong(r$n_panel), " genes in the selected gene panel") else NULL, "."),
-          p(strong(length(r$overlap)), " candidate genes in the overlap - hypergeometric enrichment ",
-            HTML("<em>p</em>"), " = ", signif(r$p_value, 3), ".")
+          p(strong(length(r$overlap)), " candidate genes in the overlap - hypergeometric overlap ",
+            HTML("<em>p</em>"), " = ", signif(r$p_value, 3),
+            " (descriptive only: module background and DEG list were computed on the same samples, and a disease-correlated module is enriched for DEGs by construction, so this p-value isn't independent evidence).")
         )
       })
 
       venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26", pooled = "#2c6fbb")[[prefix]]
 
       venn_obj <- reactive({
-        r <- tryCatch(res(), error = function(e) NULL)
+        r <- tryCatch(res(), error = arthomix_null_on_error)
         req(r)
         draw_overlap_venn(r$sets, title = sprintf("%s: %d candidates", tools::toTitleCase(prefix), length(r$overlap)),
                            fill_high = venn_fill_high)
@@ -315,7 +315,7 @@ mod_candidates_server <- function(id, dataset, results) {
       )
 
       output[[paste0(prefix, "_table")]] <- DT::renderDataTable({
-        r <- tryCatch(res(), error = function(e) NULL)
+        r <- tryCatch(res(), error = arthomix_null_on_error)
         req(r)
         DT::datatable(r$stats, rownames = FALSE, filter = "top",
                        options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
@@ -344,8 +344,8 @@ mod_candidates_server <- function(id, dataset, results) {
 
     final_candidates <- reactive({
       req(input$final_candidate_set)
-      fr <- tryCatch(female_safe(), error = function(e) NULL)
-      mr <- tryCatch(male_safe(), error = function(e) NULL)
+      fr <- tryCatch(female_safe(), error = arthomix_null_on_error)
+      mr <- tryCatch(male_safe(), error = arthomix_null_on_error)
       switch(input$final_candidate_set,
         female = {
           validate(need(!is.null(fr), "Female candidates are not available yet - see the Female panel above."))
@@ -398,7 +398,7 @@ mod_candidates_server <- function(id, dataset, results) {
     })
 
     output$causal_refine_ui <- renderUI({
-      base <- tryCatch(base_final(), error = function(e) NULL)
+      base <- tryCatch(base_final(), error = arthomix_null_on_error)
       if (is.null(base) || length(base$genes) == 0) return(NULL)
       mr_hits <- intersect(base$genes, mr_supported_genes())
       coloc_hits <- intersect(base$genes, coloc_supported_genes())
@@ -406,7 +406,7 @@ mod_candidates_server <- function(id, dataset, results) {
       tagList(
         tags$hr(),
         p(strong("Optional: refine by causal genetic evidence."),
-          " Mendelian Randomization and Colocalization are separate, optional analyses (Genetics section) - skip this if you don't have GWAS/eQTL data for your trait; everything downstream works fine on the set above alone."),
+          " Mendelian Randomization and Colocalization are separate, optional analyses (Genetics section). Skip this if you lack GWAS/eQTL data - everything downstream works fine on the set above alone."),
         if (length(mr_hits) > 0) checkboxInput(ns("require_mr"),
           sprintf("Require Mendelian Randomization support (p < %.2f) - %d of %d candidates qualify", MR_P_CUT, length(mr_hits), length(base$genes)), value = FALSE),
         if (length(coloc_hits) > 0) checkboxInput(ns("require_coloc"),
@@ -450,10 +450,28 @@ mod_candidates_server <- function(id, dataset, results) {
         results$candidates <- NULL
         return()
       }
-      fc <- tryCatch(refined_final(), error = function(e) NULL)
+      fc <- tryCatch(refined_final(), error = arthomix_null_on_error)
+      if (!is.null(fc)) {
+        arthomix_provenance_push(arthomix_provenance_record(
+          module = "mod_candidates",
+          checksum_input = list(genes = fc$genes),
+          params = list(
+            wgcna_modules = input$wgcna_module_choice %||% character(0),
+            female_deg_run = if (isTRUE(sex_available())) input$female_deg_run %||% NA_character_ else NA_character_,
+            male_deg_run = if (isTRUE(sex_available())) input$male_deg_run %||% NA_character_ else NA_character_,
+            pooled_deg_run = if (!isTRUE(sex_available())) input$pooled_deg_run %||% NA_character_ else NA_character_,
+            final_selection = if (isTRUE(sex_available())) input$final_candidate_set %||% "union" else "pooled",
+            gene_panel = input$gene_panel_choice %||% "",
+            require_mr_support = isTRUE(input$require_mr), require_coloc_support = isTRUE(input$require_coloc),
+            n_final = length(fc$genes),
+            note = "module background from one pooled WGCNA network; DEG lists are the only sex-stratified input"
+          ),
+          seed = NULL, packages = character(0)
+        ), dedupe = TRUE)
+      }
       if (isTRUE(sex_available())) {
-        fr <- tryCatch(female_safe(), error = function(e) NULL)
-        mr <- tryCatch(male_safe(), error = function(e) NULL)
+        fr <- tryCatch(female_safe(), error = arthomix_null_on_error)
+        mr <- tryCatch(male_safe(), error = arthomix_null_on_error)
         if (is.null(fr) && is.null(mr)) return()
         results$candidates <- list(
           female = if (!is.null(fr)) list(n_candidates = length(fr$overlap), genes = fr$overlap, contrast = fr$contrast) else NULL,
@@ -461,7 +479,7 @@ mod_candidates_server <- function(id, dataset, results) {
           final = if (!is.null(fc)) list(selection = input$final_candidate_set, n_candidates = length(fc$genes), genes = fc$genes) else NULL
         )
       } else {
-        pr <- tryCatch(pooled_safe(), error = function(e) NULL)
+        pr <- tryCatch(pooled_safe(), error = arthomix_null_on_error)
         if (is.null(pr)) return()
         results$candidates <- list(
           female = NULL, male = NULL,

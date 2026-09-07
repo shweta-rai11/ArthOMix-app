@@ -1,17 +1,16 @@
 ## R/crossomics/01_Data/mod_cross_dataset.R
-## Cross-Omics "Dataset" tab: the module's single data-entry point for
-## "Expression and Methylation". Two ways to arrive at the exact same shape -
+## Cross-Omics "Dataset" tab: data-entry point for "Expression and Methylation".
 
 mod_cross_dataset_config <- list(
   id = "dataset", title = "Dataset", icon = "database",
-  description = "Load your own Transcriptomics/Methylomics analysis results from this session, or upload data in the same standardized format, for the Expression and Methylation sub-module to run on."
+  description = "Load your Transcriptomics/Methylomics results from this session, or upload data in the same format, for Expression and Methylation to run on."
 )
 
 mod_cross_dataset_ui <- function(id) {
   ns <- NS(id)
   tagList(
     div(class = "empty-note", icon("circle-info"),
-        "Loads the data for Expression and Methylation. Pull in the Transcriptomics/Methylomics results you've already run in this session, or upload files below."),
+        "Loads data for Expression and Methylation. Pull in results you've already run this session, or upload files below."),
     fluidRow(
       column(
         4,
@@ -29,10 +28,10 @@ mod_cross_dataset_ui <- function(id) {
             p(class = "submodule-desc", "Columns are auto-detected (gene symbol, log2FC/Δβ, P-value, FDR)."),
             fileInput(ns("expr_file"), "Transcriptomics file (optional)", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
                       placeholder = "CSV / TSV / TXT / XLSX"),
-            p(class = "empty-note", icon("circle-info"), "Differentially Expressed Genes (DEG) format - one row per gene, with a gene symbol/ID and a log2 fold-change column."),
+            p(class = "empty-note", icon("circle-info"), "DEG format: one row per gene, with a gene symbol/ID and a log2 fold-change column."),
             fileInput(ns("meth_file"), "Methylomics file (optional)", accept = c(".csv", ".tsv", ".txt", ".xlsx"),
                       placeholder = "CSV / TSV / TXT / XLSX"),
-            p(class = "empty-note", icon("circle-info"), "Differentially Methylated Position/Region (DMP/DMR) format - one row per CpG or region, with a gene symbol/ID and a Δβ (methylation change) column.")
+            p(class = "empty-note", icon("circle-info"), "DMP/DMR format: one row per CpG or region, with a gene symbol/ID and a Δβ (methylation change) column.")
           ),
           tags$hr(),
           fluidRow(
@@ -57,7 +56,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
     expr_data <- reactiveVal(NULL)
     meth_data <- reactiveVal(NULL)
 
-    ## ---- "My analysis results" data source: live DGE/DMP runs via the same adapters as mod_cross_integration.R.
+    ## ---- Live DGE/DMP data source (same adapters as mod_cross_integration.R) ----
     live_dge_choices <- reactive({
       runs <- (results %||% list())$dge_runs %||% list()
       if (length(runs) == 0) return(NULL)
@@ -77,7 +76,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       dmp <- live_dmp_run()
       if (is.null(ch) && is.null(dmp)) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
-                    "Run Differential Expression in Transcriptomics and DMP Analysis in Methylomics first, then come back here to load your results."))
+                    "Run Differential Expression in Transcriptomics and DMP Analysis in Methylomics first, then come back to load your results."))
       }
       tagList(
         tags$div(style = "font-weight:600; margin-bottom:2px;", "Transcriptomics"),
@@ -113,7 +112,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       std <- cx_standardize_expression(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Transcriptomics file: %s Columns are recognised by name only - rename the gene and log2 fold-change columns to a recognised header (e.g. gene_symbol / gene, log2FC / logFC, adj.P.Val / FDR) and upload again.", std$error),
+          sprintf("Transcriptomics file: %s Rename the gene and log2 fold-change columns to a recognised header (e.g. gene_symbol / gene, log2FC / logFC, adj.P.Val / FDR) and re-upload.", std$error),
           type = "warning", duration = 15
         )
         expr_data(NULL)
@@ -128,7 +127,7 @@ mod_cross_dataset_server <- function(id, cross_dataset, results = NULL, methyl_r
       std <- cx_standardize_methylation(res$df, res$mapping)
       if (!std$ok) {
         showNotification(
-          sprintf("Methylomics file: %s Columns are recognised by name only - rename the gene and Δβ columns to a recognised header (e.g. cpg, gene_symbol / gene, delta_beta / meandiff, fdr) and upload again.", std$error),
+          sprintf("Methylomics file: %s Rename the gene and Δβ columns to a recognised header (e.g. cpg, gene_symbol / gene, delta_beta / meandiff, fdr) and re-upload.", std$error),
           type = "warning", duration = 15
         )
         meth_data(NULL)

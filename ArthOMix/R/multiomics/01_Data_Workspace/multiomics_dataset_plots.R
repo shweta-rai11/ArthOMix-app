@@ -1,6 +1,5 @@
 ## R/multiomics/01_Data_Workspace/multiomics_dataset_plots.R
-## Plotting helpers for the "Live Analysis (Upload & MOFA2)" sub-module -
-## same theme_arthomix()/ARTHOMIX_COLORS convention and multi_plot_or_empty()
+## Plotting helpers for the Live Analysis (Upload & MOFA2) sub-module.
 
 multi_live_missingness_by_omics_plot <- function(validations) {
   validations <- Filter(function(v) isTRUE(v$ok), validations)

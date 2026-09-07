@@ -1112,14 +1112,14 @@ modulesLandingUI <- function() {
 }
 
 SUBMODULE_GROUP_ORDER <- c(
-  "Data", "Network", "Genetics", "Biomarker modeling", "Validation", "Interpretation"
+  "Data", "Network", "Genetics", "Biomarker modeling", "Replication", "Interpretation"
 )
 SUBMODULE_GROUP_BLURB <- c(
   "Data" = "Load, inspect and prepare the expression matrix.",
   "Network" = "Co-expression structure and the candidate genes it points to.",
-  "Genetics" = "Causal evidence from GWAS summary statistics.",
+  "Genetics" = "Genetic evidence from eQTL and GWAS summary statistics: Mendelian randomisation, colocalisation and cross-ancestry MR replication.",
   "Biomarker modeling" = "Turn candidate genes into a panel and a diagnostic model.",
-  "Validation" = "Check the panel holds up outside the discovery cohort.",
+  "Replication" = "Check whether the panel's gene-level signal replicates in another tissue. Classifiers are refit there, not transferred - true external validation of a trained model lives in the Diagnostic Model's External Validation tab.",
   "Interpretation" = "What the panel means biologically and clinically."
 )
 
@@ -1380,11 +1380,29 @@ addCssDepsOnly <- function(tag) {
   htmltools::attachDependencies(tag, js_free, append = TRUE)
 }
 
-existing_app_ui <<- function(user_email) {
+ui <- function(request) {
   addCssDepsOnly(
     fluidPage(
       theme = shinythemes::shinytheme("cerulean"),
-      app_header(user_email),
+      useShinyjs(),
+      tags$head(
+        tags$title("ArthOMix"),
+        tags$script(HTML(
+          "(function(){
+             try {
+               var t = localStorage.getItem('arthomix-theme') || 'light';
+               document.documentElement.setAttribute('data-theme', t);
+             } catch (e) {}
+           })();"
+        )),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("custom.css?v=", as.integer(file.mtime("www/custom.css")))),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("menuhex.css?v=", as.integer(file.mtime("www/menuhex.css")))),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = paste0("dark-theme.css?v=", as.integer(file.mtime("www/dark-theme.css"))))
+      ),
+      app_header(),
       navbarPage(
         title = "", id = "sidebar_tabs", selected = "home",
         tabPanel(tagList(icon("house"), "Home"), value = "home", homeUI()),
@@ -1410,35 +1428,6 @@ existing_app_ui <<- function(user_email) {
         id = "arthochat_drawer_backdrop", class = "chat-drawer-backdrop",
         onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
       )
-    )
-  )
-}
-
-ui <- function(request) {
-  addCssDepsOnly(
-    fluidPage(
-      theme = shinythemes::shinytheme("cerulean"),
-      useShinyjs(),
-      tags$head(
-        tags$title("ArthOMix"),
-        tags$script(HTML(
-          "(function(){
-             try {
-               var t = localStorage.getItem('arthomix-theme') || 'light';
-               document.documentElement.setAttribute('data-theme', t);
-             } catch (e) {}
-           })();"
-        )),
-        tags$link(rel = "stylesheet", type = "text/css",
-                  href = paste0("custom.css?v=", as.integer(file.mtime("www/custom.css")))),
-        tags$link(rel = "stylesheet", type = "text/css",
-                  href = paste0("menuhex.css?v=", as.integer(file.mtime("www/menuhex.css")))),
-        tags$link(rel = "stylesheet", type = "text/css",
-                  href = paste0("auth.css?v=", as.integer(file.mtime("www/auth.css")))),
-        tags$link(rel = "stylesheet", type = "text/css",
-                  href = paste0("dark-theme.css?v=", as.integer(file.mtime("www/dark-theme.css"))))
-      ),
-      uiOutput("app_shell")
     )
   )
 }
