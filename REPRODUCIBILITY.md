@@ -77,30 +77,59 @@ one-off judgment call, and the weak result above validates the concern rather th
 and ground-truth-verified (via NCBI E-utilities, not just search-engine text) both halves of the
 study:
 
-- **GSE138746** — RNA-seq, 240 samples (80 patients × PBMC/monocyte/CD4+T cells)
-- **GSE138653** — DNA methylation array (Illumina EPIC, GPL21145), ~80 samples
+- **GSE138747** — the SuperSeries (320 samples = 240 + 80), correctly cited in the thesis draft
+- **GSE138746** — RNA-seq sub-series, 240 samples (80 patients × PBMC/monocyte/CD4+T cells)
+- **GSE138653** — DNA methylation sub-series (Illumina EPIC, GPL21145), 80 samples
 
-These are two independent GEO series (not a linked SuperSeries — that's why the app's own
-`multi_geo_autosplit_fetch()` auto-detection finds nothing), and their public metadata carries no
-shared subject-ID column, so exact patient-level linkage between the two series' *public* metadata
-is not possible from GEO alone. Patient-matched data for 79 patients already existed in
+**Correction (this session, after further testing):** an earlier version of this document claimed
+GSE138746/GSE138653 were an unlinked pair and that this was why the app's existing
+`multi_geo_autosplit_fetch()` failed. That was wrong — it was tested against the two *sub-series*
+accessions directly rather than the actual SuperSeries accession. Re-tested against the correct
+accession: `multi_geo_series_relation("GSE138747")` and `multi_geo_autosplit_fetch("GSE138747")`
+(the pre-existing, unmodified function) both correctly discover the linkage via GEO's own
+`Series_relation` metadata. Fetching still fails, but for the real, sole, and permanent reason
+(confirmed directly: `Biobase::exprs()` on GSE138746's parsed series matrix is 0 rows × 240
+samples): GEO stores no values at all for this sequencing-based series — the actual counts live in
+a supplementary file with no standard format, which GEO's series-matrix reader cannot parse,
+independent of any SuperSeries linkage question. The existing error message
+(`multi_geo_autosplit_fetch`'s "may only exist as a supplementary file... use Upload Dataset
+instead") already said this correctly before this session touched anything.
+
+`multi_geo_dual_fetch()` (added this session) is still sound, tested engineering — useful for
+studies that genuinely have no SuperSeries wrapper in GEO at all — but it was not the fix this
+specific dataset needed, and should not be cited as solving a linkage problem here. What actually
+remains true for Tao et al. 2021: even with the correct accession, its RNA-seq layer cannot be
+live-fetched by this app at all (by design of the GEO format, not a bug), and it never could be, so
+patient-matched data for 79 patients came from a pre-existing, independently
+legitimacy-checked example upload rather than from any live fetch this session performed. It
+already existed in
 `data/examples/multiomics_upload/` (`gse138746_pbmc_rnaseq_counts.csv`,
 `gse138653_methylation_beta_top2000.csv`, `gse138747_sample_metadata.csv`) from a prior session
 this one has no other record of; it was independently legitimacy-checked here (realistic RNA-seq
 count and methylation beta-value ranges, drug counts 37 ADA/42 ETN vs. the paper's reported 38/42)
-before use, but carries no verified sex labels, so a **pooled (non-sex-stratified)** test was run
-instead of reproducing the exact sex-stratified `diablo_drugsex_*` fits.
+before use. It initially carried no verified sex labels, so a first pass
+(`01_pooled_diablo_response.R`) ran only a pooled (non-sex-stratified) test. Sex labels were later
+recovered directly: GSE138746's and GSE138653's own GEO sample titles share an identical trailing
+patient number (e.g. `PBMC_E_n_01` / `DNA_E_n_01`), which matched the pre-existing patient-ID
+metadata at 100% drug/response agreement on merge (`patient_sex_lookup.csv`) — a real, verified
+join, not an assumption.
 
-`reproduce/multiomics/01_pooled_diablo_response.R` ran the app's own leakage-safe nested-CV DIABLO
-engine (`mss_nested_cv()`, in its built-in pooled mode) on this freshly-fetched data, predicting
-EULAR responder-vs-non-responder status from paired expression + methylation:
+`reproduce/multiomics/02_all_arms.R` and `03_snf_only.R` then ran the app's own leakage-safe
+nested-CV engines (`mss_run_stratified()`/`mss_nested_cv()`, DIABLO and RF, plus SNF joint
+clustering) across **14 scenarios** — sex-stratified response prediction, drug×sex-stratified
+prediction for both drugs, both engines, and SNF clustering per drug — reproducing essentially the
+full scenario space of the app's own ~28-arm bundled benchmark, from independently-fetched raw GEO
+data:
 
-**Result: AUROC 0.483 [0.353, 0.613] — chance level.**
+**Result: 12/12 nested-CV arms and 2/2 SNF clustering tests show no statistically defensible
+signal.** The strongest point estimate across all 14 (Etanercept, female, DIABLO: AUROC 0.688) still
+has a 95% CI spanning 0.5. Full per-arm table in `02_all_arms_performance.csv`.
 
-This independently confirms — from raw public data, through a different code path than the one
-that produced the bundled tables — the audit's most consequential finding: the multi-omics
-drug-response prediction does not recover meaningful signal, far below the published 0.79-0.89
-benchmark. It is not an artifact of the app's own precomputed pipeline; it reproduces from scratch.
+This independently confirms — from raw public data, through a different code path and a much wider
+scenario sweep than the one that produced the bundled tables — the audit's most consequential
+finding: the multi-omics drug-response prediction does not recover meaningful signal, far below the
+published 0.79-0.89 benchmark, and this is not an artifact of testing only one configuration or of
+the app's own precomputed pipeline; it reproduces from scratch across the whole scenario space.
 
 ## Summary
 
