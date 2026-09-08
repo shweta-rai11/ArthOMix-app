@@ -106,7 +106,12 @@ mod_dataset_ui <- function(id) {
           div(class = "upload-step-label", "STEP 1 · Choose your files"),
           p(strong("Expression matrix"), " - CSV or RDS. Genes in rows, samples in columns; for CSV, the first column is the gene ID."),
           radioButtons(ns("declared_data_type"), "Data type", inline = TRUE,
-                       choices = c("Raw counts" = "raw", "Normalized (TPM/FPKM/CPM)" = "normalized", "Already log-transformed" = "logtransformed"),
+                       choiceNames = list(
+                         tags$span("Raw counts", title = "Use when your matrix has integer read counts straight from a counting tool (e.g., featureCounts, salmon, STAR) that have not been normalized."),
+                         tags$span("Normalized (TPM/FPKM/CPM)", title = "Use when values are already normalized for library size and/or gene length (TPM, FPKM, CPM) but not on a log scale."),
+                         tags$span("Already log-transformed", title = "Use when values are already on a log2/log10 scale, e.g. microarray intensities or log2(CPM+1).")
+                       ),
+                       choiceValues = list("raw", "normalized", "logtransformed"),
                        selected = "normalized"),
           fileInput(ns("expr_file"), "Expression matrix", accept = c(".csv", ".rds", ".Rds")),
           p(strong("Sample metadata"), " - CSV or RDS data frame, one row per sample."),
@@ -700,7 +705,12 @@ mod_dataset_server <- function(id, dataset) {
       )
       tagList(
         radioButtons(ns("geo_declared_data_type"), "Data type", inline = TRUE,
-                     choices = c("Raw counts" = "raw", "Normalized (TPM/FPKM/CPM)" = "normalized", "Already log-transformed" = "logtransformed"),
+                     choiceNames = list(
+                       tags$span("Raw counts", title = "Use when your matrix has integer read counts straight from a counting tool (e.g., featureCounts, salmon, STAR) that have not been normalized."),
+                       tags$span("Normalized (TPM/FPKM/CPM)", title = "Use when values are already normalized for library size and/or gene length (TPM, FPKM, CPM) but not on a log scale."),
+                       tags$span("Already log-transformed", title = "Use when values are already on a log2/log10 scale, e.g. microarray intensities or log2(CPM+1).")
+                     ),
+                     choiceValues = list("raw", "normalized", "logtransformed"),
                      selected = "normalized"),
         div(class = "empty-note", icon("circle-info"),
             "GEO series matrices are usually already normalized (microarray) or summarized counts - check the series' own \"Data processing\" description on GEO if unsure."),
