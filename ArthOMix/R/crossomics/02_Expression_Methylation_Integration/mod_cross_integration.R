@@ -16,6 +16,7 @@ mod_cross_integration_ui <- function(id) {
   tagList(
     uiOutput(ns("live_source_ui")),
     uiOutput(ns("status_bar")),
+    uiOutput(ns("validation_ui")),
     uiOutput(ns("summary_cards")),
     tabsetPanel(
       id = ns("result_tabs"), type = "tabs",
@@ -190,6 +191,45 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
             item("Integration", integ_ok)
         ),
         if (!is.null(raw$meth_unavailable_reason)) div(class = "empty-note", icon("triangle-exclamation"), raw$meth_unavailable_reason)
+      )
+    })
+
+    ## cx_validate_dataset() was already computed into integ$validation on
+    ## every run but never rendered anywhere - a malformed upload (mismatched
+    ## gene identifiers, an all-NA log2FC/Δβ column) still produced a full
+    ## quadrant table with no visible diagnostic explaining why it was empty
+    ## or meaningless. This surfaces that checklist, most prominently when a
+    ## check actually failed.
+    output$validation_ui <- renderUI({
+      v <- integ$validation
+      if (is.null(v)) return(NULL)
+
+      render_group <- function(title, checks) {
+        tagList(
+          tags$strong(title),
+          tags$ul(style = "margin: 4px 0 10px 0; padding-left: 20px;",
+            lapply(checks, function(chk) tags$li(
+              class = if (isTRUE(chk$ok)) "cx-status-ok" else "cx-status-pending",
+              icon(if (isTRUE(chk$ok)) "check" else "triangle-exclamation"), " ", chk$label
+            ))
+          )
+        )
+      }
+
+      all_checks <- c(v$transcriptomics, v$methylomics, v$compatibility)
+      any_failed <- any(!vapply(all_checks, function(chk) isTRUE(chk$ok), logical(1)))
+
+      div(
+        class = if (any_failed) "empty-note" else "card",
+        style = "padding: 10px 14px; margin-bottom: 10px; font-size: 0.9em;",
+        if (any_failed) {
+          tagList(icon("triangle-exclamation"), tags$strong(" This integration has data-quality warnings - review before trusting the results below:"))
+        } else {
+          tagList(icon("check"), tags$strong(" Input data passed all validation checks."))
+        },
+        render_group("Transcriptomics", v$transcriptomics),
+        render_group("Methylomics", v$methylomics),
+        render_group("Compatibility", v$compatibility)
       )
     })
 

@@ -62,6 +62,50 @@ test_that("Run Integration (real, synchronous) correctly classifies a hand-worke
   })
 })
 
+test_that("the validation checklist (2026-09-08 fix) renders after a clean run and reports all checks passing", {
+  fx <- cx_dataset_fixture()
+  cross_dataset <- shiny::reactiveValues(user_expr_df = fx$expr_df, user_expr_source = "Example data (FEMALE, sex-stratified DEG)",
+                                           user_meth_df = fx$meth_df, user_meth_source = "Example data (FEMALE, sex-stratified DMP, SVA/bacon-adjusted)")
+  cross_results <- shiny::reactiveValues()
+  shiny::testServer(mod_cross_integration_server, args = list(id = "ci", cross_dataset = cross_dataset, cross_results = cross_results), {
+    session$setInputs(expr_thresh = 1, expr_fdr_thresh = 0.05, meth_thresh = 0.1, meth_fdr_thresh = 0.05,
+                        agg_method = "mean", cor_method = "pearson", padj_method = "BH")
+    session$setInputs(run_integration = 0)
+    session$setInputs(run_integration = 1)
+
+    expect_false(is.null(integ$validation))
+    expect_true(isTRUE(integ$validation$ready))
+    expect_true(any(grepl("passed all validation checks", output$validation_ui)))
+    expect_true(any(grepl("Gene identifier detected", output$validation_ui)))
+    expect_true(any(grepl("Methylation measurement", output$validation_ui)))
+    expect_false(any(grepl("data-quality warnings", output$validation_ui)))
+  })
+})
+
+test_that("the validation checklist (2026-09-08 fix) surfaces a warning and the specific failing check for a malformed upload (all-NA log2FC), instead of silently classifying it", {
+  malformed_expr_df <- data.frame(
+    gene = c("A", "B", "C", "D"), log2fc = NA_real_, pvalue = NA_real_, fdr = NA_real_,
+    stringsAsFactors = FALSE
+  )
+  meth_df <- cx_dataset_fixture()$meth_df
+  cross_dataset <- shiny::reactiveValues(user_expr_df = malformed_expr_df, user_expr_source = "Upload",
+                                           user_meth_df = meth_df, user_meth_source = "Upload")
+  cross_results <- shiny::reactiveValues()
+  shiny::testServer(mod_cross_integration_server, args = list(id = "ci", cross_dataset = cross_dataset, cross_results = cross_results), {
+    session$setInputs(expr_thresh = 1, expr_fdr_thresh = 0.05, meth_thresh = 0.1, meth_fdr_thresh = 0.05,
+                        agg_method = "mean", cor_method = "pearson", padj_method = "BH")
+    session$setInputs(run_integration = 0)
+    session$setInputs(run_integration = 1)
+
+    ## The old behaviour: this run still "succeeds" and classifies every gene
+    ## (as Not significant, since log2FC is NA) with no visible explanation.
+    expect_false(is.null(integ$df))
+    ## The fix: the checklist now says exactly why, right above that table.
+    expect_true(any(grepl("data-quality warnings", output$validation_ui)))
+    expect_true(any(grepl("log2 Fold Change not detected", output$validation_ui)))
+  })
+})
+
 test_that("Run Integration refuses cleanly (no crash, integ$df stays NULL) when Methylomics data hasn't been loaded on the Dataset tab", {
   cross_dataset <- shiny::reactiveValues(user_expr_df = data.frame(gene = "A", log2fc = 1, pvalue = 0.01, fdr = 0.01), user_meth_df = NULL)
   cross_results <- shiny::reactiveValues()

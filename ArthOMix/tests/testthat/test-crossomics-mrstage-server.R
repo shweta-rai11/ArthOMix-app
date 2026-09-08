@@ -122,5 +122,17 @@ test_that("uploading a standalone evidence file computes a real relabeled table 
     tp53 <- uploaded_evidence$df[uploaded_evidence$df$gene == "TP53", ]
     expect_true(tp53$DEG_significant)
     expect_true(tp53$eQTL_MR_significant)
+
+    ## Regression guard for the 2026-09-08 fix: this was the one handler in
+    ## the module without a provenance push (its siblings load_mr and
+    ## load_mr_upload both had one already) - the gene-level evidence table
+    ## feeding all five MR convergence categories could be swapped in with no
+    ## trace in the session-wide analysis-record log.
+    recs <- arthomix_provenance_records(session)
+    expect_gte(length(recs), 1)
+    last <- recs[[length(recs)]]
+    expect_equal(last$module, "mod_cross_mr_stage")
+    expect_equal(last$params$n_genes, nrow(uploaded_evidence$df))
+    expect_true(grepl("evidence upload", last$params$source))
   })
 })

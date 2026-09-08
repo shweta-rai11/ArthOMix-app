@@ -78,8 +78,23 @@ safe_read_rds <- function(path, max_size_mb = 1024,
 
 ARTHOMIX_ASYNC_AVAILABLE <- requireNamespace("future", quietly = TRUE) && requireNamespace("promises", quietly = TRUE)
 if (ARTHOMIX_ASYNC_AVAILABLE) {
-  future::plan(future::multisession, workers = 2)
-  invisible(future::value(lapply(seq_len(2), function(i) {
+  ## Worker count: a hardcoded 2 meant a 3rd concurrent DIABLO/SNF/MOFA request
+  ## always queued behind the first two regardless of host size. Scale with
+  ## available cores instead, leaving one for the main Shiny process, but cap
+  ## it - each worker pre-loads mixOmics/SNFtool/MOFA2 below, which is
+  ## memory-heavy, so unbounded scaling on a large host is its own risk.
+  ## ARTHOMIX_ASYNC_WORKERS overrides this for a specific deployment.
+  .arthomix_async_workers <- {
+    env_override <- suppressWarnings(as.integer(Sys.getenv("ARTHOMIX_ASYNC_WORKERS", "")))
+    if (!is.na(env_override) && env_override >= 1L) {
+      env_override
+    } else {
+      avail <- tryCatch(future::availableCores(), error = function(e) 2L)
+      max(2L, min(6L, avail - 1L))
+    }
+  }
+  future::plan(future::multisession, workers = .arthomix_async_workers)
+  invisible(future::value(lapply(seq_len(.arthomix_async_workers), function(i) {
     future::future({
       requireNamespace("mixOmics", quietly = TRUE)
       requireNamespace("SNFtool", quietly = TRUE)

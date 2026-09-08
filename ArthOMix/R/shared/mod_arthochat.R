@@ -9,6 +9,60 @@ ARTHOCHAT_MAX_EXECUTIONS <- 5L
 ARTHOCHAT_TEMPERATURE <- 0
 ARTHOCHAT_SEED <- 20260904L
 
+## ARTHOCHAT_MAX_TURNS above is a per-session counter: a fresh browser tab or
+## reload gets a fresh Shiny session and therefore a fresh counter, so on its
+## own it does not bound total spend on the metered LLM backend. This adds a
+## session-independent budget shared by every session in the R process, plus
+## a per-visitor (IP) budget so a single visitor reloading repeatedly cannot
+## alone exhaust the global one. Single-threaded per R process, so no locking.
+.arthochat_rate_env <- new.env(parent = emptyenv())
+ARTHOCHAT_RATE_WINDOW_SECS <- 3600
+ARTHOCHAT_GLOBAL_MAX_TURNS_PER_WINDOW <- 500L
+ARTHOCHAT_IP_MAX_TURNS_PER_WINDOW <- 60L
+
+.arthochat_rate_reset_if_stale <- function() {
+  now <- Sys.time()
+  start <- .arthochat_rate_env[["window_start"]]
+  if (is.null(start) || as.numeric(difftime(now, start, units = "secs")) >= ARTHOCHAT_RATE_WINDOW_SECS) {
+    .arthochat_rate_env[["window_start"]] <- now
+    .arthochat_rate_env[["global_count"]] <- 0L
+    .arthochat_rate_env[["ip_counts"]] <- list()
+  }
+}
+
+## Returns TRUE and records the turn if under both budgets; FALSE if the
+## caller should refuse it. `ip` may be NULL/"" (e.g. in tests) and is then
+## pooled under "unknown", which still counts against the global budget.
+arthochat_rate_allow <- function(ip = NULL) {
+  .arthochat_rate_reset_if_stale()
+  ip <- if (is.null(ip) || !nzchar(ip)) "unknown" else ip
+
+  global_count <- .arthochat_rate_env[["global_count"]] %||% 0L
+  if (global_count >= ARTHOCHAT_GLOBAL_MAX_TURNS_PER_WINDOW) return(FALSE)
+
+  ip_counts <- .arthochat_rate_env[["ip_counts"]] %||% list()
+  ip_count <- ip_counts[[ip]] %||% 0L
+  if (ip_count >= ARTHOCHAT_IP_MAX_TURNS_PER_WINDOW) return(FALSE)
+
+  .arthochat_rate_env[["global_count"]] <- global_count + 1L
+  ip_counts[[ip]] <- ip_count + 1L
+  .arthochat_rate_env[["ip_counts"]] <- ip_counts
+  TRUE
+}
+
+## Best-effort client identifier from the Shiny request, for rate limiting
+## only (not authentication). Behind a reverse proxy the first hop's address
+## is in X-Forwarded-For; falls back to the direct socket address.
+.arthochat_client_ip <- function(session) {
+  req <- tryCatch(session$request, error = function(e) NULL)
+  if (is.null(req)) return(NULL)
+  xff <- req$HTTP_X_FORWARDED_FOR
+  if (!is.null(xff) && nzchar(xff)) {
+    return(trimws(strsplit(xff, ",", fixed = TRUE)[[1]][1]))
+  }
+  req$REMOTE_ADDR
+}
+
 ## Live sub-module titles from *_MODULES, not a hardcoded list, to avoid drift.
 .arthochat_known_modules <- function() {
   registries <- list(
@@ -457,7 +511,11 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
 
     observeEvent(input$chat_user_input, {
       if (n_turns() >= ARTHOCHAT_MAX_TURNS) {
-        shinychat::chat_append("chat", "You've reached this session's message limit for ArthOChat. Reload the app to reset it.")
+        shinychat::chat_append("chat", "You've reached this session's message limit for ArthOChat.")
+        return()
+      }
+      if (!arthochat_rate_allow(.arthochat_client_ip(session))) {
+        shinychat::chat_append("chat", "ArthOChat is at its usage limit for this period. Please try again shortly.")
         return()
       }
       n_turns(n_turns() + 1L)
