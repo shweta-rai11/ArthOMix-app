@@ -1,9 +1,0 @@
-name = "arthomix"
-main = "worker.js"
-compatibility_date = "2026-09-01"
-workers_dev = true
-
-[vars]
-# Public hostname of the Cloudflare quick tunnel that fronts the local Shiny server on port 7788.
-# If the tunnel is restarted it gets a new name: update this value and redeploy (npx wrangler deploy).
-ORIGIN_HOST = "consistent-journals-jacksonville-achieve.trycloudflare.com"

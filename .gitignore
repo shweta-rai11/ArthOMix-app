@@ -23,3 +23,9 @@ ArthOMix/data/uploads/*
 ArthOMix/results/**/*
 !ArthOMix/results/**/
 !ArthOMix/results/**/.gitkeep
+
+# ArthOMix/reproduce/: reproducibility-verification scripts (tracked) and
+# their outputs (not tracked - regenerable by re-running the script, and the
+# raw/ subdirs hold downloaded source data, some hundreds of MB).
+ArthOMix/reproduce/**/output/
+ArthOMix/reproduce/**/raw/

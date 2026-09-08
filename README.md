@@ -36,7 +36,7 @@ ArthOMix is a Shiny web app, not an installable R package. To reproduce it, clon
 - **Git LFS** — large precomputed files under `ArthOMix/data/` are tracked via Git LFS, not plain git. Run `git lfs install` *before* cloning, or `git lfs pull` afterwards if you already cloned without it. The app now fails at startup with a clear message naming the affected file(s) if any are still LFS pointer stubs, instead of failing deep inside a random module.
 - **Run from the `ArthOMix/` app directory** — the app resolves its data paths off the current working directory, not an absolute or installed location. Always `cd ArthOMix` (the inner app folder) before building/running/restoring.
 - **`GITHUB_PAT`** — several pinned dependencies are GitHub-only (see `Remotes:` in [`ArthOMix/DESCRIPTION`](ArthOMix/DESCRIPTION)). `renv::restore()` re-resolves each one against the GitHub API, which quickly exceeds the unauthenticated 60 requests/hour limit — set a `GITHUB_PAT` environment variable first (any token with public read access works).
-- **No authentication** — the app does not currently gate access behind a login. Do not expose a running instance on a public, unauthenticated network address.
+- **No authentication** — the app does not currently gate access behind a login. Do not expose a running instance on a public, unauthenticated network address. For remote access, use an SSH port-forward rather than a public tunnel — see [`deploy/README.md`](deploy/README.md).
 
 ### Docker
 
