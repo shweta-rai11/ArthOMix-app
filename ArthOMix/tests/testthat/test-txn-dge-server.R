@@ -230,6 +230,49 @@ test_that("a declared_data_type = 'raw' on the shared dataset lets DESeq2 run ev
   })
 })
 
+test_that("linear-scale data declared 'normalized' is log2-transformed before limma fits it, restoring true log2 fold-changes", {
+  ## Regression guard for a RED finding (2026-09-07 defense audit): declared_type
+  ## == "normalized" (TPM/FPKM/CPM) satisfied the old raw-counts guard (line 416)
+  ## and was fitted by limma completely untransformed, so "logFC" was actually a
+  ## raw linear-scale mean difference while the volcano axis still claimed
+  ## "log2 fold-change." Same bug class already fixed for CIBERSORT input
+  ## (deconv_is_linear_scale()) in commit 594d107, now extended to DGE.
+  set.seed(75)
+  n <- 12
+  genes <- paste0("GENE", 1:40)
+  samples <- paste0("S", 1:n)
+  grp <- rep(c("HC", "RA"), each = n / 2)
+  ## Linear-scale "normalized" (TPM-like) data: baseline ~lognormal, with an exact
+  ## 2x multiplicative fold-change on 5 signal genes in RA - the true log2 fold-
+  ## change for those genes is exactly log2(2) = 1, wildly different from the raw
+  ## linear-scale mean difference (~tens of units) the untransformed fit produced.
+  base <- matrix(stats::rlnorm(40 * n, meanlog = 4, sdlog = 0.15), 40, n, dimnames = list(genes, samples))
+  m <- base
+  signal_genes <- genes[1:5]
+  m[signal_genes, grp == "RA"] <- m[signal_genes, grp == "RA"] * 2
+  meta <- data.frame(sample = samples, group = grp, stringsAsFactors = FALSE)
+  dataset <- shiny::reactiveValues(expr = m, meta = meta, source = "linear-scale normalized cohort",
+                                     source_type = "uploaded", is_bundled_reference = FALSE,
+                                     geo_ids = character(0), declared_data_type = "normalized")
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_dge_server, args = list(id = "dge", dataset = dataset, results = results), {
+    session$setInputs(data_source = "pipeline", method = "limma", contrast_col = "group",
+                        ref_group = "HC", comp_group = "RA", padj_cut = 0.05, lfc_cut = 0.1)
+    session$setInputs(run_btn = 0)
+    session$setInputs(run_btn = 1)
+
+    res <- fit_result()
+    expect_true(res$log2_transformed_for_fit)
+    expect_true(grepl("log2\\(x \\+ 1\\)-transformed", res$test_label))
+
+    tbl <- res$table
+    signal_logfc <- tbl$logFC[tbl$gene %in% signal_genes]
+    other_logfc <- tbl$logFC[!tbl$gene %in% signal_genes]
+    expect_true(all(abs(signal_logfc - 1) < 0.3))
+    expect_true(all(abs(other_logfc) < 0.3))
+  })
+})
+
 test_that("declaring the wrong data type on this module's own upload path blocks at upload time, before any fit is attempted", {
   fm <- fx_expr_meta(n_genes = 40, n_samples = 12, seed = 74)
   counts_like <- round(exp(fm$expr))

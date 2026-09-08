@@ -274,7 +274,9 @@ mod_candidates_server <- function(id, dataset, results) {
     observeEvent(input$female_run_btn, female_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(input$male_run_btn, male_has_run(TRUE), ignoreInit = TRUE)
     observeEvent(input$pooled_run_btn, pooled_has_run(TRUE), ignoreInit = TRUE)
-    observeEvent(dataset$source, {
+    ## Keyed on both dataset$source AND dataset$load_id - see the identical comment
+    ## in mod_wgcna.R for why load_id is needed alongside the source label.
+    observeEvent(list(dataset$source, dataset$load_id), {
       female_has_run(FALSE); male_has_run(FALSE); pooled_has_run(FALSE)
     }, ignoreInit = TRUE)
 

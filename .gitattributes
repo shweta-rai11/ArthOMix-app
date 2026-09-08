@@ -7,3 +7,12 @@ ArthOMix/data/examples/multiomics_upload/geo_multiomics/*.xlsx filter=lfs diff=l
 ArthOMix/data/examples/transcriptomics_upload/geo_transcriptomics/*.csv filter=lfs diff=lfs merge=lfs -text
 ArthOMix/data/examples/methylomics_upload/geo_methylomics/*.csv filter=lfs diff=lfs merge=lfs -text
 ArthOMix/data/examples/methylomics_upload/geo_methylomics/*.xlsx filter=lfs diff=lfs merge=lfs -text
+## Precomputed/bundled-reference artifacts (data/preloaded/**): *.rds/*.RData/*.rda
+## above already cover the R objects, but several large precomputed CSV/gz/xlsx
+## tables in this tree (e.g. the ~250MB of methylomics DMP full-results tables)
+## were never matched by any rule and were sitting as plain, undeltified git
+## blobs - inconsistent with every sibling .rds artifact in the same pipeline
+## (2026-09-07 defense audit, Git LFS / clean-clone reproducibility finding).
+ArthOMix/data/preloaded/**/*.csv filter=lfs diff=lfs merge=lfs -text
+ArthOMix/data/preloaded/**/*.xlsx filter=lfs diff=lfs merge=lfs -text
+ArthOMix/data/preloaded/**/*.txt.gz filter=lfs diff=lfs merge=lfs -text

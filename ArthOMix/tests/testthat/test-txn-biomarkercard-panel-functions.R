@@ -233,3 +233,53 @@ test_that("tbc_evidence_classification() reaches 'Strong candidate' only when a 
   cl_unavail <- tbc_evidence_classification(bmc_min_d(external = bmc_external_fixture(available = FALSE)), ext = NULL)
   expect_equal(cl_unavail$tier, "Supported candidate")
 })
+
+## ---- AUC-magnitude floor (2026-09-07 defense audit RED finding) ----
+## "ok" previously meant only "the ROC/CV computation succeeded numerically",
+## with zero check on the AUC value itself - a chance-level gene (AUC ~= 0.5)
+## that happened to have enough samples per group could reach "Strong candidate".
+
+test_that("a numerically-successful but chance-level (AUC ~= 0.5) single-gene ROC never counts as diagnostic evidence", {
+  d <- list(live = list(ok = FALSE),
+            dge_hits = data.frame(direction = "Up", adj.P.Val = 0.001, stringsAsFactors = FALSE),
+            diagnostic_match = list())
+  sgd <- list(ok = TRUE, auc = 0.5)   # computation succeeded; the gene is not discriminative
+  sgcv <- list(ok = TRUE, auc = 0.5)
+  cl <- tbc_evidence_classification(d, ext = NULL, sgd = sgd, sgcv = sgcv)
+  expect_equal(cl$tier, "Candidate biomarker")  # not Supported/Strong
+  diag_item <- Filter(function(x) startsWith(x$label, "Diagnostic evidence"), cl$checklist)[[1]]
+  internal_item <- Filter(function(x) startsWith(x$label, "Internal validation"), cl$checklist)[[1]]
+  expect_false(diag_item$met)
+  expect_false(internal_item$met)
+})
+
+test_that("a chance-level external AUC never satisfies the External validation checklist item, even though it is finite", {
+  dm <- bmc_min_d(external = bmc_external_fixture())$diagnostic_match
+  dm$female$external$models[[1]]$auc <- 0.52
+  dm$female$external$models[[2]]$auc <- 0.48
+  cl <- tbc_evidence_classification(list(live = list(ok = FALSE),
+                                          dge_hits = data.frame(direction = "Up", adj.P.Val = 0.001, stringsAsFactors = FALSE),
+                                          diagnostic_match = dm), ext = NULL)
+  expect_equal(cl$tier, "Supported candidate")  # not Strong - external AUC is chance-level
+  ext_item <- Filter(function(it) grepl("External validation", it$label), cl$checklist)[[1]]
+  expect_false(ext_item$met)
+})
+
+test_that("an AUC just above the floor (0.6) passes, and just below it (0.59) fails - the floor is a real threshold, not decorative", {
+  d <- list(live = list(ok = FALSE),
+            dge_hits = data.frame(direction = "Up", adj.P.Val = 0.001, stringsAsFactors = FALSE),
+            diagnostic_match = list())
+  cl_pass <- tbc_evidence_classification(d, ext = NULL, sgd = list(ok = TRUE, auc = 0.61), sgcv = list(ok = TRUE, auc = 0.61))
+  cl_fail <- tbc_evidence_classification(d, ext = NULL, sgd = list(ok = TRUE, auc = 0.59), sgcv = list(ok = TRUE, auc = 0.59))
+  expect_equal(cl_pass$tier, "Supported candidate")
+  expect_equal(cl_fail$tier, "Candidate biomarker")
+})
+
+test_that("tbc_panel_has_useful_cv_auc requires at least one model's CV AUC to clear the floor, not merely to be non-missing", {
+  weak_panel <- list(strat1 = list(lr_cv_auc = 0.51, enet_cv_auc = 0.55, rf_cv_auc = NA_real_, svm_cv_auc = 0.48))
+  strong_panel <- list(strat1 = list(lr_cv_auc = 0.51, enet_cv_auc = 0.72, rf_cv_auc = NA_real_, svm_cv_auc = 0.48))
+  expect_false(tbc_panel_has_useful_cv_auc(weak_panel))
+  expect_true(tbc_panel_has_useful_cv_auc(strong_panel))
+  expect_false(tbc_panel_has_useful_cv_auc(list()))
+  expect_false(tbc_panel_has_useful_cv_auc(NULL))
+})

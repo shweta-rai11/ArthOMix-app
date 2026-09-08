@@ -1515,7 +1515,11 @@ mod_wgcna_server <- function(id, dataset, results) {
 
     enrich_store <- reactiveValues(result = NULL, error = NULL)
 
-    observeEvent(dataset$source, {
+    ## Keyed on both dataset$source AND dataset$load_id: reserving/releasing a sealed
+    ## hold-out changes dataset$source (via a suffix) without a full reactivation, and
+    ## a full reactivation bumps load_id even when dataset$source happens to repeat
+    ## (same filename, different content) - see activate_dataset() in mod_dataset.R.
+    observeEvent(list(dataset$source, dataset$load_id), {
       sft_store$result <- NULL; sft_store$error <- NULL
       net_store$result <- NULL; net_store$source <- NULL; net_store$error <- NULL
       enrich_store$result <- NULL; enrich_store$error <- NULL

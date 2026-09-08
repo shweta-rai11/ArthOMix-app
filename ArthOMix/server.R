@@ -9,6 +9,7 @@ function(input, output, session) {
     d$is_bundled_reference <- TRUE
     d$geo_ids <- MERGED_DEFAULT_GEO_IDS
     d$declared_data_type <- NA_character_
+    d$load_id <- 0L
     do.call(reactiveValues, d)
   })
 

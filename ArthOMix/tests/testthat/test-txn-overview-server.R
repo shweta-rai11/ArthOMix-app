@@ -4,6 +4,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "02_Overview", "mod_overview.R"))
 
 fixture_dataset <- function() {
@@ -42,6 +43,61 @@ test_that("running outlier detection writes back to shared results so ArthoChat'
     ov <- shiny::isolate(results$overview)
     expect_false(is.null(ov))
     expect_equal(ov$n_samples, 20L)
+  })
+})
+
+fixture_raw_counts_dataset <- function() {
+  set.seed(52)
+  genes <- sprintf("GENE%03d", seq_len(200))
+  samples <- sprintf("S%02d", seq_len(20))
+  ## Wide dynamic range, mostly-integer values - the signature of raw RNA-seq counts,
+  ## the exact input quantile normalisation must never be silently applied to (RED
+  ## finding: mod_overview.R's "Apply quantile normalisation" button + styling offered
+  ## it as the recommended fix for this exact shape of data).
+  expr <- matrix(rnbinom(200 * 20, mu = 500, size = 2), 200, 20, dimnames = list(genes, samples))
+  meta <- data.frame(sample = samples, group = rep(c("HC", "RA"), length.out = 20), stringsAsFactors = FALSE)
+  shiny::reactiveValues(expr = expr, meta = meta, source = "raw counts test cohort",
+                          source_type = "uploaded", is_bundled_reference = FALSE, geo_ids = character(0),
+                          declared_data_type = NA_character_)
+}
+
+test_that("raw-count-like data is never offered quantile normalisation as the recommended fix", {
+  dataset <- fixture_raw_counts_dataset()
+  shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = NULL), {
+    session$setInputs(qc_source = "active", mad_k = 3)
+    session$setInputs(run_norm_btn = 1)
+
+    summary_html <- fx_html_text(output$norm_summary_ui)
+    expect_true(grepl("raw, un-normalised sequencing counts", summary_html))
+    expect_true(grepl("TMM", summary_html))
+
+    apply_ui_html <- fx_html_text(output$norm_apply_ui)
+    expect_true(grepl("disabled here to prevent misuse", apply_ui_html))
+    expect_false(grepl("Apply quantile normalisation", apply_ui_html))
+  })
+})
+
+test_that("norm_apply_result refuses to quantile-normalise raw-count-like data even if the button is driven directly", {
+  dataset <- fixture_raw_counts_dataset()
+  shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = NULL), {
+    session$setInputs(qc_source = "active", mad_k = 3)
+    session$setInputs(run_norm_btn = 1)
+    session$setInputs(apply_norm_btn = 1)
+
+    res <- tryCatch(norm_apply_result(), error = function(e) e)
+    expect_true(inherits(res, "shiny.silent.error") || inherits(res, "validation"))
+  })
+})
+
+test_that("declared_data_type == 'raw' blocks quantile normalisation even when the matrix itself doesn't look count-like", {
+  fm <- fx_expr_meta(n_genes = 200, n_samples = 20, seed = 53)
+  dataset <- shiny::reactiveValues(expr = fm$expr, meta = fm$meta, source = "test cohort",
+                                     source_type = "uploaded", is_bundled_reference = FALSE, geo_ids = character(0),
+                                     declared_data_type = "raw")
+  shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = NULL), {
+    session$setInputs(qc_source = "active", mad_k = 3)
+    session$setInputs(run_norm_btn = 1)
+    expect_true(norm_target_raw_like())
   })
 })
 

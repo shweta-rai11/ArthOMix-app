@@ -380,6 +380,16 @@ mod_dataset_server <- function(id, dataset) {
       dataset$reserved_expr <- NULL
       dataset$reserved_meta <- NULL
       dataset$reserved_info <- NULL
+      ## Shiny reactiveValues skip invalidating dependent observers when a field is
+      ## set to a value identical() to its current one. dataset$source is built from
+      ## filenames alone, so two different re-uploads sharing a filename (a corrected
+      ## re-upload saved under the same name; two GEO exports both saved as
+      ## "expression.csv") produce an identical source string and silently never
+      ## reset stale WGCNA/Candidate-gene results (RED finding, 2026-09-07 defense
+      ## audit). load_id is a plain monotonic counter - guaranteed to differ from its
+      ## previous value on every single activation regardless of content - so
+      ## observers keyed on it always fire, independent of what dataset$source says.
+      dataset$load_id <- (dataset$load_id %||% 0L) + 1L
       sum(duplicated(rownames(expr)))
     }
 
@@ -396,6 +406,24 @@ mod_dataset_server <- function(id, dataset) {
       dataset$reserved_info <- info
       dataset$expr <- expr[, keep, drop = FALSE]
       dataset$meta <- meta[match(keep, meta$sample), , drop = FALSE]
+      ## dataset$staged_expr/staged_meta are what Preprocessing's "currently loaded
+      ## dataset" fallback reads (`use_expr <- dataset$staged_expr %||% dataset$expr`,
+      ## mod_preprocessing.R) and were never updated here before this fix - so
+      ## ComBat/SVA/TMM/quantile-normalisation parameters could be estimated on the
+      ## pre-seal matrix, INCLUDING the reserved hold-out samples, even though only
+      ## the preprocessing OUTPUT was re-sealed afterward (RED finding, 2026-09-07
+      ## defense audit: this directly contradicted the in-UI claim that reserved
+      ## samples are "hidden from every step"). Keep staged_expr/staged_meta in
+      ## lock-step with expr/meta so every downstream fallback also only ever sees
+      ## the discovery subset.
+      if (!is.null(dataset$staged_expr)) {
+        staged_ids <- intersect(colnames(dataset$staged_expr), ids)
+        staged_keep <- setdiff(colnames(dataset$staged_expr), staged_ids)
+        dataset$staged_expr <- dataset$staged_expr[, staged_keep, drop = FALSE]
+        if (!is.null(dataset$staged_meta)) {
+          dataset$staged_meta <- dataset$staged_meta[match(staged_keep, dataset$staged_meta$sample), , drop = FALSE]
+        }
+      }
     }
 
     observeEvent(input$reserve_btn, {
@@ -442,6 +470,15 @@ mod_dataset_server <- function(id, dataset) {
       common_genes <- intersect(rownames(dataset$expr), rownames(rexpr))
       dataset$expr <- cbind(dataset$expr[common_genes, , drop = FALSE], rexpr[common_genes, , drop = FALSE])
       dataset$meta <- rbind(dataset$meta, rmeta[, colnames(dataset$meta), drop = FALSE])
+      ## Mirror the restore into staged_expr/staged_meta - see the matching comment in
+      ## seal_samples() for why these must always stay in lock-step with expr/meta.
+      if (!is.null(dataset$staged_expr)) {
+        common_genes_staged <- intersect(rownames(dataset$staged_expr), rownames(rexpr))
+        dataset$staged_expr <- cbind(dataset$staged_expr[common_genes_staged, , drop = FALSE], rexpr[common_genes_staged, , drop = FALSE])
+        if (!is.null(dataset$staged_meta)) {
+          dataset$staged_meta <- rbind(dataset$staged_meta, rmeta[, colnames(dataset$staged_meta), drop = FALSE])
+        }
+      }
       dataset$reserved_ids <- character(0); dataset$reserved_expr <- NULL; dataset$reserved_meta <- NULL; dataset$reserved_info <- NULL
       if (isTRUE(info$was_bundled_reference)) dataset$is_bundled_reference <- TRUE
       dataset$source <- sub(DATASET_RESERVED_SUFFIX_RE, "", dataset$source %||% "Currently loaded dataset")
@@ -662,6 +699,11 @@ mod_dataset_server <- function(id, dataset) {
         contains = c("group", "diagnosis", "disease", "condition", "phenotype", "characteristics_ch1")
       )
       tagList(
+        radioButtons(ns("geo_declared_data_type"), "Data type", inline = TRUE,
+                     choices = c("Raw counts" = "raw", "Normalized (TPM/FPKM/CPM)" = "normalized", "Already log-transformed" = "logtransformed"),
+                     selected = "normalized"),
+        div(class = "empty-note", icon("circle-info"),
+            "GEO series matrices are usually already normalized (microarray) or summarized counts - check the series' own \"Data processing\" description on GEO if unsure."),
         selectInput(ns("geo_map_group"), "Group / diagnosis column", choices = cols,
                     selected = geo_group_guess, selectize = FALSE),
         unconfident_guess_note(geo_group_guess, "group/diagnosis column"),
@@ -686,7 +728,9 @@ mod_dataset_server <- function(id, dataset) {
       result <- tryCatch({
         em <- geo_expr_meta()
         validate(need(!inherits(em, "error"), "No GEO data fetched yet."))
-        expr <- em$expr
+        checked <- tx_validate_expr_upload(em$expr, input$geo_declared_data_type)
+        validate(need(isTRUE(checked$ok), checked$error))
+        expr <- checked$mat
         meta <- em$meta
         meta$sample <- rownames(meta)
         meta$group  <- as.character(meta[[input$geo_map_group]])
@@ -708,7 +752,7 @@ mod_dataset_server <- function(id, dataset) {
         acc <- geo_fetch_result()$acc
         label <- sprintf("%s (%s, %s)", acc, em$platform,
                           if (em$collapsed) "collapsed to genes" else "probe-level, raw")
-        list(expr = expr, meta = meta, label = label, acc = acc)
+        list(expr = expr, meta = meta, label = label, acc = acc, type_note = checked$note)
       }, error = function(e) e)
 
       if (inherits(result, "error")) {
@@ -719,7 +763,8 @@ mod_dataset_server <- function(id, dataset) {
         source_label <- paste0("NCBI GEO: ", result$label)
         n_dup <- activate_dataset(
           expr = result$expr, meta = result$meta, source = source_label,
-          source_type = "geo", is_bundled_reference = FALSE, geo_ids = result$acc
+          source_type = "geo", is_bundled_reference = FALSE, geo_ids = result$acc,
+          declared_data_type = input$geo_declared_data_type
         )
         n_samples <- ncol(result$expr)
         wgcna_note <- if (n_samples < 15) {
@@ -732,7 +777,8 @@ mod_dataset_server <- function(id, dataset) {
           div(class = "empty-note", icon("check"),
               sprintf("Loaded %s genes across %s samples. Every sub-module now runs on this GEO dataset.%s%s",
                       format(nrow(result$expr), big.mark = ","), n_samples, wgcna_note, probe_note)),
-          duplicate_feature_note(n_dup)
+          duplicate_feature_note(n_dup),
+          if (!is.null(result$type_note) && nzchar(result$type_note)) div(class = "empty-note", icon("triangle-exclamation"), result$type_note)
         ))
       }
     })

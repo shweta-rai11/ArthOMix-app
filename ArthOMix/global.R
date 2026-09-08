@@ -9,6 +9,39 @@ source(file.path("R", "provenance.R"))
 
 if (file.exists(".Renviron")) readRenviron(".Renviron")
 
+## Fail loudly and clearly if bundled precomputed data are Git LFS pointer
+## stubs instead of the real files - this happens after a clone without
+## `git lfs pull` (or without git-lfs installed at all). Before this check,
+## a pointer stub surfaced only as a cryptic downstream parse error deep
+## inside whichever module first tried to read the affected file (2026-09-07
+## defense audit: Git LFS / clean-clone reproducibility finding).
+arthomix_check_lfs_pointers <- function(root = file.path("data", "preloaded")) {
+  if (!dir.exists(root)) return(invisible(NULL))
+  files <- list.files(root, recursive = TRUE, full.names = TRUE)
+  is_pointer_stub <- function(f) {
+    sz <- tryCatch(file.info(f)$size, error = function(e) NA_real_)
+    if (is.na(sz) || sz == 0 || sz > 200) return(FALSE)
+    head_bytes <- tryCatch(readBin(f, "raw", n = min(60, sz)), error = function(e) raw(0))
+    head_txt <- tryCatch(rawToChar(head_bytes[head_bytes != as.raw(0)]), error = function(e) "")
+    isTRUE(startsWith(head_txt, "version https://git-lfs.github.com/spec/v1"))
+  }
+  pointer_files <- Filter(is_pointer_stub, files)
+  if (length(pointer_files) > 0) {
+    stop(sprintf(
+      paste0(
+        "%d bundled data file(s) under '%s' are Git LFS pointer stubs, not the real data.\n",
+        "This repository stores large precomputed files with Git LFS - the clone/checkout\n",
+        "did not fetch their actual contents. Install git-lfs, then run:\n",
+        "  git lfs install\n  git lfs pull\n",
+        "from the repository root before starting the app. Affected file(s):\n%s"
+      ),
+      length(pointer_files), root, paste(" -", pointer_files, collapse = "\n")
+    ), call. = FALSE)
+  }
+  invisible(NULL)
+}
+arthomix_check_lfs_pointers()
+
 options(shiny.maxRequestSize = 3072 * 1024^2)
 
 ARTHOMIX_TX_ML_SEED <- 1234

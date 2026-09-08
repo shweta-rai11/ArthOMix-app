@@ -206,6 +206,40 @@ test_that("results$candidates is published with the correct female/male/final st
   })
 })
 
+test_that("re-loading a different dataset that happens to share the same dataset$source string still resets female/male has-run state (via load_id)", {
+  ## Regression guard for a RED finding (2026-09-07 defense audit): Shiny
+  ## reactiveValues skip invalidating dependent observers when a field is
+  ## reassigned a value identical() to its current one. dataset$source for
+  ## uploads is built from filenames alone (mod_dataset.R), so two different
+  ## re-uploads sharing a filename (a corrected re-upload saved under the same
+  ## name; two GEO exports both saved as "expression.csv") produced an
+  ## identical dataset$source string and silently never reset this module's
+  ## has-run state, serving the previous dataset's candidate results as
+  ## "already run." dataset$load_id (bumped on every activate_dataset() call,
+  ## regardless of content) fixes this by guaranteeing a genuinely different
+  ## value every time, independent of what dataset$source says.
+  dataset <- cand_dataset()
+  wg <- cand_wgcna_fixture()
+  sig <- c("GENE1", "GENE2", "GENE3", "GENE4", "GENE5")
+  results <- shiny::reactiveValues(wgcna = wg, dge_runs = list(f1 = cand_dge_run("RA vs HC (female)", sig, paste0("GENE", 1:60))))
+  shiny::testServer(mod_candidates_server, args = list(id = "cand", dataset = dataset, results = results), {
+    session$setInputs(wgcna_module_choice = "turquoise")
+    session$setInputs(gene_panel_choice = "")
+    session$setInputs(female_deg_run = "f1")
+    click(session, "female_run_btn")
+    expect_true(female_has_run())
+
+    ## Simulate activate_dataset() re-loading a genuinely different file that
+    ## happens to produce the exact same dataset$source label.
+    same_source <- shiny::isolate(dataset$source)
+    dataset$source <- same_source  # identical() reassignment, on purpose
+    dataset$load_id <- (shiny::isolate(dataset$load_id) %||% 0L) + 1L
+    session$flushReact()
+
+    expect_false(female_has_run())
+  })
+})
+
 test_that("requiring MR support filters the final candidate set down to only MR-supported genes", {
   dataset <- cand_dataset()
   wg <- cand_wgcna_fixture()

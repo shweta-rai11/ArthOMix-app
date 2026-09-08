@@ -1214,6 +1214,19 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           needs_log <- FALSE; q99 <- NA_real_
 
           diag_before <- summarize_norm_diagnostics(expr_prenorm)
+          ## Quantile normalisation (limma::normalizeBetweenArrays) assumes each sample's
+          ## distribution is already on a comparable, roughly-continuous scale. Raw,
+          ## un-logged sequencing counts violate that assumption (a handful of highly
+          ## expressed genes dominate the distribution) - TMM+log2-CPM is the appropriate
+          ## normalisation for count data, not quantile normalisation. This guard applies
+          ## to both the forced "quantile" choice and "auto" (which would otherwise fire on
+          ## raw counts purely because needs_quantile_norm()'s max_value>100 rule is equally
+          ## true for un-logged counts).
+          raw_count_like <- identical(dataset$declared_data_type, "raw") || looks_like_raw_counts(expr_prenorm)
+          if (raw_count_like && norm_method %in% c("quantile", "auto")) {
+            validate(need(FALSE,
+              "This data looks like raw, un-normalised sequencing counts (wide dynamic range, mostly integer values, or declared \"Raw counts\" on the Dataset tab). Quantile normalisation assumes already-comparable per-sample distributions and is not appropriate for raw counts. Choose \"TMM + log2-CPM\" under Normalisation instead, or \"None\" if this data is already normalised elsewhere."))
+          }
           apply_qnorm <- switch(norm_method,
             skip = FALSE,
             quantile = TRUE,

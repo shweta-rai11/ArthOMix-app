@@ -148,6 +148,29 @@ test_that("declaring 'Raw counts' for a matrix that is actually TPM-normalized i
   })
 })
 
+test_that("a duplicate sample ID in the uploaded metadata (matching an expression column) is rejected - ingestion parity with the GEO path", {
+  ## Ingestion-parity check (2026-09-07 defense audit, item 8): the upload and
+  ## GEO fetch paths in mod_dataset.R share byte-identical duplicate-sample-ID
+  ## validation logic and message text. See the matching GEO-side test in
+  ## test-txn-dataset-geo-server.R.
+  dup_meta <- fm$meta
+  dup_meta$sample[2] <- dup_meta$sample[1]  # two rows now both say "S01", which is a real expr column
+  dir <- withr::local_tempdir()
+  meta_dup_path <- file.path(dir, "dup_sample_metadata.csv")
+  fx_write_meta_csv(dup_meta, meta_dup_path)
+
+  dataset <- shiny::reactiveValues()
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(expr_file = fx_mkfile(expr_fixture_path))
+    session$setInputs(meta_file = fx_mkfile(meta_dup_path))
+    session$setInputs(map_id = "sample", map_group = "group", map_sex = "sex", map_batch = "batch")
+    session$setInputs(load_btn = 1)
+
+    expect_null(dataset$expr)
+    expect_true(grepl("duplicate value\\(s\\) matching expression-matrix columns", fx_html_text(output$load_message)))
+  })
+})
+
 test_that("an empty uploaded expression file (header only, 0 rows) is not silently treated as a valid non-empty matrix", {
   dataset <- shiny::reactiveValues(expr = "sentinel_expr")
   empty_path <- normalizePath(file.path(app_dir, "tests", "fixtures", "edge_cases", "empty_expr.csv"), mustWork = TRUE)

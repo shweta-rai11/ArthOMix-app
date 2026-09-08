@@ -377,6 +377,14 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                   selected = if ("group" %in% cols) "group" else cols[1])
     })
 
+    ## Quantile normalisation assumes samples are already on a comparable, roughly-continuous
+    ## scale (e.g. log2 microarray intensities) - it is not an appropriate fix for raw,
+    ## un-logged sequencing counts, which need TMM+log2-CPM instead (see Preprocessing).
+    norm_target_raw_like <- reactive({
+      req(qc_target())
+      looks_like_raw_counts(qc_target()$expr) || identical(dataset$declared_data_type, "raw")
+    })
+
     norm_check <- eventReactive(input$run_norm_btn, {
       expr <- qc_target()$expr
       diag <- summarize_norm_diagnostics(expr)
@@ -397,13 +405,19 @@ mod_overview_server <- function(id, dataset, results = NULL) {
       }
       d <- norm_check()$diag
       needs <- needs_quantile_norm(d)
+      raw_like <- norm_target_raw_like()
       tagList(
         p(icon("circle-info"), " Spread of per-sample medians (SD): ", strong(sprintf("%.3f", d$median_sd)),
           "; spread of per-sample IQRs (SD): ", strong(sprintf("%.3f", d$iqr_sd)),
           "; max value in matrix: ", strong(format(round(d$max_value, 1), big.mark = ",")), "."),
-        p(class = "empty-note", icon(if (!needs) "check" else "triangle-exclamation"),
-          if (!needs) "Samples look well aligned and log-scaled - quantile normalisation likely isn't needed."
-          else "This looks like it needs quantile normalisation: samples disagree by more than 0.5 on the log scale, or values are still on a linear (not log2) scale. Same rule Preprocessing uses. See Normalise this dataset below.")
+        if (raw_like) {
+          p(class = "empty-note", icon("triangle-exclamation"),
+            "This looks like raw, un-normalised sequencing counts (wide dynamic range, mostly integer values), not microarray/log-scale data. Quantile normalisation is not appropriate for raw counts - use Preprocessing's \"TMM + log2-CPM\" option for RNA-seq counts instead.")
+        } else {
+          p(class = "empty-note", icon(if (!needs) "check" else "triangle-exclamation"),
+            if (!needs) "Samples look well aligned and log-scaled - quantile normalisation likely isn't needed."
+            else "This looks like it needs quantile normalisation: samples disagree by more than 0.5 on the log scale. Same rule Preprocessing uses. See Normalise this dataset below.")
+        }
       )
     })
 
@@ -463,6 +477,8 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     })
 
     norm_apply_result <- eventReactive(input$apply_norm_btn, {
+      validate(need(!norm_target_raw_like(),
+        "This data looks like raw, un-normalised sequencing counts. Quantile normalisation is not appropriate here - use Preprocessing's \"TMM + log2-CPM\" option for RNA-seq counts instead."))
       expr <- as.matrix(qc_target()$expr)
       normalized <- limma::normalizeBetweenArrays(expr, method = "quantile")
       arthomix_provenance_push(arthomix_provenance_record(
@@ -486,12 +502,20 @@ mod_overview_server <- function(id, dataset, results = NULL) {
     output$norm_apply_ui <- renderUI({
       if (norm_stale()) return(NULL)
       req(norm_check())
+      raw_like <- norm_target_raw_like()
       needs <- needs_quantile_norm(norm_check()$diag)
+      if (raw_like) {
+        return(box(
+          width = 12, title = "Normalise this dataset", status = "danger", solidHeader = FALSE,
+          p(class = "empty-note", icon("triangle-exclamation"),
+            "This data looks like raw, un-normalised sequencing counts. Quantile normalisation is for microarray/log-scale data, not raw counts, and is disabled here to prevent misuse. Go to Preprocessing and choose \"TMM + log2-CPM\" instead.")
+        ))
+      }
       tagList(
         box(
           width = 12, title = "Normalise this dataset", status = if (needs) "warning" else "primary", solidHeader = FALSE,
           p(class = "submodule-desc",
-            "Runs the same quantile normalisation (limma::normalizeBetweenArrays) that Preprocessing applies to the merged training cohort, live on whatever's selected above. Check and fix your own un-normalised upload right here."),
+            "Runs the same quantile normalisation (limma::normalizeBetweenArrays) that Preprocessing applies to the merged training cohort, live on whatever's selected above. Check and fix your own un-normalised upload right here. Appropriate for microarray/log-scale data only - not raw RNA-seq counts."),
           actionButton(ns("apply_norm_btn"), "Apply quantile normalisation", icon = icon("wand-magic-sparkles"), class = "btn-primary btn-sm"),
           uiOutput(ns("norm_apply_result_ui"))
         )

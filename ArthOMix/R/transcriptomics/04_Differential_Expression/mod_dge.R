@@ -409,12 +409,20 @@ mod_dge_server <- function(id, dataset, results) {
         is_counts <- looks_like_raw_counts(expr)
         is_normalized_totals <- looks_like_normalized_totals(expr)
       }
+      limma_needs_log2 <- FALSE
       if (identical(used_method, "deseq2")) {
         validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with log2 set to \"Skip\")."))
         validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw counts. DESeq2 needs raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
       } else if (identical(used_method, "limma")) {
         validate(need(!(is_counts && !is_normalized_totals),
           "This data looks like raw, non-negative sequencing counts (wide value range, not library-size-normalised). limma assumes continuous, roughly-normal data and can mislead on raw counts. Pick DESeq2 instead, or normalise this to continuous, log-scale data first."))
+        ## limma's moderated t-test assumes continuous, roughly log-normal data. Un-logged
+        ## linear-scale normalised data (TPM/FPKM/CPM) satisfies the guard above (it isn't
+        ## "raw counts") but is NOT log-scale, so fitting it directly as-is understated large
+        ## fold-changes and produced a logFC that wasn't actually log2-scale despite the
+        ## volcano axis unconditionally labelling it "log2 fold-change". Reuses the same
+        ## linear-vs-log detection already verified for CIBERSORT input (expression_type.R).
+        limma_needs_log2 <- deconv_is_linear_scale(declared_type, expr)
       }
 
       tt <- if (identical(used_method, "deseq2")) {
@@ -440,8 +448,14 @@ mod_dge_server <- function(id, dataset, results) {
         )
         safe_levels <- make.names(levels(grp), unique = TRUE)
         colnames(design)[seq_len(nlevels(grp))] <- safe_levels
-        aw <- limma::arrayWeights(expr, design)
-        fit <- limma::lmFit(expr, design, weights = aw)
+        expr_fit <- if (limma_needs_log2) {
+          m <- as.matrix(expr); m[m < 0] <- 0
+          log2(m + 1)
+        } else {
+          expr
+        }
+        aw <- limma::arrayWeights(expr_fit, design)
+        fit <- limma::lmFit(expr_fit, design, weights = aw)
         cm <- limma::makeContrasts(contrasts = paste0(safe_levels[2], "-", safe_levels[1]), levels = design)
         fit2 <- tryCatch(
           if (use_treat) limma::treat(limma::contrasts.fit(fit, cm), lfc = lfc_cut) else limma::eBayes(limma::contrasts.fit(fit, cm)),
@@ -462,10 +476,13 @@ mod_dge_server <- function(id, dataset, results) {
         deseq2 = "Wald test (DESeq2)",
         used_method
       )
+      if (isTRUE(limma_needs_log2)) {
+        test_label <- paste0(test_label, " - input was linear-scale normalised expression, log2(x + 1)-transformed before fitting")
+      }
 
       list(
         table = tt, method = used_method, effect_mode = if (use_treat) "treat" else "posthoc",
-        expr = expr, grp = grp,
+        expr = expr, grp = grp, log2_transformed_for_fit = isTRUE(limma_needs_log2),
         design_formula = design_formula, test_label = test_label,
         n_ref = sum(grp == levels(grp)[1]), n_comp = sum(grp == levels(grp)[2]),
         label = paste0(comp_group, " vs ", ref_group, " (", contrast_col, ")", covariate_label)

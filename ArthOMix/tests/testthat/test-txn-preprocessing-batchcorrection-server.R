@@ -144,3 +144,70 @@ test_that("SVA (surrogate variable analysis) reduces the batch-correlated signal
   group_after <- group_contrast(res$expr_combat, res$meta, fx$signal_genes)
   expect_gt(abs(group_after), 0.3)
 })
+
+## Regression guard for a RED finding (2026-09-07 defense audit): the general
+## (non-TMM) normalisation branch had no raw-counts guard, so leaving
+## Normalisation at "auto" (or explicitly picking "quantile") could quantile-
+## normalise raw, un-logged RNA-seq counts directly via
+## limma::normalizeBetweenArrays - scientifically inappropriate for count data,
+## which needs TMM+log2-CPM instead. apply_chosen_norm() (global.R) is a
+## correctly-guarded dispatcher for this but is dead code, never called from
+## here - the fix instead adds the guard directly at the call site.
+fx_raw_counts_batch_data <- function(n_genes = 60, n_per_cell = 5, seed = 1) {
+  set.seed(seed)
+  genes <- sprintf("GENE%03d", seq_len(n_genes))
+  design <- expand.grid(batch = c("batch1", "batch2"), group = c("HC", "RA"), stringsAsFactors = FALSE)
+  design <- design[rep(seq_len(nrow(design)), each = n_per_cell), ]
+  samples <- sprintf("S%02d", seq_len(nrow(design)))
+  design$sample <- samples
+  ## Wide dynamic range, mostly-integer values - the signature of raw RNA-seq counts.
+  expr <- matrix(stats::rnbinom(n_genes * nrow(design), mu = 500, size = 2), n_genes, nrow(design),
+                 dimnames = list(genes, samples))
+  meta <- data.frame(sample = samples, group = design$group, batch = design$batch, stringsAsFactors = FALSE)
+  list(expr = expr, meta = meta)
+}
+
+test_that("normalisation left at 'auto' refuses to quantile-normalise raw-count-like data", {
+  fx <- fx_raw_counts_batch_data(seed = 30)
+  res <- tryCatch(
+    pp_run_batch_correction(fx, correction_method = "combat",
+                             extra_inputs = list(norm_method = "auto", skip_combat = TRUE)),
+    error = function(e) e
+  )
+  expect_true(inherits(res, "shiny.silent.error") || inherits(res, "validation"))
+  expect_true(grepl("raw, un-normalised sequencing counts", conditionMessage(res)))
+})
+
+test_that("normalisation explicitly forced to 'quantile' still refuses raw-count-like data", {
+  fx <- fx_raw_counts_batch_data(seed = 31)
+  res <- tryCatch(
+    pp_run_batch_correction(fx, correction_method = "combat",
+                             extra_inputs = list(norm_method = "quantile", skip_combat = TRUE)),
+    error = function(e) e
+  )
+  expect_true(inherits(res, "shiny.silent.error") || inherits(res, "validation"))
+  expect_true(grepl("TMM", conditionMessage(res)))
+})
+
+test_that("declared_data_type == 'raw' blocks quantile normalisation even on a matrix that doesn't look count-like by itself", {
+  fx <- fx_batch_signal_data(seed = 32)  # log-scale fixture, would NOT trigger the heuristic alone
+  dataset <- shiny::reactiveValues(expr = fx$expr, meta = fx$meta,
+                                    source = "Uploaded dataset: batch_fx.csv",
+                                    source_type = "uploaded", declared_data_type = "raw")
+  out <- tryCatch({
+    res <- NULL
+    shiny::testServer(mod_preprocessing_server, args = list(id = "pp", dataset = dataset, results = shiny::reactiveValues()), {
+      session$setInputs(preloaded_selected = "__current__", preloaded_log2 = "skip")
+      session$setInputs(preloaded_run = 1)
+      session$setInputs(merge_mode = "own")
+      session$setInputs(merge_btn = 1)
+      session$setInputs(color_by = "group", batch_col = "batch", norm_method = "auto",
+                         skip_combat = TRUE, protect_cols = "group", correction_method = "combat",
+                         mad_k = 3, min_pct = 0, variance_pct = 0)
+      session$setInputs(run_btn = 1)
+      res <<- result()
+    })
+    res
+  }, error = function(e) e)
+  expect_true(inherits(out, "shiny.silent.error") || inherits(out, "validation"))
+})

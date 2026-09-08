@@ -37,7 +37,8 @@ test_that("loading a mocked GEO fetch activates the dataset with source_type = '
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
     session$setInputs(geo_accession = "gse99999")
     session$setInputs(geo_fetch_btn = 1)
-    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)")
+    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)",
+                       geo_declared_data_type = "normalized")
     session$setInputs(geo_load_btn = 1)
 
     expect_equal(ncol(dataset$expr), 10L)
@@ -45,19 +46,45 @@ test_that("loading a mocked GEO fetch activates the dataset with source_type = '
     expect_false(dataset$is_bundled_reference)
     expect_equal(dataset$geo_ids, "GSE99999")
     expect_true(grepl("^NCBI GEO: GSE99999", dataset$source))
+    ## Parity with upload: the declared type actually reaches dataset$declared_data_type
+    ## instead of being silently dropped (was hard-coded NA before this fix).
+    expect_equal(dataset$declared_data_type, "normalized")
   })
 })
 
-test_that("loading a GEO dataset clears any stale declared_data_type left over from a previous upload", {
+test_that("declared_data_type on a GEO load reflects the current form selection, not a stale value from a previous dataset", {
   testthat::local_mocked_bindings(getGEO = function(...) list(GPL_FIXTURE = geo_fixture_eset), .package = "GEOquery")
 
   dataset <- shiny::reactiveValues(declared_data_type = "raw")
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
     session$setInputs(geo_accession = "GSE99999")
     session$setInputs(geo_fetch_btn = 1)
-    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)")
+    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)",
+                       geo_declared_data_type = "logtransformed")
     session$setInputs(geo_load_btn = 1)
-    expect_true(is.na(dataset$declared_data_type))
+    expect_equal(dataset$declared_data_type, "logtransformed")
+  })
+})
+
+test_that("GEO fetch runs through the same expression-type validator as upload: count-like data declared 'normalized' is rejected", {
+  counts_eset <- geo_fixture_eset
+  set.seed(2)
+  counts_mat <- matrix(sample(0:5000, nrow(counts_eset) * ncol(counts_eset), replace = TRUE),
+                        nrow(counts_eset), ncol(counts_eset),
+                        dimnames = dimnames(Biobase::exprs(counts_eset)))
+  Biobase::exprs(counts_eset) <- counts_mat
+  testthat::local_mocked_bindings(getGEO = function(...) list(GPL_FIXTURE = counts_eset), .package = "GEOquery")
+
+  dataset <- shiny::reactiveValues()
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(geo_accession = "GSE99999")
+    session$setInputs(geo_fetch_btn = 1)
+    session$setInputs(geo_map_group = "disease state:ch1", geo_map_sex = "Sex:ch1", geo_map_batch = "(none)",
+                       geo_declared_data_type = "normalized")
+    session$setInputs(geo_load_btn = 1)
+
+    expect_null(dataset$expr)
+    expect_true(grepl("looks like raw, un-normalized sequencing counts", fx_html_text(output$load_message)))
   })
 })
 

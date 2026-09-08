@@ -1233,16 +1233,46 @@ bc_section_disease_evidence <- function(ext) {
       body)
 }
 
+## Match rheumatoid arthritis specifically - "arthritis" alone also matches
+## osteoarthritis, psoriatic arthritis, juvenile idiopathic arthritis, reactive
+## arthritis, etc., none of which are the disease this banner claims (RED
+## finding, 2026-09-07 defense audit: disease-misattribution risk).
+bc_is_ra_trait <- function(traits) grepl("\\brheumatoid\\b", traits, ignore.case = TRUE)
+
 bc_section_ra_evidence <- function(ext) {
   if (is.null(ext)) return(bc_ext_not_fetched("Rheumatoid Arthritis Evidence", "hand-dots"))
   ra <- ext$ra_rows
-  found <- !is.null(ra) && nrow(ra) > 0
-  banner <- if (found) div(class = "empty-note", style = "border-left-color:#0ca30c;", icon("circle-check"), tags$b("RA-associated biomarker"))
-            else div(class = "empty-note", icon("circle-info"), tags$b("No RA-specific evidence identified in the connected databases."))
-  body <- if (found) DT::datatable(ra[, c("source", "trait", "effect", "p", "pmid")], colnames = c("Source", "Trait", "Effect", "P-value", "PMID"),
+  any_match <- !is.null(ra) && nrow(ra) > 0
+  ## A single unfiltered database hit is not evidence of a real, replicated
+  ## association - require either a nominally significant p-value in at least one
+  ## row, or independent replication (>=2 distinct PMIDs), before the green
+  ## "associated" banner fires (RED finding, 2026-09-07 defense audit: no
+  ## significance/effect-size/replication gate existed at all).
+  sig_p <- if (any_match) suppressWarnings(as.numeric(ra$p)) else numeric(0)
+  has_sig_p <- any(!is.na(sig_p) & sig_p < 0.05)
+  n_indep_studies <- if (any_match) length(unique(stats::na.omit(ra$pmid))) else 0L
+  replicated <- n_indep_studies >= 2
+  gated <- any_match && (has_sig_p || replicated)
+
+  banner <- if (gated) {
+    div(class = "empty-note", style = "border-left-color:#0ca30c;", icon("circle-check"),
+        tags$b("Rheumatoid arthritis-associated CpG (database evidence)"),
+        p(class = "submodule-desc", style = "margin: 4px 0 0;",
+          sprintf("Association only, not a validated biomarker claim. Support: %s%s.",
+                  if (has_sig_p) "at least one row with p below 0.05" else "no p-value reported",
+                  if (replicated) sprintf("; %d independent studies (PMIDs)", n_indep_studies) else "")))
+  } else if (any_match) {
+    div(class = "empty-note", icon("triangle-exclamation"),
+        tags$b("Rheumatoid arthritis mentioned in the connected databases, but unreplicated."),
+        p(class = "submodule-desc", style = "margin: 4px 0 0;",
+          "No row reaches p < 0.05 and there is no independent replication (< 2 distinct PMIDs) - treat this as a single unreplicated database report, not confirmatory evidence."))
+  } else {
+    div(class = "empty-note", icon("circle-info"), tags$b("No rheumatoid-arthritis-specific evidence identified in the connected databases."))
+  }
+  body <- if (any_match) DT::datatable(ra[, c("source", "trait", "effect", "p", "pmid")], colnames = c("Source", "Trait", "Effect", "P-value", "PMID"),
                                     rownames = FALSE, options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact") else NULL
   div(class = "card", div(class = "card-title", icon("hand-dots"), "Rheumatoid Arthritis Evidence"),
-      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas, filtered to rheumatoid-arthritis-related traits (this CpG)."),
+      p(class = "submodule-desc", "Source: MRC-IEU EWAS Catalog + EWAS Atlas, filtered to rheumatoid-arthritis-specific traits (this CpG). Other arthritis subtypes (osteoarthritis, psoriatic, juvenile idiopathic, reactive, etc.) are excluded, not counted as RA evidence."),
       banner, body)
 }
 
@@ -2689,7 +2719,7 @@ mod_methyl_biomarkercard_server <- function(id, dataset, results = NULL) {
       pmids <- if (!is.null(combined)) unique(combined$pmid[!is.na(combined$pmid) & grepl("^[0-9]+$", combined$pmid)]) else character(0)
       pubs <- bc_pubmed_summaries(pmids)
 
-      ra_rows <- if (!is.null(combined)) combined[grepl("rheumatoid|arthritis", combined$trait, ignore.case = TRUE), , drop = FALSE] else NULL
+      ra_rows <- if (!is.null(combined)) combined[bc_is_ra_trait(combined$trait), , drop = FALSE] else NULL
 
       disease_counts <- NULL
       if (!is.null(combined) && nrow(combined) > 0) {

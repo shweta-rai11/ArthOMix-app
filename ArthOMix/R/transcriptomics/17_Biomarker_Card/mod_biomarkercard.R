@@ -1002,10 +1002,30 @@ tbc_section_validation_evidence <- function(sgd, sgcv, d = NULL) {
       DT::datatable(rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact"))
 }
 
+## A ROC/CV/external run that "succeeded numerically" (enough samples per group)
+## is not the same as one that discriminates cases from controls. Without an AUC
+## floor here, a chance-level gene (AUC ~= 0.5) that merely computes without
+## erroring could reach "Strong candidate" - the classifier tracked presence of
+## a result, never its magnitude (RED finding, 2026-09-07 defense audit).
+## 0.6 is a conservative floor (AUC 0.5-0.6 is conventionally "no better than
+## chance / not clinically useful"; this does not claim 0.6 itself is "good",
+## only that it is the minimum below which "candidate" language is unsupported).
+TBC_MIN_USEFUL_AUC <- 0.6
+
+## Any diagnostic-panel entry (this gene's panel) whose internal CV AUC clears
+## the floor, across every model type the panel reports.
+tbc_panel_has_useful_cv_auc <- function(diagnostic_match, floor = TBC_MIN_USEFUL_AUC) {
+  aucs <- unlist(lapply(diagnostic_match %||% list(), function(x) c(x$lr_cv_auc, x$enet_cv_auc, x$rf_cv_auc, x$svm_cv_auc)))
+  aucs <- aucs[!is.na(aucs)]
+  length(aucs) > 0 && any(aucs >= floor)
+}
+
 tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
   statistical_ok <- (isTRUE(d$live$ok) && isTRUE(d$live$overall$ok) && !is.na(d$live$overall$p_value) && d$live$overall$p_value <= 0.05) ||
     (!is.null(d$dge_hits) && any(d$dge_hits$direction != "Not significant"))
-  diagnostic_ok <- isTRUE(sgd$ok) || length(d$diagnostic_match %||% list()) > 0
+  sg_auc_useful <- isTRUE(sgd$ok) && is.finite(sgd$auc %||% NA_real_) && sgd$auc >= TBC_MIN_USEFUL_AUC
+  panel_auc_useful <- tbc_panel_has_useful_cv_auc(d$diagnostic_match)
+  diagnostic_ok <- sg_auc_useful || panel_auc_useful
   biological_ok <- !is.null(ext) && (
     (!is.null(ext$go) && nrow(ext$go) > 0) ||
     any(vapply(TBC_EVIDENCE_DBS, function(x) identical(tbc_evidence_status(ext[[x$key]], x$field), "Results found"), logical(1)))
@@ -1013,11 +1033,11 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
   disease_ok <- isTRUE(ext$genetics$ok) && !is.na(ext$genetics$n_diseases %||% NA) && (ext$genetics$n_diseases %||% 0) > 0
   therapeutic_ok <- isTRUE(ext$drugs$ok) && !is.null(ext$drugs$drugs) && nrow(ext$drugs$drugs) > 0
   validation_training_ok <- diagnostic_ok
-  cv_auc_present <- length(d$diagnostic_match %||% list()) > 0 &&
-    any(!is.na(unlist(lapply(d$diagnostic_match, function(x) c(x$lr_cv_auc, x$enet_cv_auc, x$rf_cv_auc, x$svm_cv_auc)))))
-  validation_internal_ok <- isTRUE(sgcv$ok) || cv_auc_present
+  sgcv_auc_useful <- isTRUE(sgcv$ok) && is.finite(sgcv$auc %||% NA_real_) && sgcv$auc >= TBC_MIN_USEFUL_AUC
+  validation_internal_ok <- sgcv_auc_useful || panel_auc_useful
   ## External-cohort validation is read from Diagnostic Model's External Validation tab (frozen-model scoring).
-  validation_external_ok <- is.finite(tbc_external_validation_best(d$diagnostic_match)$auc)
+  ext_best_auc <- tbc_external_validation_best(d$diagnostic_match)$auc
+  validation_external_ok <- is.finite(ext_best_auc) && ext_best_auc >= TBC_MIN_USEFUL_AUC
 
   tier <- if (!statistical_ok) "Insufficient evidence"
           else if ((diagnostic_ok || biological_ok) && validation_internal_ok && validation_external_ok) "Strong candidate"
@@ -1026,13 +1046,13 @@ tbc_evidence_classification <- function(d, ext, sgd = NULL, sgcv = NULL) {
 
   checklist <- list(
     list(label = "Significant differential expression", met = statistical_ok),
-    list(label = "Diagnostic evidence (single-gene or panel)", met = diagnostic_ok),
+    list(label = sprintf("Diagnostic evidence (single-gene or panel AUC >= %.1f)", TBC_MIN_USEFUL_AUC), met = diagnostic_ok),
     list(label = "Biological evidence (pathway/GO/disease/drug/PPI/expression/literature)", met = biological_ok),
     list(label = "Disease association evidence", met = disease_ok),
     list(label = "Therapeutic/drug-target evidence", met = therapeutic_ok),
     list(label = "Training evidence", met = validation_training_ok),
-    list(label = "Internal validation (cross-validation)", met = validation_internal_ok),
-    list(label = "External validation (frozen models scored on an external cohort in the Diagnostic Model's External Validation tab)", met = validation_external_ok)
+    list(label = sprintf("Internal validation (cross-validation AUC >= %.1f)", TBC_MIN_USEFUL_AUC), met = validation_internal_ok),
+    list(label = sprintf("External validation (AUC >= %.1f, frozen models scored on an external cohort in the Diagnostic Model's External Validation tab)", TBC_MIN_USEFUL_AUC), met = validation_external_ok)
   )
   list(tier = tier, checklist = checklist)
 }
