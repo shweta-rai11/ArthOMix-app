@@ -201,7 +201,13 @@ mss_nested_cv <- function(expr, meth, outcome, covariate = NULL, engine = c("dia
     ok = TRUE,
     performance = data.frame(
       n = sum(ok_idx), auroc = as.numeric(roc_obj$auc), ci_lo = ci[1], ci_hi = ci[3],
+      ## excludes_chance is direction-BLIND (true whether performance is above OR below
+      ## chance) and is retained only for backward compatibility with any consumer that
+      ## wants "statistically distinguishable from 0.5" without caring which direction.
+      ## Anything that decides pass/fail or color MUST use auroc_call instead - see
+      ## multi_auroc_call() in multiomics_helpers.R for why excludes_chance alone is unsafe.
       excludes_chance = isTRUE(!is.na(ci[1]) && !is.na(ci[3]) && (ci[1] > 0.5 || ci[3] < 0.5)),
+      auroc_call = multi_auroc_call(as.numeric(roc_obj$auc), ci[1], ci[3]),
       engine = engine, positive_class = outcome_levels[2], stringsAsFactors = FALSE
     ),
     scores = data.frame(patient_id = ids, score = as.numeric(patient_score), outcome = as.character(outcome_full), stringsAsFactors = FALSE),

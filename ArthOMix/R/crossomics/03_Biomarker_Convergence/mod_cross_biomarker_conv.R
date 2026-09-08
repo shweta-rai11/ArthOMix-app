@@ -169,7 +169,8 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       df <- bc_df()
       d <- df[df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
       cols <- intersect(c("gene", "mQTL_candidate_cpg", "mQTL_cpg_chr", "mQTL_cpg_pos_hg19",
-                           "mQTL_instrument_available", "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
+                           "mQTL_instrument_available", "mQTL_instruments_tested", "mQTL_MR_pval_raw_min",
+                           "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
       d[, cols, drop = FALSE]
     })
     output$mqtl_tab_ui <- renderUI({
@@ -191,7 +192,7 @@ mod_cross_biomarker_conv_server <- function(id, cross_dataset, cross_results = N
       df <- bc_df()
       d <- df[df$in_eQTL_MR_panel %in% TRUE & df$in_mQTL_MR_panel %in% TRUE, , drop = FALSE]
       cols <- intersect(c("gene", "eQTL_MR_OR", "eQTL_MR_pval", "eQTL_MR_FDR", "eQTL_MHC_region", "eQTL_MR_significant",
-                           "mQTL_candidate_cpg", "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
+                           "mQTL_candidate_cpg", "mQTL_instruments_tested", "mQTL_MR_beta", "mQTL_MR_pval", "mQTL_MR_significant"), colnames(d))
       d[, cols, drop = FALSE]
     })
     output$eqtl_mqtl_tab_ui <- renderUI({

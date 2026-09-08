@@ -185,15 +185,43 @@ test_that("multi_qc_scorecard() flips loaded-submodule items to 'pass' once mult
   expect_equal(by_label[["Pathway enrichment loaded"]]$status, "pass")
 })
 
-test_that("multi_qc_scorecard() 'Model performance (honesty check)' is 'warn' when zero results exclude chance, 'pass' when at least one does", {
-  r_none <- list(overview = list(summary36 = data.frame(excludes_chance = c(FALSE, FALSE, NA))))
-  r_some <- list(overview = list(summary36 = data.frame(excludes_chance = c(TRUE, FALSE))))
+test_that("multi_auroc_call() classifies AUROC+CI by direction, not merely by whether the CI excludes 0.5", {
+  expect_equal(multi_auroc_call(0.81, 0.56, 1.00), "above_chance")
+  expect_equal(multi_auroc_call(0.00, 0.00, 0.30), "below_chance")
+  expect_equal(multi_auroc_call(0.55, 0.40, 0.70), "chance")
+  expect_equal(multi_auroc_call(NA, NA, NA), "unsupported")
+  expect_equal(multi_auroc_call(0.5, NA, 0.6), "unsupported")
+})
+
+test_that("multi_qc_scorecard() 'Model performance (honesty check)' is driven by auroc/ci_lo/ci_hi directly, not by the direction-blind excludes_chance column, and is NEVER 'pass' when a below-chance result is present", {
+  r_none <- list(overview = list(summary36 = data.frame(auroc = c(0.5, 0.5, NA), ci_lo = c(0.4, 0.45, NA), ci_hi = c(0.6, 0.55, NA))))
+  r_above <- list(overview = list(summary36 = data.frame(auroc = c(0.81, 0.5), ci_lo = c(0.56, 0.4), ci_hi = c(1.00, 0.6))))
   sc_none <- multi_qc_scorecard(r_none)
-  sc_some <- multi_qc_scorecard(r_some)
+  sc_above <- multi_qc_scorecard(r_above)
   by_label_none <- setNames(sc_none, vapply(sc_none, `[[`, character(1), "label"))
-  by_label_some <- setNames(sc_some, vapply(sc_some, `[[`, character(1), "label"))
+  by_label_above <- setNames(sc_above, vapply(sc_above, `[[`, character(1), "label"))
   expect_equal(by_label_none[["Model performance (honesty check)"]]$status, "warn")
-  expect_equal(by_label_some[["Model performance (honesty check)"]]$status, "pass")
+  expect_equal(by_label_above[["Model performance (honesty check)"]]$status, "pass")
+
+  ## The exact scenario the prior test locked in as "pass": 6 significantly below-chance
+  ## results and 1 genuinely above-chance one (reproducing the app's own Table36 numbers).
+  ## This MUST NOT be "pass" - a below-chance result is a red flag, not a validation.
+  r_mixed <- list(overview = list(summary36 = data.frame(
+    auroc  = c(0.165, 0.140, 0.000, 0.810, 0.303, 0.278, 0.262),
+    ci_lo  = c(0.00,  0.00,  0.00,  0.56,  0.13,  0.11,  0.11),
+    ci_hi  = c(0.34,  0.38,  0.00,  1.00,  0.48,  0.44,  0.41)
+  )))
+  sc_mixed <- multi_qc_scorecard(r_mixed)
+  by_label_mixed <- setNames(sc_mixed, vapply(sc_mixed, `[[`, character(1), "label"))
+  item_mixed <- by_label_mixed[["Model performance (honesty check)"]]
+  expect_equal(item_mixed$status, "fail")
+  expect_true(grepl("BELOW CHANCE", item_mixed$detail))
+
+  ## A below-chance-only scenario must also fail, not warn.
+  r_all_below <- list(overview = list(summary36 = data.frame(auroc = 0.0, ci_lo = 0.0, ci_hi = 0.30)))
+  sc_all_below <- multi_qc_scorecard(r_all_below)
+  by_label_all_below <- setNames(sc_all_below, vapply(sc_all_below, `[[`, character(1), "label"))
+  expect_equal(by_label_all_below[["Model performance (honesty check)"]]$status, "fail")
 })
 
 test_that("multi_analysis_summary_table() shows 'Not loaded'/'None loaded' placeholders, never a fabricated value, when nothing is loaded", {

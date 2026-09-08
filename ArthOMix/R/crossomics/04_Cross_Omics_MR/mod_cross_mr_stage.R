@@ -57,7 +57,7 @@ mod_cross_mr_stage_ui <- function(id) {
           condition = sprintf("input['%s'] == 'upload'", ns("evidence_source")),
           fileInput(ns("upload_evidence_file"), "Gene-level evidence table", accept = c(".csv", ".tsv", ".txt", ".xlsx"), placeholder = "CSV / TSV / TXT / XLSX"),
           p(class = "empty-note", icon("circle-info"),
-            "One row per gene. Required: gene. Optional: DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Omitted columns default to \"not significant/not evaluated\", never fabricated. Same fixed thresholds as Biomarker Convergence: DEG/DMP/DMR FDR < 0.05, mQTL-MR nominal p < 0.05, eQTL-MR FDR < 0.05."),
+            "One row per gene. Required: gene. Optional: DEG_adjP, DEG_logFC, DEG_direction, DMP_fdr_bacon, DMP_dbeta, DMP_direction, DMP_top_cpg, DMR_fdr, DMR_meandiff, DMR_direction, DMR_id, mQTL_MR_pval, mQTL_MR_beta, mQTL_candidate_cpg, eQTL_MR_FDR, eQTL_MR_OR, eQTL_MR_direction. Omitted columns default to \"not significant/not evaluated\", never fabricated. Same fixed thresholds as Biomarker Convergence: DEG/DMP/DMR FDR < 0.05, mQTL-MR BH-FDR < 0.05 across the uploaded gene set, eQTL-MR FDR < 0.05."),
           actionButton(ns("load_evidence_upload"), "Load Uploaded Evidence", icon = icon("upload"), class = "btn-primary btn-sm", width = "100%")
         )
       )

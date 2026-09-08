@@ -17,11 +17,40 @@ cx_bc_load_precomputed <- function(sex = c("female", "male", "combined")) {
   list(ok = TRUE, df = df, error = NULL)
 }
 
+## A gene can have up to several dozen CpG-level mQTL-MR tests in the MR-stage
+## source file (one per nearby CpG instrument). Naively adopting the minimum
+## p-value across those tests as "the" gene-level p-value is an uncorrected
+## multiple-comparisons/winner's-curse selection: it systematically understates
+## the true p-value and can flip a gene from "no instrument evidence" to
+## "significant" purely because many CpGs, not one, were tested.
+##
+## Correction (two-stage, deterministic, no permutation required):
+##   1. Within-gene: Bonferroni-correct the selected minimum p-value by the
+##      number of CpG-instrument tests actually run for that gene
+##      (adjusted_p = min(1, p_min * n_tests)). Bonferroni is used rather than a
+##      permutation/minP approach because it is valid regardless of dependence
+##      between nearby CpGs (which are frequently correlated), deterministic,
+##      and directly answers "what is the chance of seeing a p-value this small
+##      by chance, having tested n_tests instruments for this gene".
+##   2. Across-gene: this corrected value is then eligible for BH-FDR across the
+##      full displayed gene family via cx_bc_relabel(mqtl_sig_basis = "fdr")
+##      (now the default - see CX_BC_DEFAULT_PARAMS), giving a standard
+##      hierarchical (within-gene family-wise, then across-gene FDR) correction.
+## The raw, uncorrected minimum p-value and the instrument count are retained in
+## mQTL_MR_pval_raw_min / mQTL_instruments_tested for transparency - they are
+## informational only and are never used for significance calls.
 cx_bc_backfill_mqtl_from_mrstage <- function(df) {
+  if (!"mQTL_MR_pval_raw_min" %in% colnames(df)) df$mQTL_MR_pval_raw_min <- NA_real_
+  if (!"mQTL_instruments_tested" %in% colnames(df)) df$mQTL_instruments_tested <- NA_integer_
+
   if (!exists("CX_MR_DATA_AVAILABLE", inherits = TRUE) || !isTRUE(CX_MR_DATA_AVAILABLE)) return(df)
   mr <- tryCatch(as.data.frame(data.table::fread(CX_MR_PRECOMPUTED_FILE, showProgress = FALSE)), error = function(e) NULL)
   if (is.null(mr) || nrow(mr) == 0) return(df)
+
+  n_tested <- table(mr$gene)
   mr_best <- cx_bc_dedup_min(mr, "gene", "pval")
+  mr_best$n_instruments_tested <- as.integer(n_tested[mr_best$gene])
+  mr_best$mQTL_MR_pval_gene_corrected <- pmin(1, mr_best$pval * mr_best$n_instruments_tested)
 
   needs_backfill <- !(df$in_mQTL_MR_panel %in% TRUE) & df$gene %in% mr_best$gene
   if (!any(needs_backfill)) return(df)
@@ -30,7 +59,9 @@ cx_bc_backfill_mqtl_from_mrstage <- function(df) {
   df$in_mQTL_MR_panel[needs_backfill] <- TRUE
   df$mQTL_candidate_cpg[needs_backfill] <- m$cpg
   df$mQTL_MR_beta[needs_backfill] <- m$b
-  df$mQTL_MR_pval[needs_backfill] <- m$pval
+  df$mQTL_MR_pval_raw_min[needs_backfill] <- m$pval
+  df$mQTL_instruments_tested[needs_backfill] <- m$n_instruments_tested
+  df$mQTL_MR_pval[needs_backfill] <- m$mQTL_MR_pval_gene_corrected
   df$mQTL_instrument_available[needs_backfill] <- TRUE
   df
 }
@@ -105,14 +136,22 @@ cx_bc_dedup_min <- function(df, key_col, order_col) {
 }
 
 ## Fixed thresholds (no UI): the precomputed join was built at these cut-offs.
+## mqtl_sig_basis defaults to "fdr" (not the raw nominal p) because mQTL_MR_pval
+## for backfilled genes is itself already a within-gene Bonferroni-corrected
+## value (see cx_bc_backfill_mqtl_from_mrstage()); applying BH-FDR across the
+## full displayed gene family on top of that gives the required second stage of
+## correction (within-gene family-wise, then across-gene FDR).
 CX_BC_DEFAULT_PARAMS <- list(
   deg_fdr = 0.05, dmp_genomewide_fdr = 0.05,
-  mqtl_sig_basis = "nominal_p", mqtl_sig_cutoff = 0.05, dmr_fdr = 0.05,
+  mqtl_sig_basis = "fdr", mqtl_sig_cutoff = 0.05, dmr_fdr = 0.05,
   eqtl_fdr = 0.05
 )
 
 CX_BC_THRESHOLD_TEXT <- paste0(
-  "Fixed thresholds: DEG FDR < 0.05; DMP (bacon) FDR < 0.05; DMR FDR < 0.05; mQTL-MR nominal p < 0.05. ",
+  "Fixed thresholds: DEG FDR < 0.05; DMP (bacon) FDR < 0.05; DMR FDR < 0.05. ",
+  "mQTL-MR: genes with more than one CpG instrument are first Bonferroni-corrected within-gene ",
+  "(p_gene = min(1, min(p) x n_instruments_tested), to correct the minimum-p-value selection across up to dozens ",
+  "of CpGs per gene); the resulting p-values are then BH-FDR-corrected across the full displayed gene set, FDR < 0.05. ",
   "eQTL-MR: uses the table's own significance flag if present, else FDR < 0.05 if supplied, else panel membership."
 )
 

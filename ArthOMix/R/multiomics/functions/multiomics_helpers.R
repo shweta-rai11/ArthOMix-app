@@ -76,6 +76,39 @@ multi_diablo_variance_df <- function(fit) {
   }))
 }
 
+## Direction-aware classification of an AUROC + its 95% CI. "excludes_chance"
+## (CI does not contain 0.5) is a statement about *statistical significance
+## only* - it says nothing about whether performance is genuine (above chance)
+## or actually WORSE than chance (below 0.5), and treating both directions as
+## an undifferentiated "pass" mislabels a classifier that performs
+## significantly worse than random guessing as a validation success. This is
+## the single source of truth for that distinction; every scorecard/UI
+## consumer must use it rather than re-deriving pass/fail from excludes_chance.
+##   "above_chance"  - CI entirely above 0.5: genuine, statistically supported discrimination.
+##   "below_chance"  - CI entirely below 0.5: statistically supported, but WORSE than random -
+##                      never a validation success; typically indicates label/orientation
+##                      error or severe overfitting to a spuriously anti-correlated small sample.
+##   "chance"        - CI spans 0.5: not distinguishable from random guessing.
+##   "unsupported"   - AUROC/CI missing or non-finite: cannot be classified.
+multi_auroc_call <- function(auroc, ci_lo, ci_hi) {
+  if (is.null(auroc) || length(auroc) == 0 || is.na(auroc) ||
+      is.null(ci_lo) || length(ci_lo) == 0 || is.na(ci_lo) ||
+      is.null(ci_hi) || length(ci_hi) == 0 || is.na(ci_hi)) {
+    return("unsupported")
+  }
+  if (ci_lo > 0.5) return("above_chance")
+  if (ci_hi < 0.5) return("below_chance")
+  "chance"
+}
+
+## Vectorised convenience for a data.frame of auroc/ci_lo/ci_hi columns (e.g. the
+## precomputed Table36 registry table, which is read as-is and must never be
+## trusted to already carry a direction-aware flag).
+multi_auroc_call_df <- function(df) {
+  if (is.null(df) || nrow(df) == 0) return(character(0))
+  vapply(seq_len(nrow(df)), function(i) multi_auroc_call(df$auroc[i], df$ci_lo[i], df$ci_hi[i]), character(1))
+}
+
 multi_qc_scorecard <- function(multi_results) {
   r <- multi_results %||% list()
   overview <- r$overview
@@ -87,10 +120,23 @@ multi_qc_scorecard <- function(multi_results) {
          if (!is.null(overview$harmonization) && isTRUE(overview$harmonization$ok)) sprintf("%s of %s patients matched across both omics layers.", format(overview$harmonization$n_matched, big.mark = ","), format(overview$harmonization$n_total, big.mark = ",")) else "Load cohort tables on the Overview tab to compute this."),
     item("Model performance (honesty check)",
          if (!is.null(overview$summary36)) {
-           n_ex <- sum(overview$summary36$excludes_chance %in% TRUE)
-           if (n_ex == 0) "warn" else "pass"
+           calls <- multi_auroc_call_df(overview$summary36)
+           n_below <- sum(calls == "below_chance")
+           n_above <- sum(calls == "above_chance")
+           ## A genuinely below-chance result is a red flag in its own right (label/orientation
+           ## error or severe overfitting), never a "pass" merely because SOME result excludes
+           ## chance - it must dominate the status even if an above-chance result also exists.
+           if (n_below > 0) "fail" else if (n_above > 0) "pass" else "warn"
          } else "warn",
-         if (!is.null(overview$summary36)) sprintf("%d of %d method x cell results exclude chance performance.", sum(overview$summary36$excludes_chance %in% TRUE), nrow(overview$summary36)) else "Load cohort tables on the Overview tab to compute this."),
+         if (!is.null(overview$summary36)) {
+           calls <- multi_auroc_call_df(overview$summary36)
+           n_below <- sum(calls == "below_chance"); n_above <- sum(calls == "above_chance")
+           if (n_below > 0) {
+             sprintf("%d of %d method x cell results are SIGNIFICANTLY BELOW CHANCE (AUROC CI entirely under 0.5) - not a validation success, a red flag (label/orientation error or overfitting). %d genuinely exclude chance in the expected direction.", n_below, nrow(overview$summary36), n_above)
+           } else {
+             sprintf("%d of %d method x cell results genuinely exclude chance performance (AUROC CI entirely above 0.5).", n_above, nrow(overview$summary36))
+           }
+         } else "Load cohort tables on the Overview tab to compute this."),
     item("Integration cell loaded", if (!is.null(r$integration)) "pass" else "warn",
          if (!is.null(r$integration)) sprintf("Loaded: %s", r$integration$cell$label) else "No cell loaded yet on the Integration tab."),
     item("Sex-stratified DIABLO loaded", if (!is.null(r$integration_stratified)) "pass" else "warn",

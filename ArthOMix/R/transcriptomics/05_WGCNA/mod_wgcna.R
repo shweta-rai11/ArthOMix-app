@@ -28,6 +28,24 @@ wgcna_cor_fnc <- function(cor_method) {
 }
 wgcna_cor_fnc_name <- function(cor_method) if (identical(cor_method, "bicor")) "bicor" else "cor"
 
+## Module-trait correlation tests every module against every selected trait
+## simultaneously; BH-FDR is applied across the complete family (every cell of
+## the matrix), not per-cell in isolation - reporting/flagging on raw p alone
+## overstates significance (Priority-14 finding, 2026-09-07 defense audit: an
+## undisclosed, uncorrected ad hoc |r| >= 0.5 & p < 1e-8 substitute was used
+## instead of a real correction).
+wgcna_module_trait_fdr <- function(p_mat) {
+  matrix(stats::p.adjust(as.vector(p_mat), method = "BH"), nrow = nrow(p_mat), dimnames = dimnames(p_mat))
+}
+
+## A module is "disease-associated" only if BOTH a conventional WGCNA effect-size
+## floor (|r| >= r_floor, unchanged from before this fix) AND the BH-FDR-corrected
+## q-value (not the raw p-value) clear their thresholds, on at least one tested trait.
+wgcna_module_trait_significant <- function(cor_mat, q_mat, r_floor = 0.5, fdr_cutoff = 0.05) {
+  hit <- (abs(cor_mat) >= r_floor) & (q_mat < fdr_cutoff)
+  rownames(q_mat)[apply(hit, 1, any, na.rm = TRUE)]
+}
+
 wgcna_string_url <- function(genes, species = 9606) {
   ids <- paste(vapply(genes, utils::URLencode, character(1), reserved = TRUE), collapse = "%0d")
   sprintf("https://string-db.org/cgi/network?identifiers=%s&species=%d", ids, species)
@@ -1074,9 +1092,11 @@ mod_wgcna_server <- function(id, dataset, results) {
       n_per_trait <- vapply(traits, function(x) sum(!is.na(x)), numeric(1))
       n_mat <- matrix(rep(n_per_trait, each = nrow(cor_mat)), nrow = nrow(cor_mat), dimnames = dimnames(cor_mat))
       p_mat <- WGCNA::corPvalueStudent(cor_mat, n_mat)
+      q_mat <- wgcna_module_trait_fdr(p_mat)
       rownames(cor_mat) <- sub("^ME", "", rownames(cor_mat))
       rownames(p_mat) <- sub("^ME", "", rownames(p_mat))
-      list(cor = cor_mat, p = p_mat)
+      rownames(q_mat) <- sub("^ME", "", rownames(q_mat))
+      list(cor = cor_mat, p = p_mat, q = q_mat)
     }, ignoreInit = TRUE)
 
     wgcna_traits_has_run <- reactiveVal(FALSE)
@@ -1084,17 +1104,16 @@ mod_wgcna_server <- function(id, dataset, results) {
 
     observeEvent(module_trait(), {
       mt <- module_trait()
-      hit <- (abs(mt$cor) >= 0.5) & (mt$p < 1e-8)
-      sig <- rownames(mt$p)[apply(hit, 1, any, na.rm = TRUE)]
+      sig <- wgcna_module_trait_significant(mt$cor, mt$q)
       base <- results$wgcna %||% list()
       base$significant_trait_modules <- sig
-      base$traits_tested <- colnames(mt$p)
+      base$traits_tested <- colnames(mt$q)
       results$wgcna <- base
       arthomix_provenance_push(arthomix_provenance_record(
         module = "mod_wgcna_module_trait",
-        checksum_input = list(cor = mt$cor, p = mt$p),
-        params = list(traits = colnames(mt$p), correlation = input$cor_method %||% "pearson",
-                      disease_module_rule = "|r| >= 0.5 and p < 1e-8 on any selected trait column",
+        checksum_input = list(cor = mt$cor, p = mt$p, q = mt$q),
+        params = list(traits = colnames(mt$q), correlation = input$cor_method %||% "pearson",
+                      disease_module_rule = "|r| >= 0.5 and BH-FDR q < 0.05 across all tested module x trait pairs",
                       n_modules_flagged = length(sig), flagged_modules = if (length(sig)) sig else "none"),
         seed = NULL, packages = "WGCNA"
       ), dedupe = TRUE)
@@ -1103,12 +1122,12 @@ mod_wgcna_server <- function(id, dataset, results) {
     mt_plot_obj <- reactive({
       mt <- module_trait()
       cor_long <- as.data.frame(as.table(mt$cor)); colnames(cor_long) <- c("module", "trait", "cor")
-      p_long <- as.data.frame(as.table(mt$p)); colnames(p_long) <- c("module", "trait", "p")
-      df <- merge(cor_long, p_long, by = c("module", "trait"))
+      q_long <- as.data.frame(as.table(mt$q)); colnames(q_long) <- c("module", "trait", "q")
+      df <- merge(cor_long, q_long, by = c("module", "trait"))
       uploaded <- dataset_is_uploaded()
       if (uploaded) df$module <- factor(df$module, levels = rev(rownames(mt$cor)))
       df$cell_label <- if (uploaded) {
-        sprintf("%.2f\n(%s)", df$cor, formatC(df$p, format = "e", digits = 0))
+        sprintf("%.2f\n(q=%s)", df$cor, formatC(df$q, format = "e", digits = 0))
       } else {
         sprintf("%.2f", df$cor)
       }
@@ -1133,7 +1152,9 @@ mod_wgcna_server <- function(id, dataset, results) {
         mt <- module_trait()
         cor_long <- as.data.frame(as.table(mt$cor)); colnames(cor_long) <- c("module", "trait", "cor")
         p_long <- as.data.frame(as.table(mt$p)); colnames(p_long) <- c("module", "trait", "p")
-        write.csv(merge(cor_long, p_long, by = c("module", "trait")), file, row.names = FALSE)
+        q_long <- as.data.frame(as.table(mt$q)); colnames(q_long) <- c("module", "trait", "q_BH_FDR")
+        out <- merge(merge(cor_long, p_long, by = c("module", "trait")), q_long, by = c("module", "trait"))
+        write.csv(out, file, row.names = FALSE)
       }
     )
 
@@ -1151,7 +1172,7 @@ mod_wgcna_server <- function(id, dataset, results) {
               "Not run yet. Pick traits above, then click \"Compute module-trait correlations\".")
         } else {
           wgcna_result("table-cells", "Module-trait correlation",
-            desc = "Strongly red or blue cells mark modules whose overall expression tracks that trait.",
+            desc = "Strongly red or blue cells mark modules whose overall expression tracks that trait. A module is flagged \"disease-associated\" only at |r| >= 0.5 AND a BH-FDR-corrected q < 0.05, corrected across every module x trait pair tested this run (download the CSV for per-cell raw p and corrected q).",
             withSpinner(plotOutput(ns("mt_plot"), height = 360), color = "#2c6fbb", type = 6),
             div(class = "table-toolbar",
                 downloadButton(ns("download_mt_png"), "Download heatmap (PNG)", class = "btn-sm"),

@@ -217,7 +217,12 @@ mb_score_new_samples <- function(fit, X_new, Y_new, ncomp, distance = "max.dist"
   per_class_err <- vapply(levels(fit$Y), function(l) { n_l <- sum(y[ok] == l); if (n_l == 0) NA_real_ else mean(vote[ok][y[ok] == l] != l) }, numeric(1))
   list(
     ok = TRUE, n = sum(ok), n_per_class = table(y[ok]), auc = auc, ci_lo = ci[1], ci_hi = ci[3],
+    ## excludes_chance is direction-BLIND - kept for backward compatibility only. Anything
+    ## that decides pass/fail or color MUST use auroc_call (multi_auroc_call() in
+    ## multiomics_helpers.R): a significantly BELOW-chance CI also "excludes chance" but is
+    ## the opposite of a validation success.
     excludes_chance = isTRUE(ci[1] > 0.5) || isTRUE(ci[3] < 0.5),
+    auroc_call = multi_auroc_call(auc, ci[1], ci[3]),
     ber = mean(per_class_err, na.rm = TRUE), per_class_error = per_class_err, confusion = conf,
     scores = data.frame(sample_id = names(score)[ok], outcome = as.character(y[ok]), score = as.numeric(score[ok]), predicted = as.character(vote[ok]), stringsAsFactors = FALSE),
     pos_class = pos_class, neg_class = neg_class, distance = dist_use, roc = roc_obj

@@ -956,11 +956,17 @@ mod_multi_integration_server <- function(id, multi_dataset = NULL, multi_results
       tagList(
         box(width = NULL, title = "Performance by stratum (nested cross-validated AUROC)", status = "primary", solidHeader = FALSE,
             div(style = "display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;",
-                lapply(seq_len(nrow(perf)), function(i) mi_stat_card(
-                  sprintf("%.3f [%.3f, %.3f]", perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i]),
-                  sprintf("%s (n=%d)%s", perf$stratum[i], perf$n[i], if (isTRUE(perf$excludes_chance[i])) " *" else ""),
-                  if (isTRUE(perf$excludes_chance[i])) ARTHOMIX_COLORS$aqua else ARTHOMIX_COLORS$blue))),
-            p(class = "submodule-desc", "* excludes chance (95% CI does not cross 0.5) - the same criterion Table34/37/39 use."),
+                lapply(seq_len(nrow(perf)), function(i) {
+                  call_i <- if ("auroc_call" %in% colnames(perf)) perf$auroc_call[i] else multi_auroc_call(perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i])
+                  mark <- switch(call_i, above_chance = " *", below_chance = " †", "")
+                  col <- switch(call_i, above_chance = ARTHOMIX_COLORS$aqua, below_chance = ARTHOMIX_COLORS$red, ARTHOMIX_COLORS$blue)
+                  mi_stat_card(
+                    sprintf("%.3f [%.3f, %.3f]", perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i]),
+                    sprintf("%s (n=%d)%s", perf$stratum[i], perf$n[i], mark),
+                    col)
+                })),
+            p(class = "submodule-desc", "* genuinely exceeds chance (95% CI entirely above 0.5). ",
+              "† significantly BELOW chance (95% CI entirely below 0.5) - this is NOT a validation success; it typically signals a label/orientation error or overfitting to a spuriously anti-correlated small sample, and should be investigated, not read as evidence of discrimination."),
             DT::dataTableOutput(ns("ss_perf_table")),
             div(class = "table-toolbar", downloadButton(ns("ss_dl_perf"), "Download performance (CSV)", class = "btn-sm"))),
         box(width = NULL, title = if (identical(res$engine, "rf")) "Feature panel (Random Forest importance)" else "Feature panel (DIABLO loadings)", status = "primary", solidHeader = FALSE,

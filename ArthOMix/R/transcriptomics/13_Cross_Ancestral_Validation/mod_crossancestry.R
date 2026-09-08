@@ -4,7 +4,7 @@
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Genetics",
   title = "Cross-Ancestry MR Replication",
-  description = "Mendelian-randomisation replication of the bundled RA cohort's prioritised genes across three GWAS arms (Okada European discovery, Stahl European replication, BioBank Japan East-Asian transfer), per sex. Any arm can be replaced by an upload. This replicates a fixed reference gene list only - it doesn't read, validate or transfer the diagnostic model, or use the currently loaded dataset.",
+  description = "Mendelian-randomisation comparison of the bundled RA cohort's prioritised genes across three GWAS arms (Okada 2014 European discovery, Stahl 2010 European cohorts, BioBank Japan East-Asian transfer), per sex. NOTE: Okada et al. 2014 is a meta-analysis that includes the Stahl et al. 2010 European cohorts, so the EUR arm is a consistency check within overlapping/expanded data, not an independent replication; only the BioBank Japan (EAS) arm is a genuinely independent-cohort comparison. Any arm can be replaced by an upload. This replicates a fixed reference gene list only - it doesn't read, validate or transfer the diagnostic model, or use the currently loaded dataset.",
   icon = "earth-americas"
 )
 
@@ -60,8 +60,8 @@ mod_crossancestry_ui <- function(id) {
           radioButtons(
             ns("data_source"), NULL,
             choiceNames = list(
-              tagList(icon("database"), " Bundled Stahl (EUR) + BioBank Japan (EAS) (default)"),
-              tagList(icon("upload"), " Upload your own replication/transfer GWAS")
+              tagList(icon("database"), " Bundled Stahl (EUR, overlaps Okada discovery) + BioBank Japan (EAS, independent) (default)"),
+              tagList(icon("upload"), " Upload your own comparison/transfer GWAS")
             ),
             choiceValues = list("project", "upload"), selected = "project"
           ),
@@ -69,7 +69,7 @@ mod_crossancestry_ui <- function(id) {
             condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
             selectInput(
               ns("arm_replaced"), "Which arm does this replace?",
-              choices = c("European replication (like Stahl 2010)" = "eur", "Transfer ancestry (like BioBank Japan)" = "eas"),
+              choices = c("European cohort (like Stahl 2010 - not independent of Okada 2014)" = "eur", "Transfer ancestry (like BioBank Japan)" = "eas"),
               selected = "eas", width = "100%"
             ),
             p(class = "submodule-desc",
@@ -81,7 +81,7 @@ mod_crossancestry_ui <- function(id) {
         ),
         box(
           width = NULL, title = "Significance thresholds", status = "primary", solidHeader = FALSE,
-          sliderInput(ns("p_eur"), "European replication (Stahl et al.)", value = 0.05, min = 0.001, max = 0.2, step = 0.001),
+          sliderInput(ns("p_eur"), "European cohort concordance (Stahl et al. - overlaps Okada 2014 discovery, not independent)", value = 0.05, min = 0.001, max = 0.2, step = 0.001),
           sliderInput(ns("p_eas"), "East Asian transfer (BioBank Japan)", value = 0.05, min = 0.001, max = 0.2, step = 0.001),
           radioButtons(
             ns("require_dir"), "Direction of effect",
@@ -238,16 +238,18 @@ mod_crossancestry_server <- function(id, dataset, results) {
         n_untestable <- sum(!df$testable_EAS, na.rm = TRUE)
         tagList(
           if (!isTRUE(dataset$is_bundled_reference)) div(class = "empty-note", style = "border-left: 3px solid #b8860b;", icon("triangle-exclamation"),
-            " These genes are the bundled RA reference cohort's genetically prioritised candidates (MR against Okada 2014), not genes from the dataset loaded on the Dataset tab. The three-arm replication below is independent of the loaded expression data."),
+            " These genes are the bundled RA reference cohort's genetically prioritised candidates (MR against Okada 2014), not genes from the dataset loaded on the Dataset tab. The three-arm comparison below is independent of the loaded expression data."),
+          if (is.null(rr$live_note) || !identical(rr$live_note$arm, "eur")) div(class = "empty-note", icon("circle-info"),
+            " Literature note: Stahl et al. 2010's European RA cohorts are not independent of the Okada et al. 2014 discovery meta-analysis - Okada 2014 is a larger meta-analysis that incorporates Stahl-era European GWAS data. The \"European\" arm below is a within-overlapping-data consistency check, not an independent replication; only the BioBank Japan (East Asian) arm compares a genuinely independent ancestry cohort."),
           if (!is.null(rr$live_note)) p(class = "empty-note", icon("upload"), sprintf(
             "%s arm replaced with your uploaded GWAS (%s) - %d of %d panel genes produced a usable harmonised instrument.",
-            if (identical(rr$live_note$arm, "eur")) "European replication" else "Transfer ancestry",
+            if (identical(rr$live_note$arm, "eur")) "European cohort" else "Transfer ancestry",
             rr$live_note$label, rr$live_note$n_output_genes, rr$live_note$n_input_genes
           )),
           fluidRow(
-            valueBox(n_bio, "Genes replicated in both ancestries (MR)", icon = icon("award"), color = "green", width = 3),
-            valueBox(sprintf("%d / %d", n_eur, n_total), "Replicated in Europeans", icon = icon("check-double"), color = "light-blue", width = 3),
-            valueBox(sprintf("%d / %d", n_eas, n_testable), "Transferable to East Asian", icon = icon("earth-asia"), color = "purple", width = 3),
+            valueBox(n_bio, "Concordant across both ancestries (MR)", icon = icon("award"), color = "green", width = 3),
+            valueBox(sprintf("%d / %d", n_eur, n_total), "Concordant in Europeans (Stahl - not independent of Okada)", icon = icon("check-double"), color = "light-blue", width = 3),
+            valueBox(sprintf("%d / %d", n_eas, n_testable), "Transferable to East Asian (independent cohort)", icon = icon("earth-asia"), color = "purple", width = 3),
             valueBox(n_untestable, "Untestable in East Asian", icon = icon("triangle-exclamation"), color = "yellow", width = 3)
           )
         )
@@ -257,7 +259,7 @@ mod_crossancestry_server <- function(id, dataset, results) {
         df <- res()$df
         d <- df[df$testable_EAS & !is.na(df$OR_stahl) & !is.na(df$OR_bbj) & df$OR_stahl > 0 & df$OR_bbj > 0, , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Replicated in both ancestries", "Not replicated"), levels = c("Replicated in both ancestries", "Not replicated"))
+        d$Status <- factor(ifelse(d$biomarker, "Concordant across ancestries", "Not concordant"), levels = c("Concordant across ancestries", "Not concordant"))
         d$log_or_stahl <- log2(d$OR_stahl); d$log_or_bbj <- log2(d$OR_bbj)
         ggplot(d, aes(x = log_or_stahl, y = log_or_bbj, color = Status)) +
           geom_hline(yintercept = 0, color = ARTHOMIX_COLORS$axis, linewidth = 0.3) +
@@ -265,12 +267,12 @@ mod_crossancestry_server <- function(id, dataset, results) {
           geom_point(aes(size = Status), alpha = 0.9) +
           ggrepel::geom_text_repel(data = d[d$biomarker, , drop = FALSE], aes(label = gene), size = 3.4,
                                     color = ARTHOMIX_COLORS$ink, fontface = "bold", show.legend = FALSE, max.overlaps = 30) +
-          scale_color_manual(values = c(`Replicated in both ancestries` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Replicated in both ancestries` = 3.6, `Not validated` = 2.2), guide = "none") +
-          labs(title = "Ancestry concordance", subtitle = "European (Stahl) vs. East Asian (BioBank Japan) MR estimate",
-               x = "log2 OR - European replication", y = "log2 OR - East Asian transfer", color = NULL) +
+          scale_color_manual(values = c(`Concordant across ancestries` = ARTHOMIX_STATUS$good, `Not concordant` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Concordant across ancestries` = 3.6, `Not concordant` = 2.2), guide = "none") +
+          labs(title = "Ancestry concordance", subtitle = "European cohort (Stahl - overlaps Okada 2014 discovery, not independent) vs. East Asian (BioBank Japan, independent) MR estimate",
+               x = "log2 OR - European cohort (Stahl)", y = "log2 OR - East Asian transfer", color = NULL) +
           theme_arthomix(base_size = 12)
-      }, alt = sprintf("Scatter plot comparing each testable %s gene's European replication odds ratio against its East Asian transfer odds ratio, with validated cross-ancestry biomarkers highlighted and labelled.", sex_label))
+      }, alt = sprintf("Scatter plot comparing each testable %s gene's European-cohort odds ratio (Stahl, not independent of the Okada discovery data) against its East Asian transfer odds ratio, with genes concordant across both ancestries highlighted and labelled.", sex_label))
 
       rank_plot_height <- function() {
         df <- res()$df
@@ -281,7 +283,7 @@ mod_crossancestry_server <- function(id, dataset, results) {
         df <- res()$df
         d <- df[df$testable_EAS & !is.na(df$p_bbj), , drop = FALSE]
         req(nrow(d) > 0)
-        d$Status <- factor(ifelse(d$biomarker, "Replicated in both ancestries", "Not replicated"), levels = c("Replicated in both ancestries", "Not replicated"))
+        d$Status <- factor(ifelse(d$biomarker, "Concordant across ancestries", "Not concordant"), levels = c("Concordant across ancestries", "Not concordant"))
         d$neglogp <- -log10(pmax(d$p_bbj, 1e-300))
         d$gene <- factor(d$gene, levels = d$gene[order(d$neglogp)])
         CAP <- 20
@@ -294,13 +296,13 @@ mod_crossancestry_server <- function(id, dataset, results) {
           geom_point(aes(size = Status)) +
           geom_text(data = d[d$biomarker, , drop = FALSE], aes(x = neglogp_plot, label = sprintf("OR=%.2f", OR_bbj)),
                     hjust = -0.15, size = 3.2, color = ARTHOMIX_COLORS$ink, show.legend = FALSE) +
-          scale_color_manual(values = c(`Replicated in both ancestries` = ARTHOMIX_STATUS$good, `Not validated` = ARTHOMIX_COLORS$ink_muted)) +
-          scale_size_manual(values = c(`Replicated in both ancestries` = 3.4, `Not validated` = 2.4), guide = "none") +
+          scale_color_manual(values = c(`Concordant across ancestries` = ARTHOMIX_STATUS$good, `Not concordant` = ARTHOMIX_COLORS$ink_muted)) +
+          scale_size_manual(values = c(`Concordant across ancestries` = 3.4, `Not concordant` = 2.4), guide = "none") +
           scale_x_continuous(expand = expansion(mult = c(0.02, 0.16))) +
-          labs(title = "Cross-ancestry MR replication", subtitle = subtitle,
+          labs(title = "Cross-ancestry MR comparison", subtitle = subtitle,
                x = "-log10(p), BioBank Japan", y = NULL, color = NULL) +
           theme_arthomix(base_size = 12) + theme(legend.position = "bottom")
-      }, height = rank_plot_height, alt = sprintf("Ranked dot plot of each testable %s gene's East Asian transfer significance, with validated cross-ancestry biomarkers highlighted and labelled against the current p-value cutoff.", sex_label))
+      }, height = rank_plot_height, alt = sprintf("Ranked dot plot of each testable %s gene's East Asian transfer significance, with genes concordant across both ancestries highlighted and labelled against the current p-value cutoff.", sex_label))
 
       output[[paste0(sex_label, "_table")]] <- DT::renderDataTable({
         df <- res()$df

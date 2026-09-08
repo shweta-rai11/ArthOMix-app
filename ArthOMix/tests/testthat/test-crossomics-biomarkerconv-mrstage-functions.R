@@ -33,7 +33,7 @@ test_that("cx_read_and_detect() bundles read + column auto-detection for the req
   expect_equal(unname(out$mapping["log2fc"]), "log2FC")
 })
 
-test_that("cx_bc_load_precomputed() reads the real precomputed eQTL x mQTL join and backfills the documented in_mQTL_MR_panel data defect", {
+test_that("cx_bc_load_precomputed() reads the real precomputed eQTL x mQTL join and backfills in_mQTL_MR_panel from the (now Bonferroni-corrected) MR-stage source", {
   skip_if_not(CX_BC_DATA_AVAILABLE, "Biomarker Convergence source data not available")
   raw <- as.data.frame(data.table::fread(cx_bc_precomputed_file("female")))
   out <- cx_bc_load_precomputed("female")
@@ -61,6 +61,80 @@ test_that("cx_bc_backfill_mqtl_from_mrstage() fills mQTL panel membership ONLY f
   out <- cx_bc_backfill_mqtl_from_mrstage(df)
   expect_true(out$in_mQTL_MR_panel[out$gene == target_gene])
   expect_false(out$in_mQTL_MR_panel[out$gene == "definitely_not_a_real_gene_xyz"])
+})
+
+test_that("cx_bc_backfill_mqtl_from_mrstage() Bonferroni-corrects the minimum p-value by the number of CpG instruments tested for that gene, and never adopts the raw uncorrected minimum", {
+  fake_mr_path <- tempfile(fileext = ".csv")
+  fake_mr <- data.frame(
+    gene = c(rep("MULTI_CPG_GENE", 10), "SINGLE_CPG_GENE"),
+    cpg = c(paste0("cg", 1:10), "cgSingle"),
+    b = c(rep(0.3, 10), 0.2),
+    pval = c(0.004, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.03),
+    stringsAsFactors = FALSE
+  )
+  data.table::fwrite(fake_mr, fake_mr_path)
+  old_avail <- if (exists("CX_MR_DATA_AVAILABLE", inherits = TRUE)) get("CX_MR_DATA_AVAILABLE", inherits = TRUE) else NULL
+  old_path  <- if (exists("CX_MR_PRECOMPUTED_FILE", inherits = TRUE)) get("CX_MR_PRECOMPUTED_FILE", inherits = TRUE) else NULL
+  CX_MR_DATA_AVAILABLE <<- TRUE
+  CX_MR_PRECOMPUTED_FILE <<- fake_mr_path
+  on.exit({
+    if (is.null(old_avail)) rm(CX_MR_DATA_AVAILABLE, envir = .GlobalEnv) else CX_MR_DATA_AVAILABLE <<- old_avail
+    if (is.null(old_path)) rm(CX_MR_PRECOMPUTED_FILE, envir = .GlobalEnv) else CX_MR_PRECOMPUTED_FILE <<- old_path
+  }, add = TRUE)
+
+  df <- data.frame(gene = c("MULTI_CPG_GENE", "SINGLE_CPG_GENE"), in_mQTL_MR_panel = c(FALSE, FALSE), stringsAsFactors = FALSE)
+  out <- cx_bc_backfill_mqtl_from_mrstage(df)
+
+  ## Instrument count is tracked per gene, and the raw (uncorrected) minimum p-value
+  ## is preserved for transparency but never used directly as the reported p-value.
+  expect_equal(out$mQTL_instruments_tested[out$gene == "MULTI_CPG_GENE"], 10L)
+  expect_equal(out$mQTL_instruments_tested[out$gene == "SINGLE_CPG_GENE"], 1L)
+  expect_equal(out$mQTL_MR_pval_raw_min[out$gene == "MULTI_CPG_GENE"], 0.004)
+
+  ## Bonferroni: adjusted_p = min(1, p_min * n_tests). A single-instrument gene is
+  ## unaffected (n=1); a 10-instrument gene's reported p-value must be exactly
+  ## 10x its raw minimum (capped at 1), never the raw uncorrected minimum itself.
+  expect_equal(out$mQTL_MR_pval[out$gene == "SINGLE_CPG_GENE"], 0.03)
+  expect_equal(out$mQTL_MR_pval[out$gene == "MULTI_CPG_GENE"], 0.04)
+  expect_true(out$mQTL_MR_pval[out$gene == "MULTI_CPG_GENE"] > out$mQTL_MR_pval_raw_min[out$gene == "MULTI_CPG_GENE"])
+})
+
+test_that("cx_bc_backfill_mqtl_from_mrstage() caps the Bonferroni-corrected p-value at 1 for genes with many instruments and a borderline raw minimum", {
+  fake_mr_path <- tempfile(fileext = ".csv")
+  fake_mr <- data.frame(
+    gene = rep("HEAVILY_TESTED_GENE", 50),
+    cpg = paste0("cg", 1:50),
+    b = 0.1,
+    pval = c(0.1, rep(0.9, 49)),
+    stringsAsFactors = FALSE
+  )
+  data.table::fwrite(fake_mr, fake_mr_path)
+  old_avail <- if (exists("CX_MR_DATA_AVAILABLE", inherits = TRUE)) get("CX_MR_DATA_AVAILABLE", inherits = TRUE) else NULL
+  old_path  <- if (exists("CX_MR_PRECOMPUTED_FILE", inherits = TRUE)) get("CX_MR_PRECOMPUTED_FILE", inherits = TRUE) else NULL
+  CX_MR_DATA_AVAILABLE <<- TRUE
+  CX_MR_PRECOMPUTED_FILE <<- fake_mr_path
+  on.exit({
+    if (is.null(old_avail)) rm(CX_MR_DATA_AVAILABLE, envir = .GlobalEnv) else CX_MR_DATA_AVAILABLE <<- old_avail
+    if (is.null(old_path)) rm(CX_MR_PRECOMPUTED_FILE, envir = .GlobalEnv) else CX_MR_PRECOMPUTED_FILE <<- old_path
+  }, add = TRUE)
+
+  df <- data.frame(gene = "HEAVILY_TESTED_GENE", in_mQTL_MR_panel = FALSE, stringsAsFactors = FALSE)
+  out <- cx_bc_backfill_mqtl_from_mrstage(df)
+  expect_equal(out$mQTL_MR_pval, 1)
+})
+
+test_that("cx_bc_backfill_mqtl_from_mrstage() reproduces the audited BRD2 case: a 43-instrument gene's near-zero raw minimum survives Bonferroni correction (a genuinely strong signal, not an artifact of instrument count alone)", {
+  skip_if_not(exists("CX_MR_DATA_AVAILABLE") && isTRUE(CX_MR_DATA_AVAILABLE), "MR-stage source data not available")
+  mr <- as.data.frame(data.table::fread(CX_MR_PRECOMPUTED_FILE, showProgress = FALSE))
+  skip_if_not("BRD2" %in% mr$gene, "BRD2 not present in the real MR-stage file")
+  n_brd2 <- sum(mr$gene == "BRD2")
+  skip_if(n_brd2 < 2, "BRD2 has fewer than 2 instruments in the current data")
+  df <- data.frame(gene = "BRD2", in_mQTL_MR_panel = FALSE, stringsAsFactors = FALSE)
+  out <- cx_bc_backfill_mqtl_from_mrstage(df)
+  expect_equal(out$mQTL_instruments_tested, n_brd2)
+  raw_min <- min(mr$pval[mr$gene == "BRD2"], na.rm = TRUE)
+  expect_equal(out$mQTL_MR_pval_raw_min, raw_min)
+  expect_equal(out$mQTL_MR_pval, min(1, raw_min * n_brd2))
 })
 
 test_that("cx_bc_load_eqtl_upload()/cx_bc_load_mqtl_upload() enforce their own required columns and coerce numeric fields", {

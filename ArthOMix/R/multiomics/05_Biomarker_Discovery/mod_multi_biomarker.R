@@ -13,7 +13,14 @@ mb_eval_cards <- function(ev) {
         mi_stat_card(sprintf("%.2f-%.2f", ev$ci_lo, ev$ci_hi), "95% CI (DeLong)"),
         mi_stat_card(sprintf("%.3f", ev$ber), "Balanced error rate"),
         mi_stat_card(ev$n, "Samples scored")),
-    if (isTRUE(ev$excludes_chance)) mi_ok("The confidence interval excludes 0.5.") else mi_warn("The confidence interval includes 0.5 - performance is not distinguishable from chance on these samples."),
+    (function() {
+      call_i <- if (!is.null(ev$auroc_call)) ev$auroc_call else multi_auroc_call(ev$auc, ev$ci_lo, ev$ci_hi)
+      switch(call_i,
+        above_chance = mi_ok("The confidence interval excludes 0.5 in the expected direction (AUROC > 0.5): genuine, statistically supported discrimination."),
+        below_chance = mi_stop("The confidence interval is entirely BELOW 0.5: this classifier performs significantly WORSE than random guessing. This is NOT a validation success - it typically indicates a label/orientation error or overfitting to a spuriously anti-correlated small sample, and should be investigated before being reported as a result."),
+        mi_warn("The confidence interval includes 0.5 - performance is not distinguishable from chance on these samples.")
+      )
+    })(),
     p(class = "submodule-desc", sprintf("Classes: %s. Positive class for the score: %s. Prediction distance: %s.",
                                         paste(sprintf("%s = %d", names(ev$n_per_class), as.integer(ev$n_per_class)), collapse = ", "), ev$pos_class, ev$distance))
   )
@@ -880,11 +887,17 @@ mod_multi_biomarker_server <- function(id, multi_dataset = NULL, multi_results =
       tagList(
         box(width = NULL, title = "Performance by stratum (nested cross-validated AUROC)", status = "primary", solidHeader = FALSE,
             div(style = "display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;",
-                lapply(seq_len(nrow(perf)), function(i) mi_stat_card(
-                  sprintf("%.3f [%.3f, %.3f]", perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i]),
-                  sprintf("%s (n=%d)%s", perf$stratum[i], perf$n[i], if (isTRUE(perf$excludes_chance[i])) " *" else ""),
-                  if (isTRUE(perf$excludes_chance[i])) ARTHOMIX_COLORS$aqua else ARTHOMIX_COLORS$blue))),
-            p(class = "submodule-desc", "* excludes chance (95% CI does not cross 0.5) - the same criterion Table34/37/39 use."),
+                lapply(seq_len(nrow(perf)), function(i) {
+                  call_i <- if ("auroc_call" %in% colnames(perf)) perf$auroc_call[i] else multi_auroc_call(perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i])
+                  mark <- switch(call_i, above_chance = " *", below_chance = " †", "")
+                  col <- switch(call_i, above_chance = ARTHOMIX_COLORS$aqua, below_chance = ARTHOMIX_COLORS$red, ARTHOMIX_COLORS$blue)
+                  mi_stat_card(
+                    sprintf("%.3f [%.3f, %.3f]", perf$auroc[i], perf$ci_lo[i], perf$ci_hi[i]),
+                    sprintf("%s (n=%d)%s", perf$stratum[i], perf$n[i], mark),
+                    col)
+                })),
+            p(class = "submodule-desc", "* genuinely exceeds chance (95% CI entirely above 0.5). ",
+              "† significantly BELOW chance (95% CI entirely below 0.5) - this is NOT a validation success; it typically signals a label/orientation error or overfitting to a spuriously anti-correlated small sample, and should be investigated, not read as evidence of discrimination."),
             DT::dataTableOutput(ns("ss_perf_table")),
             div(class = "table-toolbar", downloadButton(ns("ss_dl_perf"), "Download performance (CSV)", class = "btn-sm"))),
         box(width = NULL, title = if (identical(res$engine, "rf")) "Feature panel (Random Forest importance)" else "Feature panel (DIABLO loadings)", status = "primary", solidHeader = FALSE,

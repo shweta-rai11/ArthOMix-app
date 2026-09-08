@@ -74,6 +74,35 @@ test_that("Reserve removes a sealed set from the active bundled dataset, disable
   })
 })
 
+test_that("Reserve also removes the sealed samples from dataset$staged_expr/staged_meta, so Preprocessing's 'currently loaded dataset' fallback (use_expr <- dataset$staged_expr %||% dataset$expr) never fits normalisation/batch-correction parameters on reserved hold-out samples (RED finding, 2026-09-07 defense audit)", {
+  dataset <- shiny::reactiveValues()
+  shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
+    session$setInputs(preloaded_choice = "__default_merged__")
+    session$setInputs(load_preloaded_btn = 1)
+    n_all <- ncol(dataset$expr)
+    expect_identical(colnames(dataset$staged_expr), colnames(dataset$expr))
+
+    session$setInputs(reserve_frac_pct = 30, reserve_seed = 1234, reserve_stratify_sex = TRUE, reserve_btn = 0)
+    session$setInputs(reserve_btn = 1)
+    ids <- dataset$reserved_ids
+    expect_gt(length(ids), 0)
+
+    ## staged_expr/staged_meta must be sealed exactly like expr/meta - zero overlap
+    ## with the reserved ids, and identical column set to the post-seal discovery matrix.
+    expect_length(intersect(ids, colnames(dataset$staged_expr)), 0)
+    expect_setequal(colnames(dataset$staged_expr), colnames(dataset$expr))
+    expect_identical(dataset$staged_meta$sample, colnames(dataset$staged_expr))
+    expect_equal(ncol(dataset$staged_expr), n_all - length(ids))
+
+    ## Release restores staged_expr/staged_meta symmetrically.
+    session$setInputs(release_btn = 0)
+    session$setInputs(release_btn = 1)
+    expect_equal(ncol(dataset$staged_expr), n_all)
+    expect_setequal(colnames(dataset$staged_expr), colnames(dataset$expr))
+    expect_identical(dataset$staged_meta$sample, colnames(dataset$staged_expr))
+  })
+})
+
 test_that("reserved samples are sealed again when another module replaces the active matrix with one that contains them, and a new dataset load clears the reservation", {
   dataset <- shiny::reactiveValues()
   shiny::testServer(mod_dataset_server, args = list(id = "ds", dataset = dataset), {
