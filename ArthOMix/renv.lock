@@ -251,7 +251,7 @@
     },
     "locfdr": {
       "Package": "locfdr",
-      "Version": "1.1.8",
+      "Version": "1.1-8",
       "Source": "Repository"
     },
     "lumi": {
@@ -369,7 +369,7 @@
     },
     "quadprog": {
       "Package": "quadprog",
-      "Version": "1.5.8",
+      "Version": "1.5-8",
       "Source": "Repository"
     },
     "ragg": {
