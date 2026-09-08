@@ -172,7 +172,14 @@ mod_multi_dataset_ui <- function(id) {
                 p(class = "submodule-desc", "Enter a GEO SuperSeries accession with matched expression and methylation sub-series; it will be auto-split into both layers."),
                 textInput(ns("geo_superseries_acc"), "GEO Series accession", placeholder = "GSE12345"),
                 actionButton(ns("geo_autosplit_btn"), "Fetch & Split", icon = icon("cloud-arrow-down"), class = "btn-primary btn-sm"),
-                uiOutput(ns("geo_autosplit_status"))),
+                uiOutput(ns("geo_autosplit_status")),
+                tags$hr(),
+                p(class = "submodule-desc", icon("circle-info"), " Many published studies submit expression and methylation as two", tags$strong(" separate, unlinked"), " GEO series (no SuperSeries relationship) - if the accession above fails with \"doesn't look like a SuperSeries\", fetch each one directly here instead."),
+                textInput(ns("geo_dual_acc_a"), "First accession (either omics type)", placeholder = "GSE12345"),
+                textInput(ns("geo_dual_acc_b"), "Second accession (the other omics type)", placeholder = "GSE67890"),
+                actionButton(ns("geo_dual_btn"), "Fetch Both Separately", icon = icon("cloud-arrow-down"), class = "btn-default btn-sm"),
+                uiOutput(ns("geo_dual_status")),
+                p(class = "submodule-desc", icon("triangle-exclamation"), " Two independently-submitted series almost never share sample IDs. After fetching, go to the \"Sample Matching\" tab and use \"Patient ID (from metadata)\" - if GEO's own per-sample titles end in a shared patient number (a common convention), it is auto-detected as the column \"geo_title_patient_num\"; otherwise pick whichever metadata column truly identifies the same patient in both series, or supply a mapping file.")),
             box(width = NULL, title = "Sample Metadata", status = "primary", solidHeader = FALSE,
                 p(class = "submodule-desc", "Imported automatically from each fetched GEO series' own sample metadata."))
           ),
@@ -415,6 +422,24 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
       )))
     })
 
+    observeEvent(input$geo_dual_btn, {
+      res <- multi_geo_dual_fetch(input$geo_dual_acc_a, input$geo_dual_acc_b)
+      if (!isTRUE(res$ok)) {
+        geo_fetched$expression <- NULL; geo_fetched$methylation <- NULL
+        output$geo_dual_status <- renderUI(div(class = "empty-note", style = "border-color: var(--color-danger, #d9534f);", icon("triangle-exclamation"), sprintf(" %s", res$error)))
+        return()
+      }
+      geo_fetched$expression <- res$expression
+      geo_fetched$methylation <- res$methylation
+      n_id_hit <- sum(!is.na(res$expression$meta$geo_title_patient_num)) + sum(!is.na(res$methylation$meta$geo_title_patient_num))
+      output$geo_dual_status <- renderUI(div(class = "empty-note", icon("circle-check"), sprintf(
+        " Fetched Transcriptomics (%s: %s samples x %s features) and Methylomics (%s: %s samples x %s features) independently.%s Click \"Validate Datasets\" below, then set up sample matching on the \"Sample Matching\" tab.",
+        res$expression$accession, format(nrow(res$expression$mat), big.mark = ","), format(ncol(res$expression$mat), big.mark = ","),
+        res$methylation$accession, format(nrow(res$methylation$mat), big.mark = ","), format(ncol(res$methylation$mat), big.mark = ","),
+        if (n_id_hit > 0) " A candidate shared patient-number column (\"geo_title_patient_num\") was detected from each series' sample titles." else " No shared per-sample title pattern was detected - you will need to pick a different metadata column, or supply a mapping file, on the Sample Matching tab."
+      )))
+    })
+
     lapply(seq_len(MO_MAX_BLOCKS), function(i) {
       ubid <- mo_block_id(i, "upload")
 
@@ -589,7 +614,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
           mats[[label]] <- gf$mat
           validations[[label]] <- v
           labels[[key]] <- label
-          provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s, auto-split)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
+          provenance[[label]] <- list(source = "NCBI GEO", detail = sprintf("%s (platform %s)", gf$accession, gf$platform), imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           if (!is.null(gf$meta)) geo_meta_dfs[[label]] <- gf$meta
         }
         if (is.null(geo_fetched$expression) || is.null(geo_fetched$methylation)) {

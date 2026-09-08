@@ -650,20 +650,54 @@ multi_geo_series_relation <- function(accession) {
   list(ok = TRUE, accession = acc, subseries = subseries)
 }
 
+## GEO submitters very commonly encode a shared per-patient identifier as the
+## trailing token of each sample's `title` (e.g. "PBMC_E_n_01" / "DNA_E_n_01"
+## for the same patient across two independently-submitted series - confirmed
+## directly against Tao et al. 2021's GSE138746/GSE138653, which have NO other
+## column in common). This is a best-effort *candidate* match key, always
+## offered as one option alongside the sample's own GSM ID and any GEO
+## characteristics columns - never silently substituted for them. The
+## existing "Patient ID (from metadata)" sample-matching mode
+## (mod_multi_dataset.R's matching_method) already prompts the user to pick
+## the column that identifies the same patient across datasets: this makes
+## that picker actually solve the cross-series case, without inventing a new
+## matching UI or algorithm.
+multi_geo_derive_title_patient_num <- function(meta) {
+  if (is.null(meta) || !"title" %in% colnames(meta)) return(rep(NA_character_, NROW(meta)))
+  m <- regmatches(as.character(meta$title), regexpr("[0-9]+$", as.character(meta$title)))
+  out <- rep(NA_character_, nrow(meta))
+  hit <- nchar(m) > 0
+  out[hit] <- sprintf("%02d", as.integer(m[hit]))
+  out
+}
+
+multi_geo_classify_platforms <- function(platforms) {
+  out <- list()
+  skipped <- character(0)
+  for (nm in names(platforms)) {
+    pm <- multi_geo_platform_matrix(platforms[[nm]], collapse_genes = TRUE)
+    if (!isTRUE(pm$ok)) { skipped[nm] <- pm$error %||% "no usable matrix"; next }
+    det <- multi_live_detect_omics_type(pm$mat)
+    out[[nm]] <- list(mat = pm$mat, meta = pm$meta, platform = pm$platform, collapsed = pm$collapsed, detected = det$detected)
+  }
+  attr(out, "skipped") <- skipped
+  out
+}
+
+## Attaches the candidate patient-number column (see
+## multi_geo_derive_title_patient_num()) to a fetched layer's metadata, if it
+## isn't already present under this name and a title column exists.
+multi_geo_attach_title_patient_num <- function(layer) {
+  if (is.null(layer) || is.null(layer$meta)) return(layer)
+  layer$meta$geo_title_patient_num <- multi_geo_derive_title_patient_num(layer$meta)
+  layer
+}
+
 multi_geo_autosplit_fetch <- function(accession) {
   acc <- toupper(trimws(accession %||% ""))
   if (!grepl("^GSE[0-9]+$", acc)) return(list(ok = FALSE, error = "Enter a valid GEO Series accession, e.g. GSE12345."))
 
-  classify <- function(platforms) {
-    out <- list()
-    for (nm in names(platforms)) {
-      pm <- multi_geo_platform_matrix(platforms[[nm]], collapse_genes = TRUE)
-      if (!isTRUE(pm$ok)) next
-      det <- multi_live_detect_omics_type(pm$mat)
-      out[[nm]] <- list(mat = pm$mat, meta = pm$meta, platform = pm$platform, collapsed = pm$collapsed, detected = det$detected)
-    }
-    out
-  }
+  classify <- multi_geo_classify_platforms
   pick_pair <- function(layers, accession_of = NULL) {
     rna <- Filter(function(l) identical(l$detected, "rnaseq"), layers)
     meth <- Filter(function(l) identical(l$detected, "methylation"), layers)
@@ -676,7 +710,9 @@ multi_geo_autosplit_fetch <- function(accession) {
   direct <- multi_geo_layer_fetch(acc)
   if (isTRUE(direct$ok) && length(direct$platforms) >= 2) {
     pair <- pick_pair(classify(direct$platforms))
-    if (!is.null(pair)) return(list(ok = TRUE, accession = acc, expression = pair$expression, methylation = pair$methylation))
+    if (!is.null(pair)) return(list(ok = TRUE, accession = acc,
+      expression = multi_geo_attach_title_patient_num(pair$expression),
+      methylation = multi_geo_attach_title_patient_num(pair$methylation)))
   }
 
   rel <- multi_geo_series_relation(acc)
@@ -716,7 +752,63 @@ multi_geo_autosplit_fetch <- function(accession) {
       "%s's linked sub-series (%s) could not be resolved to exactly one expression layer and one methylation layer (detected %s).",
       acc, paste(rel$subseries, collapse = " + "), types)))
   }
-  list(ok = TRUE, accession = acc, expression = pair$expression, methylation = pair$methylation)
+  list(ok = TRUE, accession = acc,
+       expression = multi_geo_attach_title_patient_num(pair$expression),
+       methylation = multi_geo_attach_title_patient_num(pair$methylation))
+}
+
+## For the common real-world case where expression and methylation were
+## submitted to GEO as two SEPARATE, unlinked series (confirmed true for
+## Tao et al. 2021's GSE138746 + GSE138653 - GEO's own series-relation
+## metadata lists zero linked sub-series for either) - multi_geo_autosplit_fetch()
+## cannot find them because there is no SuperSeries to discover. This fetches
+## each accession independently and classifies each by its own data (not by
+## which text box the user typed it into), so either order works.
+multi_geo_dual_fetch <- function(accession_a, accession_b) {
+  acc_a <- toupper(trimws(accession_a %||% ""))
+  acc_b <- toupper(trimws(accession_b %||% ""))
+  if (!grepl("^GSE[0-9]+$", acc_a) || !grepl("^GSE[0-9]+$", acc_b)) {
+    return(list(ok = FALSE, error = "Enter two valid GEO Series accessions, e.g. GSE12345 and GSE67890."))
+  }
+  if (identical(acc_a, acc_b)) return(list(ok = FALSE, error = "Enter two different accessions - one per omics layer."))
+
+  fetch_one <- function(acc) {
+    lf <- multi_geo_layer_fetch(acc)
+    if (!isTRUE(lf$ok)) return(list(ok = FALSE, error = lf$error))
+    layers <- multi_geo_classify_platforms(lf$platforms)
+    if (length(layers) == 0) {
+      ## Sequencing-based (RNA-seq) GEO series routinely have NO values
+      ## embedded in the series matrix at all (GEO convention, not specific to
+      ## this dataset - confirmed directly: GSE138746's exprs() is 0 rows x
+      ## 240 samples) - the real counts live in a supplementary file whose
+      ## format is entirely submitter-defined, which this fetch path cannot
+      ## parse. Say so plainly rather than a generic "no matrix" message, so
+      ## the user knows to fall back to Upload rather than retry the fetch.
+      return(list(ok = FALSE, error = sprintf(
+        "%s's GEO series matrix has no values embedded for any platform (common for RNA-seq/sequencing submissions - GEO stores those as a supplementary file with no standard format, which this fetch path can't parse). Download the counts file from GEO yourself and use \"Upload Dataset\" instead.",
+        acc)))
+    }
+    l <- layers[[1]]
+    list(ok = TRUE, mat = l$mat, meta = l$meta, platform = l$platform, collapsed = l$collapsed, detected = l$detected, accession = acc)
+  }
+
+  a <- fetch_one(acc_a); b <- fetch_one(acc_b)
+  failed <- Filter(function(f) !isTRUE(f$ok), list(a = a, b = b))
+  if (length(failed) > 0) {
+    detail <- paste(sprintf("%s: %s", c(a = acc_a, b = acc_b)[names(failed)], vapply(failed, function(f) f$error, character(1))), collapse = "; ")
+    return(list(ok = FALSE, error = sprintf("Could not fetch both accessions: %s", detail)))
+  }
+
+  rna <- Filter(function(l) identical(l$detected, "rnaseq"), list(a = a, b = b))
+  meth <- Filter(function(l) identical(l$detected, "methylation"), list(a = a, b = b))
+  if (length(rna) != 1 || length(meth) != 1) {
+    return(list(ok = FALSE, error = sprintf(
+      "Could not resolve these two accessions to one expression layer and one methylation layer (detected %s: %s, %s: %s). Both accessions must be Series (GSExxxxx) matrices GEO can parse directly.",
+      acc_a, a$detected, acc_b, b$detected)))
+  }
+  list(ok = TRUE, accession = sprintf("%s + %s", acc_a, acc_b),
+       expression = multi_geo_attach_title_patient_num(rna[[1]]),
+       methylation = multi_geo_attach_title_patient_num(meth[[1]]))
 }
 
 multi_geo_platform_matrix <- function(eset, collapse_genes = TRUE) {
