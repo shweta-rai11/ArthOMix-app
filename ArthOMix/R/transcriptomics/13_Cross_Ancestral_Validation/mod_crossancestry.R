@@ -4,7 +4,7 @@
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Genetics",
   title = "Cross-Ancestry MR Replication",
-  description = "Mendelian-randomisation comparison of the bundled RA cohort's prioritised genes across three GWAS arms (Okada 2014 European discovery, Stahl 2010 European cohorts, BioBank Japan East-Asian transfer), per sex. NOTE: Okada et al. 2014 is a meta-analysis that includes the Stahl et al. 2010 European cohorts, so the EUR arm is a consistency check within overlapping/expanded data, not an independent replication; only the BioBank Japan (EAS) arm is a genuinely independent-cohort comparison. Any arm can be replaced by an upload. This replicates a fixed reference gene list only - it doesn't read, validate or transfer the diagnostic model, or use the currently loaded dataset.",
+  description = "MR comparison of the bundled RA cohort's prioritised genes across three GWAS arms (Okada 2014 EUR, Stahl 2010 EUR, BioBank Japan EAS), per sex. Okada 2014 includes the Stahl cohorts, so only BioBank Japan (EAS) is a genuinely independent replication. Any arm can be replaced by an upload. Replicates a fixed gene list only - no diagnostic-model transfer, no live dataset.",
   icon = "earth-americas"
 )
 
