@@ -664,10 +664,21 @@ multi_geo_series_relation <- function(accession) {
 ## matching UI or algorithm.
 multi_geo_derive_title_patient_num <- function(meta) {
   if (is.null(meta) || !"title" %in% colnames(meta)) return(rep(NA_character_, NROW(meta)))
-  m <- regmatches(as.character(meta$title), regexpr("[0-9]+$", as.character(meta$title)))
-  out <- rep(NA_character_, nrow(meta))
-  hit <- nchar(m) > 0
-  out[hit] <- sprintf("%02d", as.integer(m[hit]))
+  titles <- as.character(meta$title)
+  ## NOTE: regmatches(x, regexpr(...)) silently DROPS elements with no match
+  ## rather than returning "" or NA at that position, so its result is
+  ## shorter than x whenever any title lacks a trailing number - the
+  ## subsequent hit/out[hit] assignment would then misalign (or, via R's
+  ## length-1-recycling, corrupt every row) whenever this recovers from
+  ## real-world data where some titles have a trailing number and others
+  ## don't. Read the match position/length directly from regexpr() instead,
+  ## which stays one-to-one with `titles` regardless of no-match rows.
+  m <- regexpr("[0-9]+$", titles)
+  starts <- as.integer(m)
+  lens <- attr(m, "match.length")
+  out <- rep(NA_character_, length(titles))
+  hit <- starts > 0
+  out[hit] <- sprintf("%02d", as.integer(substring(titles[hit], starts[hit], starts[hit] + lens[hit] - 1)))
   out
 }
 
