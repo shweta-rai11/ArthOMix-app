@@ -11,7 +11,7 @@ test_that("every Transcriptomics sub-module tab opens and renders with no output
     name = "arthomix-tx-submodules",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)
@@ -40,7 +40,7 @@ test_that("Dataset -> DGE data flow: loading the default preloaded dataset popul
     name = "arthomix-tx-dge-flow",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)

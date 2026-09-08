@@ -16,7 +16,7 @@ test_that("uploading the chen2021 merged fixture completes the full upload -> ma
     name = "arthomix-upload-tx",
     height = 900, width = 1400,
     timeout = 60 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)

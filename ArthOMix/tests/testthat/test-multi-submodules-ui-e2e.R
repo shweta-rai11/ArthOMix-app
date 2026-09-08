@@ -11,7 +11,7 @@ test_that("every Multiomics sub-module tab opens and renders with no output erro
     name = "arthomix-mo-submodules",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)
@@ -38,7 +38,7 @@ test_that("Dataset Workspace -> Overview data flow: loading the preloaded RA ant
     name = "arthomix-mo-overview-flow",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)

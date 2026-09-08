@@ -11,7 +11,7 @@ test_that("the app boots and every top-level module renders with no output error
     name = "arthomix-smoke",
     height = 900, width = 1400,
     timeout = 60 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)

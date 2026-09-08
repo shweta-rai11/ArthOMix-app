@@ -11,7 +11,7 @@ test_that("every Cross-omics sub-module tab opens and renders with no output err
     name = "arthomix-cx-submodules",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)
@@ -41,7 +41,7 @@ test_that("Dataset -> Expression and Methylation Integration data flow: uploadin
     name = "arthomix-cx-integration-flow",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)

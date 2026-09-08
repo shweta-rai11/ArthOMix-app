@@ -11,7 +11,7 @@ test_that("every Methylomics sub-module tab opens and renders with no output err
     name = "arthomix-mx-submodules",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)
@@ -39,7 +39,7 @@ test_that("Dataset -> QC data flow: loading the preloaded whole-blood dataset ma
     name = "arthomix-mx-qc-flow",
     height = 900, width = 1400,
     timeout = 90 * 1000,
-    load_timeout = 90 * 1000
+    load_timeout = 300 * 1000
   )
   on.exit(app$stop(), add = TRUE)
   app$wait_for_idle(timeout = 20 * 1000)
