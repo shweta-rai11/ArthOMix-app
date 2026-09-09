@@ -43,11 +43,12 @@ multi_live_read_matrix <- function(path, orientation = c("samples_rows", "featur
   data_cols <- df[, -1, drop = FALSE]
   was_blank_or_na <- vapply(data_cols, function(col) is.na(col) | !nzchar(trimws(as.character(col))), logical(nrow(data_cols)))
   mat <- as.matrix(data_cols)
-  rownames(mat) <- as.character(id_col)
+  id_fix <- if (identical(orientation, "features_rows")) repair_excel_date_gene_symbols(id_col) else list(ids = as.character(id_col), n_fixed = 0L, examples = character(0))
+  rownames(mat) <- id_fix$ids
   storage.mode(mat) <- "double"
   n_coerced_na <- sum(is.na(mat) & !was_blank_or_na)
   if (identical(orientation, "features_rows")) mat <- t(mat)
-  list(ok = TRUE, mat = mat, error = NULL, n_coerced_na = n_coerced_na)
+  list(ok = TRUE, mat = mat, error = NULL, n_coerced_na = n_coerced_na, excel_date_fix = id_fix)
 }
 
 multi_live_detect_table_shape <- function(df) {
@@ -109,7 +110,7 @@ multi_live_pivot_long <- function(df, feature_col, sample_col, value_col, group_
   if (!all(c(feature_col, sample_col, value_col) %in% colnames(df))) {
     return(list(ok = FALSE, mat = NULL, group_df = NULL, error = "One or more selected columns are not present in this file."))
   }
-  feature <- as.character(df[[feature_col]]); sample <- as.character(df[[sample_col]])
+  feature <- repair_excel_date_gene_symbols(df[[feature_col]])$ids; sample <- as.character(df[[sample_col]])
   value <- suppressWarnings(as.numeric(df[[value_col]]))
   keep <- !is.na(feature) & nzchar(feature) & !is.na(sample) & nzchar(sample)
   if (sum(!is.na(value[keep])) == 0) return(list(ok = FALSE, mat = NULL, group_df = NULL, error = sprintf("The selected Value column (\"%s\") has no valid numeric values.", value_col)))

@@ -26,7 +26,7 @@ eda_parse_upload <- function(datapath, filename) {
   first_num <- arthomix_quiet(as.numeric(as.character(first_col)))
   id_is_char <- mean(is.na(first_num)) > 0.5
   if (id_is_char) {
-    ids <- as.character(first_col)
+    ids <- repair_excel_date_gene_symbols(first_col)$ids
     rest <- df[, -1, drop = FALSE]
     id_col_name <- colnames(df)[1]
   } else {

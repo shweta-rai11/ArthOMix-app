@@ -16,13 +16,14 @@ dge_read_expr_upload <- function(datapath, filename) {
     obj <- loaded$value
     m <- if (is.matrix(obj)) obj else as.matrix(obj)
     storage.mode(m) <- "double"
+    if (!is.null(rownames(m))) rownames(m) <- repair_excel_date_gene_symbols(rownames(m))$ids
     return(m)
   }
   res <- cx_read_table(datapath, filename)
   validate(need(res$ok, res$error))
   df <- res$df
   validate(need(ncol(df) >= 2, "Expression file needs a feature-ID column plus at least one sample column."))
-  rn <- as.character(df[[1]])
+  rn <- repair_excel_date_gene_symbols(df[[1]])$ids
   raw <- df[, -1, drop = FALSE]
   m <- arthomix_quiet({ mm <- as.matrix(raw); storage.mode(mm) <- "double"; mm })
   rownames(m) <- rn
@@ -251,7 +252,7 @@ mod_dge_server <- function(id, dataset, results) {
       if (!is.null(input$dge_annot_file) && !is.null(input$map_annot_feature_id) && !is.null(input$map_annot_symbol)) {
         annot <- annot_upload_raw()
         fid <- as.character(annot[[input$map_annot_feature_id]])
-        sym <- as.character(annot[[input$map_annot_symbol]])
+        sym <- repair_excel_date_gene_symbols(annot[[input$map_annot_symbol]])$ids
         ok <- !is.na(fid) & nzchar(fid) & !is.na(sym) & nzchar(sym)
         fid <- fid[ok]; sym <- sym[ok]
         map <- setNames(sym[!duplicated(fid)], fid[!duplicated(fid)])

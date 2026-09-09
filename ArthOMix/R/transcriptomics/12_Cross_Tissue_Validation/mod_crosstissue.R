@@ -717,7 +717,7 @@ mod_crosstissue_server <- function(id, dataset, results) {
         res$mat
       } else {
         m <- as.data.frame(data.table::fread(input$val_expr_file$datapath, showProgress = FALSE))
-        rn <- as.character(m[[1]]); m <- as.matrix(m[, -1, drop = FALSE]); rownames(m) <- rn
+        rn <- repair_excel_date_gene_symbols(m[[1]])$ids; m <- as.matrix(m[, -1, drop = FALSE]); rownames(m) <- rn
         m
       }
     })

@@ -82,7 +82,7 @@ cx_standardize_expression <- function(df, mapping) {
   if (is.na(mapping["gene"])) return(list(ok = FALSE, error = "No Gene ID/Symbol column selected."))
   if (is.na(mapping["log2fc"])) return(list(ok = FALSE, error = "No log2FC/Fold Change column selected."))
   out <- data.frame(
-    gene = trimws(as.character(df[[mapping["gene"]]])),
+    gene = repair_excel_date_gene_symbols(trimws(as.character(df[[mapping["gene"]]])))$ids,
     log2fc = cx_as_numeric_safe(df[[mapping["log2fc"]]]),
     pvalue = if (!is.na(mapping["pvalue"])) cx_as_numeric_safe(df[[mapping["pvalue"]]]) else NA_real_,
     fdr = if (!is.na(mapping["fdr"])) cx_as_numeric_safe(df[[mapping["fdr"]]]) else NA_real_,
@@ -419,7 +419,7 @@ cx_filter_by_correlation_direction <- function(df, direction) {
 }
 
 cx_build_gene_sample_matrix <- function(df, id_col, sample_cols) {
-  ids <- as.character(df[[id_col]])
+  ids <- repair_excel_date_gene_symbols(df[[id_col]])$ids
   mat <- as.matrix(df[, sample_cols, drop = FALSE])
   storage.mode(mat) <- "double"
   rownames(mat) <- ids

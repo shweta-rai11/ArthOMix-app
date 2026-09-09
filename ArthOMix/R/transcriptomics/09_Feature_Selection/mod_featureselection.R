@@ -418,7 +418,7 @@ mod_featureselection_server <- function(id, dataset, results) {
           res$mat
         } else {
           m <- as.data.frame(data.table::fread(input$expr_file$datapath, showProgress = FALSE))
-          rn <- as.character(m[[1]])
+          rn <- repair_excel_date_gene_symbols(m[[1]])$ids
           m <- as.matrix(m[, -1, drop = FALSE])
           rownames(m) <- rn
           m
@@ -587,7 +587,7 @@ mod_featureselection_server <- function(id, dataset, results) {
       } else if ("adj.p.val" %in% colnames(d)) {
         d <- d[!is.na(d[["adj.p.val"]]) & d[["adj.p.val"]] < 0.05, , drop = FALSE]
       }
-      genes <- unique(as.character(d$gene))
+      genes <- unique(repair_excel_date_gene_symbols(d$gene)$ids)
       list(genes = genes, note = sprintf("%d genes from your uploaded %s file (%s).", length(genes), sex_label, fi$name))
     }
 

@@ -576,6 +576,9 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
             if (isTRUE(res$n_coerced_na > 0)) {
               showNotification(sprintf("%s: %d value(s) could not be read as numbers and became missing. If this is a long/tidy table, switch \"Table shape\" above to Long/tidy.", label, res$n_coerced_na), type = "warning")
             }
+            if (isTRUE(res$excel_date_fix$n_fixed > 0)) {
+              showNotification(sprintf("%s: repaired %d gene ID(s) that Excel had auto-converted into dates (e.g., %s).", label, res$excel_date_fix$n_fixed, paste(res$excel_date_fix$examples, collapse = "; ")), type = "warning")
+            }
             mats[[label]] <- res$mat
             provenance[[label]] <- list(source = "User Upload", detail = fi$name, imported_at = format(Sys.time(), "%d %b %Y %H:%M"))
           }

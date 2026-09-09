@@ -1857,18 +1857,18 @@ mod_biomarkercard_server <- function(id, dataset, results) {
         obj <- if (isTRUE(loaded$ok)) loaded$value else NULL
         validate(need(!is.null(obj) && !is.null(obj$genes) && !is.null(obj$model_type),
                       "Upload a Diagnostic Classifier RDS export (from that tab's own \"Save trained model\" download), or a plain .csv/.txt gene-symbol list."))
-        df <- data.frame(gene = as.character(obj$genes), stringsAsFactors = FALSE)
+        df <- data.frame(gene = repair_excel_date_gene_symbols(obj$genes)$ids, stringsAsFactors = FALSE)
       } else if (grepl("\\.txt$", name, ignore.case = TRUE)) {
         ids <- tryCatch(trimws(readLines(path)), error = function(e) character(0))
         ids <- unique(ids[nzchar(ids)])
         validate(need(length(ids) > 0, "No gene symbols were found in the uploaded file."))
-        df <- data.frame(gene = ids, stringsAsFactors = FALSE)
+        df <- data.frame(gene = repair_excel_date_gene_symbols(ids)$ids, stringsAsFactors = FALSE)
       } else {
         up <- tryCatch(as.data.frame(data.table::fread(path, showProgress = FALSE)), error = arthomix_null_on_error)
         validate(need(!is.null(up) && nrow(up) > 0, "Could not parse the uploaded file as a delimited table (CSV/TSV)."))
         gene_col <- intersect(c("gene", "Gene", "symbol", "Symbol", "GENE_SYMBOL", "ID"), colnames(up))[1]
         ids <- if (!is.na(gene_col)) as.character(up[[gene_col]]) else as.character(up[[1]])
-        df <- data.frame(gene = unique(ids[nzchar(ids)]), stringsAsFactors = FALSE)
+        df <- data.frame(gene = unique(repair_excel_date_gene_symbols(ids)$ids[nzchar(ids)]), stringsAsFactors = FALSE)
       }
       validate(need(nrow(df) > 0, "No gene symbols were found in the uploaded file."))
       df

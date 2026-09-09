@@ -46,7 +46,7 @@ pp_collapse_probes_to_genes <- function(expr, annot, method = c("median", "maxme
   probe_col <- pp_guess_col(cols, c("probe", "probe_id", "probeid", "probeset", "probesetid", "id"))
   gene_col  <- pp_guess_col(cols, c("gene_symbol", "genesymbol", "symbol", "gene"),
                              fallback = if (length(cols) >= 2) cols[2] else cols[1])
-  map <- stats::setNames(as.character(annot[[gene_col]]), as.character(annot[[probe_col]]))
+  map <- stats::setNames(repair_excel_date_gene_symbols(annot[[gene_col]])$ids, as.character(annot[[probe_col]]))
   sym <- unname(map[rownames(expr)])
   keep <- !is.na(sym) & sym != "" & !grepl("///", sym, fixed = TRUE)
   validate(need(any(keep), "None of this expression matrix's row IDs matched the annotation file's probe-ID column, or every match was to more than one gene. Check the annotation file's columns."))

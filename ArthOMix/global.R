@@ -76,6 +76,49 @@ safe_read_rds <- function(path, max_size_mb = 1024,
   list(ok = TRUE, value = obj, error = NULL)
 }
 
+## Excel silently reformats gene symbols that look like short dates (MARCH1-11,
+## SEPTIN/SEPT1-12/14/15, DEC1) into actual dates the moment a CSV is opened and
+## re-saved in it - "MARCH1" becomes "1-Mar", "SEPT9" becomes "9-Sep", etc. This
+## is a well-documented, still-ongoing problem in deposited omics data (Zeeberg
+## et al. 2004; Ziemann et al. 2016, "Gene name errors are widespread in the
+## scientific literature"). Repair known cases when reading an uploaded/fetched
+## feature-ID column so downstream gene-symbol lookups (enrichment, annotation,
+## deconvolution) aren't silently broken by a handful of unrecognizable IDs.
+## Every entry below is verified against org.Hs.eg.db (NCBI Entrez alias
+## table) as a real, database-confirmed gene alias - see conversation/commit
+## history for the verification query. "SEPT15" is deliberately excluded:
+## it has no confirmed NCBI record, so "15-Sep" is left unrepaired rather
+## than guessed at.
+ARTHOMIX_EXCEL_DATE_GENE_MAP <- local({
+  mar <- setNames(paste0("MARCH", 1:11), 1:11)
+  sep <- setNames(paste0("SEPT", c(1:12, 14)), c(1:12, 14))
+  dec <- c(`1` = "DEC1")
+  list(Mar = mar, Sep = sep, Dec = dec)
+})
+
+repair_excel_date_gene_symbols <- function(ids) {
+  ids <- as.character(ids)
+  pattern <- "^(\\d{1,2})-(Mar|Sep|Dec)$|^(Mar|Sep|Dec)-(\\d{1,2})$"
+  m <- regmatches(ids, regexec(pattern, ids, ignore.case = TRUE))
+  fixed <- ids
+  n_fixed <- 0L
+  examples <- character(0)
+  for (i in seq_along(m)) {
+    g <- m[[i]]
+    if (length(g) == 0) next
+    if (nzchar(g[2])) { day <- g[2]; mon <- g[3] } else { day <- g[5]; mon <- g[4] }
+    mon <- paste0(toupper(substr(mon, 1, 1)), tolower(substr(mon, 2, 3)))
+    lookup <- ARTHOMIX_EXCEL_DATE_GENE_MAP[[mon]]
+    repl <- unname(lookup[as.character(as.integer(day))])
+    if (!is.na(repl)) {
+      fixed[i] <- repl
+      n_fixed <- n_fixed + 1L
+      if (length(examples) < 5) examples <- c(examples, sprintf("%s -> %s", ids[i], repl))
+    }
+  }
+  list(ids = fixed, n_fixed = n_fixed, examples = examples)
+}
+
 ARTHOMIX_ASYNC_AVAILABLE <- requireNamespace("future", quietly = TRUE) && requireNamespace("promises", quietly = TRUE)
 if (ARTHOMIX_ASYNC_AVAILABLE) {
   ## Worker count: a hardcoded 2 meant a 3rd concurrent DIABLO/SNF/MOFA request
@@ -420,6 +463,7 @@ collapse_probes_to_genes <- function(eset) {
   ex <- Biobase::exprs(eset)
   if (is.na(col)) return(structure(ex, collapsed = FALSE))
   sym <- as.character(fd[[col]])
+  sym <- repair_excel_date_gene_symbols(sym)$ids
   keep <- !is.na(sym) & sym != "" & !grepl("///", sym)
   ex <- ex[keep, , drop = FALSE]; sym <- sym[keep]
   ok <- rowSums(is.na(ex)) < ncol(ex)
@@ -698,9 +742,12 @@ tx_parse_expr_matrix_rds <- function(datapath) {
     return(list(ok = FALSE, mat = NULL, error = loaded$error))
   }
   x <- loaded$value
-  if (is.matrix(x) && is.numeric(x)) return(list(ok = TRUE, mat = x, error = NULL))
+  if (is.matrix(x) && is.numeric(x)) {
+    if (!is.null(rownames(x))) rownames(x) <- repair_excel_date_gene_symbols(rownames(x))$ids
+    return(list(ok = TRUE, mat = x, error = NULL))
+  }
   if (is.data.frame(x) && ncol(x) >= 2) {
-    ids <- as.character(x[[1]])
+    ids <- repair_excel_date_gene_symbols(x[[1]])$ids
     if (any(duplicated(ids))) {
       return(list(ok = FALSE, mat = NULL, error = sprintf("%d duplicated feature ID(s) in the first column.", sum(duplicated(ids)))))
     }

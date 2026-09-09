@@ -260,6 +260,8 @@ mod_dataset_server <- function(id, dataset) {
       } else {
         m <- as.data.frame(data.table::fread(path, showProgress = FALSE))
         rn <- as.character(m[[1]])
+        repaired <- repair_excel_date_gene_symbols(rn)
+        rn <- repaired$ids
         m <- as.matrix(m[, -1, drop = FALSE])
         if (!is.numeric(m)) {
           storage.mode(m) <- "character"
@@ -269,6 +271,7 @@ mod_dataset_server <- function(id, dataset) {
           m <- m_num
         }
         rownames(m) <- rn
+        attr(m, "excel_date_fix") <- repaired
         m
       }
     })
@@ -284,10 +287,18 @@ mod_dataset_server <- function(id, dataset) {
         return(div(class = "empty-note", icon("triangle-exclamation"),
                     paste("Could not read the uploaded file(s):", conditionMessage(preview))))
       }
-      div(class = "empty-note", icon("circle-info"),
-          sprintf("Read %s: %s features x %s samples. Read %s: %s rows. Map the columns below, then click \"Load dataset\".",
-                  input$expr_file$name, format(nrow(preview$expr), big.mark = ","), ncol(preview$expr),
-                  input$meta_file$name, nrow(preview$meta)))
+      fix <- attr(preview$expr, "excel_date_fix")
+      tagList(
+        div(class = "empty-note", icon("circle-info"),
+            sprintf("Read %s: %s features x %s samples. Read %s: %s rows. Map the columns below, then click \"Load dataset\".",
+                    input$expr_file$name, format(nrow(preview$expr), big.mark = ","), ncol(preview$expr),
+                    input$meta_file$name, nrow(preview$meta))),
+        if (!is.null(fix) && fix$n_fixed > 0) {
+          div(class = "empty-note", icon("triangle-exclamation"),
+              sprintf("Repaired %d gene ID(s) that Excel had auto-converted into dates (e.g., %s). This is a known Excel bug affecting MARCH1-11, SEPT1-15, and DEC1.",
+                      fix$n_fixed, paste(fix$examples, collapse = "; ")))
+        }
+      )
     })
 
     output$upload_preview_tables_ui <- renderUI({
