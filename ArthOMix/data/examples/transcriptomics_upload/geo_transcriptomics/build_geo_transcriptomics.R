@@ -26,7 +26,9 @@ specs <- list(
                               "Oligoarticular JIA" = "oligoJIA", "Systemic JIA" = "sJIA", Control = "Control")),
   GSE178388 = list(platform = NULL, group = "diagnosis", sex = "gender",
                    supp = "GSE178388_PedBatch_all_counts_matrix.csv.gz",
-                   recode = c(covid = "COVID", healthy = "Healthy", MISC = "MISC"))
+                   recode = c(covid = "COVID", healthy = "Healthy", MISC = "MISC")),
+  GSE77298  = list(platform = NULL, group = "disease state", sex = NULL, log2 = TRUE,
+                   recode = c("Healthy control" = "HC", "Rheumatoid arthritis" = "RA"))
 )
 sp <- specs[[gse]]; if (is.null(sp)) stop("no spec for ", gse)
 
@@ -49,7 +51,9 @@ colnames(chars) <- keys
 clean <- function(x) { x <- tolower(gsub("[^A-Za-z0-9]+", "_", x)); gsub("^_|_$", "", x) }
 group_raw <- chars[[sp$group]]; if (is.null(group_raw)) stop("group key not found: ", sp$group, " (have: ", paste(keys, collapse = " | "), ")")
 group <- if (!is.null(sp$recode)) unname(sp$recode[group_raw]) else group_raw
-sex <- toupper(substr(trimws(chars[[sp$sex]]), 1, 1)); sex[!sex %in% c("F", "M")] <- NA
+sex <- if (is.null(sp$sex)) rep(NA_character_, nrow(pd)) else {
+  s <- toupper(substr(trimws(chars[[sp$sex]]), 1, 1)); s[!s %in% c("F", "M")] <- NA; s
+}
 extras <- chars[, setdiff(keys, c(sp$group, sp$sex)), drop = FALSE]; colnames(extras) <- clean(colnames(extras))
 extras <- extras[, !duplicated(colnames(extras)), drop = FALSE]
 colnames(extras)[grepl("^timepoint", colnames(extras))] <- "timepoint"

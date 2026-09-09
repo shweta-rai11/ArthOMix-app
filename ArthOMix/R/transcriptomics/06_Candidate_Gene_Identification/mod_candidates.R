@@ -126,7 +126,7 @@ mod_candidates_server <- function(id, dataset, results) {
       tagList(
         selectInput(ns("wgcna_module_choice"), NULL, choices = choices, selected = default_sel, multiple = TRUE),
         if (length(mc$disease) > 0) p(class = "submodule-desc",
-          sprintf("Pre-selected: %s - the disease-associated module(s) from WGCNA Step 4 (|cor| ≥ 0.5, p < 1e-8). Add or remove modules above to use a different combination.",
+          sprintf("Pre-selected: %s - the disease-associated module(s) from WGCNA Step 4 (|cor| ≥ 0.5, BH-FDR-corrected q < 0.05). Add or remove modules above to use a different combination.",
                   paste(mc$disease, collapse = " + ")))
       )
     })

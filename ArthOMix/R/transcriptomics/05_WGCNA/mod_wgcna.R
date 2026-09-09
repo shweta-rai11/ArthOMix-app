@@ -407,7 +407,7 @@ mod_wgcna_server <- function(id, dataset, results) {
           p(class = "submodule-desc", "Choose which genes go into the network - fewer, more variable genes run faster and add less noise."),
           if (uploaded) div(
             class = "empty-note", style = "margin-bottom: 10px;", icon("book"),
-            "Not the app's default reference cohort, so settings below (and in Soft Power / Modules) are pre-filled to match this project's network: top 5,000 genes by median expression (reference cohort used all genes), signed network, power 12, min module size 30, merge cut height 0.25. Check the scale-free fit in Soft Power before trusting the power, and adjust as needed. One network is built on all samples; sex enters as a Module-Trait trait, not separate female/male networks."
+            "Not the app's default reference cohort, so settings below (and in Soft Power / Modules) are pre-filled to match this project's network: top 5,000 genes by median expression (reference cohort used all genes), signed network, power 12, signed TOM, min module size 30, merge cut height 0.25, PAM stage respects the dendrogram (the reference cohort's network was built without that last one). Check the scale-free fit in Soft Power before trusting the power, and adjust as needed. One network is built on all samples; sex enters as a Module-Trait trait, not separate female/male networks."
           ),
           radioButtons(
             ns("gene_filter_method"), "Gene selection method",
@@ -651,7 +651,7 @@ mod_wgcna_server <- function(id, dataset, results) {
             6,
             radioButtons(ns("network_type"), "Network type",
                          choiceNames = list(
-                           "Signed (recommended - matches this project's own network; WGCNA's authors also recommend signed networks)",
+                           "Signed (recommended - WGCNA's authors recommend signed networks; also matches the app's own precomputed reference network)",
                            "Unsigned (WGCNA package default)",
                            "Signed hybrid"
                          ),

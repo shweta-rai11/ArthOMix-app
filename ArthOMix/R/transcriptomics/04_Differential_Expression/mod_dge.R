@@ -412,11 +412,14 @@ mod_dge_server <- function(id, dataset, results) {
       }
       limma_needs_log2 <- FALSE
       if (identical(used_method, "deseq2")) {
-        validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with log2 set to \"Skip\")."))
+        ## Check the more specific "this is CPM/TPM/FPKM-pinned" signature before the generic
+        ## not-raw-counts one - CPM data is non-integer (like log-scale data), so it would
+        ## otherwise always be caught by the generic message first and never reach this one.
         validate(need(!is_normalized_totals, "This data's per-sample totals are tightly pinned near a fixed value (e.g. ~1e6) - the signature of TPM/FPKM/CPM-normalised expression, not raw counts. DESeq2 needs raw counts; pick limma instead, or load a raw count matrix via Dataset → Upload your own data."))
+        validate(need(is_counts, "DESeq2 needs raw, non-negative integer counts, but this data has negative or non-integer values (it looks already normalised/log-scale). Pick limma instead, or load raw counts via Dataset → Upload your own data (Preprocessing → Batch Correction always outputs normalised, log-scale data, even with log2 set to \"Skip\")."))
       } else if (identical(used_method, "limma")) {
         validate(need(!(is_counts && !is_normalized_totals),
-          "This data looks like raw, non-negative sequencing counts (wide value range, not library-size-normalised). limma assumes continuous, roughly-normal data and can mislead on raw counts. Pick DESeq2 instead, or normalise this to continuous, log-scale data first."))
+          "This data looks like raw, non-negative, un-normalised values (wide value range, mostly integers) - not library-size-normalised or log-scale. limma assumes continuous, roughly-normal data and can mislead here. If this is raw RNA-seq count data, pick DESeq2 instead; otherwise normalise/log-transform it first (e.g. via Preprocessing → Batch Correction) before running limma."))
         ## limma's moderated t-test assumes continuous, roughly log-normal data. Un-logged
         ## linear-scale normalised data (TPM/FPKM/CPM) satisfies the guard above (it isn't
         ## "raw counts") but is NOT log-scale, so fitting it directly as-is understated large
@@ -479,6 +482,9 @@ mod_dge_server <- function(id, dataset, results) {
       )
       if (isTRUE(limma_needs_log2)) {
         test_label <- paste0(test_label, " - input was linear-scale normalised expression, log2(x + 1)-transformed before fitting")
+      }
+      if (identical(effect_mode, "treat") && !use_treat && identical(used_method, "deseq2")) {
+        test_label <- paste0(test_label, " - \"limma::treat\" was requested but ignored (limma-only); the |log2FC| cutoff was applied post hoc instead")
       }
 
       list(

@@ -6,7 +6,14 @@ looks_like_raw_counts <- function(m) {
   vals <- vals[is.finite(vals)]
   if (length(vals) == 0 || any(vals < 0)) return(FALSE)
   q99 <- arthomix_quiet(stats::quantile(vals[vals > 0], 0.99, na.rm = TRUE))
-  isTRUE(!is.na(q99) && q99 > 100)
+  if (!isTRUE(!is.na(q99) && q99 > 100)) return(FALSE)
+  ## Raw sequencing counts are always exact integers. A wide, non-negative dynamic range
+  ## alone isn't sufficient evidence - linear-scale but already-processed data (e.g.
+  ## MAS5-summarized microarray intensities) can look identical on that test alone without
+  ## being counts at all. Same near-integer tolerance/threshold as TMM's own upload
+  ## validation (mod_preprocessing.R's "TMM normalisation expects raw integer counts" check).
+  non_integer_frac <- mean(abs(vals - round(vals)) > 1e-6)
+  isTRUE(non_integer_frac < 0.01)
 }
 
 looks_like_normalized_totals <- function(m) {

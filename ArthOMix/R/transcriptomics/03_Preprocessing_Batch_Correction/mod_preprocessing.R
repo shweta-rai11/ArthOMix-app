@@ -404,6 +404,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       dataset$expr <- v$expr
       dataset$meta <- v$meta
       dataset$source <- paste0(dataset$source %||% "Currently loaded dataset", " (preprocessed)")
+      if (isTRUE(v$log2_applied)) dataset$declared_data_type <- "logtransformed"
       output$activate_current_status_ui <- renderUI(
         div(class = "empty-note", icon("check"), "This is now the active dataset. Every other sub-module will use it.")
       )
@@ -846,7 +847,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         n_dup_features <- expr_raw_health(x$expr)$n_duplicated_features
         
         expr_dedup <- x$expr[!duplicated(rownames(x$expr)), , drop = FALSE]
-        return(list(expr = expr_dedup, meta = meta, sources = x$label, n_dup_features = n_dup_features))
+        return(list(expr = expr_dedup, meta = meta, sources = x$label, n_dup_features = n_dup_features,
+                    log2_applied = isTRUE(x$log2_applied)))
       }
       sets <- lapply(lst, function(x) rownames(x$expr))
       common <- Reduce(intersect, sets)
@@ -868,7 +870,8 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       if (!"batch" %in% colnames(merged_meta) || all(is.na(merged_meta$batch))) merged_meta$batch <- merged_meta$dataset
       validate(need(identical(colnames(merged_expr), merged_meta$sample),
                     "Internal error: merged expression columns and metadata sample order do not match. Please report this as a bug."))
-      list(expr = merged_expr, meta = merged_meta, sources = paste(vapply(lst, `[[`, character(1), "label"), collapse = " + "), n_dup_features = n_dup_features)
+      list(expr = merged_expr, meta = merged_meta, sources = paste(vapply(lst, `[[`, character(1), "label"), collapse = " + "), n_dup_features = n_dup_features,
+           log2_applied = all(vapply(lst, function(x) isTRUE(x$log2_applied), logical(1))))
     }, ignoreInit = TRUE)
 
     output$merge_summary_ui <- renderUI({
@@ -990,29 +993,37 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
             checkboxInput(ns("show_advanced"), strong("Show advanced batch-correction options"), value = FALSE),
             conditionalPanel(
               condition = sprintf("input['%s']", ns("show_advanced")),
-              selectInput(ns("correction_method"), "Correction method",
-                          choices = c("ComBat (empirical Bayes, recommended)" = "combat",
-                                      "limma::removeBatchEffect (simple linear adjustment)" = "limma",
-                                      "Surrogate Variable Analysis - SVA (unknown/hidden sources, no batch column needed)" = "sva"),
-                          selected = "combat", selectize = FALSE),
               conditionalPanel(
-                condition = sprintf("input['%s'] == 'combat'", ns("correction_method")),
-                radioButtons(ns("combat_prior"), "ComBat empirical Bayes prior",
-                             choiceNames = list("Parametric (faster, default)", "Non-parametric (slower, more robust for small or uneven batches)"),
-                             choiceValues = list("param", "nonparam"), selected = "param"),
-                checkboxInput(ns("combat_mean_only"), "Adjust batch mean only (skip variance adjustment)", value = FALSE),
-                uiOutput(ns("ref_batch_ui"))
+                condition = sprintf("!(input['%s'] == 'tmm' && input['%s'] == 'pre')", ns("norm_method"), ns("tmm_correction_stage")),
+                selectInput(ns("correction_method"), "Correction method",
+                            choices = c("ComBat (empirical Bayes, recommended)" = "combat",
+                                        "limma::removeBatchEffect (simple linear adjustment)" = "limma",
+                                        "Surrogate Variable Analysis - SVA (unknown/hidden sources, no batch column needed)" = "sva"),
+                            selected = "combat", selectize = FALSE),
+                conditionalPanel(
+                  condition = sprintf("input['%s'] == 'combat'", ns("correction_method")),
+                  radioButtons(ns("combat_prior"), "ComBat empirical Bayes prior",
+                               choiceNames = list("Parametric (faster, default)", "Non-parametric (slower, more robust for small or uneven batches)"),
+                               choiceValues = list("param", "nonparam"), selected = "param"),
+                  checkboxInput(ns("combat_mean_only"), "Adjust batch mean only (skip variance adjustment)", value = FALSE),
+                  uiOutput(ns("ref_batch_ui"))
+                ),
+                conditionalPanel(
+                  condition = sprintf("input['%s'] == 'sva'", ns("correction_method")),
+                  p(class = "empty-note", icon("circle-info"),
+                    "SVA estimates unwanted variation directly from the data instead of using the batch column above. Useful when the real source of batch effects is unknown or only partly captured. Still protects the covariates chosen below. Leek JT et al., Bioinformatics 2012;28(6):882-883."),
+                  numericInput(ns("sva_n_sv"), "Number of surrogate variables (0 = auto-estimate)", value = 0, min = 0, max = 20, step = 1)
+                ),
+                checkboxInput(ns("exclude_outliers"), "Exclude samples flagged as QC outliers before correcting (uses the outlier sensitivity below)", value = FALSE)
               ),
               conditionalPanel(
-                condition = sprintf("input['%s'] == 'sva'", ns("correction_method")),
+                condition = sprintf("input['%s'] == 'tmm' && input['%s'] == 'pre'", ns("norm_method"), ns("tmm_correction_stage")),
                 p(class = "empty-note", icon("circle-info"),
-                  "SVA estimates unwanted variation directly from the data instead of using the batch column above. Useful when the real source of batch effects is unknown or only partly captured. Still protects the covariates chosen below. Leek JT et al., Bioinformatics 2012;28(6):882-883."),
-                numericInput(ns("sva_n_sv"), "Number of surrogate variables (0 = auto-estimate)", value = 0, min = 0, max = 20, step = 1)
+                  "Correction method, prior, reference batch and exclude-outliers are not shown here because \"Before TMM: ComBat-seq on raw counts\" is selected above - ComBat-seq always runs instead, using the batch column and covariates chosen on this tab.")
               ),
               selectInput(ns("batch_col2"), "Combine with a second column into an interaction batch (optional, for example dataset by scan batch)",
                           choices = c("(none)", cols), selectize = FALSE),
-              sliderInput(ns("variance_pct"), "Also drop genes below this percentile of variance", min = 0, max = 90, value = 0, step = 5),
-              checkboxInput(ns("exclude_outliers"), "Exclude samples flagged as QC outliers before correcting (uses the outlier sensitivity below)", value = FALSE)
+              sliderInput(ns("variance_pct"), "Also drop genes below this percentile of variance", min = 0, max = 90, value = 0, step = 5)
             )
           )
         },
@@ -1068,6 +1079,10 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
 
     output$ref_batch_ui <- renderUI({
       req(input$batch_col)
+      if (!identical(input$batch_col2 %||% "(none)", "(none)")) {
+        return(div(class = "empty-note", icon("circle-info"),
+          "Reference batch isn't available when a second column is combined into an interaction batch above - remove that to set a reference batch."))
+      }
       meta <- tryCatch(active_meta_df(), error = arthomix_null_on_error)
       req(meta)
       lvls <- sort(unique(stats::na.omit(as.character(meta[[input$batch_col]]))))
@@ -1221,11 +1236,14 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           ## normalisation for count data, not quantile normalisation. This guard applies
           ## to both the forced "quantile" choice and "auto" (which would otherwise fire on
           ## raw counts purely because needs_quantile_norm()'s max_value>100 rule is equally
-          ## true for un-logged counts).
-          raw_count_like <- identical(dataset$declared_data_type, "raw") || looks_like_raw_counts(expr_prenorm)
+          ## true for un-logged counts). The declared-"raw" flag is only trusted when log2
+          ## hasn't already been applied to this data by the Preprocessing step above - once
+          ## it has, the data is no longer raw regardless of what was originally declared at
+          ## load time, and the numeric check on the actual (now log-scale) values is authoritative.
+          raw_count_like <- (!isTRUE(m$log2_applied) && identical(dataset$declared_data_type, "raw")) || looks_like_raw_counts(expr_prenorm)
           if (raw_count_like && norm_method %in% c("quantile", "auto")) {
             validate(need(FALSE,
-              "This data looks like raw, un-normalised sequencing counts (wide dynamic range, mostly integer values, or declared \"Raw counts\" on the Dataset tab). Quantile normalisation assumes already-comparable per-sample distributions and is not appropriate for raw counts. Choose \"TMM + log2-CPM\" under Normalisation instead, or \"None\" if this data is already normalised elsewhere."))
+              "This data looks like raw, un-normalised values (wide dynamic range, mostly integer values, or declared \"Raw counts\" on the Dataset tab). Quantile normalisation assumes already-comparable per-sample distributions and is not appropriate here. If this is raw RNA-seq count data, choose \"TMM + log2-CPM\" under Normalisation instead. If it's raw microarray data, set Log2 Transform to \"Auto-detect\" or \"Force\" above and preprocess it again first - quantile normalisation needs log-scale input."))
           }
           apply_qnorm <- switch(norm_method,
             skip = FALSE,
@@ -1372,6 +1390,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
         before = before, after = after, meta = meta, qc = qc,
         n_before = n_before, n_after = n_after,
         needs_log = needs_log, q99 = q99, apply_qnorm = apply_qnorm, norm_label = norm_label, norm_diag = norm_diag,
+        input_log2_applied = isTRUE(m$log2_applied), norm_method = norm_method,
         protect = protect, protect_dropped_for_batch = protect_dropped_for_batch,
         batch_col = input$batch_col, color_by = input$color_by,
         skip_combat = skip_combat, combat_prior = combat_prior,
@@ -1630,6 +1649,13 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       
       dataset$source_type <- if (was_uploaded) "uploaded" else if (was_geo) "geo" else "preloaded"
       dataset$is_bundled_reference <- FALSE
+      ## TMM always outputs log2-CPM; otherwise the data is only now log-scale if it was
+      ## already log2-transformed upstream (Preprocessing step) before this run. Quantile
+      ## normalisation alone doesn't change linear vs. log scale, so declared_data_type is
+      ## left as-is in every other case (e.g. still-linear "normalized" data stays "normalized").
+      if (identical(res$norm_method %||% "auto", "tmm") || isTRUE(res$input_log2_applied)) {
+        dataset$declared_data_type <- "logtransformed"
+      }
       output$activate_status_ui <- renderUI(
         div(class = "empty-note", icon("check"), "This is now the active dataset. Every other sub-module will use it.")
       )
