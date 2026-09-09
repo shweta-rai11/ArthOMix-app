@@ -4,7 +4,7 @@
 mod_crossancestry_config <- list(
   id = "crossancestry", group = "Genetics",
   title = "Cross-Ancestry MR Replication",
-  description = "MR comparison of the bundled RA cohort's prioritised genes across three GWAS arms (Okada 2014 EUR, Stahl 2010 EUR, BioBank Japan EAS), per sex. Okada 2014 includes the Stahl cohorts, so only BioBank Japan (EAS) is a genuinely independent replication. Any arm can be replaced by an upload. Replicates a fixed gene list only - no diagnostic-model transfer, no live dataset.",
+  description = "MR replication of prioritised genes across three GWAS arms (Okada 2014 EUR, Stahl 2010 EUR, BioBank Japan EAS), per sex. Okada includes Stahl, so only BioBank Japan is truly independent. Arms can be replaced by upload. Fixed gene list only - no diagnostic-model or live-dataset use.",
   icon = "earth-americas"
 )
 
@@ -73,7 +73,7 @@ mod_crossancestry_ui <- function(id) {
               selected = "eas", width = "100%"
             ),
             p(class = "submodule-desc",
-              "A delimited file (CSV/TSV), one row per SNP: any second GWAS, tested against this project's cis-eQTL instruments (the same ones the European/Okada discovery arm uses) for genes in the panel below. SNP IDs must be rsIDs to match those instruments."),
+              "A delimited file (CSV/TSV), one row per SNP, with columns for: SNP ID (rsID), beta, standard error, p-value, effect allele and other allele (effect allele frequency optional). Tested against this project's cis-eQTL instruments for genes in the panel below - map your columns to these fields below after upload."),
             textInput(ns("gwas_label"), "GWAS label (for display only)", value = "Uploaded GWAS", width = "100%"),
             fileInput(ns("gwas_file"), "GWAS file", accept = c(".csv", ".tsv", ".txt")),
             uiOutput(ns("gwas_map_ui"))
@@ -126,13 +126,19 @@ mod_crossancestry_server <- function(id, dataset, results) {
     uploaded_outcome <- reactive({
       req(input$gwas_file, input$gwas_snp, input$gwas_beta, input$gwas_se, input$gwas_pval, input$gwas_ea, input$gwas_oa)
       raw <- gwas_df_r()
-      validate(need(!is.null(raw), "Could not read the uploaded GWAS file."))
+      validate(need(!is.null(raw) && nrow(raw) > 0 && ncol(raw) > 0,
+        "Could not read the uploaded GWAS file - check it is a valid, non-empty CSV/TSV."))
       label <- if (nzchar(trimws(input$gwas_label %||% ""))) trimws(input$gwas_label) else "Uploaded GWAS"
-      out_fmt <- TwoSampleMR::format_data(
-        raw, type = "outcome", snp_col = input$gwas_snp, beta_col = input$gwas_beta,
-        se_col = input$gwas_se, pval_col = input$gwas_pval, effect_allele_col = input$gwas_ea,
-        other_allele_col = input$gwas_oa, eaf_col = if (nzchar(input$gwas_eaf %||% "")) input$gwas_eaf else "eaf"
+      out_fmt <- tryCatch(
+        TwoSampleMR::format_data(
+          raw, type = "outcome", snp_col = input$gwas_snp, beta_col = input$gwas_beta,
+          se_col = input$gwas_se, pval_col = input$gwas_pval, effect_allele_col = input$gwas_ea,
+          other_allele_col = input$gwas_oa, eaf_col = if (nzchar(input$gwas_eaf %||% "")) input$gwas_eaf else "eaf"
+        ),
+        error = arthomix_null_on_error
       )
+      validate(need(!is.null(out_fmt) && nrow(out_fmt) > 0,
+        "Could not parse the uploaded file with the selected column mapping - check that Beta/Standard error/p-value map to numeric columns and SNP ID maps to a column of rsIDs, then re-select the correct columns above."))
       out_fmt$outcome <- label
       list(dat = out_fmt, label = label)
     })
