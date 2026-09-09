@@ -832,6 +832,7 @@ mod_diagnostic_external_panel <- function(ns) {
     box(
       width = NULL, title = "External validation dataset", status = "primary", solidHeader = FALSE,
       p(class = "submodule-desc", "Score the trained models on a separate cohort to check whether the gene panel holds up outside the training data. This is the only true external validation in the Transcriptomics module: models fitted in Model Training are applied unchanged (no refitting, no re-tuning), and the external cohort is never used to train anything. Use the bundled cohort (GSE15573, PBMC, 18 RA/15 HC) or upload your own."),
+      uiOutput(ns("reserve_status_echo")),
       radioButtons(ns("ext_source"), "External cohort",
         choiceNames = list(
           tagList(icon("lock"), " Sealed validation samples reserved on the Dataset tab before any analysis ran (leakage-safe for the whole discovery pipeline)"),
@@ -990,6 +991,21 @@ mod_diagnostic_server <- function(id, dataset, results) {
       } else {
         as.data.frame(data.table::fread(path, showProgress = FALSE))
       }
+    })
+
+    output$reserve_status_echo <- renderUI({
+      ids <- dataset$reserved_ids %||% character(0)
+      if (length(ids) == 0) {
+        return(div(class = "empty-note", icon("circle-info"),
+          "No validation samples are currently reserved on the Dataset tab, so the \"Sealed validation samples\" option below has nothing to score yet. Reserve a hold-out there before running DE / WGCNA / Feature Selection / Model Training if you want this pipeline-wide leakage-safe check."))
+      }
+      info <- dataset$reserved_info
+      rt <- table(dataset$reserved_meta$group)
+      div(class = "empty-note", icon("lock"),
+        sprintf("%d validation samples are sealed (%s) - %d%% split, seed %s, stratified by %s. Score them below with \"Sealed validation samples\".",
+                length(ids), paste(sprintf("%s = %d", names(rt), as.integer(rt)), collapse = ", "),
+                round((info$frac %||% 0) * 100), info$seed %||% "-",
+                if (isTRUE(info$stratify_sex)) "group and sex" else "group"))
     })
 
     output$ext_column_mapping <- renderUI({
