@@ -284,13 +284,17 @@ mod_candidates_server <- function(id, dataset, results) {
     male_safe <- function() { req(male_has_run()); male_result() }
     pooled_safe <- function() { req(pooled_has_run()); pooled_result() }
 
-    register_panel <- function(prefix, res, btn_label = sprintf("Compute %s candidates", prefix)) {
+    ## `res` is the raw eventReactive (not the *_safe() wrapper) so that a validate()/req()
+    ## failure inside it - e.g. "Pick at least one WGCNA module above." - propagates to Shiny's
+    ## own validation display instead of being swallowed by arthomix_null_on_error and shown
+    ## as the generic (and misleading) "Not run yet" message once the button has been clicked.
+    register_panel <- function(prefix, res, has_run, btn_label = sprintf("Compute %s candidates", prefix)) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
-        r <- tryCatch(res(), error = arthomix_null_on_error)
-        if (is.null(r)) {
+        if (!isTRUE(has_run())) {
           return(div(class = "empty-note", icon("circle-info"),
             sprintf("Not run yet. Click \"%s\" above.", btn_label)))
         }
+        r <- res()
         tagList(
           p(strong(r$n_bg), " module-background genes, ", strong(r$n_deg), " significant DEGs (", r$contrast, ")",
             if (!is.na(r$n_panel)) tagList(", ", strong(r$n_panel), " genes in the selected gene panel") else NULL, "."),
@@ -303,8 +307,8 @@ mod_candidates_server <- function(id, dataset, results) {
       venn_fill_high <- c(female = "#1a7a3c", male = "#7a4a26", pooled = "#2c6fbb")[[prefix]]
 
       venn_obj <- reactive({
-        r <- tryCatch(res(), error = arthomix_null_on_error)
-        req(r)
+        req(has_run())
+        r <- res()
         draw_overlap_venn(r$sets, title = sprintf("%s: %d candidates", tools::toTitleCase(prefix), length(r$overlap)),
                            fill_high = venn_fill_high)
       })
@@ -317,8 +321,8 @@ mod_candidates_server <- function(id, dataset, results) {
       )
 
       output[[paste0(prefix, "_table")]] <- DT::renderDataTable({
-        r <- tryCatch(res(), error = arthomix_null_on_error)
-        req(r)
+        req(has_run())
+        r <- res()
         DT::datatable(r$stats, rownames = FALSE, filter = "top",
                        options = list(pageLength = 10, scrollX = TRUE), class = "stripe hover compact")
       })
@@ -329,9 +333,9 @@ mod_candidates_server <- function(id, dataset, results) {
       )
     }
 
-    register_panel("female", female_safe)
-    register_panel("male", male_safe)
-    register_panel("pooled", pooled_safe, btn_label = "Compute candidates")
+    register_panel("female", female_result, female_has_run)
+    register_panel("male", male_result, male_has_run)
+    register_panel("pooled", pooled_result, pooled_has_run, btn_label = "Compute candidates")
 
     output$final_set_picker_ui <- renderUI({
       radioButtons(

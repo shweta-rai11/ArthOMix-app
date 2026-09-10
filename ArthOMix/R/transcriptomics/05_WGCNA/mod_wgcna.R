@@ -16,11 +16,11 @@ wgcna_encode_trait <- function(meta, col, levels_keep = NULL) {
   as.numeric(factor(v, levels = sort(unique(stats::na.omit(v)))))
 }
 
-wgcna_trait_widget_id <- function(col, eligible_cols) paste0("trait_levels_", match(col, eligible_cols))
+wgcna_trait_widget_id <- function(col, eligible_cols, prefix = "trait_levels_") paste0(prefix, match(col, eligible_cols))
 
-wgcna_trait_levels <- function(input, meta, col, eligible_cols) {
+wgcna_trait_levels <- function(input, meta, col, eligible_cols, prefix = "trait_levels_") {
   if (is.numeric(meta[[col]])) return(NULL)
-  input[[wgcna_trait_widget_id(col, eligible_cols)]]
+  input[[wgcna_trait_widget_id(col, eligible_cols, prefix)]]
 }
 
 wgcna_cor_fnc <- function(cor_method) {
@@ -1210,7 +1210,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       meta <- net_result()$meta
       if (is.numeric(meta[[input$hub_trait]])) return(NULL)
       lv <- sort(unique(stats::na.omit(as.character(meta[[input$hub_trait]]))))
-      checkboxGroupInput(ns(wgcna_trait_widget_id(input$hub_trait, eligible_traits())),
+      checkboxGroupInput(ns(wgcna_trait_widget_id(input$hub_trait, eligible_traits(), prefix = "hub_trait_levels_")),
                           sprintf("\"%s\" levels to include", input$hub_trait),
                           choices = lv, selected = lv, inline = TRUE)
     })
@@ -1222,7 +1222,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       validate(need(me_col %in% colnames(net$MEs), "Selected module not found - re-run Step 3."))
 
       pre <- net$hub_table_precomputed
-      lv <- wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits())
+      lv <- wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits(), prefix = "hub_trait_levels_")
       use_precomputed <- !is.null(pre) && identical(input$hub_trait, "group") &&
         input$hub_module %in% unique(pre$module) &&
         (is.null(lv) || setequal(lv, sort(unique(stats::na.omit(as.character(net$meta$group))))))
@@ -1308,7 +1308,7 @@ mod_wgcna_server <- function(id, dataset, results) {
       me_col <- paste0("ME", input$hub_module)
       raw <- net$meta[[input$hub_trait]]
       df <- data.frame(ME = net$MEs[[me_col]], trait = raw)
-      hub_lv <- if (!is.numeric(raw)) wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits()) else NULL
+      hub_lv <- if (!is.numeric(raw)) wgcna_trait_levels(input, net$meta, input$hub_trait, eligible_traits(), prefix = "hub_trait_levels_") else NULL
       if (!is.numeric(raw) && length(hub_lv %||% character(0)) > 0) {
         df <- df[df$trait %in% hub_lv, , drop = FALSE]
       }
