@@ -53,7 +53,7 @@ mod_multi_overview_server <- function(id, multi_dataset = NULL, multi_results = 
               if (length(bc) > 0) selectInput(ns("batch_col"), "Batch/cohort column", choices = c("(none)" = "", bc)),
               if (identical(multi_dataset$source, "preloaded")) tagList(
                 selectInput(ns("preloaded_cell"), "Analysis cell (used for PCA and correlation)", choices = MULTI_CELL_CHOICES),
-                div(class = "empty-note", icon("circle-info"), "Preloaded cohort has no bundled raw matrix. PCA/correlation below use one analysis cell's matched-sample subset, recomputed from its saved DIABLO fit.")
+                div(class = "empty-note", icon("circle-info"), "Preloaded cohort has no bundled raw matrix. PCA/correlation below use one analysis cell's matched-sample subset, recomputed from its saved DIABLO fit. Sample counts, feature counts and matching describe the full bundled 80-patient pipeline cohort (PBMC RNA-seq and EPIC methylation QC tables), not the smaller sex x drug analysis cell loaded on the Dataset Workspace tab.")
               )
           ),
           actionButton(ns("analyze_btn"), "Analyze Cohort", icon = icon("magnifying-glass-chart"), class = "btn-primary btn-sm", width = "100%")

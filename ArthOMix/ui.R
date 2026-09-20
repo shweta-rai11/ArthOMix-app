@@ -922,7 +922,7 @@ homeUI <- function() {
         h1(class = "home-hero-title", home_hero_title_words("From raw omics data to potential biomarkers.")),
         p(
           class = "home-hero-subtitle",
-          "ArthOMix is an Shiny based web application used for transcriptomics, methylomics and integrated platform for identifying potential biomarkers across different omics layers."
+          "ArthOMix is a Shiny based web application used for transcriptomics, methylomics and integrated platform for identifying potential biomarkers across different omics layers."
         ),
         div(
           class = "home-hero-actions",
@@ -976,7 +976,7 @@ homeUI <- function() {
         h3(class = "home-goal-title", "Choose the analysis."),
         p(
           class = "home-goal-text",
-          "ArthOMix is designed as a modular application. The user can either uplaod raw data or normalised data for each of the omcis layers. For each modules (Transcriptomics, methylomics, Integrated) it has multiple sub-modules. See the upload guide for file format details before you upload the data"
+          "ArthOMix is designed as a modular application. The user can either upload raw data or normalised data for each of the omics layers. For each module (Transcriptomics, methylomics, Integrated) it has multiple sub-modules. See the upload guide for file format details before you upload the data"
         ),
         tags$a(
           class = "home-goal-chat-link", href = "#", onclick = ARTHOCHAT_DRAWER_OPEN_JS,
@@ -1015,15 +1015,15 @@ homeUI <- function() {
       class = "home-faq-list",
       home_faq_item(
         "Do I need to write code to run any analysis?",
-        "No. Every step - preprocessing, differential expression or differential methylation analysis, feature selection, model training and evaluation is click and anlyse inside the platform's sub-modules. No R or Python is required."
+        "No. Every step - preprocessing, differential expression or differential methylation analysis, feature selection, model training and evaluation is click and analyse inside the platform's sub-modules. No R or Python is required."
       ),
       home_faq_item(
         "What types of omics data can ArthOMix analyze?",
-        "It can analyse Transcriptomics,methylomics, intergated study like cross-omics or multiomics."
+        "It can analyse Transcriptomics, methylomics, and integrated studies like cross-omics or multiomics."
       ),
       home_faq_item(
         "Can I load my own data?",
-        "Yes - Use the uplaod data to upload your own data."
+        "Yes - use the upload option to upload your own data. This is a public server, so please upload only de-identified data and never identifiable patient information."
       ),
       home_faq_item(
         "Can I perform pooled and sex-specific analyses?",
@@ -1055,6 +1055,7 @@ homeUI <- function() {
     div(
       class = "home-footer",
       div(class = "home-footer-credit", "Developed by the Kovalchuk Lab, University of Lethbridge"),
+      div(class = "home-footer-credit", "For research use only, not for clinical decisions. Please do not upload identifiable patient data to this public server."),
       div(class = "home-footer-version", "ArthOMix v1.0.0")
     )
       ),

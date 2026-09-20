@@ -634,6 +634,10 @@ anthropic_available <- function() nzchar(Sys.getenv("ANTHROPIC_API_KEY", ""))
 ARTHOCHAT_HF_MODEL <- Sys.getenv("ARTHOCHAT_HF_MODEL", "Qwen/Qwen3-8B:nscale")
 hf_available <- function() nzchar(Sys.getenv("ARTHOCHAT_HF_TOKEN", ""))
 
+## Hugging Face sets SPACE_ID inside every Space container. Used only to word the
+## "no backend" message for public visitors, who cannot install Ollama or set env vars.
+arthochat_on_hosted_space <- function() nzchar(Sys.getenv("SPACE_ID", ""))
+
 ## ArthOChat prefers a hosted Anthropic model when ANTHROPIC_API_KEY is set, then
 ## Qwen3-8B on Hugging Face Inference Providers when ARTHOCHAT_HF_TOKEN is set (the
 ## Hugging Face Space), and falls back to local Ollama for offline development

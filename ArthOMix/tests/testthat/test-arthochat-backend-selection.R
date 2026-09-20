@@ -2,6 +2,7 @@
 ## Inference Providers, used by the Hugging Face Space) > local Ollama > none.
 ## Pure environment-variable logic, so no live LLM or network call is made.
 source_from_app_root("global.R")
+source_from_app_root(file.path("R", "shared", "mod_arthochat.R"))
 
 with_backend_env <- function(code, anthropic = "", hf = "") {
   old <- Sys.getenv(c("ANTHROPIC_API_KEY", "ARTHOCHAT_HF_TOKEN"), unset = NA)
@@ -54,4 +55,43 @@ test_that("with neither key set the backend falls through to ollama or none", {
 
 test_that("the pinned Hugging Face model is Qwen3-8B with a provider suffix", {
   expect_match(ARTHOCHAT_HF_MODEL, "^Qwen/Qwen3-8B(:[a-z0-9-]+)?$")
+})
+
+## --- Visitor-facing wording (public Hugging Face Space) -------------------------------
+
+with_space_id <- function(value, code) {
+  old <- Sys.getenv("SPACE_ID", unset = NA)
+  on.exit(if (is.na(old)) Sys.unsetenv("SPACE_ID") else Sys.setenv(SPACE_ID = old), add = TRUE)
+  if (is.na(value)) Sys.unsetenv("SPACE_ID") else Sys.setenv(SPACE_ID = value)
+  force(code)
+}
+
+test_that("arthochat_on_hosted_space() follows the SPACE_ID variable Hugging Face sets", {
+  with_space_id("user/ArthOMix", expect_true(arthochat_on_hosted_space()))
+  with_space_id(NA,              expect_false(arthochat_on_hosted_space()))
+})
+
+test_that("with no backend, a Space visitor is not told to install Ollama or set env vars", {
+  with_backend_env({
+    with_ollama(FALSE, {
+      html <- function() as.character(mod_arthochat_ui("chat"))
+      with_space_id("user/ArthOMix", {
+        expect_match(html(), "not enabled on this server", fixed = TRUE)
+        expect_no_match(html(), "Ollama", fixed = TRUE)
+        expect_no_match(html(), "ANTHROPIC_API_KEY", fixed = TRUE)
+      })
+      ## Local development keeps the setup instructions.
+      with_space_id(NA, {
+        expect_match(html(), "ollama pull", fixed = TRUE)
+        expect_match(html(), "ARTHOCHAT_HF_TOKEN", fixed = TRUE)
+      })
+    })
+  })
+})
+
+test_that("the privacy note appears only for hosted backends, not for local Ollama", {
+  with_backend_env(hf = "hf_dummy",        expect_match(as.character(arthochat_privacy_note()), "third-party", fixed = TRUE))
+  with_backend_env(anthropic = "sk-dummy", expect_match(as.character(arthochat_privacy_note()), "identifiable patient information", fixed = TRUE))
+  with_backend_env(with_ollama(TRUE,  expect_null(arthochat_privacy_note())))
+  with_backend_env(with_ollama(FALSE, expect_null(arthochat_privacy_note())))
 })

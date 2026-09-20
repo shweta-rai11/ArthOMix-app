@@ -288,6 +288,15 @@ build_arthochat_system_prompt <- function(view, dataset, results,
   paste(ARTHOCHAT_SYSTEM_PROMPT, "", sprintf("## Current view: %s", view$view_label), "", ctx, sep = "\n")
 }
 
+## Shown above the chat when a hosted model is in use, because the questions leave the
+## server. A local Ollama model keeps everything on-device, so it gets no note.
+## Wording matches what .summarise_result_value() actually sends (R/modules_index.R).
+arthochat_privacy_note <- function() {
+  if (!(arthochat_backend() %in% c("anthropic", "huggingface"))) return(NULL)
+  p(class = "submodule-desc",
+    "Privacy: your questions and short summaries of your results (table sizes, column names, top gene/CpG names) are sent to a third-party language-model service. Sample and patient ID lists are withheld. Do not type identifiable patient information here.")
+}
+
 mod_arthochat_ui <- function(id) {
   ns <- NS(id)
   if (identical(arthochat_backend(), "none")) {
@@ -296,16 +305,21 @@ mod_arthochat_ui <- function(id) {
         class = "coming-soon",
         icon("robot", class = "coming-soon-icon"),
         h4("ArthOChat isn't reachable"),
-        p(sprintf(
-          "No AI backend is configured. Set ARTHOCHAT_HF_TOKEN (Qwen3-8B via Hugging Face Inference Providers) or ANTHROPIC_API_KEY, or run a local Ollama server: install Ollama, run \"ollama pull %s\", and make sure it's running at %s. Then reload this page.",
-          ARTHOMIX_OLLAMA_MODEL, ollama_base_url()
-        ))
+        if (arthochat_on_hosted_space()) {
+          p("ArthOChat is not enabled on this server right now. All analysis modules work without it.")
+        } else {
+          p(sprintf(
+            "No AI backend is configured. Set ARTHOCHAT_HF_TOKEN (Qwen3-8B via Hugging Face Inference Providers) or ANTHROPIC_API_KEY, or run a local Ollama server: install Ollama, run \"ollama pull %s\", and make sure it's running at %s. Then reload this page.",
+            ARTHOMIX_OLLAMA_MODEL, ollama_base_url()
+          ))
+        }
       )
     )
   }
   tagList(
     p(class = "submodule-desc",
       "Ask about your dataset, results, or the science behind them."),
+    arthochat_privacy_note(),
     shinychat::chat_ui(
       ns("chat"),
       placeholder = "Ask about your dataset, results, or the science behind them...",
