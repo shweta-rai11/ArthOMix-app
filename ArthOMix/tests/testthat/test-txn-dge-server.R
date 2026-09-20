@@ -95,7 +95,7 @@ test_that("limma is rejected on raw, un-normalised count data", {
     session$setInputs(run_btn = 1)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
-    expect_true(grepl("raw, non-negative sequencing counts", conditionMessage(err)))
+    expect_true(grepl("raw, non-negative, un-normalised values", conditionMessage(err)))
   })
 })
 
@@ -226,7 +226,7 @@ test_that("a declared_data_type = 'raw' on the shared dataset lets DESeq2 run ev
     session$setInputs(run_btn = 2)
     err <- tryCatch(fit_result(), error = function(e) e)
     expect_s3_class(err, "validation")
-    expect_true(grepl("raw, non-negative sequencing counts", conditionMessage(err)))
+    expect_true(grepl("raw, non-negative, un-normalised values", conditionMessage(err)))
   })
 })
 

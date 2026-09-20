@@ -175,7 +175,7 @@ test_that("normalisation left at 'auto' refuses to quantile-normalise raw-count-
     error = function(e) e
   )
   expect_true(inherits(res, "shiny.silent.error") || inherits(res, "validation"))
-  expect_true(grepl("raw, un-normalised sequencing counts", conditionMessage(res)))
+  expect_true(grepl("raw, un-normalised values", conditionMessage(res)))
 })
 
 test_that("normalisation explicitly forced to 'quantile' still refuses raw-count-like data", {
