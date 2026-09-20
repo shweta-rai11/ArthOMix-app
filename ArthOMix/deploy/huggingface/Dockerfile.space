@@ -1,0 +1,23 @@
+# ArthOMix Explorer - Hugging Face Space image (Docker SDK).
+# Target hardware: CPU Basic (2 vCPU / 16 GB RAM / ephemeral disk), amd64.
+# The Space runs the container as UID 1000, listens on 7860 (README app_port).
+#
+# All R/Bioconductor packages come from the prebuilt base image (Dockerfile.base,
+# built by .github/workflows/build-hf-base-image.yml): the Hugging Face builder times
+# out on a from-scratch renv restore. This image only adds the app code.
+FROM ghcr.io/shweta-rai11/arthomix-base:r4.4.2
+
+## Unprivileged runtime user (UID 1000). The image holds code only: the ~3.8 GB data
+## tree lives in a private bucket mounted at /data and is linked into /app/data by
+## start.sh at boot (a Space repo is capped at 1 GB).
+WORKDIR /app
+RUN mkdir -p /home/hfuser /app/results /app/data && chown 1000:1000 /home/hfuser /app/results /app/data
+ENV HOME=/home/hfuser
+
+COPY --chown=1000:1000 . /app
+RUN chmod +x /app/start.sh
+
+USER 1000
+EXPOSE 7860
+
+CMD ["/app/start.sh"]

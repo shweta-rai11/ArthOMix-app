@@ -1,0 +1,55 @@
+# ArthOMix base image: R 4.4.2 + system libs + every R/Bioconductor package + mofapy2.
+# Built once on GitHub Actions (amd64, no 30-minute limit) and pulled by the Space image
+# (Dockerfile.space), because the Hugging Face builder times out on the ~450-package
+# renv restore. Rebuild only when renv.lock changes.
+FROM rocker/r-ver:4.4.2
+
+LABEL org.opencontainers.image.source="https://github.com/shweta-rai11/ArthOMix-app"
+LABEL org.opencontainers.image.description="ArthOMix Explorer base image (R packages only, no app code or data)"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libxml2-dev \
+    pandoc \
+    libfontconfig1-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libtiff-dev \
+    libjpeg-dev \
+    libcairo2-dev \
+    libxt-dev \
+    libblas-dev \
+    liblapack-dev \
+    gfortran \
+    zlib1g-dev \
+    libmagick++-dev \
+    libglpk-dev \
+    libglu1-mesa-dev \
+    libgl1-mesa-dev \
+    freeglut3-dev \
+    libhdf5-dev \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+## MOFA2 runs its factor model through the Python package mofapy2 (the app calls
+## MOFA2::run_mofa(use_basilisk = FALSE) and resolves the interpreter from
+## RETICULATE_PYTHON).
+RUN pip3 install --no-cache-dir --break-system-packages "mofapy2==0.7.5" || pip3 install --no-cache-dir "mofapy2==0.7.5"
+ENV RETICULATE_PYTHON=/usr/bin/python3
+
+## Packages go into the system site-library (readable by any runtime UID).
+## Disable the renv cache: it would symlink into /root/.cache, which an
+## unprivileged runtime user cannot read.
+ENV RENV_CONFIG_CACHE_ENABLED=FALSE
+WORKDIR /build
+RUN R -e "install.packages('renv', repos = 'https://cloud.r-project.org')"
+COPY renv.lock renv.lock
+RUN R -e "renv::restore(lockfile = 'renv.lock', library = .Library.site[1], prompt = FALSE)"
+
+## Fail the build early, with a readable message, if a core package is missing.
+RUN R -e "need <- c('shiny','mixOmics','WGCNA','MOFA2','SNFtool','limma','minfi'); miss <- setdiff(need, rownames(installed.packages())); if (length(miss)) stop('missing packages: ', paste(miss, collapse=', '))"
