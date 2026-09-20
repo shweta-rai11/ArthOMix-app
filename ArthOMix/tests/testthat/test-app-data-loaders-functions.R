@@ -47,11 +47,20 @@ test_that("transcriptomics results/tables files used across submodules are reada
   expect_true(file.exists(file.path(TABLES_DIR, "MR_male_all_tables.xlsx")))
 })
 
-test_that("gene panels are discoverable and loadable", {
+test_that("gene panels: none are bundled, but a dropped-in .txt is discoverable and loadable", {
+  expect_length(list_gene_panels(), 0)
+
+  panel_env <- environment(list_gene_panels)
+  tmp <- tempfile("gene_panels_")
+  dir.create(tmp)
+  old_dir <- get("GENE_PANELS_DIR", envir = panel_env)
+  assign("GENE_PANELS_DIR", tmp, envir = panel_env)
+  on.exit(assign("GENE_PANELS_DIR", old_dir, envir = panel_env), add = TRUE)
+  writeLines(c("GPX4", "", " SLC7A11 ", "GPX4"), file.path(tmp, "my_test_panel.txt"))
+
   panels <- list_gene_panels()
-  expect_gte(length(panels), 1)
-  genes <- load_gene_panel(panels[[1]])
-  expect_gt(length(genes), 0)
+  expect_equal(names(panels), "My Test Panel")
+  expect_equal(load_gene_panel(panels[[1]]), c("GPX4", "SLC7A11"))
 })
 
 test_that("methylomics DMP (plain + SVA) and DMR load with the expected row counts", {

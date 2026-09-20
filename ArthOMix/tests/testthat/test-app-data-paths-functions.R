@@ -74,7 +74,6 @@ test_that("multi-omics table + fit registry paths all exist", {
 
 test_that("reference and annotation files exist", {
   expect_true(file.exists(get_reference_path("cytoBandIdeo_hg19.txt.gz")))
-  expect_true(length(list.files(GENE_PANELS_DIR, pattern = "\\.txt$")) >= 1)
 })
 
 test_that("regenerable cache dirs were created under data/.cache, not data/preloaded", {
