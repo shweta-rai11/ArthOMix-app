@@ -10,6 +10,7 @@ LABEL org.opencontainers.image.description="ArthOMix Explorer base image (R pack
 ## cmake (nloptr), libuv1-dev (fs), libicu-dev (stringi) and make were missing in the
 ## first run; the rest was checked against Posit Package Manager's sysreqs for Ubuntu 24.04.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     cmake \
     make \
     libuv1-dev \
@@ -51,11 +52,25 @@ ENV RETICULATE_PYTHON=/usr/bin/python3
 ## Packages go into the system site-library (readable by any runtime UID).
 ## Disable the renv cache: it would symlink into /root/.cache, which an
 ## unprivileged runtime user cannot read.
+## renv gives each package install 300 s by default; missMethyl needs longer. The
+## project's .Rprofile raises it to 9000 s, but that file is not in this build context.
 ENV RENV_CONFIG_CACHE_ENABLED=FALSE
+ENV RENV_CONFIG_INSTALL_TIMEOUT=9000
 WORKDIR /build
 RUN R -e "install.packages('renv', repos = 'https://cloud.r-project.org')"
 COPY renv.lock renv.lock
-RUN R -e "renv::restore(lockfile = 'renv.lock', library = .Library.site[1], prompt = FALSE)"
+
+## Step 1 (about an hour): everything except four packages that failed in the first
+## runs. Kept as its own layer so a problem in steps 2-3 does not redo this work.
+RUN R -e "options(renv.install.timeout = 9000L); renv::restore(lockfile = 'renv.lock', library = .Library.site[1], prompt = FALSE, exclude = c('MCPcounter', 'missMethyl', 'DMRcate', 'ChAMP'))"
+
+## Step 2: missMethyl (slow install; needed by DMRcate and ChAMP), then those two.
+RUN R -e "options(renv.install.timeout = 9000L); renv::restore(lockfile = 'renv.lock', library = .Library.site[1], prompt = FALSE, packages = c('missMethyl', 'DMRcate', 'ChAMP'))"
+
+## Step 3: MCPcounter is a GitHub package in a repo subfolder; inside the full restore
+## graph renv failed with "target file ... already exists", so install it on its own,
+## falling back to an explicit pinned install of the same commit as renv.lock.
+RUN R -e "options(renv.install.timeout = 9000L); ok <- tryCatch({renv::restore(lockfile = 'renv.lock', library = .Library.site[1], prompt = FALSE, packages = 'MCPcounter'); TRUE}, error = function(e) {message('restore failed: ', conditionMessage(e)); FALSE}); if (!ok || !('MCPcounter' %in% rownames(installed.packages()))) renv::install('ebecht/MCPcounter/Source@b6eac73e91c246fcff0bb1a5c68a816cd588fc48', library = .Library.site[1], prompt = FALSE)"
 
 ## Fail the build early, with a readable message, if a core package is missing.
-RUN R -e "need <- c('shiny','mixOmics','WGCNA','MOFA2','SNFtool','limma','minfi'); miss <- setdiff(need, rownames(installed.packages())); if (length(miss)) stop('missing packages: ', paste(miss, collapse=', '))"
+RUN R -e "need <- c('shiny','mixOmics','WGCNA','MOFA2','SNFtool','limma','minfi','missMethyl','DMRcate','ChAMP','MCPcounter'); miss <- setdiff(need, rownames(installed.packages())); if (length(miss)) stop('missing packages: ', paste(miss, collapse=', '))"
