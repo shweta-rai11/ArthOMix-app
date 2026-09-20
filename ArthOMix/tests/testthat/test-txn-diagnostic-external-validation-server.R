@@ -1,8 +1,4 @@
-## Module 1 (Transcriptomics) - Diagnostic Model's External Validation tab, via testServer():
-## the bundled GSE15573 blood cohort is scored with the frozen models trained on the bundled
-## reference cohort (no refitting), the result is persisted to results$diagnostic[[sex]]$external
-## for the Biomarker Card's external-validation tier, and a provenance record is pushed.
-## Added 2026-09-05 in response to the transcriptomics audit (findings 2 and 3).
+## External Validation tab: bundled GSE15573 is scored with frozen reference-cohort models and saved to results$diagnostic[[sex]]$external.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

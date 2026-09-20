@@ -1233,21 +1233,14 @@ bc_section_disease_evidence <- function(ext) {
       body)
 }
 
-## Match rheumatoid arthritis specifically - "arthritis" alone also matches
-## osteoarthritis, psoriatic arthritis, juvenile idiopathic arthritis, reactive
-## arthritis, etc., none of which are the disease this banner claims (RED
-## finding, 2026-09-07 defense audit: disease-misattribution risk).
+## Match rheumatoid arthritis specifically; bare "arthritis" also hits osteoarthritis, psoriatic, etc.
 bc_is_ra_trait <- function(traits) grepl("\\brheumatoid\\b", traits, ignore.case = TRUE)
 
 bc_section_ra_evidence <- function(ext) {
   if (is.null(ext)) return(bc_ext_not_fetched("Rheumatoid Arthritis Evidence", "hand-dots"))
   ra <- ext$ra_rows
   any_match <- !is.null(ra) && nrow(ra) > 0
-  ## A single unfiltered database hit is not evidence of a real, replicated
-  ## association - require either a nominally significant p-value in at least one
-  ## row, or independent replication (>=2 distinct PMIDs), before the green
-  ## "associated" banner fires (RED finding, 2026-09-07 defense audit: no
-  ## significance/effect-size/replication gate existed at all).
+  ## Green "associated" banner needs a nominally significant p in some row, or >=2 distinct PMIDs.
   sig_p <- if (any_match) suppressWarnings(as.numeric(ra$p)) else numeric(0)
   has_sig_p <- any(!is.na(sig_p) & sig_p < 0.05)
   n_indep_studies <- if (any_match) length(unique(stats::na.omit(ra$pmid))) else 0L

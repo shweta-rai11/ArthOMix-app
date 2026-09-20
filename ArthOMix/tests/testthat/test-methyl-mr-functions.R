@@ -1,29 +1,12 @@
-## Regression coverage for a gap found in the forensic audit (2026-09-03):
-## the Methylomics Mendelian Randomization module (mod_methyl_mr.R) had NO
-## test file at all, despite being the most methodologically dense module in
-## Methylomics (real TwoSampleMR-based harmonisation, F-statistic
-## weak-instrument flagging, and heterogeneity/pleiotropy/leave-one-out
-## sensitivity analysis gated on per-CpG instrument count). These tests drive
-## the real upload data_source through testServer(), walking the module's own
-## stage sequence (Data -> Instruments -> Clump -> Harmonise -> MR -> Sensitivity)
-## exactly as the UI would, on synthetic but well-formed two-sample-MR-format
-## mQTL/GWAS files for a single CpG.
-##
-## LD clumping (ieugwasr::ld_clump()) requires network access to the IEU
-## OpenGWAS API, unavailable in this environment; the module already handles
-## that failure gracefully (falls back to the unclumped instrument set with a
-## status note) - clicking through the Clump stage below exercises exactly
-## that graceful-fallback path, which is itself worth confirming works.
+## Tests mod_methyl_mr.R via testServer() on synthetic two-sample-MR files for one CpG, through every stage.
+## LD clumping needs the network (OpenGWAS), so the Clump stage exercises the unclumped-instrument fallback.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "methylomics", "11_Mendelian_Randomization", "mod_methyl_mr.R"))
 
-## One CpG, 5 SNP instruments: snp1/snp2/snp3/snp5 are strong (F well above
-## the default cutoff of 10); snp4 is a deliberately weak instrument (F well
-## below 10). Outcome effects are exposure effects x a fixed causal multiplier
-## (0.3) plus small noise - a real, roughly-linear relationship.
+## One CpG, 5 SNPs: snp4 is weak (F << 10), the rest strong; outcome effects = 0.3 x exposure effects + noise.
 mmr_write_upload_files <- function(dir, cpg = "cg00000001", weak_beta = 0.02, seed = 77) {
   set.seed(seed)
   snps <- paste0("snp", 1:5)
@@ -74,10 +57,7 @@ run_mmr_upload_stages <- function(fx, f_min_f = 10, f_pval = 1,
     out$data_state <<- data_state()
 
     if (stop_at >= 2) {
-      ## f_exclude_weak = TRUE: by default weak instruments are only FLAGGED
-      ## (weak_instrument = TRUE) but still counted as "retained" - a
-      ## deliberate "flag, don't silently drop" design. Excluding them from
-      ## "retained" (what actually reaches MR) requires this explicit opt-in.
+      ## f_exclude_weak = TRUE: weak instruments are only flagged (still "retained") by default.
       session$setInputs(f_pval = f_pval, f_min_f = f_min_f, f_maf = 0, f_require_eaf = FALSE,
                          f_region_mode = "cis", f_min_instruments = 1, f_exclude_weak = TRUE)
       session$setInputs(instruments_btn = 1)
@@ -146,10 +126,7 @@ test_that("the weak instrument is genuinely absent from the harmonised instrumen
 test_that("raising the F-statistic cutoff further excludes more instruments, in the expected direction", {
   dir <- withr::local_tempdir()
   fx <- mmr_write_upload_files(dir)
-  ## F-stats: snp1=100, snp2=144, snp3=121, snp4=0.16, snp5=81. A cutoff of
-  ## 110 retains only snp2 and snp3 (both the weak snp4 AND the merely
-  ## moderate snp1/snp5 are now excluded too), unlike the default cutoff of
-  ## 10 which retains everything except snp4.
+  ## F-stats: snp1=100, snp2=144, snp3=121, snp4=0.16, snp5=81; cutoff 110 keeps snp2/snp3, default 10 all but snp4.
   out <- run_mmr_upload_stages(fx, f_min_f = 110, f_pval = 1, through = "harmonise")
   h <- out$harmonise_state$harmonised
   expect_setequal(h$SNP, c("snp2", "snp3"))
@@ -163,18 +140,12 @@ test_that("MR analysis runs via TwoSampleMR::mr() and produces a real IVW estima
   expect_true(nrow(res) > 0)
   expect_true("Inverse variance weighted" %in% res$method | "mr_ivw" %in% res$method)
   ivw_row <- res[grepl("nverse variance", res$method) | res$method == "mr_ivw", ][1, ]
-  ## The true causal multiplier injected into the fixture is 0.3 - the IVW
-  ## estimate on 4 clean instruments should land in its ballpark, not be wildly
-  ## off (a broken harmonisation - e.g. an unflipped allele - would typically
-  ## produce a wrong-signed or wildly-scaled estimate instead).
+  ## The IVW estimate should land near the injected 0.3; broken harmonisation would give a wrong sign or scale.
   expect_gt(ivw_row$b, 0.15); expect_lt(ivw_row$b, 0.45)
 })
 
 test_that("a completed MR run writes back to shared methyl_results so ArthoChat's grounding sees it as run", {
-  ## Regression guard for the 2026-09-07 defense audit finding: mod_methyl_mr_server
-  ## received methyl_results but never wrote to it, so ArthoChat's context builder
-  ## (which keys off methyl_results[["mr"]] being non-NULL) permanently reported
-  ## this sub-module as "NOT YET RUN IN THIS SESSION" even after a real MR run.
+  ## Guard: the module must write methyl_results[["mr"]], or ArthoChat reports it "NOT YET RUN" after a real run.
   dir <- withr::local_tempdir()
   fx <- mmr_write_upload_files(dir)
   out <- run_mmr_upload_stages(fx, f_min_f = 10, f_pval = 1, through = "mr")

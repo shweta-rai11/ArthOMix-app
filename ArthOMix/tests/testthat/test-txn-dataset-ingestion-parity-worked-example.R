@@ -1,18 +1,5 @@
-## Worked example (2026-09-07 defense audit, item 5): a single real, public GEO
-## accession (GSE110169, whole-blood RA/SLE/HC microarray cohort) loaded through
-## two of the app's three ingestion paths and cross-checked for logical
-## consistency - not byte-identical matrices (probe-level vs. gene-symbol-
-## collapsed representations differ legitimately), but the same sample set with
-## the same group/sex labels reaching the same shared dataset structure.
-##
-## Path A (preloaded): mod_dataset.R's individual_dataset_entry("GSE110169"),
-## the app's own bundled raw probe-level Affymetrix data for this accession.
-## Path B (upload): data/examples/transcriptomics_upload/geo_transcriptomics/
-## GSE110169_{exp,sample}.csv, a gene-symbol-collapsed export of the same GEO
-## series, uploaded exactly the way a reviewer would upload their own data.
-## Path C (GEO fetch, live/optional): fetching GSE110169 directly from NCBI -
-## network-dependent, gated behind ARTHOMIX_RUN_LIVE_GEO_TESTS like the other
-## live GEO test in test-txn-dataset-geo-server.R.
+## Worked example: GSE110169 via the preloaded and upload paths must give the same samples and consistent group/sex labels.
+## Path C (live GEO fetch) is optional and gated behind ARTHOMIX_RUN_LIVE_GEO_TESTS.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -50,10 +37,7 @@ test_that("Path A (preloaded) and Path B (upload) of the SAME GEO accession conv
   meta_a <- shiny::isolate(dataset_a$meta)
   meta_b <- shiny::isolate(dataset_b$meta)
 
-  ## Same conceptual data type and orientation: both are sample-level matrices
-  ## keyed by the same real GEO GSM accessions (not probe/row identity, which
-  ## legitimately differs - Path A is raw probe-level, Path B is gene-symbol-
-  ## collapsed, exactly the two representations the app itself supports).
+  ## Both are sample-level matrices keyed by the same GSM accessions; rows legitimately differ (probe vs gene symbol).
   common <- intersect(meta_a$sample, meta_b$sample)
   expect_gt(length(common), 200)                 # both cover ~all 243 GSM samples
   expect_equal(length(common), nrow(meta_a))     # every preloaded sample is present in the upload
@@ -62,13 +46,7 @@ test_that("Path A (preloaded) and Path B (upload) of the SAME GEO accession conv
   pm <- meta_a[match(common, meta_a$sample), ]
   um <- meta_b[match(common, meta_b$sample), ]
 
-  ## Group labels differ in spelling (preloaded: HC/RA/SLE; upload's raw GEO
-  ## export: Normal/RA/SLE) but must be a CONSISTENT relabeling - every "Normal"
-  ## upload sample must be "HC" in the preloaded path and nowhere else, and
-  ## RA/SLE must line up exactly with no cross-contamination between disease
-  ## groups. This is the actual "logically consistent results" check the
-  ## worked example is for - a real, disease-label ingestion-parity bug would
-  ## show up as off-diagonal entries here.
+  ## Group labels differ in spelling (HC vs Normal) but must relabel consistently, with no off-diagonal entries.
   group_map <- c(Normal = "HC", RA = "RA", SLE = "SLE")
   expect_equal(unname(group_map[um$group]), pm$group)
 

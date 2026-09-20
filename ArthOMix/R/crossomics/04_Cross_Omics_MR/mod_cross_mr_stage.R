@@ -1,10 +1,5 @@
 ## R/crossomics/04_Cross_Omics_MR/mod_cross_mr_stage.R
-## MR Evidence: viewer/classifier for already-computed single-instrument mQTL-MR
-## results (Wald ratio, GoDMC -> Ishigaki RA). This module does not select
-## instruments, harmonize alleles, or compute a causal estimate itself - MR is
-## run externally and loaded here (preloaded, or an upload of externally-run
-## results); see mod_cross_mr_stage_ui's "Ask ArthOChat" copy, which is explicit
-## that ArthOChat won't run MR either, only suggest candidate GWAS datasets.
+## MR Evidence: viewer/classifier for externally-run single-instrument mQTL-MR results; computes no MR itself.
 
 mod_cross_mr_stage_config <- list(
   id = "mrstage", title = "MR Evidence", icon = "arrow-right-arrow-left", group = "Genetics",
@@ -144,10 +139,7 @@ mod_cross_mr_stage_server <- function(id, cross_dataset, cross_results = NULL, a
       if (!res$ok) { showNotification(res$error, type = "error", duration = 12); return() }
       uploaded_evidence$df <- cx_bc_relabel(res$df, CX_BC_DEFAULT_PARAMS)
       showNotification(sprintf("Loaded evidence for %s genes from \"%s\".", format(nrow(res$df), big.mark = ","), input$upload_evidence_file$name), type = "message")
-      ## This handler was the one gap in an otherwise-logged sub-module (its
-      ## siblings load_mr/load_mr_upload both push below): the gene-level
-      ## evidence table feeding all five MR convergence categories could be
-      ## swapped in with no session-log trace.
+      ## Log this handler like load_mr/load_mr_upload, so swapping the gene-level evidence table leaves a trace.
       arthomix_provenance_push(arthomix_provenance_record(
         module = "mod_cross_mr_stage",
         checksum_input = list(gene = res$df$gene),

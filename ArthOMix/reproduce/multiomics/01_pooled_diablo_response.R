@@ -1,26 +1,5 @@
-## Independent sanity check of the app's headline Multi-Omics finding: does a
-## live DIABLO nested-CV fit, run on freshly-fetched real GEO data from the
-## Tao et al. 2021 cohort (GSE138746 RNA-seq + GSE138653 methylation, ground-
-## truth-confirmed via NCBI E-utilities - see session notes), recover
-## meaningful discrimination for anti-TNF response, closer to the paper's own
-## published 0.79-0.89 accuracy range, or does it also land near-chance like
-## the app's bundled sex-stratified numbers (female 0.411 / male 0.565,
-## Table8_benchmark_vs_published.csv)?
-##
-## Uses the app's own leakage-safe engine (mss_nested_cv - feature selection
-## refit inside every fold, out-of-fold AUROC) in its built-in POOLED mode (no
-## sex split - sex labels for this cohort could not be reliably matched
-## between the two independently-submitted GEO series; see session notes).
-## Response binarized EULAR-standard: Good+Moderate = Responder, No = NonResponder.
-##
-## Data: data/examples/multiomics_upload/gse138746_pbmc_rnaseq_counts.csv (RNA-seq,
-## 18333 genes x 79 patients) + gse138653_methylation_beta_top2000.csv (2000 CpGs x
-## 79 patients) + gse138747_sample_metadata.csv (drug/response) - pre-existing in
-## this repo, independently legitimacy-checked this session (realistic count/beta
-## ranges, drug counts 37 ADA/42 ETN match the paper's 38/42 almost exactly).
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/multiomics/01_pooled_diablo_response.R
+## Sanity check: pooled DIABLO nested-CV (mss_nested_cv) on GSE138746 + GSE138653 for anti-TNF response vs the paper's 0.79-0.89.
+## Run from the app directory: Rscript reproduce/multiomics/01_pooled_diablo_response.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

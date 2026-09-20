@@ -1,15 +1,5 @@
-## Regenerates the methylomics WGCNA co-methylation network stage from
-## beta_raw.rds, using the exact "preloaded"-mode parameters the live app
-## itself encodes as its own defaults (mod_methyl_wgcna.R): sex-stratified,
-## MAD top-20000 CpGs (M-value scale), no residualization, 5% max missingness,
-## pearson correlation, signed network/TOM, custom power vector
-## 1,2,...,10,12,14,16,18,20 targeting R^2>=0.85, minModuleSize=20, deepSplit=2,
-## mergeCutHeight=0.25, maxBlockSize=5000, pamStage/pamRespectsDendro=TRUE,
-## reassignThreshold=1e-6, minKMEtoStay=0.3, minCoreKME=0.5, seed=1234.
-## Compares module sizes/assignments against module_assignment_{female,male}.csv.
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/methylomics/04_wgcna.R
+## Regenerates the WGCNA co-methylation stage with the app's preloaded-mode defaults; compares to module_assignment_*.csv.
+## Run from the app directory: Rscript reproduce/methylomics/04_wgcna.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

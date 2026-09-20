@@ -149,10 +149,7 @@ test_that("declaring 'Raw counts' for a matrix that is actually TPM-normalized i
 })
 
 test_that("a duplicate sample ID in the uploaded metadata (matching an expression column) is rejected - ingestion parity with the GEO path", {
-  ## Ingestion-parity check (2026-09-07 defense audit, item 8): the upload and
-  ## GEO fetch paths in mod_dataset.R share byte-identical duplicate-sample-ID
-  ## validation logic and message text. See the matching GEO-side test in
-  ## test-txn-dataset-geo-server.R.
+  ## Ingestion parity: upload and GEO fetch share duplicate-sample-ID validation (see test-txn-dataset-geo-server.R).
   dup_meta <- fm$meta
   dup_meta$sample[2] <- dup_meta$sample[1]  # two rows now both say "S01", which is a real expr column
   dir <- withr::local_tempdir()

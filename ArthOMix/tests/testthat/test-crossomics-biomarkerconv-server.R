@@ -26,13 +26,7 @@ test_that("loading the real precomputed female eQTL x mQTL table populates bc_df
     raw_file <- as.data.frame(data.table::fread(cx_bc_precomputed_file("female")))
     expect_true(sum(df$in_mQTL_MR_panel %in% TRUE) >= sum(raw_file$in_mQTL_MR_panel %in% TRUE))
 
-    ## Regression guard for the 2026-09-07 defense audit finding: the
-    ## provenance-manifest export was wired for only 2 of ~40 download paths,
-    ## with Cross-Omics entirely unwired to the shared session-wide log.
-    ## (load_table is primed 0 -> 1 above per the testServer actionButton
-    ## gotcha, and this plain observeEvent has no ignoreInit - so it legitimately
-    ## fires on both the priming step and the "real" click; check the latest
-    ## record rather than assume a single push.)
+    ## Fires on both the priming step and the real click (no ignoreInit), so check the latest provenance record.
     recs <- arthomix_provenance_records(session)
     expect_gte(length(recs), 1)
     last <- recs[[length(recs)]]

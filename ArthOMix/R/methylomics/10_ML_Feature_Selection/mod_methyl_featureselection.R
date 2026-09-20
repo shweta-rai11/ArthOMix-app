@@ -786,13 +786,7 @@ mod_methyl_featureselection_server <- function(id, dataset, results = NULL) {
         frac <- min(max(input$fs_holdout_frac %||% 0.3, 0.1), 0.5)
         full_ids <- colnames(mat1)
         set.seed(input$fs_holdout_seed %||% 1234)
-        ## The old fallback (`error = function(e) seq_along(full_ids)`) treated a
-        ## createDataPartition() failure as "put every sample in the training set" -
-        ## a 100%/0% train/holdout split that silently reported success ("Held-out
-        ## split" note was only ever shown `if (length(holdout_sample_ids) > 0)`, so on
-        ## fallback it showed NO note at all - RED finding, 2026-09-07 defense audit).
-        ## A partition failure must stop the run with a clear message, never silently
-        ## degrade to zero holdout samples.
+        ## A createDataPartition() failure must stop the run, not fall back to an all-training split.
         train_idx <- tryCatch(
           as.integer(caret::createDataPartition(grp, p = 1 - frac, list = FALSE)[, 1]),
           error = function(e) e

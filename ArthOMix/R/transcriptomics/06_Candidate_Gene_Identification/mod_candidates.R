@@ -284,10 +284,7 @@ mod_candidates_server <- function(id, dataset, results) {
     male_safe <- function() { req(male_has_run()); male_result() }
     pooled_safe <- function() { req(pooled_has_run()); pooled_result() }
 
-    ## `res` is the raw eventReactive (not the *_safe() wrapper) so that a validate()/req()
-    ## failure inside it - e.g. "Pick at least one WGCNA module above." - propagates to Shiny's
-    ## own validation display instead of being swallowed by arthomix_null_on_error and shown
-    ## as the generic (and misleading) "Not run yet" message once the button has been clicked.
+    ## Use the raw eventReactive, not *_safe(), so validate()/req() messages reach Shiny instead of "Not run yet".
     register_panel <- function(prefix, res, has_run, btn_label = sprintf("Compute %s candidates", prefix)) {
       output[[paste0(prefix, "_summary_ui")]] <- renderUI({
         if (!isTRUE(has_run())) {

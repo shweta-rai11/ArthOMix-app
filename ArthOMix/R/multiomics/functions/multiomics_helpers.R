@@ -76,20 +76,7 @@ multi_diablo_variance_df <- function(fit) {
   }))
 }
 
-## Direction-aware classification of an AUROC + its 95% CI. "excludes_chance"
-## (CI does not contain 0.5) is a statement about *statistical significance
-## only* - it says nothing about whether performance is genuine (above chance)
-## or actually WORSE than chance (below 0.5), and treating both directions as
-## an undifferentiated "pass" mislabels a classifier that performs
-## significantly worse than random guessing as a validation success. This is
-## the single source of truth for that distinction; every scorecard/UI
-## consumer must use it rather than re-deriving pass/fail from excludes_chance.
-##   "above_chance"  - CI entirely above 0.5: genuine, statistically supported discrimination.
-##   "below_chance"  - CI entirely below 0.5: statistically supported, but WORSE than random -
-##                      never a validation success; typically indicates label/orientation
-##                      error or severe overfitting to a spuriously anti-correlated small sample.
-##   "chance"        - CI spans 0.5: not distinguishable from random guessing.
-##   "unsupported"   - AUROC/CI missing or non-finite: cannot be classified.
+## Direction-aware AUROC call: above_chance / below_chance / chance (CI spans 0.5) / unsupported; use for pass/fail.
 multi_auroc_call <- function(auroc, ci_lo, ci_hi) {
   if (is.null(auroc) || length(auroc) == 0 || is.na(auroc) ||
       is.null(ci_lo) || length(ci_lo) == 0 || is.na(ci_lo) ||

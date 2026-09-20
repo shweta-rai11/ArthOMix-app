@@ -54,10 +54,7 @@ test_that("enrichGO (GO_BP, offline via bundled org.Hs.eg.db) on a real immune g
     expect_true(all(df$pvalue >= 0 & df$pvalue <= 1))
     expect_true(all(df$p.adjust >= df$pvalue - 1e-9))
 
-    ## Regression guard for the 2026-09-07 defense audit finding: mod_enrichment_server
-    ## received results but never wrote to it, so ArthoChat's context builder (which
-    ## keys off results[["enrichment"]] being non-NULL) permanently reported this
-    ## sub-module as "NOT YET RUN IN THIS SESSION" even after a real enrichment run.
+    ## Guard: the module must write results[["enrichment"]], or ArthoChat reports it "NOT YET RUN" after a real run.
     enr <- shiny::isolate(results$enrichment)
     expect_false(is.null(enr))
     expect_equal(enr$n_terms_returned, nrow(df))

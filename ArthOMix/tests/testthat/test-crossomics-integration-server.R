@@ -47,13 +47,7 @@ test_that("Run Integration (real, synchronous) correctly classifies a hand-worke
     expect_equal(cross_results$integration$summary$n_integrated, 2L)
     expect_equal(integ$params$sex_stratum, "FEMALE")
 
-    ## Regression guard for the 2026-09-07 defense audit finding: the
-    ## provenance-manifest export was wired for only 2 of ~40 download paths,
-    ## with Cross-Omics entirely unwired to the shared session-wide log.
-    ## (run_integration is primed 0 -> 1 above per the testServer actionButton
-    ## gotcha, and this plain observeEvent has no ignoreInit - so it legitimately
-    ## fires on both the priming step and the "real" click; check the latest
-    ## record rather than assume a single push.)
+    ## Fires on both the priming step and the real click (no ignoreInit), so check the latest provenance record.
     recs <- arthomix_provenance_records(session)
     expect_gte(length(recs), 1)
     last <- recs[[length(recs)]]
@@ -152,10 +146,7 @@ test_that("Run Integration computes a REAL per-gene sample-level correlation whe
 })
 
 test_that("Selecting \"Use live Transcriptomics/Methylomics session results\" builds expr/meth data via the live adapters and reuses the exact same classification/evidence pipeline as the hand-worked Dataset-tab case", {
-  ## Same hand-worked gene set as the very first test in this file (fx$expr_df/fx$meth_df),
-  ## but arriving as live results$dge_runs / methyl_results$dmp_table objects instead of
-  ## cross_dataset$user_expr_df/user_meth_df set directly - proving cx_build_live_expr_df()/
-  ## cx_build_live_meth_df() feed the SAME unmodified "Run Integration" code path.
+  ## Same gene set as the first test, but via live dge_runs / dmp_table, feeding the same "Run Integration" path.
   fx <- cx_dataset_fixture()
   dge_run <- list(
     contrast = "RA vs HC (female)", method = "limma", n_samples = 20,
@@ -202,13 +193,7 @@ test_that("Selecting \"Use live Transcriptomics/Methylomics session results\" bu
       expect_equal(as.character(df$category[df$gene == "B"]), "Hypo + Up")
       expect_equal(as.character(df$category[df$gene == "C"]), "Not significant")
       expect_equal(as.character(df$category[df$gene == "D"]), "Not significant")
-      ## No per-sample matrices flow through the live adapters (results$dge_runs/
-      ## methyl_results$dmp_table are gene/CpG-level summary tables, not sample-level
-      ## matrices), so sample-level correlation is unavailable here - "Moderate candidate"
-      ## is the correct, real evidence-level ceiling for this scenario (both layers
-      ## significant, inverse direction, correlation not computed), exactly matching
-      ## what cx_classify_evidence(has_correlation = FALSE) would say for this same
-      ## data via the Dataset-tab path.
+      ## No sample-level matrices, so correlation is unavailable and "Moderate candidate" is the evidence ceiling.
       expect_equal(as.character(df$evidence_level[df$gene == "A"]), "Moderate candidate")
       expect_equal(as.character(df$evidence_level[df$gene == "B"]), "Moderate candidate")
 

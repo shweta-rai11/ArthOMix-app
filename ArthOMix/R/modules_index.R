@@ -85,21 +85,7 @@ MULTI_MODULES_BY_ID <- setNames(MULTI_MODULES, vapply(MULTI_MODULES, function(m)
 .ARTHOCHAT_MAX_LINES_PER_BLOCK <- 60L
 .ARTHOCHAT_MAX_VALUES <- 20L
 
-## Recursively summarise one stored result value into prompt lines, so that
-## nothing sample-level ever reaches the LLM backend, at any nesting depth:
-##
-##   * data.frame (any depth) -> dimensions + first 10 column names (schema only).
-##   * matrix (any depth) -> dimensions only. Matrix dimnames are data, not
-##     schema: genes x samples and sample x sample matrices carry sample IDs there.
-##   * list (any depth, up to .ARTHOCHAT_MAX_DEPTH) -> recurse into each element,
-##     labelling nested fields "parent.child". Deeper structures collapse to a
-##     count of elements. This closes the gap where a data.frame / matrix / ID
-##     vector wrapped one level inside list() used to be deparsed verbatim.
-##   * atomic vector whose field name matches .ARTHOCHAT_SAMPLE_ID_PATTERN ->
-##     "<n> identifiers (withheld)". Feature-level vectors (gene symbols, CpG
-##     probes, top hits) keep the first .ARTHOCHAT_MAX_VALUES values: these are
-##     the intended grounding signal, and are not sample-level.
-##   * any other object (S4, model fit, closure, environment) -> class name only.
+## Summarise a stored result into prompt lines with no sample-level data (dims/schema only, IDs withheld).
 .summarise_result_value <- function(v, path, depth) {
   label <- if (is.null(path)) "(value)" else paste(path, collapse = ".")
   leaf <- if (is.null(path)) "" else path[[length(path)]]

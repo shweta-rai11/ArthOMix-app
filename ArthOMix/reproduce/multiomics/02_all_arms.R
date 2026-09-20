@@ -1,20 +1,5 @@
-## Extends 01_pooled_diablo_response.R (which tested ONE arm: pooled DIABLO
-## response prediction) to cover the full set of scenarios the app's bundled
-## tables report: drug-stratified x sex-stratified DIABLO (Table29-equivalent),
-## sex-stratified response DIABLO (Table34-equivalent), the same two with the
-## RF engine (Table37/39-equivalent), and SNF joint clustering per drug
-## (Table_SNFjoint-equivalent). All on the same freshly-fetched, independently
-## legitimacy-checked GSE138746 (RNA-seq) + GSE138653 (methylation) data as
-## 01_pooled_diablo_response.R.
-##
-## Sex labels (blocked in the first pass) are now resolved: GSE138746 and
-## GSE138653 sample titles share an identical trailing patient number
-## (e.g. "PBMC_E_n_01" / "DNA_E_n_01") that exactly matches the pre-existing
-## PT## metadata's patient_id (100% drug/response agreement on merge, verified
-## this session - see reproduce/multiomics/output/patient_sex_lookup.csv).
-##
-## Run from the ArthOMix/ app directory (after 01_pooled_diablo_response.R):
-##   Rscript reproduce/multiomics/02_all_arms.R
+## Extends 01_pooled_diablo_response.R to drug/sex-stratified DIABLO, RF and SNF per drug on the same data.
+## Run from the app directory (after 01_pooled_diablo_response.R): Rscript reproduce/multiomics/02_all_arms.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

@@ -1,9 +1,4 @@
-## Regression guard for a RED finding (2026-09-07 defense audit): the
-## Methylomics Biomarker Card's "RA-associated biomarker" green banner (1) fired
-## on the bare regex "rheumatoid|arthritis", matching any arthritis subtype
-## (osteoarthritis, psoriatic, juvenile idiopathic, reactive) as if it were
-## rheumatoid arthritis specifically, and (2) had no significance/effect-size/
-## replication gate - a single unfiltered EWAS Catalog/Atlas hit was enough.
+## Guard: the "RA-associated" banner must match rheumatoid arthritis only and need a significance or replication gate.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

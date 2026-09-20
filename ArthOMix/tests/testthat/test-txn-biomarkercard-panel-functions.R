@@ -234,10 +234,8 @@ test_that("tbc_evidence_classification() reaches 'Strong candidate' only when a 
   expect_equal(cl_unavail$tier, "Supported candidate")
 })
 
-## ---- AUC-magnitude floor (2026-09-07 defense audit RED finding) ----
-## "ok" previously meant only "the ROC/CV computation succeeded numerically",
-## with zero check on the AUC value itself - a chance-level gene (AUC ~= 0.5)
-## that happened to have enough samples per group could reach "Strong candidate".
+## ---- AUC-magnitude floor ----
+## "ok" only meant the computation succeeded, so a chance-level gene (AUC ~0.5) could reach "Strong candidate".
 
 test_that("a numerically-successful but chance-level (AUC ~= 0.5) single-gene ROC never counts as diagnostic evidence", {
   d <- list(live = list(ok = FALSE),

@@ -1,22 +1,5 @@
-## Verifies the new multi_geo_dual_fetch() + geo_title_patient_num fix against
-## the real-world case that motivated it: GSE138746 (RNA-seq) + GSE138653
-## (methylation), Tao et al. 2021 - two independently-submitted, UNLINKED GEO
-## series (multi_geo_autosplit_fetch() cannot find them; GEO's own
-## series-relation metadata lists zero linked sub-series for either).
-##
-## Checks, in order:
-##  1. multi_geo_autosplit_fetch() on either accession alone still correctly
-##     fails with the documented "doesn't look like a SuperSeries" message
-##     (confirms this really is the unlinked case, not a regression).
-##  2. multi_geo_dual_fetch() succeeds fetching both, REGARDLESS of which
-##     accession is passed first (order-independence).
-##  3. geo_title_patient_num is correctly derived on both sides.
-##  4. mo_apply_matching(..., "patient_id", patient_col="geo_title_patient_num")
-##     - the exact function the Shiny "Sample Matching" tab calls - actually
-##     matches samples between the two independently-fetched matrices.
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/multiomics/04_test_geo_dual_fetch.R
+## Tests multi_geo_dual_fetch() + geo_title_patient_num on the unlinked GSE138746 + GSE138653 series (either accession order).
+## Run from the app directory: Rscript reproduce/multiomics/04_test_geo_dual_fetch.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

@@ -119,10 +119,7 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
     all_ct <- colnames(celltype_fractions)
     validate(need(all(ct_cov_names %in% all_ct),
       "One or more selected cell-type covariates are no longer present in the computed fractions - re-check the Cell-Type Deconvolution results and reselect."))
-    # Cell-type fractions sum to ~1 per sample, so selecting every available cell type as a
-    # covariate would make the design matrix perfectly collinear (rank-deficient) - drop one
-    # (used as the implicit reference cell type) rather than let the generic rank-deficiency
-    # check downstream report a confusing, non-specific error for this very common case.
+    # Cell-type fractions sum to ~1: drop one (implicit reference) to avoid a collinear design.
     if (length(all_ct) >= 2 && length(ct_cov_names) == length(all_ct)) {
       dropped <- sort(ct_cov_names)[length(ct_cov_names)]
       ct_cov_names <- setdiff(ct_cov_names, dropped)
@@ -143,11 +140,7 @@ mod_methyl_dmp_prepare_subset <- function(methyl_dataset, sex_choice, sex_col_na
       pieces[["sheet"]] <- ph1[, sheet_cov_cols, drop = FALSE]
     }
     if (length(ct_cov_names) > 0) {
-      # Explicit sample-ID alignment: the cell-type fractions were computed against whatever
-      # matrix was loaded in the Cell-Type Deconvolution tab, which need not be in the same row
-      # order (or even contain exactly the same samples) as this DMP subset - never assume
-      # identical order, always match() by sample ID. A sample with no match becomes NA here and
-      # is dropped below by the same complete-cases logic used for sheet covariates.
+      # Match cell-type fractions to this subset by sample ID; unmatched samples become NA and are dropped below.
       idx <- match(ids1, rownames(celltype_fractions))
       ct_block <- as.data.frame(celltype_fractions[idx, ct_cov_names, drop = FALSE])
       colnames(ct_block) <- paste0(MOD_METHYL_DMP_CT_COLNAME_PREFIX, ct_cov_names)

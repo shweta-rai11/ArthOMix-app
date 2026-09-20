@@ -1,10 +1,4 @@
-## Proves multi_geo_dual_fetch() succeeds end-to-end when GEO actually has
-## real values on both sides, using a real, independently-verified SuperSeries
-## (GSE117931 -> sub-series GSE117928 + GSE117929, from
-## data/examples/multiomics_upload/geo_multiomics/, already verified in a
-## prior session) - fed to the NEW dual-accession path (as if they were two
-## unlinked series a user found separately) rather than the existing
-## autosplit path, to test the new code specifically.
+## Tests multi_geo_dual_fetch() end-to-end on GSE117928 + GSE117929 (SuperSeries GSE117931 sub-series) as unlinked series.
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())
 ))

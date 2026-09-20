@@ -1,12 +1,4 @@
-## Module 1 (Transcriptomics) - Cross-Ancestry MR Replication: the upload
-## path's uploaded_outcome() called TwoSampleMR::format_data() unguarded.
-## format_data() usually degrades gracefully (coerces bad columns to NA with
-## a warning), but when every mapped column collapses onto the same
-## non-SNP column - the realistic outcome of uploading a file with none of
-## the expected column names, so every dropdown guess falls back to the
-## file's first column - it throws a hard "SNP column not found" error that,
-## unguarded, would crash the reactive chain instead of showing the app's
-## normal red validate() banner. These tests cover the fix.
+## Cross-Ancestry MR upload: a "SNP column not found" error from format_data() must show the validate() banner, not crash.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

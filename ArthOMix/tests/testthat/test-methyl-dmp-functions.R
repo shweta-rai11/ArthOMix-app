@@ -133,12 +133,7 @@ mod_methyl_dmp_celltype_fixture <- function(n_per_group = 15, seed = 400) {
   samples <- paste0("S", 1:n)
   group <- rep(c("HC", "RA"), each = n_per_group)
 
-  # CD4T fraction is confounded with disease group (higher in RA); Mono varies independently of
-  # group/CD4T; Bcell fills to 1 - a realistic compositional cell-fraction table (rows sum to ~1).
-  # Mono must carry its own independent variation (not a constant): a 3-part composition has 2
-  # true degrees of freedom, and dropping exactly one column (the standard fix for the sum-to-1
-  # collinearity) only recovers a full-rank design if the two *remaining* columns are not, in
-  # turn, an exact affine pair of each other - which they would be if the third part never varied.
+  # CD4T is confounded with group, Mono varies independently, Bcell fills to 1 (Mono must vary to avoid an affine pair).
   cd4t <- pmin(pmax(c(rnorm(n_per_group, 0.30, 0.03), rnorm(n_per_group, 0.55, 0.03)), 0.05), 0.9)
   mono <- pmin(pmax(rnorm(n, 0.2, 0.03), 0.05), 0.35)
   bcell <- 1 - cd4t - mono

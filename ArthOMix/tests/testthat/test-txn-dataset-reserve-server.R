@@ -1,7 +1,4 @@
-## Module 1 (Transcriptomics) - Dataset tab "Reserve validation samples" (sealed hold-out taken BEFORE any
-## analysis), via a pure helper plus testServer(): stratified split, removal from the active dataset,
-## bundled shortcuts disabled, release restores, and re-sealing when another module replaces dataset$expr.
-## Added 2026-09-05 (transcriptomics audit, finding 1 long-term fix).
+## Dataset tab "Reserve validation samples" (sealed hold-out): split, removal, bundled shortcuts disabled, release, re-seal.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

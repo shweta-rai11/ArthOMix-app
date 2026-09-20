@@ -194,12 +194,7 @@ mod_cross_integration_server <- function(id, cross_dataset, cross_results,
       )
     })
 
-    ## cx_validate_dataset() was already computed into integ$validation on
-    ## every run but never rendered anywhere - a malformed upload (mismatched
-    ## gene identifiers, an all-NA log2FC/Δβ column) still produced a full
-    ## quadrant table with no visible diagnostic explaining why it was empty
-    ## or meaningless. This surfaces that checklist, most prominently when a
-    ## check actually failed.
+    ## Surface the cx_validate_dataset() checklist (integ$validation), most prominently when a check failed.
     output$validation_ui <- renderUI({
       v <- integ$validation
       if (is.null(v)) return(NULL)

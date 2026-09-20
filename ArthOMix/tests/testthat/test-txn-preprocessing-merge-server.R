@@ -83,10 +83,7 @@ test_that("filter_and_transform_expr() log2-transforms only when requested, and 
 })
 
 test_that("merging two preloaded datasets with fewer than 20 shared feature IDs is rejected with a clear validate() error", {
-  ## The "currently loaded dataset" source uses gene IDs guaranteed not to
-  ## overlap with any real gene symbol, so its intersection with the bundled
-  ## "__default_merged__" cohort's real genes is 0 - deterministically under
-  ## the 20-feature merge floor, regardless of the bundled cohort's contents.
+  ## Gene IDs that overlap no real gene symbol, so the intersection with "__default_merged__" is 0 (under the 20-feature floor).
   set.seed(40)
   genesA <- paste0("ZZZFAKEGENE", 1:15)
   mA <- matrix(rnorm(15 * 6), 15, 6, dimnames = list(genesA, paste0("A", 1:6)))

@@ -1229,17 +1229,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
           needs_log <- FALSE; q99 <- NA_real_
 
           diag_before <- summarize_norm_diagnostics(expr_prenorm)
-          ## Quantile normalisation (limma::normalizeBetweenArrays) assumes each sample's
-          ## distribution is already on a comparable, roughly-continuous scale. Raw,
-          ## un-logged sequencing counts violate that assumption (a handful of highly
-          ## expressed genes dominate the distribution) - TMM+log2-CPM is the appropriate
-          ## normalisation for count data, not quantile normalisation. This guard applies
-          ## to both the forced "quantile" choice and "auto" (which would otherwise fire on
-          ## raw counts purely because needs_quantile_norm()'s max_value>100 rule is equally
-          ## true for un-logged counts). The declared-"raw" flag is only trusted when log2
-          ## hasn't already been applied to this data by the Preprocessing step above - once
-          ## it has, the data is no longer raw regardless of what was originally declared at
-          ## load time, and the numeric check on the actual (now log-scale) values is authoritative.
+          ## Block quantile/"auto" normalisation on raw counts (needs TMM+log2-CPM instead).
           raw_count_like <- (!isTRUE(m$log2_applied) && identical(dataset$declared_data_type, "raw")) || looks_like_raw_counts(expr_prenorm)
           if (raw_count_like && norm_method %in% c("quantile", "auto")) {
             validate(need(FALSE,
@@ -1649,10 +1639,7 @@ mod_preprocessing_server <- function(id, dataset, results = NULL) {
       
       dataset$source_type <- if (was_uploaded) "uploaded" else if (was_geo) "geo" else "preloaded"
       dataset$is_bundled_reference <- FALSE
-      ## TMM always outputs log2-CPM; otherwise the data is only now log-scale if it was
-      ## already log2-transformed upstream (Preprocessing step) before this run. Quantile
-      ## normalisation alone doesn't change linear vs. log scale, so declared_data_type is
-      ## left as-is in every other case (e.g. still-linear "normalized" data stays "normalized").
+      ## TMM outputs log2-CPM; otherwise data is log-scale only if log2 was applied upstream.
       if (identical(res$norm_method %||% "auto", "tmm") || isTRUE(res$input_log2_applied)) {
         dataset$declared_data_type <- "logtransformed"
       }

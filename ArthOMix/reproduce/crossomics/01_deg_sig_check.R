@@ -1,24 +1,12 @@
-## Tests whether Cross-Omics' precomputed DEG_sig column (in
-## MASTER_cross_omics_all_layers.csv, the base table behind Biomarker
-## Convergence) matches significance computed from the independently-verified
-## DEG regeneration (reproduce/transcriptomics/01_deg.R, r=1.000000 vs the
-## bundled DEG tables) at the threshold the app itself documents as its
-## default (FDR<0.05, |log2FC|>=0.5 - Section 2.4.4 of the thesis draft;
-## cx_classify()'s own default arguments in crossomics_integration_helpers.R).
-##
-## Run from the ArthOMix/ app directory (after reproduce/transcriptomics/01_deg.R):
-##   Rscript reproduce/crossomics/01_deg_sig_check.R
+## Checks the precomputed DEG_sig (MASTER_cross_omics_all_layers.csv) against significance recomputed from 01_deg.R.
+## Run from the app directory after 01_deg.R: Rscript reproduce/crossomics/01_deg_sig_check.R
 
 deg_f <- read.csv("data/preloaded/transcriptomics/results/tables/DEG_female_full.csv")
 deg_m <- read.csv("data/preloaded/transcriptomics/results/tables/DEG_male_full.csv")
 cx <- read.csv("data/preloaded/cross_omics/tables/MASTER_cross_omics_all_layers.csv")
 
 compute_sig <- function(deg_df) {
-  ## CORRECTED: the precomputed table's DEG_sig is built from DEG_full.csv's
-  ## own pre-computed `sig` column (threshold |logFC|>=0.1, confirmed by
-  ## inspection), NOT the live UI's default |logFC|>=0.5 gate - an earlier
-  ## version of this script wrongly assumed 0.5 and got 0% "agreement" as a
-  ## result, which was this script's bug, not a real app inconsistency.
+  ## DEG_sig uses DEG_full.csv's own `sig` column (|logFC|>=0.1), not the UI's default |logFC|>=0.5.
   data.frame(gene = deg_df$gene, sig_regen = as.logical(deg_df$sig))
 }
 

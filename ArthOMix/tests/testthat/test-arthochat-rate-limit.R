@@ -1,8 +1,4 @@
-## Regression coverage for the ArthOChat rate-limit fix (2026-09-08, security
-## audit finding: the 40-turn-per-session cap reset on reload/new tab because
-## it lived only in a Shiny-session-scoped reactiveVal, so it did not bound
-## total spend on the metered Anthropic backend). These test the pure,
-## session-independent helpers directly - no live LLM or Shiny session needed.
+## Tests the session-independent ArthOChat rate-limit helpers directly; the per-session turn cap used to reset on reload.
 source_from_app_root(file.path("R", "shared", "mod_arthochat.R"))
 
 reset_arthochat_rate_state <- function() {
@@ -25,10 +21,7 @@ test_that("the per-IP budget survives a simulated reload (a fresh call with the 
   ip <- "198.51.100.9"
   for (i in seq_len(ARTHOCHAT_IP_MAX_TURNS_PER_WINDOW)) arthochat_rate_allow(ip)
 
-  ## Simulates the exact bypass the audit found: a brand-new Shiny session
-  ## (fresh n_turns reactiveVal) from the same visitor. The old code allowed
-  ## this unconditionally; the fix must not, because nothing session-scoped
-  ## is consulted here at all.
+  ## A brand-new session from the same visitor must not bypass the limit.
   expect_false(arthochat_rate_allow(ip))
 })
 

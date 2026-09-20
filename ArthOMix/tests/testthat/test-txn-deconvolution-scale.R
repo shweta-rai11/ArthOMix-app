@@ -1,8 +1,4 @@
-## Regression guard for the deconvolution scale bug found in the 2026-09-07
-## defense audit: mod_deconvolution.R only treated declared_data_type == "raw"
-## as already-linear-scale and exponentiated (2^x) everything else, including
-## "normalized" (TPM/FPKM/CPM) - which is the UI's own default declared type
-## and is already linear. That inflated CIBERSORT's input by ~10^15x.
+## Guard: "normalized" (TPM/FPKM/CPM) data is already linear but was exponentiated (2^x), inflating CIBERSORT input.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

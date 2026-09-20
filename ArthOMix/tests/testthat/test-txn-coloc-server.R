@@ -168,12 +168,7 @@ run_project_coloc_with_priors <- function(gene, p1 = NULL, p2 = NULL, p12 = NULL
 
 test_that("changing p1/p2/p12 inputs away from coloc's defaults actually changes the reported posterior probabilities", {
   coloc_regions <- readRDS(COLOC_REGIONS_RDS)
-  ## Use a bundled region whose PP.H4 sits in a moderate, non-saturated range
-  ## (~0.22) rather than the alphabetically-first gene, whose real bundled
-  ## data happens to give overwhelming (~1.0) support for H4 regardless of a
-  ## 10x change in p12 - a saturated posterior would make this assertion
-  ## vacuous (the priors are still genuinely wired through in that case, just
-  ## not observably so at this prior-swing size).
+  ## Use a bundled region with a moderate PP.H4 (~0.22); the alphabetically-first gene saturates near 1.0 (vacuous).
   gene <- if ("HLA-DRB1" %in% names(coloc_regions)) "HLA-DRB1" else sort(names(coloc_regions))[1]
 
   res_default <- run_project_coloc_with_priors(gene, p1 = 1e-4, p2 = 1e-4, p12 = 1e-5)

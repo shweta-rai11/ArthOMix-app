@@ -71,13 +71,7 @@ fx_expr_ensembl_ids <- function(expr) {
   expr
 }
 
-## A balanced 2 (batch) x 2 (group) design with a KNOWN, injected batch offset
-## on every gene and a KNOWN, injected biological group effect on a subset of
-## "signal" genes. Batch and group are orthogonal (equal group split within
-## each batch), so averaging across all samples isolates the batch effect,
-## and averaging within signal genes isolates the group effect - letting
-## batch-correction tests assert both "batch effect shrinks" and "biological
-## signal survives" against exact injected effect sizes, not just smoke checks.
+## Balanced 2 (batch) x 2 (group) design: known batch offset on every gene, known group effect on "signal" genes.
 fx_batch_signal_data <- function(n_genes = 60, n_signal_genes = 10, n_per_cell = 5,
                                   batch_effect = 3, group_effect = 2, sd = 1, seed = 1) {
   set.seed(seed)

@@ -1002,14 +1002,7 @@ tbc_section_validation_evidence <- function(sgd, sgcv, d = NULL) {
       DT::datatable(rows, rownames = FALSE, options = list(dom = "t", paging = FALSE, scrollX = TRUE), class = "stripe hover compact"))
 }
 
-## A ROC/CV/external run that "succeeded numerically" (enough samples per group)
-## is not the same as one that discriminates cases from controls. Without an AUC
-## floor here, a chance-level gene (AUC ~= 0.5) that merely computes without
-## erroring could reach "Strong candidate" - the classifier tracked presence of
-## a result, never its magnitude (RED finding, 2026-09-07 defense audit).
-## 0.6 is a conservative floor (AUC 0.5-0.6 is conventionally "no better than
-## chance / not clinically useful"; this does not claim 0.6 itself is "good",
-## only that it is the minimum below which "candidate" language is unsupported).
+## AUC floor of 0.6: a chance-level run (AUC ~0.5) must not reach "Strong candidate" just by computing.
 TBC_MIN_USEFUL_AUC <- 0.6
 
 ## Any diagnostic-panel entry (this gene's panel) whose internal CV AUC clears

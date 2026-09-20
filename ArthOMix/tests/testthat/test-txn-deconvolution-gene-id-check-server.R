@@ -30,11 +30,7 @@ test_that("deconv_gene_id_overlap_pct() sits right at the 10% block threshold fo
 })
 
 test_that("raw counts are CPM-normalised before reaching CIBERSORT, so per-sample library size no longer leaks into the input", {
-  ## Regression guard for a YELLOW finding (2026-09-07 defense audit): raw counts
-  ## fed to CIBERSORT (IOBR::deconvo_tme, arrays = FALSE) were not library-size
-  ## normalised, so samples with very different sequencing depth reached
-  ## CIBERSORT with wildly different totals - a signal CIBERSORT's own algorithm
-  ## has no way to separate from real cell-composition differences.
+  ## Guard: raw counts fed to CIBERSORT must be library-size normalised so depth is not read as composition.
   set.seed(7)
   n_genes <- 150; n_samples <- 8
   real_genes <- rownames(load_default_dataset()$expr)[seq_len(n_genes)]

@@ -1,12 +1,4 @@
-## Regression guard for a Git LFS reproducibility finding (2026-09-07 defense
-## audit): if a clone/checkout never ran `git lfs pull` (or git-lfs isn't
-## installed), bundled precomputed files under data/preloaded/ are left as
-## tiny LFS pointer-stub text files instead of the real data. Before this
-## check, the app had no way to detect that up front - it would fail deep
-## inside whichever module first tried to read the affected file, with a
-## cryptic parse error that gave no hint the real cause was a missing
-## `git lfs pull`. arthomix_check_lfs_pointers() (global.R) scans once at
-## startup and raises one clear, actionable error instead.
+## Tests arthomix_check_lfs_pointers() (global.R): LFS pointer stubs under data/preloaded/ must raise one clear error.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

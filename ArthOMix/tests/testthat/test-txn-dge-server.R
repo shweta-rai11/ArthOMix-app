@@ -231,21 +231,13 @@ test_that("a declared_data_type = 'raw' on the shared dataset lets DESeq2 run ev
 })
 
 test_that("linear-scale data declared 'normalized' is log2-transformed before limma fits it, restoring true log2 fold-changes", {
-  ## Regression guard for a RED finding (2026-09-07 defense audit): declared_type
-  ## == "normalized" (TPM/FPKM/CPM) satisfied the old raw-counts guard (line 416)
-  ## and was fitted by limma completely untransformed, so "logFC" was actually a
-  ## raw linear-scale mean difference while the volcano axis still claimed
-  ## "log2 fold-change." Same bug class already fixed for CIBERSORT input
-  ## (deconv_is_linear_scale()) in commit 594d107, now extended to DGE.
+  ## Guard: "normalized" (TPM/FPKM/CPM) passed the raw-counts guard and was fitted untransformed, so logFC was not log2.
   set.seed(75)
   n <- 12
   genes <- paste0("GENE", 1:40)
   samples <- paste0("S", 1:n)
   grp <- rep(c("HC", "RA"), each = n / 2)
-  ## Linear-scale "normalized" (TPM-like) data: baseline ~lognormal, with an exact
-  ## 2x multiplicative fold-change on 5 signal genes in RA - the true log2 fold-
-  ## change for those genes is exactly log2(2) = 1, wildly different from the raw
-  ## linear-scale mean difference (~tens of units) the untransformed fit produced.
+  ## Linear-scale (TPM-like) data with an exact 2x fold-change on 5 signal genes, so the true log2FC is 1.
   base <- matrix(stats::rlnorm(40 * n, meanlog = 4, sdlog = 0.15), 40, n, dimnames = list(genes, samples))
   m <- base
   signal_genes <- genes[1:5]

@@ -1206,12 +1206,7 @@ mod_methyl_diagnostic_server <- function(id, dataset, results = NULL) {
       DT::datatable(df, rownames = FALSE, options = list(dom = "t", paging = FALSE))
     })
 
-    # Automatic leakage-safe headline metric: whenever this session has no confirmed
-    # genuine held-out split (dxm$leakage_safe == FALSE - the default/preloaded path,
-    # or any live feature-source load that didn't apply a real holdout), compute the
-    # nested-CV AUC right here so it's ready by the time any model's results render -
-    # no separate manual step needed. Memoized as ordinary reactives: only recomputes
-    # when the underlying data/leakage state actually changes.
+    # No confirmed held-out split (dxm$leakage_safe == FALSE): compute nested-CV AUC here as the headline metric.
     dxm_nested_result <- reactive({
       req(dxm$validated)
       if (isTRUE(dxm$leakage_safe)) return(NULL)

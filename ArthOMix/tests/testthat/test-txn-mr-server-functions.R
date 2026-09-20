@@ -1,22 +1,11 @@
-## Regression coverage for a gap found in the transcriptomics audit
-## (2026-09-03): tests/testthat/test-txn-mr-functions.R exercises only the
-## shared pure-math helper estimate_mr_set() (in global.R); the actual
-## mod_mr_server() upload-path logic in mod_mr.R - TwoSampleMR harmonisation,
-## F-statistic weak-instrument filtering, and pleiotropy-sensitivity output
-## gated on instrument count - had zero test coverage. These tests drive the
-## real upload data_source through testServer(), on synthetic but
-## well-formed two-sample-MR-format exposure/outcome files.
+## Tests the upload path of mod_mr_server() via testServer(): harmonisation, weak-instrument filtering, pleiotropy output.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
 source_from_app_root(file.path("R", "transcriptomics", "07_Mendelian_Randomization", "mod_mr.R"))
 
-## 5 SNPs: snp1/snp2/snp3/snp5 are strong instruments (F-stat well above the
-## default cutoff of 10); snp4 is a deliberately weak instrument (F-stat well
-## below 10). Outcome effects are a fixed multiple (0.3) of exposure effects
-## plus a small amount of noise, i.e. a real, roughly-linear (if noisy)
-## causal relationship - not just F-stat-passing noise.
+## 5 SNPs: snp4 is weak (F << 10), the rest strong; outcome effects = 0.3 x exposure effects + noise.
 mr_write_upload_files <- function(dir, weak_beta = 0.02, seed = 55) {
   set.seed(seed)
   snps <- paste0("snp", 1:5)
@@ -81,10 +70,7 @@ test_that("F-statistic filtering excludes a deliberately weak instrument from th
 test_that("raising the F-statistic cutoff further excludes more instruments, in the expected direction", {
   dir <- withr::local_tempdir()
   fx <- mr_write_upload_files(dir)
-  ## F-stats: snp1=100, snp2=144, snp3=121, snp4=0.16, snp5=81. A cutoff of
-  ## 110 retains only snp2 and snp3 - both the weak snp4 AND the merely
-  ## moderate snp1/snp5 are now excluded too, unlike the default cutoff of 10
-  ## which retains everything except snp4.
+  ## F-stats: snp1=100, snp2=144, snp3=121, snp4=0.16, snp5=81; cutoff 110 keeps snp2/snp3, default 10 all but snp4.
   res <- run_mr_upload(fx, fstat_cut = "110", pval_cut = "1")
   expect_true(all(res$d$Fstat >= 110))
   expect_setequal(res$d$SNP, c("snp2", "snp3"))
@@ -132,12 +118,7 @@ test_that("a single retained instrument produces a Wald-ratio estimate, not IVW/
 test_that("a palindromic SNP is harmonised (kept or dropped via mr_keep) without crashing the upload path", {
   dir <- withr::local_tempdir()
   fx <- mr_write_upload_files(dir)
-  ## Append a 6th, palindromic (A/T) SNP with an ambiguous (near-0.5) EAF on
-  ## the exposure side - TwoSampleMR::harmonise_data(action = 2) should not
-  ## error on this; it will either resolve it via EAF or drop it as
-  ## unresolvable (mr_keep = FALSE), and mod_mr.R already filters to
-  ## mr_keep == TRUE before returning - either outcome is acceptable here,
-  ## the point is that it must not crash the pipeline.
+  ## Append a 6th palindromic (A/T) SNP with ambiguous EAF: harmonise_data() may resolve or drop it, but must not crash.
   exp_extra <- data.frame(snp = "snp6", beta = 0.5, se = 0.05,
                            pval = 2 * stats::pnorm(-abs(0.5 / 0.05)),
                            ea = "A", oa = "T", eaf = 0.5, stringsAsFactors = FALSE)
@@ -152,10 +133,7 @@ test_that("a palindromic SNP is harmonised (kept or dropped via mr_keep) without
   res <- tryCatch(run_mr_upload(fx, fstat_cut = "10", pval_cut = "1"), error = function(e) e)
   expect_false(inherits(res, "error"))
   expect_true(is.list(res) && !is.null(res$d))
-  ## snp6 either survived harmonisation (kept, with F-stat filtering applied
-  ## like any other SNP) or was dropped as an unresolved palindrome - either
-  ## way n_before/n_after must be internally consistent (no crash, no silent
-  ## corruption of the other 4-5 instruments).
+  ## snp6 was either kept or dropped as an unresolved palindrome; n_before/n_after must be consistent either way.
   expect_true(res$n_before %in% c(5L, 6L))
   expect_true(all(c("snp1", "snp2", "snp3") %in% res$d$SNP))
 })

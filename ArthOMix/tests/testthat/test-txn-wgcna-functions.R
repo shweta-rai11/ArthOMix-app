@@ -25,10 +25,7 @@ test_that("wgcna_module_trait_significant() requires BOTH the |r|>=0.5 effect-si
   sig <- wgcna_module_trait_significant(cor_mat, q_mat)
   expect_equal(sig, "M1")
 
-  ## A module whose raw p would have been < 1e-8 under the OLD rule, but whose
-  ## BH-FDR-corrected q is >= 0.05 once corrected across a large family, must NOT
-  ## be flagged under the fixed rule - this is exactly the scenario the old,
-  ## uncorrected p < 1e-8 substitute could not catch.
+  ## A module with raw p < 1e-8 but BH-FDR q >= 0.05 across a large family must not be flagged.
   p_mat_large_family <- matrix(c(1e-9, rep(0.04, 99)), nrow = 1)
   rownames(p_mat_large_family) <- "Mx"; colnames(p_mat_large_family) <- paste0("t", 1:100)
   q_large <- wgcna_module_trait_fdr(p_mat_large_family)
@@ -37,11 +34,7 @@ test_that("wgcna_module_trait_significant() requires BOTH the |r|>=0.5 effect-si
   expect_true(sig_old_rule_would_flag)  ## sanity: old rule WOULD have flagged this
   sig_new <- wgcna_module_trait_significant(cor_mat_large, q_large)
   expect_true("Mx" %in% sig_new)  ## the single extreme p-value still survives correction here...
-  ## ...but a single moderately-significant p-value diluted among 99 non-significant
-  ## ones in the same family is correctly washed out by BH-FDR, even though it
-  ## would NOT have passed the old raw-p<1e-8 gate either (0.03 > 1e-8) - this
-  ## demonstrates the correction actually does something beyond the old rule for a
-  ## realistic "one nominal hit among many nulls" family.
+  ## ...and a single nominal hit (p = 0.03) among 99 nulls is washed out by BH-FDR.
   set.seed(1)
   p_mat_moderate <- matrix(c(0.03, stats::runif(99, 0.5, 0.99)), nrow = 1, dimnames = list("My", paste0("t", 1:100)))
   cor_mat_moderate <- matrix(rep(0.55, 100), nrow = 1, dimnames = dimnames(p_mat_moderate))

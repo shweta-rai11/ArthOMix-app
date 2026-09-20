@@ -1,18 +1,5 @@
-## Tests the claim (carried in this session's REPRODUCIBILITY.md as "prior
-## session, not re-verified") that transcriptomics DEG reproduces from the
-## app's own live limma path. Uses the already-bundled combined_expr_
-## batchcorrected.rds directly (the same object DEFAULT_EXPR_RDS points at,
-## and what a user sees as "the active dataset" by default) - this tests the
-## DEG stage itself, not the upstream batch-correction step (which has no
-## preloaded-mode pinned hyperparameters in the live UI, unlike DEG).
-##
-## Live algorithm replicated exactly from mod_dge.R's compute_dge_fit():
-## sex-filtered, design = model.matrix(~0+grp), limma::arrayWeights,
-## lmFit(weights=aw), makeContrasts("RA-HC"), eBayes (posthoc mode, the
-## default - not treat), topTable sort by P.
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/transcriptomics/01_deg.R
+## Tests that DEG reproduces from the live limma path (mod_dge.R compute_dge_fit()) on combined_expr_batchcorrected.rds.
+## Run from the app directory: Rscript reproduce/transcriptomics/01_deg.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

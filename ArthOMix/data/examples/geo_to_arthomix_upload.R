@@ -1,9 +1,6 @@
 #!/usr/bin/env Rscript
-## Convert any NCBI GEO series into ArthOMix upload CSVs (Feature x Sample matrix + sample metadata).
-## Usage:  Rscript geo_to_arthomix_upload.R GSE89252 "clinical activity" sex [out_dir]
-##         args: GSE id, group characteristic, sex characteristic (names as on the GEO sample page), output folder
-## Writes: <GSE>_exp.csv (gene x sample) or <GSE>_meth.csv (cpg x sample), and <GSE>_sample.csv (sample, group, sex, ...).
-## In the app: upload the matrix as "Feature and Sample (first column = feature ID)", metadata first column = sample ID.
+## Convert an NCBI GEO series into ArthOMix upload CSVs (Feature x Sample matrix + sample metadata).
+## Usage: Rscript geo_to_arthomix_upload.R <GSE> "<group characteristic>" <sex characteristic> [out_dir]
 suppressPackageStartupMessages({library(GEOquery); library(Biobase)})
 a <- commandArgs(TRUE); gse <- a[1]; group_col <- a[2]; sex_col <- a[3]; out <- if (length(a) > 3) a[4] else file.path("data/uploads", gse)
 

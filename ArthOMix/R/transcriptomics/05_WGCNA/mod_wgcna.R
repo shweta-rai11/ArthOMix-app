@@ -28,12 +28,7 @@ wgcna_cor_fnc <- function(cor_method) {
 }
 wgcna_cor_fnc_name <- function(cor_method) if (identical(cor_method, "bicor")) "bicor" else "cor"
 
-## Module-trait correlation tests every module against every selected trait
-## simultaneously; BH-FDR is applied across the complete family (every cell of
-## the matrix), not per-cell in isolation - reporting/flagging on raw p alone
-## overstates significance (Priority-14 finding, 2026-09-07 defense audit: an
-## undisclosed, uncorrected ad hoc |r| >= 0.5 & p < 1e-8 substitute was used
-## instead of a real correction).
+## Module-trait p-values get BH-FDR across the whole matrix (every module x trait cell), not raw p per cell.
 wgcna_module_trait_fdr <- function(p_mat) {
   matrix(stats::p.adjust(as.vector(p_mat), method = "BH"), nrow = nrow(p_mat), dimnames = dimnames(p_mat))
 }
@@ -1536,10 +1531,7 @@ mod_wgcna_server <- function(id, dataset, results) {
 
     enrich_store <- reactiveValues(result = NULL, error = NULL)
 
-    ## Keyed on both dataset$source AND dataset$load_id: reserving/releasing a sealed
-    ## hold-out changes dataset$source (via a suffix) without a full reactivation, and
-    ## a full reactivation bumps load_id even when dataset$source happens to repeat
-    ## (same filename, different content) - see activate_dataset() in mod_dataset.R.
+    ## Keyed on source and load_id: reserve/release changes source alone, reactivation bumps load_id even if source repeats.
     observeEvent(list(dataset$source, dataset$load_id), {
       sft_store$result <- NULL; sft_store$error <- NULL
       net_store$result <- NULL; net_store$source <- NULL; net_store$error <- NULL

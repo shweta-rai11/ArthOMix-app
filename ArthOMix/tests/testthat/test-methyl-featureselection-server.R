@@ -1,22 +1,5 @@
-## Module 2 (Methylomics) - Feature Selection's held-out split logic, via
-## testServer(). Regression guard for a RED finding (2026-09-07 defense
-## audit): caret::createDataPartition() failing inside fs_build_filters()
-## silently fell back to putting every sample in the training set (a
-## 100%/0% train/holdout split) and reported success with no user-visible
-## warning - the one place a leakage bug could invalidate every downstream
-## biomarker claim had zero server-level test coverage. This was previously
-## the single largest testing gap in the Methylomics vertical (no
-## test-methyl-featureselection-server.R existed at all, unlike DMP/DMR/QC/
-## coloc, which all have paired functions+server tests).
-##
-## fs_build_filters() is called directly (not via the run_*_btn eventReactive
-## wrappers) because those eventReactives are declared with ignoreInit = TRUE,
-## and simulating an actionButton click through testServer's synchronous
-## setInputs()/flushReact() does not reliably clear that initial-ignore state
-## here (a testServer/eventReactive interaction quirk, not a property of the
-## real browser-driven app, where an actionButton always initializes to 0
-## before any real click). Calling fs_build_filters() directly exercises the
-## exact same production leakage-safety code the buttons invoke.
+## Feature Selection held-out split tests: a createDataPartition() failure must stop the run, not give a 100%/0% split.
+## Calls fs_build_filters() directly: testServer clicks don't reliably clear the run_*_btn eventReactives' ignoreInit.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

@@ -1,23 +1,6 @@
-## Regression coverage for ArthOChat fixes made in the forensic audit
-## (2026-09-04): (B) build_cx_context()'s dataset-scope line, which was
-## previously entirely absent for the Cross-Omics vertical, causing the
-## model to fabricate cohort claims for a sub-module it had no context for
-## (see tests/arthochat_verification/README.md); (C) a new, code-level
-## fabrication guard that doesn't require a live Ollama server to test;
-## (D) case-insensitive contrast/group matching in the DGE tool, closing an
-## asymmetry with the other 3 ArthOChat-invocable analysis tools. None of
-## these tests require a live LLM - they exercise pure, LLM-independent
-## helper functions with synthetic strings/data.
+## Regression tests for ArthOChat context/guard fixes (dataset-scope line, fabrication guard, DGE matching); no live LLM.
 
-## build_cx_context()/CX_MODULES (R/modules_index.R) construct every
-## vertical's module registry at source-time from each individual module
-## file's own *_config object (e.g. mod_overview_config, mod_cross_*_config)
-## - exactly like the real app's own R/ autoload does - so modules_index.R
-## cannot be sourced standalone without every module file already loaded
-## first. Mirror that by sourcing the whole R/ tree (order-independent for
-## function *definitions*; only modules_index.R's own top-level registry
-## construction needs everything else to exist first) before modules_index.R
-## and mod_arthochat.R themselves.
+## Source the whole R/ tree first: modules_index.R builds its module registry at source time from every *_config.
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
@@ -62,10 +45,7 @@ test_that("build_cx_context() reports the real loaded sources once a live Cross-
 ## (C) arthochat_detect_ungrounded_reference() - the fabrication guard
 ## ---------------------------------------------------------------------------
 
-## A real module title, not a hand-invented "WGCNA" label - every actual
-## WGCNA title (R/modules_index.R) carries a trailing/parenthetical
-## qualifier, so a bare "WGCNA" header never occurs in production context
-## text and a test built on one would silently stop exercising the guard.
+## Use a real module title, not a bare "WGCNA" label, which never occurs in production context text.
 WGCNA_TITLE <- Find(function(m) grepl("^WGCNA", m), .arthochat_known_modules())
 
 mk_context <- function(populated_module = NULL, not_run_module = NULL) {
@@ -131,10 +111,7 @@ test_that(".arthochat_classify_context_modules() resolves a header to its most s
 })
 
 test_that("a hedge about one unrun module does not suppress flagging of a DIFFERENT unrun module in the same response", {
-  ## Regression guard for the 2026-09-07 defense audit finding: hedge
-  ## suppression was response-wide, so hedging about module A disabled
-  ## ungrounded-reference flagging for every other not-run module named in
-  ## that same response, not just A.
+  ## Guard: hedging about module A must not suppress flagging for other not-run modules in the same response.
   ml_title <- Find(function(m) grepl("^ML Feature Selection", m), .arthochat_known_modules())
   ctx <- mk_context(not_run_module = WGCNA_TITLE)
   ctx <- paste(ctx, sprintf("## %s\nNOT YET RUN IN THIS SESSION.\n", ml_title), sep = "\n")
@@ -170,10 +147,7 @@ test_that("the acronym itself, on a real word boundary, still correctly flags th
 })
 
 ## ---------------------------------------------------------------------------
-## (C2) arthochat_affirms_pending_run() - code-level consent check for the
-## DGE-execution tool (2026-09-07 defense audit finding: consent for the one
-## write-capable ArthoChat tool was entirely model-judged, never checked
-## against the user's actual last message in code).
+## (C2) arthochat_affirms_pending_run(): code-level consent check for the DGE-execution tool.
 ## ---------------------------------------------------------------------------
 
 test_that("clear affirmative replies are recognized as consent", {
@@ -222,11 +196,7 @@ test_that("arthochat_grounded_modules_label() returns an empty string when nothi
 })
 
 ## ---------------------------------------------------------------------------
-## End-to-end: the guard must fire against REAL context text, not just the
-## hand-rolled mk_context() fixture above. This is the exact gap that let the
-## "## " vs "### " header-regex bug (and the hardcoded-title-drift bug) ship
-## silently: every existing test built context by hand instead of calling the
-## real build_tx_context()/build_mx_context()/build_cx_context().
+## End-to-end: the guard must fire on real build_tx/mx/cx_context() text, not just the hand-built mk_context().
 ## ---------------------------------------------------------------------------
 
 test_that("the guard fires against real build_tx_context() output for an unrun sub-module", {

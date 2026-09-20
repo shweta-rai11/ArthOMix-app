@@ -9,12 +9,7 @@ ARTHOCHAT_MAX_EXECUTIONS <- 5L
 ARTHOCHAT_TEMPERATURE <- 0
 ARTHOCHAT_SEED <- 20260904L
 
-## ARTHOCHAT_MAX_TURNS above is a per-session counter: a fresh browser tab or
-## reload gets a fresh Shiny session and therefore a fresh counter, so on its
-## own it does not bound total spend on the metered LLM backend. This adds a
-## session-independent budget shared by every session in the R process, plus
-## a per-visitor (IP) budget so a single visitor reloading repeatedly cannot
-## alone exhaust the global one. Single-threaded per R process, so no locking.
+## Process-wide and per-IP budgets, so reloading a tab cannot reset the ARTHOCHAT_MAX_TURNS spend limit.
 .arthochat_rate_env <- new.env(parent = emptyenv())
 ARTHOCHAT_RATE_WINDOW_SECS <- 3600
 ARTHOCHAT_GLOBAL_MAX_TURNS_PER_WINDOW <- 500L
@@ -123,10 +118,7 @@ arthochat_detect_ungrounded_reference <- function(response_text, context_text,
     "haven't run", "hasn't run", "no results yet", "not been computed",
     sep = "|"
   )
-  ## Sentence-scoped: a hedge only suppresses the module(s) it's actually
-  ## said alongside, not every not-run module named anywhere in the response
-  ## (a response can legitimately hedge about one module while asserting a
-  ## fabricated result for another in the same turn).
+  ## Sentence-scoped: a hedge only suppresses the module(s) named in the same sentence.
   sentences_lower <- tolower(strsplit(response_text, "(?<=[.!?])\\s+", perl = TRUE)[[1]])
   if (!length(sentences_lower)) sentences_lower <- resp_lower
 
@@ -297,7 +289,7 @@ arthochat_hf_system_prompt <- function(prompt) paste(prompt, "/no_think")
 arthochat_privacy_note <- function() {
   if (!(arthochat_backend() %in% c("anthropic", "huggingface"))) return(NULL)
   p(class = "submodule-desc",
-    "Privacy: your questions and short summaries of your results (table sizes, column names, top gene/CpG names) are sent to a third-party language-model service. Sample and patient ID lists are withheld. Do not type identifiable patient information here.")
+    "Answers come from an external AI service that sees your question and short result summaries (like table sizes and top gene names), not sample or patient ID lists. Please don't type patient-identifiable details.")
 }
 
 mod_arthochat_ui <- function(id) {
@@ -367,11 +359,7 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
             params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE)
           )
         } else if (identical(arthochat_backend(), "huggingface")) {
-          ## Qwen3 "thinking" is switched off two ways, matching the think = FALSE used for
-          ## local Ollama below. chat_template_kwargs is the documented switch, but the
-          ## nscale provider ignores it (live check 2026-09-20: identical 385-token hidden
-          ## reasoning with and without it), so the "/no_think" soft switch in the system
-          ## prompt is what actually turns thinking off (6 tokens, ~2x faster).
+          ## Qwen3 thinking off via chat_template_kwargs plus "/no_think" in the system prompt (nscale ignores the former).
           ellmer::chat_huggingface(
             model = ARTHOCHAT_HF_MODEL,
             credentials = function() Sys.getenv("ARTHOCHAT_HF_TOKEN", ""),

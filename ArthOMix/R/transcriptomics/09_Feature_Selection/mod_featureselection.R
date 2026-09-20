@@ -483,11 +483,7 @@ mod_featureselection_server <- function(id, dataset, results) {
 
     # candidate gene panel per sex, one function per data source
 
-    # "project" candidates: live Candidate Gene Identification output, else bundled MR-prioritised lists.
-    # "pooled" has no candidate list of its own (candidate discovery is sex-stratified), so it uses the
-    # union of the female/male panels instead. The bundled lists were only ever computed from the app's
-    # own default merged cohort - only offer them when that exact dataset is still active
-    # (dataset$is_bundled_reference), never for an uploaded/GEO/individual-preloaded dataset.
+    # "project": live Candidate Gene output, else bundled lists (only if dataset$is_bundled_reference); "pooled": female+male union.
     project_candidate_genes <- function(sex_label) {
       if (identical(sex_label, "pooled")) {
         cand_final <- results$candidates$final
@@ -853,27 +849,14 @@ mod_featureselection_server <- function(id, dataset, results) {
       fs_build_sex("pooled", NULL)
     }, ignoreInit = TRUE)
 
-    # Each fs_result_*() is an eventReactive, so it holds the fit from whichever dataset was loaded
-    # when its Run button was last clicked - switching datasets would otherwise leave that fit on
-    # screen labelled as the current one. Marked stale per sex here, cleared by that sex's own Run
-    # button below, and read by fs_result_or_null()/fs_result_error_msg() so every downstream
-    # summary/plot/table/Venn falls back to the "not run yet" empty state.
+    # Mark each sex's fit stale on dataset switch (cleared by its Run button) so outputs show "not run yet".
     fs_stale <- reactiveValues(female = FALSE, male = FALSE, pooled = FALSE)
     observeEvent(dataset$source, {
       fs_stale$female <- TRUE; fs_stale$male <- TRUE; fs_stale$pooled <- TRUE
     }, ignoreInit = TRUE)
     fs_is_stale <- function(sex_label) isTRUE(fs_stale[[sex_label]])
 
-    # Reads one sex's fs_result_*() and returns its real validate()/need() failure message, or
-    # NULL if it hasn't failed. Distinguishes a genuine failure from "hasn't been run yet": both
-    # are eventReactive halts of the same shiny "validation" class, but eventReactive's own
-    # pre-first-click halt (ignoreInit's req(FALSE)) always carries an EMPTY message, while a
-    # validate(need(...)) failure inside fs_build_sex() always carries the real one - so
-    # `nzchar()` on the caught message tells them apart. Every other read of fs_result_*()
-    # elsewhere in this file (`tryCatch(..., error = arthomix_null_on_error)`) collapsed both cases to
-    # NULL, which made a real failure (e.g. too few female samples for this contrast) look
-    # exactly like the button never having been clicked - the bug behind "Female result is not
-    # showing" with no indication why.
+    # Return this sex's validate()/need() failure message, or NULL; an empty message means not yet clicked.
     fs_result_error_msg <- function(sex_label) {
       if (fs_is_stale(sex_label)) return(NULL)
       fr <- switch(sex_label, female = fs_result_female, male = fs_result_male, pooled = fs_result_pooled)
@@ -1185,11 +1168,7 @@ mod_featureselection_server <- function(id, dataset, results) {
     register_sex_technique_outputs <- function(sex_label, res) {
       sex_color <- switch(sex_label, female = "#1a7a3c", male = "#7a4a26", pooled = "#2563EB")
       sex_title <- tools::toTitleCase(sex_label)
-      # Shows the real validate()/need() failure (e.g. too few female samples for this contrast)
-      # instead of the generic "not run yet" note when this sex's Run button WAS clicked but
-      # fs_build_sex() failed - see fs_result_error_msg() above for how the two are told apart.
-      # plot/table outputs below use validate(need(...)) rather than req(): a req() halt is silent,
-      # so the previous dataset's already-rendered content would stay in the DOM.
+      # Show the real fs_build_sex() failure, not "not run yet"; use validate(need()) as req() would leave stale content.
       not_yet_msg <- function() {
         err <- fs_result_error_msg(sex_label)
         if (!is.null(err)) return(sprintf("%s feature selection failed: %s", sex_title, err))

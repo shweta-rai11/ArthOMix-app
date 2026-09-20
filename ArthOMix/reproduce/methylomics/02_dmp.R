@@ -1,19 +1,6 @@
-## Regenerates the methylomics DMP (SVA-adjusted) stage from beta_raw.rds +
-## pheno.rds, using the app's own live functions (mod_methyl_dmp_prepare_subset,
-## mod_methyl_sva_fit, methyl_chunked_lmfit, limma, bacon), and compares
-## against the precomputed dmp_{female,male}_full.csv tables.
-##
-## Model, per the app's own UI description (mod_methyl_dmp.R:450): sex-stratified
-## limma on M-values (group + age + smoking + cell-type), bacon-corrected,
-## BH-FDR. Cell-type fractions are estimated live via EpiDISH CP on the
-## blood7 (Reinius/Houseman) reference - the module's own UI defaults
-## (mod_methyl_celltype.R:636,652). The live UI's true default covariate
-## selection is EMPTY (checkboxGroupInput selected=character(0)) - the
-## "group + age + smoking + cell-type" set is this script's explicit choice,
-## matching the documented default-table methodology, not a UI default.
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/methylomics/02_dmp.R
+## Regenerates the SVA-adjusted DMP stage with the app's own functions and compares to dmp_{female,male}_full.csv.
+## Covariates (group + age + smoking + cell-type) are this script's choice, not a UI default.
+## Run from the app directory: Rscript reproduce/methylomics/02_dmp.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

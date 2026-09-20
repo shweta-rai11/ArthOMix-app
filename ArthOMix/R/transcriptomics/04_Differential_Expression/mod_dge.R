@@ -420,12 +420,7 @@ mod_dge_server <- function(id, dataset, results) {
       } else if (identical(used_method, "limma")) {
         validate(need(!(is_counts && !is_normalized_totals),
           "This data looks like raw, non-negative, un-normalised values (wide value range, mostly integers) - not library-size-normalised or log-scale. limma assumes continuous, roughly-normal data and can mislead here. If this is raw RNA-seq count data, pick DESeq2 instead; otherwise normalise/log-transform it first (e.g. via Preprocessing → Batch Correction) before running limma."))
-        ## limma's moderated t-test assumes continuous, roughly log-normal data. Un-logged
-        ## linear-scale normalised data (TPM/FPKM/CPM) satisfies the guard above (it isn't
-        ## "raw counts") but is NOT log-scale, so fitting it directly as-is understated large
-        ## fold-changes and produced a logFC that wasn't actually log2-scale despite the
-        ## volcano axis unconditionally labelling it "log2 fold-change". Reuses the same
-        ## linear-vs-log detection already verified for CIBERSORT input (expression_type.R).
+        ## Linear normalised data (TPM/FPKM/CPM) passes the raw-counts guard but needs log2 for limma, so detect it.
         limma_needs_log2 <- deconv_is_linear_scale(declared_type, expr)
       }
 

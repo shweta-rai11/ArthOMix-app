@@ -1,8 +1,4 @@
-## Module 3 (Multiomics) - same-patient ID validation in the Dataset Workspace.
-## Matched-sample Multi-Omics integration must only proceed when every layer
-## carries exactly the same set of patient IDs (order-insensitive); mismatches,
-## missing IDs and duplicates block Preprocessing and Activation with the
-## required message instead of silently intersecting the datasets.
+## Same-patient ID validation: every layer needs the same patient IDs (any order), or Preprocessing/Activation is blocked.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")

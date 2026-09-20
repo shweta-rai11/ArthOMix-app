@@ -396,15 +396,7 @@ mod_dataset_server <- function(id, dataset) {
       dataset$reserved_expr <- NULL
       dataset$reserved_meta <- NULL
       dataset$reserved_info <- NULL
-      ## Shiny reactiveValues skip invalidating dependent observers when a field is
-      ## set to a value identical() to its current one. dataset$source is built from
-      ## filenames alone, so two different re-uploads sharing a filename (a corrected
-      ## re-upload saved under the same name; two GEO exports both saved as
-      ## "expression.csv") produce an identical source string and silently never
-      ## reset stale WGCNA/Candidate-gene results (RED finding, 2026-09-07 defense
-      ## audit). load_id is a plain monotonic counter - guaranteed to differ from its
-      ## previous value on every single activation regardless of content - so
-      ## observers keyed on it always fire, independent of what dataset$source says.
+      ## load_id always changes, so observers fire even when dataset$source repeats (same filename, new content).
       dataset$load_id <- (dataset$load_id %||% 0L) + 1L
       sum(duplicated(rownames(expr)))
     }
@@ -422,16 +414,7 @@ mod_dataset_server <- function(id, dataset) {
       dataset$reserved_info <- info
       dataset$expr <- expr[, keep, drop = FALSE]
       dataset$meta <- meta[match(keep, meta$sample), , drop = FALSE]
-      ## dataset$staged_expr/staged_meta are what Preprocessing's "currently loaded
-      ## dataset" fallback reads (`use_expr <- dataset$staged_expr %||% dataset$expr`,
-      ## mod_preprocessing.R) and were never updated here before this fix - so
-      ## ComBat/SVA/TMM/quantile-normalisation parameters could be estimated on the
-      ## pre-seal matrix, INCLUDING the reserved hold-out samples, even though only
-      ## the preprocessing OUTPUT was re-sealed afterward (RED finding, 2026-09-07
-      ## defense audit: this directly contradicted the in-UI claim that reserved
-      ## samples are "hidden from every step"). Keep staged_expr/staged_meta in
-      ## lock-step with expr/meta so every downstream fallback also only ever sees
-      ## the discovery subset.
+      ## Keep staged_expr/staged_meta in step with expr/meta so Preprocessing never sees reserved hold-out samples.
       if (!is.null(dataset$staged_expr)) {
         staged_ids <- intersect(colnames(dataset$staged_expr), ids)
         staged_keep <- setdiff(colnames(dataset$staged_expr), staged_ids)

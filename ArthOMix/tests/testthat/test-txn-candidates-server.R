@@ -207,17 +207,7 @@ test_that("results$candidates is published with the correct female/male/final st
 })
 
 test_that("re-loading a different dataset that happens to share the same dataset$source string still resets female/male has-run state (via load_id)", {
-  ## Regression guard for a RED finding (2026-09-07 defense audit): Shiny
-  ## reactiveValues skip invalidating dependent observers when a field is
-  ## reassigned a value identical() to its current one. dataset$source for
-  ## uploads is built from filenames alone (mod_dataset.R), so two different
-  ## re-uploads sharing a filename (a corrected re-upload saved under the same
-  ## name; two GEO exports both saved as "expression.csv") produced an
-  ## identical dataset$source string and silently never reset this module's
-  ## has-run state, serving the previous dataset's candidate results as
-  ## "already run." dataset$load_id (bumped on every activate_dataset() call,
-  ## regardless of content) fixes this by guaranteeing a genuinely different
-  ## value every time, independent of what dataset$source says.
+  ## Guard: dataset$load_id (bumped by every activate_dataset()) must reset the has-run state even if dataset$source repeats.
   dataset <- cand_dataset()
   wg <- cand_wgcna_fixture()
   sig <- c("GENE1", "GENE2", "GENE3", "GENE4", "GENE5")

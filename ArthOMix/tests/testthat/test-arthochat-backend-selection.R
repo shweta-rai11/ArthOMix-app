@@ -90,8 +90,8 @@ test_that("with no backend, a Space visitor is not told to install Ollama or set
 })
 
 test_that("the privacy note appears only for hosted backends, not for local Ollama", {
-  with_backend_env(hf = "hf_dummy",        expect_match(as.character(arthochat_privacy_note()), "third-party", fixed = TRUE))
-  with_backend_env(anthropic = "sk-dummy", expect_match(as.character(arthochat_privacy_note()), "identifiable patient information", fixed = TRUE))
+  with_backend_env(hf = "hf_dummy",        expect_match(as.character(arthochat_privacy_note()), "external AI service", fixed = TRUE))
+  with_backend_env(anthropic = "sk-dummy", expect_match(as.character(arthochat_privacy_note()), "patient-identifiable", fixed = TRUE))
   with_backend_env(with_ollama(TRUE,  expect_null(arthochat_privacy_note())))
   with_backend_env(with_ollama(FALSE, expect_null(arthochat_privacy_note())))
 })

@@ -29,10 +29,7 @@ test_that("run_qc_btn computes sample_qc() against the active dataset and flags/
 })
 
 test_that("running outlier detection writes back to shared results so ArthoChat's grounding sees it as run", {
-  ## Regression guard for the 2026-09-07 defense audit finding: mod_overview_server
-  ## received results but never wrote to it, so ArthoChat's context builder
-  ## (which keys off results[["overview"]] being non-NULL) permanently reported
-  ## this sub-module as "NOT YET RUN IN THIS SESSION" even after a real QC run.
+  ## Guard: the module must write results[["overview"]], or ArthoChat reports it "NOT YET RUN" after a real QC run.
   dataset <- fixture_dataset()
   results <- shiny::reactiveValues()
   shiny::testServer(mod_overview_server, args = list(id = "ov", dataset = dataset, results = results), {
@@ -50,10 +47,7 @@ fixture_raw_counts_dataset <- function() {
   set.seed(52)
   genes <- sprintf("GENE%03d", seq_len(200))
   samples <- sprintf("S%02d", seq_len(20))
-  ## Wide dynamic range, mostly-integer values - the signature of raw RNA-seq counts,
-  ## the exact input quantile normalisation must never be silently applied to (RED
-  ## finding: mod_overview.R's "Apply quantile normalisation" button + styling offered
-  ## it as the recommended fix for this exact shape of data).
+  ## Wide dynamic range, mostly-integer values (raw RNA-seq counts): quantile normalisation must never be applied silently.
   expr <- matrix(rnbinom(200 * 20, mu = 500, size = 2), 200, 20, dimnames = list(genes, samples))
   meta <- data.frame(sample = samples, group = rep(c("HC", "RA"), length.out = 20), stringsAsFactors = FALSE)
   shiny::reactiveValues(expr = expr, meta = meta, source = "raw counts test cohort",

@@ -1,19 +1,5 @@
-## Regression coverage for a gap found in the transcriptomics audit
-## (2026-09-03): every existing Preprocessing/Batch-Correction test sets
-## skip_combat = TRUE, so ComBat / limma::removeBatchEffect / SVA are never
-## actually executed by any test - a real regression in the batch-correction
-## engines themselves would go undetected. These tests drive the real
-## run_btn -> result() path (skip_combat = FALSE) on a synthetic two-batch
-## fixture with a KNOWN injected batch offset and a KNOWN
-## injected, batch-orthogonal group signal, and check: (a) dimensions are
-## preserved, (b) no NaN/Inf is introduced, (c) the injected batch effect is
-## measurably reduced, and (d) the real biological (group) signal survives
-## correction - distinguishing genuine correction from mere data destruction.
-##
-## Covers: ComBat (default) and limma::removeBatchEffect. SVA and
-## ComBat-seq/TMM are not covered here (time-boxed) - see the module's own
-## existing tests for TMM-specific validation gates, which are unaffected by
-## this gap.
+## Tests ComBat and removeBatchEffect on a fixture with known batch and group effects: batch shrinks, group survives.
+## SVA and ComBat-seq/TMM are not covered here.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -23,18 +9,7 @@ source_from_app_root(file.path("R", "transcriptomics", "01_Data", "mod_dataset.R
 source_from_app_root(file.path("R", "transcriptomics", "03_Preprocessing_Batch_Correction", "mod_preprocessing_explore.R"))
 source_from_app_root(file.path("R", "transcriptomics", "03_Preprocessing_Batch_Correction", "mod_preprocessing.R"))
 
-## Two "batches" (a single synthetic dataset with its own "batch" column),
-## each with an orthogonal 50/50 HC/RA group split. Every gene gets a fixed
-## additive offset in batch B (the injected, known batch effect); a subset of
-## "signal" genes additionally get a fixed additive offset in RA vs HC, in
-## BOTH batches (the injected, known, batch-orthogonal biological signal).
-##
-## Built as one combined expr/meta pair (with meta$batch already set) rather
-## than two separately-uploaded sources, so it can be fed in through the
-## "Currently Loaded Dataset" preloaded-cohort path: merge_inputs() ->
-## merged() passes a single preloaded source's meta straight through
-## (mod_preprocessing.R's merged(), the length(lst) == 1 branch), preserving
-## an already-populated "batch" column untouched.
+## Two batches, each with a 50/50 HC/RA split: fixed offset in batch B, RA offset on "signal" genes in both batches.
 pp_make_batch_signal_fixture <- function(seed_a = 101, seed_b = 102, batch_offset = 4,
                                           n_genes = 80, n_signal = 10, n_per_group = 8,
                                           group_effect = 3) {
@@ -64,10 +39,7 @@ pp_make_batch_signal_fixture <- function(seed_a = 101, seed_b = 102, batch_offse
   list(expr = expr, meta = meta, fx1 = a, fx2 = b)
 }
 
-## Loads the two-batch fixture as the "Currently Loaded Dataset" preloaded
-## source and merges it through the module's real preloaded+merge UI path,
-## then runs batch correction with skip_combat = FALSE and the given
-## correction_method, returning result() plus the fixture's ground truth.
+## Loads the two-batch fixture via the real preloaded+merge path, runs the given correction, returns result() + ground truth.
 run_pp_batch_correction <- function(correction_method = "combat") {
   fx <- pp_make_batch_signal_fixture(batch_offset = 4)
   dataset <- shiny::reactiveValues(expr = fx$expr, meta = fx$meta,
@@ -133,10 +105,7 @@ test_that("ComBat preserves the real, batch-orthogonal biological (group) signal
   res <- out$res; fx1 <- out$fx1; fx2 <- out$fx2
   sig <- fx1$signal_genes
 
-  ## Group effect (RA - HC) computed within each batch separately, before and
-  ## after correction - a group_effect of 3 was injected identically in both
-  ## batches (orthogonal to the batch offset), so correction should not
-  ## remove it, whichever batch it is measured in.
+  ## Group effect (RA - HC) within each batch, before and after correction; the injected effect of 3 must survive.
   before_a <- bc_group_mean(res$expr_qnorm, fx1, fx2, sig, "A", "RA") - bc_group_mean(res$expr_qnorm, fx1, fx2, sig, "A", "HC")
   after_a  <- bc_group_mean(res$expr_combat, fx1, fx2, sig, "A", "RA") - bc_group_mean(res$expr_combat, fx1, fx2, sig, "A", "HC")
   before_b <- bc_group_mean(res$expr_qnorm, fx1, fx2, sig, "B", "RA") - bc_group_mean(res$expr_qnorm, fx1, fx2, sig, "B", "HC")

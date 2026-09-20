@@ -287,10 +287,8 @@ test_that("cx_validate_dataset() reports real per-check pass/fail and readiness 
   expect_false(out_none$transcriptomics[[1]]$ok)
 })
 
-## ---- cx_build_live_expr_df() / cx_build_live_meth_df() -----------------
-## The "Use live Transcriptomics/Methylomics session results" adapters -
-## these must produce output matching cx_standardize_expression()/
-## cx_standardize_methylation()'s real contract, not a superficial rename.
+## ---- cx_build_live_expr_df() / cx_build_live_meth_df() ----
+## Live adapters must match the real cx_standardize_expression()/cx_standardize_methylation() contract.
 
 fx_live_dge_run <- function(genes, logfc, adjp, contrast = "RA vs HC (female)") {
   list(contrast = contrast, method = "limma", n_samples = 20,

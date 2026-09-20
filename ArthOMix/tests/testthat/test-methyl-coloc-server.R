@@ -1,10 +1,4 @@
-## Module 2 (Methylomics) - Colocalization server tests: exercises the Upload
-## Data route (validate -> filters/priors -> run) via testServer(), on
-## synthetic mQTL/GWAS summary statistics built from the real bundled eQTL
-## rsIDs (so TwoSampleMR::format_data()/harmonise_data() see well-formed
-## variant IDs and alleles). Focused on the p1/p2/p12 prior inputs: confirms
-## they flow into coloc.abf(), are validated, and leave default behaviour
-## (the pre-existing coloc conventions of 1e-4/1e-4/1e-5) unchanged.
+## Colocalization upload-route server tests on synthetic stats from real eQTL rsIDs, focused on the p1/p2/p12 priors.
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
@@ -21,11 +15,7 @@ make_synthetic_meth_coloc_files <- function() {
     ea = eqtl$ea, oa = eqtl$nea, eaf = eqtl$eaf, n = eqtl$n,
     chr = eqtl$chr, pos = eqtl$position
   )
-  ## Deliberately weakened, noisy GWAS signal (not a near-perfect echo of the
-  ## eQTL effect): a slam-dunk concordant signal saturates PP.H4 near 1.0
-  ## regardless of the p1/p2/p12 priors, which would make the prior-sensitivity
-  ## test below vacuous. A noisier, only-moderately-supported signal keeps
-  ## PP.H4 in a mid-range where changing the priors is actually detectable.
+  ## Use a deliberately noisy GWAS signal: a near-perfect echo saturates PP.H4 and makes the prior test vacuous.
   set.seed(20260904)
   noise <- stats::rnorm(nrow(eqtl), mean = 0, sd = eqtl$se * 4)
   gwas_df <- data.frame(
@@ -98,11 +88,7 @@ run_methyl_coloc_upload <- function(p1 = NULL, p2 = NULL, p12 = NULL, expect_run
     }
 
     if (isTRUE(expect_run_error)) {
-      ## The run_btn observeEvent() wraps build_run_state_upload() in its own
-      ## tryCatch() and only shows a notification on a validate() failure - it
-      ## never re-throws, and run_state() is simply left unset. So to actually
-      ## observe the validate() condition from a test, call the (module-local)
-      ## builder function directly rather than going through run_btn/run_state.
+      ## Call the module-local builder directly: run_btn wraps it in tryCatch, so validate() is unobservable via run_state.
       out <<- tryCatch(build_run_state_upload(), error = function(e) e)
     } else {
       session$setInputs(run_btn = 1)
@@ -134,11 +120,7 @@ test_that("changing p1/p2/p12 inputs away from coloc's defaults actually changes
 })
 
 test_that("coloc.susie() is called with the user's chosen p12, not a hardcoded value diverging from coloc.abf's", {
-  ## Regression guard for the 2026-09-07 defense audit finding: coloc.susie()
-  ## silently used a hardcoded p12 = 5e-6 regardless of the p12 the user set
-  ## (and which is what's actually displayed as "the" prior in the UI and
-  ## stored in rs$priors), so the two methods' results were not comparable
-  ## under the priors the UI claims were used.
+  ## Guard: coloc.susie() must use the user's p12 (shown in the UI, stored in rs$priors), not a hardcoded 5e-6.
   rs <- run_methyl_coloc_upload(p1 = 1e-4, p2 = 1e-4, p12 = 1e-4, use_susie = TRUE)
   calls <- attr(rs, "susie_calls")
   expect_length(calls, 1)

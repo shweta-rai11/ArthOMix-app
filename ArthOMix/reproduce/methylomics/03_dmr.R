@@ -1,12 +1,5 @@
-## Regenerates the methylomics DMR stage by feeding the already-verified DMP
-## regeneration (reproduce/methylomics/output/02_dmp_{F,M}_comparison.csv,
-## t_regen/p_bacon_regen/dbeta_regen columns) into DMRcate exactly as the live
-## app does (mod_methyl_dmr.R:582-606): lambda=1000, C=2, min.cpgs=3,
-## pcutoff="fdr" (DMRcate's own default), seeding p < 0.05 on bacon-corrected
-## per-CpG p-values. Compares called regions against dmr_{female,male}_full.csv.
-##
-## Run from the ArthOMix/ app directory (after reproduce/methylomics/02_dmp.R):
-##   Rscript reproduce/methylomics/03_dmr.R
+## Regenerates DMRs by feeding the regenerated DMP results into DMRcate (as the live app does); compares to dmr_*_full.csv.
+## Run from the app directory (after reproduce/methylomics/02_dmp.R): Rscript reproduce/methylomics/03_dmr.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())

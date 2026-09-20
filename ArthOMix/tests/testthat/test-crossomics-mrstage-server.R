@@ -23,13 +23,7 @@ test_that("loading the real precomputed MR-stage results populates mrs$df with r
     expect_true(nrow(mrs$df) > 0)
     expect_true(is.logical(mrs$df$steiger_dir))
 
-    ## Regression guard for the 2026-09-07 defense audit finding: the
-    ## provenance-manifest export was wired for only 2 of ~40 download paths,
-    ## with Cross-Omics entirely unwired to the shared session-wide log.
-    ## (load_mr is primed 0 -> 1 above per the testServer actionButton
-    ## gotcha, and this plain observeEvent has no ignoreInit - so it legitimately
-    ## fires on both the priming step and the "real" click; check the latest
-    ## record rather than assume a single push.)
+    ## Fires on both the priming step and the real click (no ignoreInit), so check the latest provenance record.
     recs <- arthomix_provenance_records(session)
     expect_gte(length(recs), 1)
     last <- recs[[length(recs)]]
@@ -123,11 +117,7 @@ test_that("uploading a standalone evidence file computes a real relabeled table 
     expect_true(tp53$DEG_significant)
     expect_true(tp53$eQTL_MR_significant)
 
-    ## Regression guard for the 2026-09-08 fix: this was the one handler in
-    ## the module without a provenance push (its siblings load_mr and
-    ## load_mr_upload both had one already) - the gene-level evidence table
-    ## feeding all five MR convergence categories could be swapped in with no
-    ## trace in the session-wide analysis-record log.
+    ## Guard: this handler must push a provenance record like its siblings load_mr and load_mr_upload.
     recs <- arthomix_provenance_records(session)
     expect_gte(length(recs), 1)
     last <- recs[[length(recs)]]

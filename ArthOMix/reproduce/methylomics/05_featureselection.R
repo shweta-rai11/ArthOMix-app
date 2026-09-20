@@ -1,22 +1,5 @@
-## Regenerates the methylomics ML Feature Selection stage (LASSO stability
-## selection + Random Forest importance) using the module's own function-level
-## defaults - see reproduce/methylomics/README.md. LOWER CONFIDENCE than
-## 02_dmp.R/03_dmr.R/04_wgcna.R: this module has NO preloaded-specific
-## hyperparameter defaults anywhere in mod_methyl_featureselection.R (checked;
-## zero `if (isTRUE(...preloaded...))` branches for any ML hyperparameter), so
-## there is no code evidence these generic defaults are what the original
-## pipeline actually used. Reported honestly as an approximation, not a proof.
-##
-## Recipe replicated from mod_methyl_featureselection.R:786-865 (fs_build_filters):
-## 70/30 holdout (seed 1234, BEFORE any feature filtering - leakage-safe, same
-## as the live app), then on the training partition only: 5%/20% probe/sample
-## missingness filter, top-5000-by-variance cap (beta scale). LASSO stability
-## (methyl_fs_stability_run defaults: bootstrap, 50 resamples, alpha=1, seed
-## 1234) and RF (methyl_fs_rf_fit defaults: ntree=1000, mtry=sqrt(p), nodesize=1,
-## replace=TRUE, seed=1234, gini importance).
-##
-## Run from the ArthOMix/ app directory:
-##   Rscript reproduce/methylomics/05_featureselection.R
+## Regenerates ML Feature Selection (LASSO stability + RF) with generic defaults; LOWER CONFIDENCE, an approximation.
+## Run from the app directory: Rscript reproduce/methylomics/05_featureselection.R
 
 suppressMessages(suppressWarnings(
   shiny::loadSupport(".", renv = globalenv(), globalrenv = globalenv())
@@ -67,11 +50,7 @@ run_fs_sex <- function(sex_letter, sex_label, lasso_freq_path, rf_imp_path) {
   rf_precomp <- read.csv(rf_imp_path)
   imp_col <- intersect(c("MeanDecreaseGini", "MeanDecreaseAccuracy"), colnames(rf_precomp))[1]
   cmp_rf <- merge(rf_precomp, imp_regen, by = "cpg")
-  ## rf_precomp has far fewer rows than this script's 5000-CpG top-variance
-  ## candidate pool (e.g. 12 for the female stratum, close to the DMP
-  ## significant-CpG count) - the real Feature Selection candidate universe was
-  ## almost certainly the DMP-significant panel, not a fresh top-variance
-  ## selection. Report the mismatch honestly rather than force a number.
+  ## rf_precomp has far fewer rows than the 5000-CpG pool, so the real universe was likely the DMP-significant panel.
   if (nrow(cmp_rf) < 3) {
     cat(sprintf("RF importance: NOT COMPARABLE - only %d/%d precomputed CpGs fall inside this script's 5000-CpG candidate pool (precomputed table looks DMP-panel-derived, not a fresh top-variance selection - see header note).\n", nrow(cmp_rf), nrow(rf_precomp)))
     r_rf <- NA_real_; top50_overlap <- NA_integer_

@@ -101,11 +101,7 @@ test_that("dxm_overfitting_note() flags a large train-vs-test AUC gap as possibl
   expect_equal(dxm_overfitting_note(NA_real_, 0.8, 0.8), "Not enough completed evaluations yet to assess overfitting.")
 })
 
-## dxm_validate_nested() / dxm_attach_headline(): the leakage-safe headline
-## metric added for the Diagnostic Classifier's default (no genuine held-out
-## split) path. X is samples (rows) x CpGs (columns), matching dxm$full_X's
-## own orientation in this module (the opposite of transcriptomics' expr
-## matrix, which is genes x samples).
+## dxm_validate_nested() / dxm_attach_headline(): leakage-safe headline metric; X is samples x CpGs (not genes x samples).
 dxm_noise_leakage_fixture <- function(fixture_seed = 2, n = 60, n_cpgs = 400) {
   set.seed(fixture_seed)
   y <- factor(rep(c(DXM_NEG, DXM_POS), each = n / 2), levels = c(DXM_NEG, DXM_POS))

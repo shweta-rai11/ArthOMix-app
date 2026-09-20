@@ -651,29 +651,11 @@ multi_geo_series_relation <- function(accession) {
   list(ok = TRUE, accession = acc, subseries = subseries)
 }
 
-## GEO submitters very commonly encode a shared per-patient identifier as the
-## trailing token of each sample's `title` (e.g. "PBMC_E_n_01" / "DNA_E_n_01"
-## for the same patient across two independently-submitted series - confirmed
-## directly against Tao et al. 2021's GSE138746/GSE138653, which have NO other
-## column in common). This is a best-effort *candidate* match key, always
-## offered as one option alongside the sample's own GSM ID and any GEO
-## characteristics columns - never silently substituted for them. The
-## existing "Patient ID (from metadata)" sample-matching mode
-## (mod_multi_dataset.R's matching_method) already prompts the user to pick
-## the column that identifies the same patient across datasets: this makes
-## that picker actually solve the cross-series case, without inventing a new
-## matching UI or algorithm.
+## Candidate patient key: trailing token of each GEO sample title (e.g. "PBMC_E_n_01"), offered as a matching option.
 multi_geo_derive_title_patient_num <- function(meta) {
   if (is.null(meta) || !"title" %in% colnames(meta)) return(rep(NA_character_, NROW(meta)))
   titles <- as.character(meta$title)
-  ## NOTE: regmatches(x, regexpr(...)) silently DROPS elements with no match
-  ## rather than returning "" or NA at that position, so its result is
-  ## shorter than x whenever any title lacks a trailing number - the
-  ## subsequent hit/out[hit] assignment would then misalign (or, via R's
-  ## length-1-recycling, corrupt every row) whenever this recovers from
-  ## real-world data where some titles have a trailing number and others
-  ## don't. Read the match position/length directly from regexpr() instead,
-  ## which stays one-to-one with `titles` regardless of no-match rows.
+  ## Use regexpr() positions directly: regmatches() drops non-matching titles and would misalign out[hit].
   m <- regexpr("[0-9]+$", titles)
   starts <- as.integer(m)
   lens <- attr(m, "match.length")
@@ -769,13 +751,7 @@ multi_geo_autosplit_fetch <- function(accession) {
        methylation = multi_geo_attach_title_patient_num(pair$methylation))
 }
 
-## For the common real-world case where expression and methylation were
-## submitted to GEO as two SEPARATE, unlinked series (confirmed true for
-## Tao et al. 2021's GSE138746 + GSE138653 - GEO's own series-relation
-## metadata lists zero linked sub-series for either) - multi_geo_autosplit_fetch()
-## cannot find them because there is no SuperSeries to discover. This fetches
-## each accession independently and classifies each by its own data (not by
-## which text box the user typed it into), so either order works.
+## Fetch expression and methylation from two unlinked GEO series, classifying each by its data (order-independent).
 multi_geo_dual_fetch <- function(accession_a, accession_b) {
   acc_a <- toupper(trimws(accession_a %||% ""))
   acc_b <- toupper(trimws(accession_b %||% ""))
@@ -789,13 +765,7 @@ multi_geo_dual_fetch <- function(accession_a, accession_b) {
     if (!isTRUE(lf$ok)) return(list(ok = FALSE, error = lf$error))
     layers <- multi_geo_classify_platforms(lf$platforms)
     if (length(layers) == 0) {
-      ## Sequencing-based (RNA-seq) GEO series routinely have NO values
-      ## embedded in the series matrix at all (GEO convention, not specific to
-      ## this dataset - confirmed directly: GSE138746's exprs() is 0 rows x
-      ## 240 samples) - the real counts live in a supplementary file whose
-      ## format is entirely submitter-defined, which this fetch path cannot
-      ## parse. Say so plainly rather than a generic "no matrix" message, so
-      ## the user knows to fall back to Upload rather than retry the fetch.
+      ## RNA-seq GEO series usually have counts only in a supplementary file, so tell the user to use Upload.
       return(list(ok = FALSE, error = sprintf(
         "%s's GEO series matrix has no values embedded for any platform (common for RNA-seq/sequencing submissions - GEO stores those as a supplementary file with no standard format, which this fetch path can't parse). Download the counts file from GEO yourself and use \"Upload Dataset\" instead.",
         acc)))

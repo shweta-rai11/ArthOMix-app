@@ -1,21 +1,4 @@
-## Regression coverage for the data-governance guarantee ArthOChat's context
-## builder makes: no sample-level identifiers or raw data values are ever
-## transmitted to the LLM backend, at any nesting depth of a stored result.
-##
-## Background (2026-09-06 audit): .format_results_block() previously checked
-## is.matrix()/is.data.frame() only on a field's *immediate* value. Any
-## data.frame, matrix, or sample-ID vector wrapped one level inside list() -
-## a natural R idiom used throughout the submodules - fell through to
-## as.character() and was deparsed verbatim with no size cap. Three real
-## leaks existed: multi_results$integration$snf (raw per-sample metadata +
-## raw omics matrices + clustering object), multi_results$overview$
-## harmonization$matched_ids (matched sample IDs), and results$
-## featureselection$<sex>$holdout_sample_ids (held-out sample IDs). Matrix
-## column names were a fourth vector: genes x samples and sample x sample
-## matrices carry sample IDs in their dimnames.
-##
-## These tests exercise the pure formatter with synthetic data shaped like
-## those real result objects. No live LLM is needed.
+## Regression tests that ArthOChat's context builder never emits sample-level IDs or raw values (synthetic data).
 
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
