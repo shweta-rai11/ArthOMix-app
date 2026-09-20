@@ -288,6 +288,9 @@ build_arthochat_system_prompt <- function(view, dataset, results,
   paste(ARTHOCHAT_SYSTEM_PROMPT, "", sprintf("## Current view: %s", view$view_label), "", ctx, sep = "\n")
 }
 
+## Qwen3 soft switch that disables reasoning; see the huggingface branch of get_client().
+arthochat_hf_system_prompt <- function(prompt) paste(prompt, "/no_think")
+
 ## Shown above the chat when a hosted model is in use, because the questions leave the
 ## server. A local Ollama model keeps everything on-device, so it gets no note.
 ## Wording matches what .summarise_result_value() actually sends (R/modules_index.R).
@@ -364,12 +367,15 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
             params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE)
           )
         } else if (identical(arthochat_backend(), "huggingface")) {
-          ## Qwen3 "thinking" is switched off through the chat template, matching
-          ## the think = FALSE used for local Ollama below.
+          ## Qwen3 "thinking" is switched off two ways, matching the think = FALSE used for
+          ## local Ollama below. chat_template_kwargs is the documented switch, but the
+          ## nscale provider ignores it (live check 2026-09-20: identical 385-token hidden
+          ## reasoning with and without it), so the "/no_think" soft switch in the system
+          ## prompt is what actually turns thinking off (6 tokens, ~2x faster).
           ellmer::chat_huggingface(
             model = ARTHOCHAT_HF_MODEL,
             credentials = function() Sys.getenv("ARTHOCHAT_HF_TOKEN", ""),
-            system_prompt = system_prompt_r(),
+            system_prompt = arthochat_hf_system_prompt(system_prompt_r()),
             params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE, seed = ARTHOCHAT_SEED),
             api_args = list(chat_template_kwargs = list(enable_thinking = FALSE))
           )

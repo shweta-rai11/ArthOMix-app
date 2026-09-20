@@ -95,3 +95,10 @@ test_that("the privacy note appears only for hosted backends, not for local Olla
   with_backend_env(with_ollama(TRUE,  expect_null(arthochat_privacy_note())))
   with_backend_env(with_ollama(FALSE, expect_null(arthochat_privacy_note())))
 })
+
+test_that("the Hugging Face system prompt ends with the Qwen3 /no_think switch and keeps the original prompt", {
+  out <- arthochat_hf_system_prompt("You are ArthOChat.\n\n## Current view: Home")
+  expect_match(out, "^You are ArthOChat\\.", perl = TRUE)
+  expect_match(out, "Current view: Home", fixed = TRUE)
+  expect_match(out, "/no_think$", perl = TRUE)
+})
