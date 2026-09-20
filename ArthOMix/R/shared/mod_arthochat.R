@@ -297,7 +297,7 @@ mod_arthochat_ui <- function(id) {
         icon("robot", class = "coming-soon-icon"),
         h4("ArthOChat isn't reachable"),
         p(sprintf(
-          "No AI backend is configured. Set ANTHROPIC_API_KEY, or run a local Ollama server: install Ollama, run \"ollama pull %s\", and make sure it's running at %s. Then reload this page.",
+          "No AI backend is configured. Set ARTHOCHAT_HF_TOKEN (Qwen3-8B via Hugging Face Inference Providers) or ANTHROPIC_API_KEY, or run a local Ollama server: install Ollama, run \"ollama pull %s\", and make sure it's running at %s. Then reload this page.",
           ARTHOMIX_OLLAMA_MODEL, ollama_base_url()
         ))
       )
@@ -348,6 +348,16 @@ mod_arthochat_server <- function(id, dataset, results = NULL,
             model = ARTHOCHAT_ANTHROPIC_MODEL,
             system_prompt = system_prompt_r(),
             params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE)
+          )
+        } else if (identical(arthochat_backend(), "huggingface")) {
+          ## Qwen3 "thinking" is switched off through the chat template, matching
+          ## the think = FALSE used for local Ollama below.
+          ellmer::chat_huggingface(
+            model = ARTHOCHAT_HF_MODEL,
+            credentials = function() Sys.getenv("ARTHOCHAT_HF_TOKEN", ""),
+            system_prompt = system_prompt_r(),
+            params = ellmer::params(temperature = ARTHOCHAT_TEMPERATURE, seed = ARTHOCHAT_SEED),
+            api_args = list(chat_template_kwargs = list(enable_thinking = FALSE))
           )
         } else {
           ellmer::chat_ollama(

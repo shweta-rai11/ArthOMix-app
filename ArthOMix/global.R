@@ -624,13 +624,23 @@ ollama_available <- function() {
 ARTHOCHAT_ANTHROPIC_MODEL <- "claude-sonnet-5"
 anthropic_available <- function() nzchar(Sys.getenv("ANTHROPIC_API_KEY", ""))
 
-## ArthOChat prefers a hosted Anthropic model when ANTHROPIC_API_KEY is set -
-## this is what a deployed app (e.g. shinyapps.io) uses, since it has no
-## local Ollama server reachable and needs to work for any visitor with
-## nothing left running on a developer's own machine. It falls back to local
-## Ollama for offline development where no API key is configured.
+## Qwen3-8B (the same model as ARTHOMIX_OLLAMA_MODEL) served through Hugging Face
+## Inference Providers. This is how the Hugging Face Space runs ArthOChat: the Space
+## has no Ollama server and 2 vCPUs, far too little to run an 8B model itself.
+## Enabled by a Space secret ARTHOCHAT_HF_TOKEN (a fine-grained token with only the
+## "Make calls to Inference Providers" permission). The ":nscale" suffix pins the
+## provider: it is the one the router lists with tool-calling support for this model,
+## and ArthOChat's PubMed/GWAS/analysis tools need tool calling.
+ARTHOCHAT_HF_MODEL <- Sys.getenv("ARTHOCHAT_HF_MODEL", "Qwen/Qwen3-8B:nscale")
+hf_available <- function() nzchar(Sys.getenv("ARTHOCHAT_HF_TOKEN", ""))
+
+## ArthOChat prefers a hosted Anthropic model when ANTHROPIC_API_KEY is set, then
+## Qwen3-8B on Hugging Face Inference Providers when ARTHOCHAT_HF_TOKEN is set (the
+## Hugging Face Space), and falls back to local Ollama for offline development
+## where neither is configured.
 arthochat_backend <- function() {
   if (anthropic_available()) "anthropic"
+  else if (hf_available()) "huggingface"
   else if (ollama_available()) "ollama"
   else "none"
 }

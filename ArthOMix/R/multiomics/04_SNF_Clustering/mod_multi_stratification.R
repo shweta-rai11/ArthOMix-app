@@ -268,7 +268,9 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       seed = input$seed %||% 1
     ))
 
-    state <- reactiveValues(result = NULL, stability = NULL, error = NULL, submitted = FALSE, layers_used = NULL, sample_meta = NULL, dataset_label = NULL)
+    SFC_RUN_WARN_SECS <- 60 ## typical SNF run is seconds; past this it's likely host contention, not a hang
+
+    state <- reactiveValues(result = NULL, stability = NULL, error = NULL, submitted = FALSE, layers_used = NULL, sample_meta = NULL, dataset_label = NULL, started_at = NULL)
 
     snapshot_inputs <- function() {
       r <- sc_ready(); v2 <- req(sc_val2())
@@ -276,6 +278,7 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
       state$error <- NULL
       state$result <- NULL
       state$submitted <- TRUE
+      state$started_at <- Sys.time()
       state$layers_used <- layers
       state$dataset_label <- sc_dataset()$label
       state$sample_meta <- sc_dataset()$sample_meta
@@ -326,7 +329,17 @@ mod_multi_stratification_server <- function(id, multi_dataset = NULL, multi_resu
 
     output$run_status_ui <- renderUI({
       if (!isTRUE(input$run_btn > 0)) return(NULL)
-      if (isTRUE(run_running())) return(div(class = "empty-note", icon("spinner", class = "fa-spin"), " Running - see the Clusters tab once this finishes."))
+      if (isTRUE(run_running())) {
+        elapsed <- if (!is.null(state$started_at)) as.numeric(difftime(Sys.time(), state$started_at, units = "secs")) else 0
+        invalidateLater(if (elapsed > SFC_RUN_WARN_SECS) 5000 else 3000)
+        if (elapsed > SFC_RUN_WARN_SECS) {
+          return(div(class = "empty-note", icon("triangle-exclamation"), sprintf(
+            " Still running after %ds - a typical SNF run finishes in a few seconds, so this is likely server load rather than a stuck run. It will complete and show results here once resources free up; no need to resubmit.",
+            round(elapsed)
+          )))
+        }
+        return(div(class = "empty-note", icon("spinner", class = "fa-spin"), " Running - see the Clusters tab once this finishes."))
+      }
       if (!is.null(state$error)) return(mi_stop(state$error))
       if (!is.null(state$result)) return(mi_ok("Finished - see Clusters / Stability / Clinical / Features."))
       NULL
