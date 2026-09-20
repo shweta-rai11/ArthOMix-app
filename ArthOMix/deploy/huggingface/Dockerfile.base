@@ -7,7 +7,13 @@ FROM rocker/r-ver:4.4.2
 LABEL org.opencontainers.image.source="https://github.com/shweta-rai11/ArthOMix-app"
 LABEL org.opencontainers.image.description="ArthOMix Explorer base image (R packages only, no app code or data)"
 
+## cmake (nloptr), libuv1-dev (fs), libicu-dev (stringi) and make were missing in the
+## first run; the rest was checked against Posit Package Manager's sysreqs for Ubuntu 24.04.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    make \
+    libuv1-dev \
+    libicu-dev \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
