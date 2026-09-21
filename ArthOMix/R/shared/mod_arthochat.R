@@ -283,15 +283,6 @@ build_arthochat_system_prompt <- function(view, dataset, results,
 ## Qwen3 soft switch that disables reasoning; see the huggingface branch of get_client().
 arthochat_hf_system_prompt <- function(prompt) paste(prompt, "/no_think")
 
-## Shown above the chat when a hosted model is in use, because the questions leave the
-## server. A local Ollama model keeps everything on-device, so it gets no note.
-## Wording matches what .summarise_result_value() actually sends (R/modules_index.R).
-arthochat_privacy_note <- function() {
-  if (!(arthochat_backend() %in% c("anthropic", "huggingface"))) return(NULL)
-  p(class = "submodule-desc",
-    "Answers come from an external AI service that sees your question and short result summaries (like table sizes and top gene names), not sample or patient ID lists. Please don't type patient-identifiable details.")
-}
-
 mod_arthochat_ui <- function(id) {
   ns <- NS(id)
   if (identical(arthochat_backend(), "none")) {
@@ -314,7 +305,6 @@ mod_arthochat_ui <- function(id) {
   tagList(
     p(class = "submodule-desc",
       "Ask about your dataset, results, or the science behind them."),
-    arthochat_privacy_note(),
     shinychat::chat_ui(
       ns("chat"),
       placeholder = "Ask about your dataset, results, or the science behind them...",

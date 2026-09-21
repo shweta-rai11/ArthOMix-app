@@ -89,11 +89,13 @@ test_that("with no backend, a Space visitor is not told to install Ollama or set
   })
 })
 
-test_that("the privacy note appears only for hosted backends, not for local Ollama", {
-  with_backend_env(hf = "hf_dummy",        expect_match(as.character(arthochat_privacy_note()), "external AI service", fixed = TRUE))
-  with_backend_env(anthropic = "sk-dummy", expect_match(as.character(arthochat_privacy_note()), "patient-identifiable", fixed = TRUE))
-  with_backend_env(with_ollama(TRUE,  expect_null(arthochat_privacy_note())))
-  with_backend_env(with_ollama(FALSE, expect_null(arthochat_privacy_note())))
+test_that("the chat shows only the one-line intro, with no privacy note, on every backend", {
+  with_backend_env(hf = "hf_dummy", {
+    html <- as.character(mod_arthochat_ui("chat"))
+    expect_match(html, "Ask about your dataset, results, or the science behind them.", fixed = TRUE)
+    expect_no_match(html, "Privacy", fixed = TRUE)
+    expect_no_match(html, "language-model", fixed = TRUE)
+  })
 })
 
 test_that("the Hugging Face system prompt ends with the Qwen3 /no_think switch and keeps the original prompt", {
