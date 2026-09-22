@@ -167,7 +167,9 @@ mod_methyl_interaction_server <- function(id, methyl_dataset, methyl_results = N
         ref_group = input$ref_group, comp_group = input$comp_group,
         is_m_scale = is_m_scale
       )
-    }, ignoreInit = TRUE)
+    ## No ignoreInit: this is first read inside the Run button's observer, so ignoreInit would swallow the
+    ## first click. ignoreNULL (default) already skips an unclicked button.
+    })
 
     sig_table <- reactive({
       res <- fit_result()

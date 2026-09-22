@@ -128,3 +128,14 @@ test_that("a group-by-sex cell with fewer than 2 samples is rejected even when t
     expect_true(grepl("Each group-by-sex cell needs at least 2 samples", conditionMessage(err)))
   })
 })
+
+test_that("the first click on Run stores a result (eventReactive must not use ignoreInit when only read after a click)", {
+  dataset <- methyl_interaction_fixture()
+  methyl_results <- shiny::reactiveValues()
+  shiny::testServer(mod_methyl_interaction_server, args = list(id = "int", methyl_dataset = dataset, methyl_results = methyl_results), {
+    session$setInputs(group_col = "group", ref_group = "HC", comp_group = "RA", ref_sex = "F", comp_sex = "M", padj_cut = 0.05)
+    ## A browser sends 1 for the first click; an unclicked button's 0 counts as NULL there, so no priming.
+    session$setInputs(run_btn = structure(1L, class = "shinyActionButtonValue"))
+    expect_false(is.null(methyl_results$interaction))
+  })
+})

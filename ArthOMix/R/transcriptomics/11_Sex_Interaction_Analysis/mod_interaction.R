@@ -119,7 +119,9 @@ mod_interaction_server <- function(id, dataset, results = NULL) {
         ref_sex = input$ref_sex, comp_sex = input$comp_sex,
         ref_group = input$ref_group, comp_group = input$comp_group
       )
-    }, ignoreInit = TRUE)
+    ## No ignoreInit: this is first read inside the Run button's observer, so ignoreInit would swallow the
+    ## first click. ignoreNULL (default) already skips an unclicked button.
+    })
 
     sig_table <- reactive({
       res <- fit_result()

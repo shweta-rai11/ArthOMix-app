@@ -113,3 +113,16 @@ test_that("a group-by-sex cell with fewer than 2 samples is rejected even when t
     expect_true(grepl("Each group-by-sex cell needs at least 2 samples", conditionMessage(err)))
   })
 })
+
+test_that("the first click on Run stores a result (eventReactive must not use ignoreInit when only read after a click)", {
+  dataset <- interaction_fixture()
+  results <- shiny::reactiveValues()
+  shiny::testServer(mod_interaction_server, args = list(id = "int", dataset = dataset, results = results), {
+    session$setInputs(ref_group = "HC", comp_group = "RA", ref_sex = "F", comp_sex = "M", padj_cut = 0.05)
+    ## A browser sends 1 for the first click; an unclicked button's 0 counts as NULL there, so no priming.
+    session$setInputs(run_btn = structure(1L, class = "shinyActionButtonValue"))
+    ## Read only what the click's own observer stored; do not pull fit_result() here, which would mask the bug.
+    expect_false(is.null(results$interaction))
+    expect_equal(results$interaction$n_tested, 25L)
+  })
+})
