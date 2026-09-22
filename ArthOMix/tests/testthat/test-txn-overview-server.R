@@ -4,6 +4,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "dataset_cohort_summary.R"))
 source_from_app_root(file.path("R", "transcriptomics", "functions", "expression_type.R"))
 source_from_app_root(file.path("R", "transcriptomics", "02_Overview", "mod_overview.R"))
 

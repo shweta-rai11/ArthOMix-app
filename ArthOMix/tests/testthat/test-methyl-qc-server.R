@@ -5,6 +5,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "dataset_cohort_summary.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "qc.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "annotation.R"))
 source_from_app_root(file.path("R", "methylomics", "functions", "idat_metrics.R"))

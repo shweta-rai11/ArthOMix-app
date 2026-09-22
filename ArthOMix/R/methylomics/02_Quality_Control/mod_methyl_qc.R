@@ -342,9 +342,12 @@ mod_methyl_qc_server <- function(id, methyl_dataset, methyl_results) {
       )
     })
 
+    cohort_summary_server("cohort", reactive(methyl_dataset$sample_sheet))
+
     output$overview_ui <- renderUI({
       req(methyl_dataset$beta)
       tagList(
+        cohort_summary_ui(ns("cohort")),
         uiOutput(ns("overview_controls_ui")),
         withSpinner(uiOutput(ns("overview_summary_ui")), color = "#2563EB", type = 6)
       )

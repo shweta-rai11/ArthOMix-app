@@ -27,6 +27,7 @@ mod_overview_ui <- function(id) {
       ),
       p(class = "submodule-desc", "What's currently selected above, as a whole, before any filtering."),
       withSpinner(uiOutput(ns("understand_ui")), color = "#2c6fbb", type = 6),
+      cohort_summary_ui(ns("cohort")),
       box(
         width = 12, title = "Sample metadata", status = "primary", solidHeader = FALSE,
         p(class = "submodule-desc", "Every column is sortable and filterable (click a header, or use the box underneath it)."),
@@ -195,6 +196,7 @@ mod_overview_server <- function(id, dataset, results = NULL) {
                   selected = qc_source_default(), width = "100%")
     })
     qc_target_meta <- reactive({ req(input$qc_source_meta); resolve_qc_source(input$qc_source_meta) })
+    cohort_summary_server("cohort", reactive(tryCatch(qc_target_meta()$meta, error = function(e) NULL)))
     output$qc_source_info_ui_meta <- renderUI({
       t <- qc_target_meta()
       div(class = "empty-note", icon("circle-info"), strong(t$label), " - ",
