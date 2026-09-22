@@ -281,3 +281,24 @@ test_that("tbc_panel_has_useful_cv_auc requires at least one model's CV AUC to c
   expect_false(tbc_panel_has_useful_cv_auc(list()))
   expect_false(tbc_panel_has_useful_cv_auc(NULL))
 })
+
+test_that("tbc_single_gene_cv does not turn pure noise into a >= 0.5 AUC (direction comes from the training folds)", {
+  set.seed(11)
+  y <- rep(c("Case", "Control"), each = 20)
+  ## Draw every gene up front: tbc_single_gene_cv() calls set.seed() internally, so drawing inside the loop
+  ## would score the same vector 60 times.
+  X <- matrix(rnorm(40 * 60), nrow = 40)
+  aucs <- vapply(seq_len(60), function(i) tbc_single_gene_cv(X[, i], y, "Case", "Control", k = 5)$auc, numeric(1))
+  expect_true(all(is.finite(aucs)))
+  ## Pooled-label "auto" gave only 9 of 60 below 0.5 and a mean of 0.57; honest scoring gives ~31 and ~0.49.
+  expect_gte(sum(aucs < 0.5), 20)
+  expect_lt(mean(aucs), 0.53)
+})
+
+test_that("tbc_single_gene_cv still reports a strongly reversed gene as separable when the effect is consistent across folds", {
+  set.seed(2)
+  x <- c(rnorm(20, mean = 2, sd = 0.3), rnorm(20, mean = 5, sd = 0.3))
+  y <- c(rep("Case", 20), rep("Control", 20))
+  res <- tbc_single_gene_cv(x, y, "Case", "Control", k = 5)
+  expect_gt(res$auc, 0.9)
+})

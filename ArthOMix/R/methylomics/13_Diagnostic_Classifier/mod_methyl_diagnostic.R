@@ -170,8 +170,10 @@ dxm_predict_prob <- function(fit, X) {
   } else stop("Unsupported fit object")
 }
 
+## `prob` is always P(positive class), so the direction is fixed at "<" (controls score lower). "auto" would
+## flip a model that ranks backwards on new data up to an AUC >= 0.5 and hide a failed replication.
 dxm_roc_bundle <- function(y, prob) {
-  r <- tryCatch(pROC::roc(response = y, predictor = as.numeric(prob), levels = c(DXM_NEG, DXM_POS), direction = "auto", quiet = TRUE),
+  r <- tryCatch(pROC::roc(response = y, predictor = as.numeric(prob), levels = c(DXM_NEG, DXM_POS), direction = "<", quiet = TRUE),
                 error = function(e) NULL)
   if (is.null(r)) return(NULL)
   ci <- tryCatch(as.numeric(pROC::ci.auc(r, method = "delong")),

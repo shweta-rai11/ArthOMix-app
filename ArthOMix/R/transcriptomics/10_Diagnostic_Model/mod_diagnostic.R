@@ -210,18 +210,24 @@ diag_hyperparam_value <- function(rr) {
   )
 }
 
-diag_gene_roc <- function(expr_sub, y) {
+## `direction` (named "<"/">" per gene, taken from the TRAINING split) must be supplied for any held-out or
+## external cohort: with NULL the direction is re-estimated from the labels being scored ("auto"), which is
+## an in-sample, direction-agnostic AUC = max(AUC, 1 - AUC) and is only valid for the training data itself.
+diag_gene_roc <- function(expr_sub, y, direction = NULL) {
   genes <- rownames(expr_sub)
   rocs <- vector("list", length(genes)); names(rocs) <- genes
   aucs <- setNames(numeric(length(genes)), genes)
   pvals <- setNames(numeric(length(genes)), genes)
+  dirs <- setNames(rep(NA_character_, length(genes)), genes)
   for (g in genes) {
-    r <- tryCatch(pROC::roc(y, as.numeric(expr_sub[g, ]), quiet = TRUE, levels = levels(y), direction = "auto"), error = arthomix_null_on_error)
+    d <- if (!is.null(direction) && g %in% names(direction) && direction[[g]] %in% c("<", ">")) direction[[g]] else "auto"
+    r <- tryCatch(pROC::roc(y, as.numeric(expr_sub[g, ]), quiet = TRUE, levels = levels(y), direction = d), error = arthomix_null_on_error)
     rocs[[g]] <- r
     aucs[g] <- if (is.null(r)) NA_real_ else as.numeric(pROC::auc(r))
+    dirs[g] <- if (is.null(r)) NA_character_ else r$direction
     pvals[g] <- tryCatch(stats::wilcox.test(as.numeric(expr_sub[g, ]) ~ y)$p.value, error = function(e) NA_real_)
   }
-  list(genes = genes, rocs = rocs, auc = aucs, p = pvals)
+  list(genes = genes, rocs = rocs, auc = aucs, p = pvals, direction = dirs, direction_fixed = !is.null(direction))
 }
 
 diag_perf_at_cutoff <- function(prob, y, threshold, positive_level) {
@@ -466,10 +472,12 @@ diag_fit_sex <- function(expr_full, y_full, params = list(), holdout_ids = chara
              pred_full = lr_pred_full, roc_full = lr_roc_full, full_auc = as.numeric(pROC::auc(lr_roc_full)),
              best = lr_best, cv_auc = lr_cv_auc, test = lr_test)
 
+  gene_roc_train <- diag_gene_roc(expr_train_sub, y)
+
   list(lr = lr, enet = enet, rf = rf, svm = svm_fit, genes = genes, n_input = length(genes),
        n_samples = nrow(Xtr_full), n_test = nrow(Xtest_full), test_frac = params$test_frac,
-       gene_roc_train = diag_gene_roc(expr_train_sub, y),
-       gene_roc_test = diag_gene_roc(expr_test_sub, ytest),
+       gene_roc_train = gene_roc_train,
+       gene_roc_test = diag_gene_roc(expr_test_sub, ytest, direction = gene_roc_train$direction),
        leakage_safe = isTRUE(split$leakage_safe),
        ## Below 20 in the smaller group, estimates are unstable (Peduzzi 1996; Riley 2019): flagged exploratory.
        min_group_n = as.integer(min(table(y_full))),
@@ -1113,8 +1121,18 @@ mod_diagnostic_server <- function(id, dataset, results) {
         paste(sprintf("%s = %d", names(table(y)), as.integer(table(y))), collapse = ", "))))
       expr_sub <- d$expr[genes, meta_sub$sample, drop = FALSE]
 
-      gr <- diag_gene_roc(expr_sub, y)
       r_fit <- diag_result_value(panel_sex)
+      ## Per-gene external AUC keeps the direction learned on the training data (flipped if the contrast is
+      ## entered the other way round). With no matching trained panel it falls back to the in-sample "auto".
+      gene_dir <- NULL
+      tr_dir <- r_fit$gene_roc_train$direction
+      if (!is.null(tr_dir)) {
+        same <- identical(r_fit$ref_group, input$ext_ref_group) && identical(r_fit$comp_group, input$ext_comp_group)
+        swap <- identical(r_fit$ref_group, input$ext_comp_group) && identical(r_fit$comp_group, input$ext_ref_group)
+        if (same) gene_dir <- tr_dir
+        else if (swap) gene_dir <- setNames(ifelse(tr_dir == "<", ">", ifelse(tr_dir == ">", "<", NA_character_)), names(tr_dir))
+      }
+      gr <- diag_gene_roc(expr_sub, y, direction = gene_dir)
       ext_models <- if (!is.null(r_fit) && length(r_fit$genes)) {
         tryCatch(diag_apply_models_external(r_fit, d$expr[, meta_sub$sample, drop = FALSE], y), error = arthomix_null_on_error)
       } else NULL

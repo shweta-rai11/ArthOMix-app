@@ -469,6 +469,8 @@ tbc_single_gene_roc <- function(expr_row, group_vec, case_label, control_label) 
   if (n_case < 3 || n_control < 3) {
     return(list(ok = FALSE, reason = sprintf("Fewer than 3 samples in one of the two groups (case=%d, control=%d) - cannot compute a reliable single-gene ROC curve.", n_case, n_control)))
   }
+  ## In-sample and descriptive only: "auto" picks the direction from these same labels, so this AUC is
+  ## max(AUC, 1 - AUC). Never reuse it for held-out data (see tbc_single_gene_cv for the honest version).
   roc_obj <- tryCatch(pROC::roc(y, x, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = arthomix_null_on_error)
   if (is.null(roc_obj)) return(list(ok = FALSE, reason = "pROC could not fit a ROC curve for this gene (e.g. constant expression)."))
   ci <- tryCatch(as.numeric(pROC::ci.auc(roc_obj, quiet = TRUE)), error = function(e) c(NA_real_, NA_real_, NA_real_))
@@ -507,13 +509,18 @@ tbc_single_gene_cv <- function(expr_row, group_vec, case_label, control_label, k
     best_tr <- tryCatch(pROC::coords(roc_tr, "best", best.method = "youden", ret = "threshold", transpose = FALSE), error = arthomix_null_on_error)
     if (is.null(best_tr) || nrow(best_tr) == 0) next
     thr <- best_tr$threshold[1]
-    oof_score[te] <- x[te]
+    ## Held-out score = signed distance from the TRAINING fold's decision threshold, oriented by the direction
+    ## learned on that fold (>= 0 means "predicted case"). The pooled ROC below can then use a fixed direction:
+    ## re-estimating it on the pooled out-of-fold labels would turn an anti-predictive gene into an AUC >= 0.5,
+    ## and centring on the threshold keeps folds comparable (a bare sign flip shifts folds along the score axis).
+    if (!is.finite(thr)) next
+    oof_score[te] <- (x[te] - thr) * (if (identical(roc_tr$direction, "<")) 1 else -1)
     oof_pred[te] <- if (identical(roc_tr$direction, "<")) ifelse(x[te] >= thr, case_label, control_label) else ifelse(x[te] <= thr, case_label, control_label)
   }
   usable <- !is.na(oof_pred)
   if (sum(usable) < 6) return(list(ok = FALSE, reason = "Cross-validation could not produce enough out-of-fold predictions (folds too small, or this gene wasn't separable in any training fold)."))
   y_used <- y[usable]; pred_used <- oof_pred[usable]; score_used <- oof_score[usable]
-  roc_pooled <- tryCatch(pROC::roc(y_used, score_used, levels = c(control_label, case_label), direction = "auto", quiet = TRUE), error = arthomix_null_on_error)
+  roc_pooled <- tryCatch(pROC::roc(y_used, score_used, levels = c(control_label, case_label), direction = "<", quiet = TRUE), error = arthomix_null_on_error)
   auc_pooled <- if (!is.null(roc_pooled)) as.numeric(pROC::auc(roc_pooled)) else NA_real_
   obs_case <- y_used == case_label; pred_case <- pred_used == case_label
   tp <- sum(pred_case & obs_case); fn <- sum(!pred_case & obs_case)

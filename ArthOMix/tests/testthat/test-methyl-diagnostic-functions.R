@@ -198,3 +198,10 @@ test_that("dxm_attach_headline() marks the automatic nested-CV AUC as primary on
   expect_equal(out4$headline_metric, "test_split")
   expect_null(out4$nested_cv)
 })
+
+test_that("dxm_roc_bundle() reports an inverted predictor below 0.5 instead of flipping it up", {
+  fx <- dxm_prob_fixture()
+  rb <- dxm_roc_bundle(fx$y, 1 - fx$prob)
+  expect_lt(rb$auc, 0.1)
+  expect_lt(rb$ci_hi, 0.5)
+})

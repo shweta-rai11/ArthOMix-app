@@ -260,3 +260,20 @@ test_that("diag_apply_models_external() scores frozen models on a new cohort wit
   ## the two separable genes must be recovered externally by every model
   expect_true(all(vapply(out$models, function(mm) mm$auc, numeric(1)) > 0.8))
 })
+
+test_that("diag_gene_roc() applies a supplied training direction to held-out data instead of re-estimating it", {
+  y_tr <- factor(rep(c("HC", "RA"), each = 10), levels = c("HC", "RA"))
+  y_te <- factor(rep(c("HC", "RA"), each = 10), levels = c("HC", "RA"))
+  set.seed(5)
+  ## Gene is higher in RA in training but reversed (higher in HC) in the held-out set.
+  tr <- rbind(g = c(rnorm(10, 0), rnorm(10, 3)))
+  te <- rbind(g = c(rnorm(10, 3), rnorm(10, 0)))
+  gr_tr <- diag_gene_roc(tr, y_tr)
+  expect_equal(unname(gr_tr$direction["g"]), "<")
+  expect_gt(gr_tr$auc[["g"]], 0.9)
+  gr_auto <- diag_gene_roc(te, y_te)
+  gr_fixed <- diag_gene_roc(te, y_te, direction = gr_tr$direction)
+  expect_gt(gr_auto$auc[["g"]], 0.9)   # "auto" hides the failed replication
+  expect_lt(gr_fixed$auc[["g"]], 0.1)  # training direction exposes it
+  expect_true(gr_fixed$direction_fixed)
+})
