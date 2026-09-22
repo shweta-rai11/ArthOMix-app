@@ -64,6 +64,7 @@
 [data-theme="dark"] .home-stat-card,
 [data-theme="dark"] .home-stat-detail,
 [data-theme="dark"] .home-faq-item,
+[data-theme="dark"] .sm-card,
 [data-theme="dark"] .chat-drawer {
   --color-primary: #2563EB;
   --color-primary-dark: #1D4ED8;

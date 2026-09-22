@@ -202,12 +202,19 @@ function(input, output, session) {
   added <- reactiveValues(ids = character(0))
 
   ## Same steps as pressing a sub-module card's "Add" button; also used by the guided workflow.
+  ## Inserted by pipeline rank (step, then catalogue order) rather than in click order, so the tabs
+  ## behind the hidden strip always read Dataset -> step 2 -> ... -> step 9 -> Sub-modules.
   tx_insert_submodule <- function(m) {
     hid <- m$config$id
+    r <- tx_rank(hid)
+    later <- Filter(function(x) tx_rank(x) > r, added$ids)
+    target <- if (length(later)) {
+      TX_MODULES_BY_ID[[later[[which.min(vapply(later, tx_rank, integer(1)))]]]]$config$title
+    } else "Sub-modules"
     insertTab(
       session = session, inputId = "tx_menu",
       tabPanel(m$config$title, br(), m$ui(paste0("tx_", hid))),
-      target = "Sub-modules", position = "before", select = TRUE
+      target = target, position = "before", select = TRUE
     )
     added$ids <- union(added$ids, hid)
     shinyjs::addClass(id = paste0("smcard_", hid), class = "sm-card-active")
@@ -370,12 +377,12 @@ function(input, output, session) {
     })
   }, ignoreNULL = FALSE)
 
-  jump_to_submodule <- function(mod_id, inner_tab = NULL, sm_filter = NULL) {
+  jump_to_submodule <- function(mod_id, inner_tab = NULL, sm_filter = NULL, inner_tabset = "tabs") {
     cfg <- TX_MODULES_BY_ID[[mod_id]]$config
     if (mod_id %in% added$ids) {
       updateTabsetPanel(session, "tx_menu", selected = cfg$title)
       if (!is.null(inner_tab)) {
-        updateTabsetPanel(session, paste0("tx_", mod_id, "-tabs"), selected = inner_tab)
+        updateTabsetPanel(session, paste0("tx_", mod_id, "-", inner_tabset), selected = inner_tab)
       }
     } else {
       updateTabsetPanel(session, "tx_menu", selected = "Sub-modules")
@@ -383,55 +390,299 @@ function(input, output, session) {
     }
   }
 
-  observeEvent(input$sidebar_nav_transcriptomics_dataset, {
-    updateTabsetPanel(session, "tx_menu", selected = "Dataset")
-  }, ignoreInit = TRUE)
-  observeEvent(input$sidebar_nav_transcriptomics_submodules, {
-    updateTabsetPanel(session, "tx_menu", selected = "Sub-modules")
-  }, ignoreInit = TRUE)
+  ## ---------------------------------------------------------------------------------------------
+  ## Transcriptomics workflow shell (R/workflow_guide.R). Navigation only: it reads the modules'
+  ## existing results and opens their existing tabs, and computes no statistics of its own.
+  ## ---------------------------------------------------------------------------------------------
+  wf_tx <- reactiveValues(
+    contrast = NULL, sex_mode = NULL, selected = character(0),
+    stamps = list(), fingerprints = list(), seq = 0L, active_key = "__dataset__",
+    configured = FALSE
+  )
 
-  highlight_tx_sidebar <- function() {
-    req(input$tx_menu)
+  tx_dataset_state <- reactive({
+    meta <- dataset$meta
+    list(
+      ok = !is.null(dataset$expr) && NCOL(dataset$expr) > 0 && is.data.frame(meta) && nrow(meta) > 0,
+      sex_ok = length(wf_sex_levels(meta, wf_sex_col(meta))) >= 2,
+      load_id = dataset$load_id %||% 0L
+    )
+  })
+
+  ## The one comparison every module inherits: the guide's, if it has set one; otherwise whatever the
+  ## Differential Expression page itself is showing; otherwise the default that page would pick from
+  ## the loaded metadata. Read-only everywhere else, which is what the banner says.
+  tx_effective_contrast <- reactive({
+    if (!is.null(wf_tx$contrast)) return(c(wf_tx$contrast, list(source = "guide")))
+    col <- input[["tx_dge-contrast_col"]]
+    ref <- input[["tx_dge-ref_group"]]
+    comp <- input[["tx_dge-comp_group"]]
+    if (!is.null(col) && nzchar(ref %||% "") && nzchar(comp %||% "") && !identical(ref, comp)) {
+      return(list(col = col, ref = ref, comp = comp, source = "page"))
+    }
+    meta <- dataset$meta
+    gc <- wf_group_col(meta)
+    if (is.null(gc)) return(NULL)
+    dc <- wf_default_contrast(meta[[gc]])
+    if (is.null(dc)) return(NULL)
+    list(col = gc, ref = dc$ref, comp = dc$comp, source = "default")
+  })
+
+  tx_wf_settings <- function() {
+    ct <- tx_effective_contrast()
+    list(contrast = if (is.null(ct)) NULL else ct[c("col", "ref", "comp")],
+         sex_mode = wf_tx$sex_mode,
+         stamps = wf_tx$stamps, fingerprints = wf_tx$fingerprints)
+  }
+
+  ## Every module's status in one place, so the sidebar, the cards and the breadcrumb agree.
+  tx_statuses <- reactive({
+    ds <- tx_dataset_state()
+    set <- tx_wf_settings()
+    titles <- wf_step_titles()
+    stats::setNames(lapply(names(TX_STEP_MAP), function(k) {
+      wf_module_status(k, ds, results, set, titles = titles)
+    }), names(TX_STEP_MAP))
+  })
+
+  ## Records a fingerprint the moment a module stores a result, so a later change to the dataset, the
+  ## contrast, the sex design or an upstream run shows up as "Stale - re-run" here and downstream.
+  ## The read of results is inside observe(), never in a module body at setup time.
+  lapply(names(TX_STEP_MAP), function(k) {
+    entry <- TX_STEP_MAP[[k]]
+    observe({
+      has <- wf_has_result(entry, results)
+      isolate({
+        if (!has) {
+          if (!is.null(wf_tx$stamps[[k]])) {
+            st <- wf_tx$stamps; st[[k]] <- NULL; wf_tx$stamps <- st
+            fp <- wf_tx$fingerprints; fp[[k]] <- NULL; wf_tx$fingerprints <- fp
+          }
+          return()
+        }
+        wf_tx$seq <- (wf_tx$seq %||% 0L) + 1L
+        st <- wf_tx$stamps; st[[k]] <- wf_tx$seq; wf_tx$stamps <- st
+        fp <- wf_tx$fingerprints
+        set <- isolate(tx_wf_settings())
+        set$stamps <- st
+        fp[[k]] <- wf_fingerprint(k, isolate(tx_dataset_state()), set)
+        wf_tx$fingerprints <- fp
+      })
+    })
+  })
+
+  ## Pipeline rank: position in TX_STEP_MAP_ORDER, which runs step by step and, inside a step, in the
+  ## catalogue's own order. Used for tab insert position and for sidebar ordering.
+  tx_primary_key <- function(hid) {
+    hit <- Find(function(e) identical(e$id, hid) && !e$alias, TX_STEP_MAP)
+    if (is.null(hit)) NULL else hit$key
+  }
+  tx_rank <- function(hid) {
+    k <- tx_primary_key(hid)
+    if (is.null(k)) length(TX_STEP_MAP_ORDER) + 1L else match(k, TX_STEP_MAP_ORDER)
+  }
+
+  ## Opens a module's inner tab once that tab exists; a module inserted in this same flush has not
+  ## rendered its own tabset yet, so a plain updateTabsetPanel would be dropped.
+  tx_open_inner_tab <- function(mod_id, tabset, tab) {
+    sel <- sprintf("#tx_%s-%s li a[data-value='%s']", mod_id, tabset, tab)
     shinyjs::runjs(sprintf(
-      "(function retry(n){
-         var col = $('.omics-sidebar-col:visible');
-         if (col.length) {
-           col.find('.sidebar-nav-item').removeClass('active');
-           col.find('.sidebar-nav-item[data-match=\"%s\"]').addClass('active');
-         } else if (n > 0) {
-           setTimeout(function(){ retry(n - 1); }, 50);
-         }
-       })(20);",
-      gsub('(["\\\\])', "\\\\\\1", input$tx_menu)
+      "(function retry(n){ var a = $('%s'); if (a.length) { a.tab('show'); } else if (n > 0) { setTimeout(function(){ retry(n - 1); }, 100); } })(40);",
+      gsub("'", "\\\\'", sel)
     ))
   }
-  observeEvent(input$tx_menu, highlight_tx_sidebar())
-  observeEvent(input$sidebar_tabs, {
-    if (identical(input$sidebar_tabs, "transcriptomics")) highlight_tx_sidebar()
+
+  ## Single click route for the step sidebar. Event-priority, so re-rendering the list with new
+  ## statuses never fires it (per-row action buttons would, every time their counters reset).
+  observeEvent(input$tx_nav_go, {
+    key <- as.character(input$tx_nav_go)
+    wf_tx$active_key <- key
+    if (identical(key, "__dataset__")) {
+      updateTabsetPanel(session, "tx_menu", selected = "Dataset")
+      return()
+    }
+    if (identical(key, "__catalogue__")) {
+      updateTabsetPanel(session, "tx_menu", selected = "Sub-modules")
+      return()
+    }
+    if (identical(key, "__design__")) {
+      updateTabsetPanel(session, "tx_menu", selected = "Custom Analysis Design")
+      wf_guide$bar_hidden <- FALSE
+      return()
+    }
+    e <- TX_STEP_MAP[[key]]
+    req(e)
+    m <- TX_MODULES_BY_ID[[e$id]]
+    if (e$id %in% added$ids) {
+      updateTabsetPanel(session, "tx_menu", selected = m$config$title)
+    } else {
+      tx_insert_submodule(m)
+    }
+    if (!is.null(e$tabset)) tx_open_inner_tab(e$id, e$tabset, e$tab)
   }, ignoreInit = TRUE)
 
-  lapply(TX_MODULES, function(m) {
-    hid <- m$config$id
-    observeEvent(input[[paste0("sidebar_nav_transcriptomics_dyn_", hid)]], {
-      updateTabsetPanel(session, "tx_menu", selected = m$config$title)
-    }, ignoreInit = TRUE)
+  observeEvent(input$tx_crumb_home, {
+    updateTabsetPanel(session, "sidebar_tabs", selected = "home")
+  }, ignoreInit = TRUE)
+
+  ## A tab opened from anywhere else (search, ArthOChat, a catalogue card, the guide) moves the
+  ## highlight too - unless the row already showing is one of that same tab's rows, which is how the
+  ## step 8 External Validation row stays highlighted instead of snapping back to step 7.
+  observeEvent(input$tx_menu, {
+    sel <- input$tx_menu
+    hid <- title_to_module_id(TX_MODULES, sel)
+    cur <- TX_STEP_MAP[[wf_tx$active_key %||% ""]]
+    if (is.null(hid)) {
+      wf_tx$active_key <- switch(sel,
+                                 "Sub-modules" = "__catalogue__",
+                                 "Custom Analysis Design" = "__design__",
+                                 "__dataset__")
+      return()
+    }
+    if (!is.null(cur) && identical(cur$id, hid)) return()
+    wf_tx$active_key <- tx_primary_key(hid) %||% wf_tx$active_key
   })
 
+  tx_step_keys <- function(n) {
+    names(TX_STEP_MAP)[vapply(TX_STEP_MAP, `[[`, integer(1), "step") == n]
+  }
+
   output$tx_sidebar_dynamic_nav <- renderUI({
-    tagList(lapply(TX_MODULES, function(m) {
-      hid <- m$config$id
-      if (!hid %in% added$ids) return(NULL)
-      tags$li(
-        tags$a(
-          id = paste0("sidebar_nav_transcriptomics_dyn_", hid), href = "#",
-          class = "sidebar-nav-item action-button",
-          `data-match` = m$config$title,
-          icon(m$config$icon), m$config$title
-        )
-      )
-    }))
+    sts <- tx_statuses()
+    titles <- wf_step_titles()
+    ds <- tx_dataset_state()
+    active <- wf_tx$active_key %||% "__dataset__"
+    shown_ids <- added$ids
+
+    ## The entry point, always first; the tracker under it only once there is progress to track.
+    design_btn <- tags$ul(class = "sidebar-nav sidebar-nav-design", tags$li(tags$a(
+      href = "#", class = paste("sidebar-nav-item sidebar-design-item",
+                                if (identical(active, "__design__")) "active"),
+      title = "Customise the analysis - pick the dataset, the comparison, the sex design and which analyses to run",
+      onclick = "Shiny.setInputValue('tx_nav_go', '__design__', {priority: 'event'}); return false;",
+      icon("compass-drafting"), tags$span(class = "sidebar-step-label", "Custom Analysis Design")
+    )))
+    add_btn <- tags$ul(class = "sidebar-nav sidebar-nav-foot", tags$li(tags$a(
+      href = "#", class = "sidebar-nav-item sidebar-add-item",
+      onclick = "Shiny.setInputValue('tx_nav_go', '__catalogue__', {priority: 'event'}); return false;",
+      icon("plus"), "Add analyses"
+    )))
+    open_row <- function(k) {
+      e <- TX_STEP_MAP[[k]]
+      omics_sidebar_step_row(k, titles[[k]], TX_MODULES_BY_ID[[e$id]]$config$icon,
+                             sts[[k]]$status, sts[[k]]$reason, active = identical(active, k))
+    }
+    ## Loading a dataset is not a run either: the row says what is loaded, but stays neutral.
+    dataset_row <- omics_sidebar_step_row(
+      "__dataset__", "Dataset", "database", "ready",
+      dataset$source %||% "No dataset loaded yet.",
+      active = identical(active, "__dataset__"))
+
+    ## Before an analysis is set up there is no progress to track, so nine empty step headers would
+    ## be noise. Until then this is a plain list of what is open; it becomes the step tracker the
+    ## moment the guide starts.
+    if (!isTRUE(wf_tx$configured)) {
+      return(tagList(
+        design_btn,
+        tags$ul(
+          class = "sidebar-nav sidebar-step-group",
+          tags$li(class = "sidebar-step-header", tags$span(class = "sidebar-step-name", "On this page")),
+          dataset_row,
+          lapply(Filter(function(k) TX_STEP_MAP[[k]]$id %in% shown_ids, names(TX_STEP_MAP)), open_row)
+        ),
+        add_btn
+      ))
+    }
+
+    tagList(
+      design_btn,
+      lapply(WF_STEPS, function(st) {
+        n <- st$n
+        ## Only the analyses the design actually chose - an empty step is noise, not progress.
+        keys <- intersect(tx_step_keys(n), wf_tx$selected)
+        ## Steps 3 and 4 are setup, not analyses - once the design is fixed they are nothing to
+        ## track. Step 1 stays because the Dataset tab has to remain reachable.
+        if (!length(keys) && n != 1L) return(NULL)
+        ## A step only goes green when the analyses in it have actually produced results; setup
+        ## steps have no analyses, so they stay neutral.
+        step_status <- wf_step_status(vapply(keys, function(k) sts[[k]]$status, character(1)))
+        rows <- if (n == 1L) list(dataset_row)
+                else lapply(Filter(function(k) TX_STEP_MAP[[k]]$id %in% shown_ids, keys), open_row)
+        hint <- if (length(rows)) NULL else tags$li(class = "sidebar-step-empty", switch(as.character(n),
+          "3" = "Set in the guide, or on the Differential Expression page.",
+          "4" = "Set in the guide.",
+          "Nothing added yet - use + Add analyses."))
+        tags$ul(class = "sidebar-nav sidebar-step-group",
+                omics_sidebar_step_header(n, st$label, step_status), rows, hint)
+      }),
+      add_btn
+    )
   })
   outputOptions(output, "tx_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
+
+  ## Catalogue cards carry the same status, using the existing smstate_<id> label and sm-card-active
+  ## class. A locked card still opens its tab; it only says what it is waiting for.
+  observe({
+    sts <- tx_statuses()
+    ids <- added$ids
+    all_states <- paste(paste0("sm-state-", names(WF_STATUS_LABEL)), collapse = " ")
+    lapply(Filter(function(e) !e$alias, TX_STEP_MAP), function(e) {
+      s <- sts[[e$key]]
+      shinyjs::html(id = paste0("smstate_", e$id), html = if (e$id %in% ids) "Added" else "Add")
+      shinyjs::html(id = paste0("smreason_", e$id), html = htmltools::htmlEscape(
+        if (identical(s$status, "done")) "Done" else
+        if (identical(s$status, "ready")) "Ready" else s$reason))
+      shinyjs::removeClass(id = paste0("smcard_", e$id), class = all_states)
+      shinyjs::addClass(id = paste0("smcard_", e$id), class = paste0("sm-state-", s$status))
+    })
+  })
+
+  ## Which of the nine guide steps the page currently on screen belongs to - NULL when the open page
+  ## (Custom Analysis Design, Sub-modules) spans more than one step and only the guide itself knows
+  ## which one it is on. Shared by the breadcrumb and the header step strip so both agree with what
+  ## is actually visible instead of the strip trailing behind wherever the guide was last advanced.
+  tx_active_step <- reactive({
+    key <- wf_tx$active_key %||% "__dataset__"
+    if (identical(key, "__catalogue__") || identical(key, "__design__")) NULL
+    else if (identical(key, "__dataset__") || is.null(TX_STEP_MAP[[key]])) 1L
+    else TX_STEP_MAP[[key]]$step
+  })
+
+  ## Breadcrumb in the page header, in the slot the page subtitle used to fill.
+  output$tx_page_subtitle <- renderUI({
+    key <- wf_tx$active_key %||% "__dataset__"
+    titles <- wf_step_titles()
+    step <- tx_active_step()
+    leaf <- if (identical(key, "__catalogue__")) "Add analyses"
+            else if (identical(key, "__design__")) "Custom Analysis Design"
+            else if (identical(key, "__dataset__") || is.null(TX_STEP_MAP[[key]])) "Dataset"
+            else titles[[key]]
+    crumb <- list(step = step, leaf = leaf)
+    sep <- tags$span(class = "crumb-sep", HTML("&rsaquo;"))
+    tags$nav(
+      class = "page-breadcrumb",
+      tags$a(href = "#", class = "crumb-link",
+             onclick = "Shiny.setInputValue('tx_crumb_home', Math.random(), {priority: 'event'}); return false;",
+             icon("house"), " Home"),
+      sep, tags$span(class = "crumb-here", "Transcriptomics"),
+      if (!is.null(crumb$step)) tagList(sep, tags$span(class = "crumb-step",
+        sprintf("Step %d · %s", crumb$step, WF_STEP_LABEL[[crumb$step]]))),
+      sep, tags$strong(class = "crumb-leaf", crumb$leaf)
+    )
+  })
+
+  ## The header carries the step strip while the guide is running, so where you are is always on
+  ## screen next to the breadcrumb. (This slot used to hold the read-only contrast line; the
+  ## breadcrumb and the design page already state the contrast, so it was saying it a third time.)
+  output$tx_settings_banner <- renderUI({
+    if (!isTRUE(wf_guide$active)) return(NULL)
+    ## The page on screen wins when it maps to one specific step (e.g. the Dataset tab is always
+    ## step 1); on a page that spans several steps (Custom Analysis Design, Sub-modules) there is
+    ## nothing to disagree with, so the guide's own position stands.
+    step <- tx_active_step() %||% wf_guide$step
+    div(class = "wf-header-steps", wf_bar_steps_ui(step, wf_guide$done))
+  })
+  outputOptions(output, "tx_settings_banner", suspendWhenHidden = FALSE)
 
   output$tx_sidebar_arthochat_hint <- renderUI({
     mod_id <- title_to_module_id(TX_MODULES, input$tx_menu)
@@ -603,12 +854,37 @@ function(input, output, session) {
 
   ## Guided "Start an analysis" workflow (R/workflow_guide.R): opens existing tabs the same way their
   ## sub-module "Add" cards and sidebar links do.
-  workflow_guide_server(
+  wf_guide <- workflow_guide_server(
     input, output, session, dataset, results, methyl_dataset, methyl_results,
     nav = list(
       dataset = function(layer) {
         updateTabsetPanel(session, "sidebar_tabs", selected = layer)
         updateTabsetPanel(session, if (identical(layer, "transcriptomics")) "tx_menu" else "mx_menu", selected = "Dataset")
+      },
+      ## Cross-Omics / Multi-Omics: no guided pipeline, so the picker just opens the section.
+      section = function(layer) updateTabsetPanel(session, "sidebar_tabs", selected = layer),
+      apply = function(layer, keys) {
+        if (!identical(layer, "transcriptomics")) return(invisible())
+        ids <- unique(vapply(intersect(keys, names(TX_STEP_MAP)),
+                             function(k) TX_STEP_MAP[[k]]$id, character(1)))
+        for (hid in setdiff(ids, added$ids)) tx_insert_submodule(TX_MODULES_BY_ID[[hid]])
+        first <- intersect(keys, names(TX_STEP_MAP))
+        if (length(first)) {
+          e <- TX_STEP_MAP[[first[[1]]]]
+          updateTabsetPanel(session, "tx_menu", selected = TX_MODULES_BY_ID[[e$id]]$config$title)
+          wf_tx$active_key <- first[[1]]
+        }
+      },
+      design = function(layer) {
+        updateTabsetPanel(session, "sidebar_tabs", selected = layer)
+        updateTabsetPanel(session, "tx_menu", selected = "Custom Analysis Design")
+        wf_tx$active_key <- "__design__"
+      },
+      ## Inserts a module's tab without switching to it, so its inputs exist for the guide to read.
+      mount = function(layer, hid) {
+        if (!identical(layer, "transcriptomics") || hid %in% added$ids) return(invisible())
+        tx_insert_submodule(TX_MODULES_BY_ID[[hid]])
+        updateTabsetPanel(session, "tx_menu", selected = "Custom Analysis Design")
       },
       open = function(layer, hid) {
         updateTabsetPanel(session, "sidebar_tabs", selected = layer)
@@ -622,6 +898,16 @@ function(input, output, session) {
       }
     )
   )
+
+  ## The guide owns the contrast, the sex design and the chosen analyses; the shell mirrors them so
+  ## the sidebar, the cards and the read-only banner all use the one setting (transcriptomics only).
+  observe({
+    if (!identical(wf_guide$layer, "transcriptomics")) return()
+    wf_tx$contrast <- wf_guide$contrast
+    wf_tx$sex_mode <- wf_guide$sex_mode
+    wf_tx$selected <- wf_guide$selected %||% character(0)
+    wf_tx$configured <- isTRUE(wf_guide$configured)
+  })
 
   observeEvent(input$header_search_submit, {
     q <- tolower(trimws(input$header_search_submit %||% ""))
@@ -676,16 +962,6 @@ function(input, output, session) {
       try { localStorage.setItem('arthomix-theme', next); } catch (e) {}
     ")
   }, ignoreInit = TRUE)
-
-  output$tx_page_subtitle <- renderUI({
-    sel <- input$tx_menu %||% "Dataset"
-    txt <- switch(sel,
-      "Dataset" = "Load a transcriptomics dataset",
-      "Sub-modules" = "Add or remove sub-modules.",
-      sel
-    )
-    p(txt)
-  })
 
   output$mx_page_subtitle <- renderUI({
     sel <- input$mx_menu %||% "Dataset"

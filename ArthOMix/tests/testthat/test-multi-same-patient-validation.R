@@ -3,6 +3,7 @@
 suppressWarnings(suppressMessages(
   source_from_app_root("global.R")
 ))
+source_from_app_root(file.path("R", "dataset_cohort_summary.R"))
 for (f in list.files(file.path(app_dir, "R", "multiomics"), pattern = "[.]R$", recursive = TRUE, full.names = TRUE)) {
   suppressWarnings(suppressMessages(source(f)))
 }

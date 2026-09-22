@@ -130,6 +130,7 @@ mod_dataset_ui <- function(id) {
       )
     ),
     uiOutput(ns("load_message")),
+    cohort_summary_ui(ns("cohort")),
     box(
       width = NULL, title = "Reserve validation samples (sealed hold-out)", status = "primary", solidHeader = FALSE,
       p(class = "submodule-desc",
@@ -183,6 +184,8 @@ DATASET_RESERVED_SUFFIX_RE <- " \\[[0-9]+ validation samples reserved\\]$"
 mod_dataset_server <- function(id, dataset) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
+
+    cohort_summary_server("cohort", reactive(dataset$meta))
 
     output$preloaded_note <- renderUI({
       req(input$preloaded_choice)

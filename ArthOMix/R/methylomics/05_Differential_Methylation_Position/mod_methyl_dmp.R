@@ -641,7 +641,9 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
           run_at = Sys.time()
         )
       }
-    ), ignoreInit = TRUE)
+    ## No ignoreInit: this is first read inside the observer below, so ignoreInit would swallow the
+    ## first click. ignoreNULL (default) already skips an unclicked button.
+    ))
 
     observeEvent(svalive_result(), {
       r <- svalive_result()
@@ -991,7 +993,9 @@ mod_methyl_dmp_server <- function(id, methyl_dataset, methyl_results) {
         lambda_gc = mod_methyl_lambda_gc(df$p_raw),
         run_at = Sys.time()
       )
-    }), ignoreInit = TRUE)
+    ## No ignoreInit: this is first read inside the observer below, so ignoreInit would swallow the
+    ## first click. ignoreNULL (default) already skips an unclicked button.
+    }))
 
     observeEvent(live_result(), {
       r <- live_result()

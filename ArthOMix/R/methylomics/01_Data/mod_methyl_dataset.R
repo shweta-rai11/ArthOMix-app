@@ -105,13 +105,16 @@ mod_methyl_dataset_ui <- function(id) {
         )
       )
     ),
-    uiOutput(ns("load_message"))
+    uiOutput(ns("load_message")),
+    cohort_summary_ui(ns("cohort"))
   )
 }
 
 mod_methyl_dataset_server <- function(id, methyl_dataset) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
+
+    cohort_summary_server("cohort", reactive(methyl_dataset$sample_sheet))
 
     guess_col <- function(cols, exact, contains = exact, fallback = cols[1]) {
       for (term in exact) {

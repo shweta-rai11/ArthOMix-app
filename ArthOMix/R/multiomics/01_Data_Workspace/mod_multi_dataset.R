@@ -366,6 +366,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
     block_reset_gen <- reactiveVal(0)
     geo_fetched <- reactiveValues(expression = NULL, methylation = NULL)
     raw <- reactiveValues(mats = list(), validations = list(), labels = list(), provenance = list(), meta = NULL)
+    cohort_summary_server("cohort", reactive(raw$meta))
     proc <- reactiveValues(filtered_mats = NULL, scaled_mats = NULL, batch_corrected = NULL)
     block_shape <- reactiveValues()
 
@@ -1102,6 +1103,7 @@ mod_multi_dataset_server <- function(id, multi_dataset, multi_results = NULL) {
             div(style = sprintf("margin-top:10px; font-weight:700; color:%s;", overall_color), sprintf("Overall status: %s", cmp$overall_label)),
             if (isTRUE(cmp$same_patient_failed)) mo_same_patient_note(same_patient())
         ),
+        cohort_summary_ui(ns("cohort")),
         box(width = NULL, title = "Datasets Available", status = "primary", solidHeader = FALSE,
             uiOutput(ns("active_checkbox_ui")),
             actionButton(ns("activate_btn"), "Use Selected Datasets for Multi-Omics Analysis", icon = icon("play"), class = "btn-primary btn-sm"),

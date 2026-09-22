@@ -902,10 +902,14 @@ homeUI <- function() {
         class = "home-hero-grid",
       div(
         class = "home-hero-content",
-        span(
-          class = "home-hero-eyebrow",
-          tags$span(class = "home-hero-live-dot"),
-          "Omics biomarker discovery platform"
+        div(
+          class = "home-hero-brand-row",
+          tags$img(src = "arthomix-logo.png", alt = "ArthOMix", class = "home-hero-logo"),
+          span(
+            class = "home-hero-eyebrow",
+            tags$span(class = "home-hero-live-dot"),
+            "Omics biomarker discovery platform"
+          )
         ),
         h1(class = "home-hero-title", home_hero_title_words("From raw omics data to potential biomarkers.")),
         p(
@@ -1125,12 +1129,36 @@ submoduleCardUI <- function(cfg, id_prefix = "") {
         id = paste0(id_prefix, "sm_toggle_", cfg$id), type = "button",
         class = "btn sm-toggle-btn action-button",
         span(id = paste0(id_prefix, "smstate_", cfg$id), "Add")
-      )
+      ),
+      ## Filled in by the server with the module's workflow status and, when locked, the reason.
+      div(id = paste0(id_prefix, "smreason_", cfg$id), class = "sm-card-reason")
     )
   )
 }
 
-build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_GROUP_ORDER, group_blurb = SUBMODULE_GROUP_BLURB, id_prefix = "") {
+## `step_map` switches the grouping key from config$group to the workflow step, with the WF_STEPS
+## labels as headers and their blurbs as descriptions. Only Transcriptomics passes one; the other
+## layers keep their config$group grouping untouched. A module that appears in two steps is carded
+## once, under its primary (non-alias) step, because a second card would duplicate smcard_<id>.
+build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_GROUP_ORDER, group_blurb = SUBMODULE_GROUP_BLURB, id_prefix = "", step_map = NULL) {
+  if (!is.null(step_map)) {
+    primary <- Filter(function(e) !e$alias, step_map)
+    step_of <- vapply(primary, `[[`, integer(1), "step")
+    names(step_of) <- vapply(primary, `[[`, character(1), "id")
+    steps <- sort(unique(unname(step_of)))
+    return(tagList(lapply(steps, function(n) {
+      ids <- names(step_of)[step_of == n]
+      mods <- Filter(function(m) m$config$id %in% ids, modules)
+      if (!length(mods)) return(NULL)
+      st <- WF_STEPS[[n]]
+      tagList(
+        div(class = "sm-group-header",
+            h4(sprintf("Step %d \u00b7 %s", n, st$label)),
+            p(class = "sm-group-blurb", st$blurb)),
+        div(class = "sm-grid", lapply(mods, function(m) submoduleCardUI(m$config, id_prefix)))
+      )
+    })))
+  }
   by_group <- split(modules, vapply(modules, function(m) m$config$group %||% "Data", character(1)))
   groups <- intersect(group_order, names(by_group))
   tagList(
@@ -1147,31 +1175,40 @@ build_submodule_grid <- function(modules = TX_MODULES, group_order = SUBMODULE_G
   )
 }
 
-TRANSCRIPTOMICS_SIDEBAR_NAV <- list(
-  list(id = "dataset", label = "Datasets", icon = "database", match = "Dataset"),
-  list(id = "submodules", label = "Sub-modules", icon = "layer-group", match = "Sub-modules")
-)
-
 transcriptomicsUI <- function() {
   fluidRow(
     column(3, div(class = "omics-sidebar-col", omics_sidebar(
-      "transcriptomics", "Transcriptomics", TRANSCRIPTOMICS_SIDEBAR_NAV,
+      "transcriptomics", "Transcriptomics", NULL,
       extra_sidebar_content = uiOutput("tx_sidebar_arthochat_hint"),
-      dynamic_nav_output_id = "tx_sidebar_dynamic_nav"
+      dynamic_nav_output_id = "tx_sidebar_dynamic_nav",
+      server_nav = TRUE
     ))),
     column(
       9,
       div(
-        class = "page-header page-header-tight",
+        class = "page-header page-header-tight page-header-crumbed",
         div(class = "page-header-pattern"),
-        h2(icon("dna"), " Transcriptomics"),
-        uiOutput("tx_page_subtitle")
+        ## The breadcrumb replaces the bare page title; the output id is unchanged so nothing
+        ## that already points at this slot has to move.
+        uiOutput("tx_page_subtitle"),
+        uiOutput("tx_settings_banner")
       ),
+      ## The guide's controls sit under the navbar and breadcrumb rather than above them, but still
+      ## outside the tabset: the guide walks the user from tab to tab, so Back / Continue / Run have
+      ## to stay on screen while it does.
+      uiOutput("wf_bar"),
       div(
-        class = "tx-menu-wrap",
+        ## type = "hidden" keeps the tabset (and every insertTab / removeTab / updateTabsetPanel
+        ## call against it) working while taking the duplicate horizontal strip off the page;
+        ## the sidebar is the only in-page navigation. Verified on Shiny 1.13.0.
+        class = "tx-menu-wrap tx-menu-hidden",
         tabsetPanel(
-          id = "tx_menu", type = "tabs",
+          id = "tx_menu", type = "hidden",
           tabPanel("Dataset", br(), mod_dataset_ui("tx_dataset")),
+          ## The guided setup, on its own page instead of a strip above the navbar. uiOutput("wf_bar")
+          ## keeps its id, so every existing step, control and test still works - only its place on
+          ## the page changed.
+          tabPanel("Custom Analysis Design", br(), uiOutput("wf_design_intro")),
           tabPanel(
             "Sub-modules", br(),
             div(
@@ -1183,7 +1220,7 @@ transcriptomicsUI <- function() {
                 textInput("sm_search", NULL, placeholder = "Filter sub-modules by name...", width = "260px")
               )
             ),
-            build_submodule_grid()
+            build_submodule_grid(step_map = TX_STEP_MAP)
           )
         )
       )
@@ -1389,7 +1426,6 @@ ui <- function(request) {
                   href = paste0("dark-theme.css?v=", as.integer(file.mtime("www/dark-theme.css"))))
       ),
       app_header(),
-      uiOutput("wf_bar"),
       navbarPage(
         title = "", id = "sidebar_tabs", selected = "home",
         tabPanel(tagList(icon("house"), "Home"), value = "home", homeUI()),

@@ -82,3 +82,16 @@ test_that("restricting to a single sex with too few remaining samples is rejecte
     expect_true(grepl("Fewer than 6 samples remain after restricting to sex", conditionMessage(err)))
   })
 })
+
+test_that("the first click on Run DMP Analysis stores a result (eventReactive must not use ignoreInit when only read after a click)", {
+  methyl_dataset <- dmp_fixture_dataset()
+  methyl_results <- shiny::reactiveValues()
+  shiny::testServer(mod_methyl_dmp_server, args = list(id = "dmp", methyl_dataset = methyl_dataset, methyl_results = methyl_results), {
+    session$setInputs(live_group_col = "group", live_ref = "HC", live_comp = "RA", live_sex = "__all__",
+                        live_min_valid_pct = 80, live_min_variance = 0, live_snp_filter = FALSE, live_covariates = character(0))
+    ## A browser sends 1 for the first click; an unclicked button's 0 counts as NULL there, so no priming.
+    session$setInputs(live_run_btn = structure(1L, class = "shinyActionButtonValue"))
+    ## Read only what the click's own observer stored; do not pull live_result() here, which would mask the bug.
+    expect_false(is.null(methyl_results$dmp))
+  })
+})

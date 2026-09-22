@@ -1080,12 +1080,24 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   .home-hero-canvas { opacity: 0.55; }
 }
 
+.home-hero-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.home-hero-logo {
+  display: block;
+  height: 34px;
+  width: auto;
+}
+
 .home-hero-eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
   color: var(--color-primary-dark); background: var(--color-surface-blue);
   border: 1px solid #D4E2F3;
   font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
-  padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+  padding: 5px 12px; border-radius: 999px; margin-bottom: 0;
 }
 .home-hero-live-dot {
   width: 7px; height: 7px; border-radius: 50%;
@@ -1714,3 +1726,328 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
 .wf-bar-links { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 .wf-bar-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 10px; }
 .wf-note-error { color: var(--color-danger, #DC2626); }
+
+/* ---------------------------------------------------------------------------
+   Step-driven Transcriptomics shell: the sidebar grouped by the nine workflow
+   steps is the only in-page navigation, so it carries the status too (the top
+   guide bar no longer repeats it). Built from the shared --color-* tokens, so
+   dark mode follows without a second rule set. */
+
+.sidebar-nav-dynamic { margin-top: 2px; }
+.sidebar-step-group { margin: 0 0 2px 0; padding: 0; list-style: none; }
+
+.sidebar-step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 4px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-secondary);
+}
+/* Squared-off rather than round pills: reads as a numbered index in a tool, not as a badge. */
+.sidebar-step-num {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-ink-secondary);
+}
+.sidebar-step-header.sm-state-done .sidebar-step-num { background: var(--color-success); border-color: var(--color-success); color: #ffffff; }
+.sidebar-step-header.sm-state-stale .sidebar-step-num { background: var(--color-warning); border-color: var(--color-warning); color: #ffffff; }
+.sidebar-step-header.sm-state-ready .sidebar-step-num { background: transparent; border-color: var(--color-primary); color: var(--color-primary); }
+.sidebar-step-name { min-width: 0; overflow-wrap: anywhere; }
+
+.sidebar-step-item { gap: 8px; padding-left: 22px; }
+.sidebar-step-label { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.sidebar-step-item.sm-state-locked { opacity: 0.72; }
+
+/* Square status tags rather than round chips, to match the step index. */
+.sm-state-pill {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  color: var(--color-ink-secondary);
+  background: transparent;
+}
+.sm-state-pill.sm-state-done { color: var(--color-success); border-color: var(--color-success); }
+.sm-state-pill.sm-state-stale { color: var(--color-warning); border-color: var(--color-warning); }
+.sm-state-pill.sm-state-ready { color: var(--color-primary); border-color: var(--color-primary); }
+
+.sidebar-step-empty {
+  padding: 2px 12px 6px 22px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--color-ink-secondary);
+}
+
+.sidebar-nav-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border); }
+.sidebar-add-item { font-weight: 600; color: var(--color-primary); }
+.sidebar-add-item svg, .sidebar-add-item .fa { color: var(--color-primary); }
+
+/* Breadcrumb in place of the bare page title. */
+.page-header-crumbed h2 { display: none; }
+.page-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-ink-secondary);
+}
+.page-breadcrumb .crumb-sep { color: var(--color-ink-secondary); opacity: 0.6; }
+.page-breadcrumb .crumb-link { color: var(--color-primary); text-decoration: none; cursor: pointer; }
+.page-breadcrumb .crumb-link:hover { text-decoration: underline; }
+.page-breadcrumb .crumb-leaf { color: var(--color-ink); font-weight: 600; }
+
+/* Contrast and sex design are set once in the guide; every page states them read-only. */
+.wf-settings-banner {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-blue);
+  border: 1px solid var(--color-border);
+  color: var(--color-ink-secondary);
+  font-size: 12.5px;
+}
+.wf-settings-banner svg, .wf-settings-banner .fa { color: var(--color-ink-secondary); font-size: 11px; }
+
+/* Step 4 preset picker and the resolved run order. */
+.wf-preset-blurb { display: block; font-size: 12px; color: var(--color-ink-secondary); line-height: 1.4; }
+/* The guide bar sits above the navbar, so an unbounded plan list (the "Full" preset lists all 16
+   analyses) pushed the navbar and the page itself below the fold. The bar is full width with a lot
+   of empty space on the right, so these lists flow into columns across it instead of running down
+   the left edge, with a height cap as a safety net on narrow windows. */
+.wf-plan-list {
+  margin: 2px 0 0 0;
+  padding-left: 0;
+  font-size: 12.5px;
+}
+.wf-plan-list { list-style: none; padding-left: 0; }
+.wf-plan-list li { display: flex; align-items: baseline; gap: 7px; margin-bottom: 0; }
+.wf-plan-num {
+  flex: 0 0 auto;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--color-ink-secondary);
+}
+.wf-plan-title { min-width: 0; overflow-wrap: anywhere; }
+.wf-bar .wf-mode-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 2px 28px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+/* Step 4's four presets stack into a tall column by default; across the bar's width they fit in
+   one row and save most of that height. Shiny's own rule caps .shiny-input-container at 300px,
+   which is what forced the single column - these groups opt out of that width. */
+#wf_preset.shiny-input-container,
+#wf_analyses.shiny-input-container { width: 100%; max-width: 100%; }
+#wf_preset .shiny-options-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2px 24px;
+  margin-top: 2px;
+}
+#wf_preset .radio { margin: 0; }
+#wf_preset .radio label { padding-right: 6px; }
+#wf_analyses .shiny-options-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 24px;
+}
+.wf-plan-step {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-ink-secondary);
+}
+
+/* The horizontal tx_menu strip is type = "hidden"; the wrapper keeps its spacing. */
+.tx-menu-hidden > .tabbable > .nav { display: none !important; }
+.tx-menu-hidden .tab-content { padding-top: 4px; }
+
+@media (max-width: 1100px) {
+  .sidebar-step-item { padding-left: 12px; }
+  .sm-state-pill { display: none; }
+  .sidebar-step-group { display: block; }
+}
+
+/* The nine-step strip folded into the guide bar: the sidebar is still the always-on tracker, and
+   this opens the whole route on demand without taking permanent vertical space. */
+.wf-steps-toggle { margin: 4px 0 8px 0; }
+.wf-steps-toggle > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-primary);
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-blue);
+}
+.wf-steps-toggle > summary::-webkit-details-marker { display: none; }
+.wf-steps-toggle > summary::after { content: "\25be"; font-size: 11px; }
+.wf-steps-toggle[open] > summary::after { content: "\25b4"; }
+.wf-steps-toggle > summary:hover { border-color: var(--color-primary); }
+.wf-steps-toggle > summary svg, .wf-steps-toggle > summary .fa { color: var(--color-primary); font-size: 11px; }
+.wf-steps-toggle .wf-bar-steps { margin-top: 8px; }
+
+/* Custom Analysis Design: the entry point above the step tracker, and its own page. */
+.sidebar-nav-design { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--color-border); }
+.sidebar-design-item {
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-surface-blue);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+}
+.sidebar-design-item:hover { background: var(--color-surface-blue); border-color: var(--color-primary); }
+.sidebar-design-item svg, .sidebar-design-item .fa { color: var(--color-primary); }
+.wf-design-intro { margin-bottom: 12px; }
+/* Under the breadcrumb rather than above the navbar: no side gutters needed here. */
+.wf-bar { margin: 10px 0 6px 0; }
+
+/* Section tabs on the same row as the app header, rather than a second bar under it.
+   Structure is untouched - the navbar is pulled up by exactly its own height (47px) so the two
+   together occupy the header's 55px, and inset past the brand on the left and the header buttons
+   on the right. Only above 1100px, where brand + tabs + buttons (~1050px) actually fit; below that
+   they stay stacked as before. */
+@media (min-width: 1100px) {
+  /* The navbar is pulled up over this row. z-index is per subtree, so the header has to sit ABOVE
+     the navbar for its logo and buttons to show at all - and then its own background would cover
+     the tabs, so the row's background moves to the navbar and the header only paints its content.
+     pointer-events lets clicks through the header's empty middle to the tabs underneath. */
+  .app-header {
+    position: relative;
+    z-index: 3;
+    background: transparent !important;
+    border-bottom: none !important;
+    pointer-events: none;
+  }
+  .app-header-brand, .app-header-actions { pointer-events: auto; }
+  .navbar {
+    position: relative;
+    z-index: 2;
+    margin-top: -47px;
+    margin-bottom: 0;
+    min-height: 0;
+    /* The navbar now carries the row's background and bottom rule, since the header gave them up. */
+    background: var(--color-surface, #ffffff) !important;
+    border: none !important;
+    border-bottom: 1px solid var(--color-border) !important;
+    box-shadow: none !important;
+    pointer-events: none;
+  }
+  .navbar .nav.navbar-nav { pointer-events: auto; }
+  .navbar > .container-fluid,
+  .navbar > .container {
+    padding-left: 160px;
+    padding-right: 204px;
+  }
+}
+/* The step explanation on module pages: folded until clicked, so the guide stays a thin controller. */
+.wf-body-toggle { margin: 6px 0 4px 0; }
+.wf-body-toggle > summary { font-weight: 500; }
+/* The design editor folds behind its own title, so the page stays a one-line summary when closed. */
+.wf-design-toggle > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; }
+.wf-design-toggle > summary::-webkit-details-marker { display: none; }
+.wf-design-toggle > summary::after { content: "\25be"; font-size: 11px; color: var(--color-ink-secondary); }
+.wf-design-toggle[open] > summary::after { content: "\25b4"; }
+.wf-design-summary { font-weight: 400; font-size: 12.5px; color: var(--color-ink-secondary); }
+
+/* Start-an-analysis layer picker: four named omics buttons rather than a vague radio pair. */
+.wf-pick-label { font-weight: 600; margin: 4px 0 6px 0; }
+.wf-pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.wf-pick-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 12px 14px; text-align: left;
+  background: var(--color-surface-blue);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+}
+.wf-pick-btn:hover { border-color: var(--color-primary); }
+.wf-pick-btn svg, .wf-pick-btn .fa { color: var(--color-primary); font-size: 14px; }
+.wf-pick-name { font-weight: 600; font-size: 13.5px; }
+.wf-pick-sub { font-size: 11.5px; color: var(--color-ink-secondary); }
+.wf-pick-btn-plain { border-left-color: var(--color-border); background: transparent; }
+.wf-pick-btn-plain svg, .wf-pick-btn-plain .fa { color: var(--color-ink-secondary); }
+
+/* An error that carries its own fix: the hover says what to do, no extra panel or button. */
+.wf-note-error {
+  border-left: 3px solid var(--color-danger, #DC2626);
+  background: rgba(220, 38, 38, 0.06);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  margin: 4px 0;
+}
+.wf-note-hinted { cursor: help; }
+.wf-note-hinted::after { content: " \24d8"; color: var(--color-ink-secondary); font-size: 11px; }
+
+/* Step strip in the page header, beside the breadcrumb: where you are, always on screen. */
+.wf-header-steps { margin-top: 6px; }
+.wf-header-steps .wf-bar-steps { margin: 0; gap: 4px 14px; }
+.wf-header-steps .pipeline-summary-title { font-size: 11.5px; }
+.wf-header-steps .pipeline-summary-dot { width: 17px; height: 17px; font-size: 10px; border-radius: 3px; }
+@media (max-width: 1200px) {
+  .wf-header-steps .wf-bar-steps { overflow-x: auto; flex-wrap: nowrap; }
+}
+
+/* ArthOMix mark in the header brand slot, on the same row as and just left of the Home tab. */
+.app-header-logo { display: block; height: 38px; width: auto; }
+.wf-bar-head-actions { display: flex; gap: 12px; align-items: center; }
+.wf-design-inputs { margin-bottom: 10px; }
+.wf-design-inputs .wf-bar-links { margin-top: 6px; }
+
+/* Design page: the choices on the left, the resulting pipeline down the right edge. */
+.wf-design-layout { display: flex; gap: 22px; align-items: flex-start; }
+.wf-design-main { flex: 1 1 auto; min-width: 0; }
+.wf-design-aside {
+  flex: 0 0 272px;
+  border-left: 1px solid var(--color-border);
+  padding-left: 18px;
+  align-self: stretch;
+}
+.wf-aside-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-ink-secondary);
+  margin-bottom: 6px;
+}
+.wf-design-aside .wf-plan-list li { margin-bottom: 3px; }
+@media (max-width: 1100px) {
+  .wf-design-layout { display: block; }
+  .wf-design-aside { border-left: none; padding-left: 0; margin-top: 14px; }
+}

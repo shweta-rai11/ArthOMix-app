@@ -3,6 +3,7 @@
 ## Clustering (fused network carried over unchanged), and provenance records from every stage.
 
 suppressWarnings(suppressMessages(source_from_app_root("global.R")))
+source_from_app_root(file.path("R", "dataset_cohort_summary.R"))
 for (f in list.files(file.path(app_dir, "R", "multiomics"), pattern = "[.]R$", recursive = TRUE, full.names = TRUE)) suppressWarnings(suppressMessages(source(f)))
 ## the modules read this flag from the global environment; force the synchronous run path for testServer
 .ph_async_old <- get0("ARTHOMIX_ASYNC_AVAILABLE", envir = globalenv(), ifnotfound = NULL)
