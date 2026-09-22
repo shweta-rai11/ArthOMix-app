@@ -9,12 +9,7 @@ source(file.path("R", "provenance.R"))
 
 if (file.exists(".Renviron")) readRenviron(".Renviron")
 
-## Fail loudly and clearly if bundled precomputed data are Git LFS pointer
-## stubs instead of the real files - this happens after a clone without
-## `git lfs pull` (or without git-lfs installed at all). Before this check,
-## a pointer stub surfaced only as a cryptic downstream parse error deep
-## inside whichever module first tried to read the affected file (2026-09-07
-## defense audit: Git LFS / clean-clone reproducibility finding).
+## Fail loudly if bundled data are Git LFS pointer stubs (clone without `git lfs pull`).
 arthomix_check_lfs_pointers <- function(root = file.path("data", "preloaded")) {
   if (!dir.exists(root)) return(invisible(NULL))
   files <- list.files(root, recursive = TRUE, full.names = TRUE)
@@ -76,19 +71,7 @@ safe_read_rds <- function(path, max_size_mb = 1024,
   list(ok = TRUE, value = obj, error = NULL)
 }
 
-## Excel silently reformats gene symbols that look like short dates (MARCH1-11,
-## SEPTIN/SEPT1-12/14/15, DEC1) into actual dates the moment a CSV is opened and
-## re-saved in it - "MARCH1" becomes "1-Mar", "SEPT9" becomes "9-Sep", etc. This
-## is a well-documented, still-ongoing problem in deposited omics data (Zeeberg
-## et al. 2004; Ziemann et al. 2016, "Gene name errors are widespread in the
-## scientific literature"). Repair known cases when reading an uploaded/fetched
-## feature-ID column so downstream gene-symbol lookups (enrichment, annotation,
-## deconvolution) aren't silently broken by a handful of unrecognizable IDs.
-## Every entry below is verified against org.Hs.eg.db (NCBI Entrez alias
-## table) as a real, database-confirmed gene alias - see conversation/commit
-## history for the verification query. "SEPT15" is deliberately excluded:
-## it has no confirmed NCBI record, so "15-Sep" is left unrepaired rather
-## than guessed at.
+## Repair gene symbols Excel mangled into dates (e.g. "MARCH1" -> "1-Mar"); all verified in org.Hs.eg.db, SEPT15 excluded.
 ARTHOMIX_EXCEL_DATE_GENE_MAP <- local({
   mar <- setNames(paste0("MARCH", 1:11), 1:11)
   sep <- setNames(paste0("SEPT", c(1:12, 14)), c(1:12, 14))
@@ -121,12 +104,7 @@ repair_excel_date_gene_symbols <- function(ids) {
 
 ARTHOMIX_ASYNC_AVAILABLE <- requireNamespace("future", quietly = TRUE) && requireNamespace("promises", quietly = TRUE)
 if (ARTHOMIX_ASYNC_AVAILABLE) {
-  ## Worker count: a hardcoded 2 meant a 3rd concurrent DIABLO/SNF/MOFA request
-  ## always queued behind the first two regardless of host size. Scale with
-  ## available cores instead, leaving one for the main Shiny process, but cap
-  ## it - each worker pre-loads mixOmics/SNFtool/MOFA2 below, which is
-  ## memory-heavy, so unbounded scaling on a large host is its own risk.
-  ## ARTHOMIX_ASYNC_WORKERS overrides this for a specific deployment.
+  ## Scale workers with cores (one left for the main process), capped for memory; ARTHOMIX_ASYNC_WORKERS overrides.
   .arthomix_async_workers <- {
     env_override <- suppressWarnings(as.integer(Sys.getenv("ARTHOMIX_ASYNC_WORKERS", "")))
     if (!is.na(env_override) && env_override >= 1L) {
@@ -184,13 +162,7 @@ suppressPackageStartupMessages({
   library(ggraph)
 })
 
-## parallel::detectCores() can return NA in restricted/containerized
-## environments (confirmed on GitHub Actions' runner), which propagates
-## through max() and fails WGCNA's own "must be numeric and at least 2"
-## check - so NA needs an explicit fallback. Separately, WGCNA requires
-## nThreads >= 2, so the floor here must be max(2, ...), not max(1, ...):
-## on any machine with 3 or fewer cores, detectCores() - 2 is 0 or 1,
-## which would fail that check even with a valid, non-NA core count.
+## detectCores() can be NA in containers and WGCNA needs nThreads >= 2, so fall back and floor at 2.
 n_wgcna_cores <- parallel::detectCores()
 if (is.na(n_wgcna_cores)) n_wgcna_cores <- 2L
 suppressMessages(
@@ -624,13 +596,7 @@ ollama_available <- function() {
 ARTHOCHAT_ANTHROPIC_MODEL <- "claude-sonnet-5"
 anthropic_available <- function() nzchar(Sys.getenv("ANTHROPIC_API_KEY", ""))
 
-## Qwen3-8B (the same model as ARTHOMIX_OLLAMA_MODEL) served through Hugging Face
-## Inference Providers. This is how the Hugging Face Space runs ArthOChat: the Space
-## has no Ollama server and 2 vCPUs, far too little to run an 8B model itself.
-## Enabled by a Space secret ARTHOCHAT_HF_TOKEN (a fine-grained token with only the
-## "Make calls to Inference Providers" permission). The ":nscale" suffix pins the
-## provider: it is the one the router lists with tool-calling support for this model,
-## and ArthOChat's PubMed/GWAS/analysis tools need tool calling.
+## Qwen3-8B via Hugging Face Inference Providers (ARTHOCHAT_HF_TOKEN); ":nscale" pins a provider with tool calling.
 ARTHOCHAT_HF_MODEL <- Sys.getenv("ARTHOCHAT_HF_MODEL", "Qwen/Qwen3-8B:nscale")
 hf_available <- function() nzchar(Sys.getenv("ARTHOCHAT_HF_TOKEN", ""))
 
@@ -638,10 +604,7 @@ hf_available <- function() nzchar(Sys.getenv("ARTHOCHAT_HF_TOKEN", ""))
 ## "no backend" message for public visitors, who cannot install Ollama or set env vars.
 arthochat_on_hosted_space <- function() nzchar(Sys.getenv("SPACE_ID", ""))
 
-## ArthOChat prefers a hosted Anthropic model when ANTHROPIC_API_KEY is set, then
-## Qwen3-8B on Hugging Face Inference Providers when ARTHOCHAT_HF_TOKEN is set (the
-## Hugging Face Space), and falls back to local Ollama for offline development
-## where neither is configured.
+## ArthOChat backend order: Anthropic (ANTHROPIC_API_KEY), Hugging Face (ARTHOCHAT_HF_TOKEN), local Ollama.
 arthochat_backend <- function() {
   if (anthropic_available()) "anthropic"
   else if (hf_available()) "huggingface"
@@ -1246,10 +1209,18 @@ MODULE_REGISTRY <- list(
   )
 )
 
+## ArthOChat is hidden from users unless ARTHOMIX_CHAT_ENABLED=true is set in the environment.
+## When off, no drawer, buttons, module card or server module exist, so nothing can be sent to an LLM.
+ARTHOMIX_CHAT_ENABLED <- identical(tolower(Sys.getenv("ARTHOMIX_CHAT_ENABLED", "false")), "true")
+if (!ARTHOMIX_CHAT_ENABLED) {
+  MODULE_REGISTRY <- Filter(function(m) !identical(m$id, "arthochat"), MODULE_REGISTRY)
+}
+
 ARTHOCHAT_DRAWER_OPEN_JS_STATEMENT <- "document.getElementById('arthochat_drawer').classList.add('open')"
 ARTHOCHAT_DRAWER_OPEN_JS <- paste0(ARTHOCHAT_DRAWER_OPEN_JS_STATEMENT, "; return false;")
 
 arthochat_shortcut_ui <- function(hint = NULL, compact = FALSE) {
+  if (!ARTHOMIX_CHAT_ENABLED) return(NULL)
   jump_link <- tags$a(
     "Open ArthOChat", href = "#", class = paste("btn btn-primary btn-sm", if (compact) "btn-block"),
     onclick = ARTHOCHAT_DRAWER_OPEN_JS

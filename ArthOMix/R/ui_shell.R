@@ -11,7 +11,7 @@ app_header <- function() {
       ),
       tags$div(
         class = "app-header-actions",
-        tags$a(
+        if (ARTHOMIX_CHAT_ENABLED) tags$a(
           "Ask ArthOChat", href = "#", class = "btn btn-primary btn-sm",
           onclick = ARTHOCHAT_DRAWER_OPEN_JS
         ),

@@ -927,7 +927,7 @@ homeUI <- function() {
         div(
           class = "home-hero-actions",
           actionButton("home_browse_modules", tagList(icon("table-cells-large"), "Explore Modules"), class = "btn btn-default"),
-          tags$a(icon("comments"), " Ask ArthOChat", href = "#", class = "btn btn-default", onclick = ARTHOCHAT_DRAWER_OPEN_JS)
+          if (ARTHOMIX_CHAT_ENABLED) tags$a(icon("comments"), " Ask ArthOChat", href = "#", class = "btn btn-default", onclick = ARTHOCHAT_DRAWER_OPEN_JS)
         ),
         div(class = "home-hero-search-label", "OR GO STRAIGHT TO A MODULE"),
         div(
@@ -978,7 +978,7 @@ homeUI <- function() {
           class = "home-goal-text",
           "ArthOMix is designed as a modular application. The user can either upload raw data or normalised data for each of the omics layers. For each module (Transcriptomics, methylomics, Integrated) it has multiple sub-modules. See the upload guide for file format details before you upload the data"
         ),
-        tags$a(
+        if (ARTHOMIX_CHAT_ENABLED) tags$a(
           class = "home-goal-chat-link", href = "#", onclick = ARTHOCHAT_DRAWER_OPEN_JS,
           icon("comments"), " Stuck at any step? Ask ArthOChat."
         )
@@ -998,7 +998,7 @@ homeUI <- function() {
           "From raw data to potential biomarkers, feature selection, diagnostic modeling, and biological interpretation within one analytical workflow."),
         home_feature_card("sliders", "Flexible, study-aware analysis",
           "Run sex-stratified, sex-specific, or sex-pooled analysis based on the research design."),
-        home_feature_card("comments", "Analysis-grounded AI assistant",
+        if (ARTHOMIX_CHAT_ENABLED) home_feature_card("comments", "Analysis-grounded AI assistant",
           "Struggling with a basic concept? Learn while analysing and interpret biological findings with responses grounded in your analysis.",
           kicker = "ArthOChat, grounded in your data"),
         home_feature_card("flask", "Supports single and multiomics",
@@ -1413,21 +1413,23 @@ ui <- function(request) {
         tabPanel(tagList(icon("arrows-left-right"), "Cross-Omics"), value = "crossomics", crossomicsUI()),
         tabPanel(tagList(icon("layer-group"), "Multi-Omics"), value = "multiomics", multiomicsUI())
       ),
-      div(
-        id = "arthochat_drawer", class = "chat-drawer",
+      if (ARTHOMIX_CHAT_ENABLED) tagList(
         div(
-          class = "chat-drawer-header",
-          div(icon("comments"), strong(" ArthOChat")),
-          tags$button(
-            icon("xmark"), class = "chat-drawer-close", title = "Close",
-            onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
-          )
+          id = "arthochat_drawer", class = "chat-drawer",
+          div(
+            class = "chat-drawer-header",
+            div(icon("comments"), strong(" ArthOChat")),
+            tags$button(
+              icon("xmark"), class = "chat-drawer-close", title = "Close",
+              onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+            )
+          ),
+          div(class = "chat-drawer-body", mod_arthochat_ui("arthochat"))
         ),
-        div(class = "chat-drawer-body", mod_arthochat_ui("arthochat"))
-      ),
-      tags$div(
-        id = "arthochat_drawer_backdrop", class = "chat-drawer-backdrop",
-        onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+        tags$div(
+          id = "arthochat_drawer_backdrop", class = "chat-drawer-backdrop",
+          onclick = "document.getElementById('arthochat_drawer').classList.remove('open')"
+        )
       )
     )
   )

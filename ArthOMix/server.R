@@ -15,11 +15,7 @@ function(input, output, session) {
 
   results <- reactiveValues()
 
-  ## Session-wide analysis-record + diagnostics stores (R/provenance.R). Every analysis run button in the
-  ## Transcriptomics, Cross-Omics, and (most of) the Multi-Omics module pushes its provenance record here
-  ## (the methylomics DMP tab and the Cross-Omics Expression/Methylation Integration tab additionally write
-  ## their own downloadable per-tab manifest); the header "Analysis records" button lists and exports them,
-  ## and the same panel shows the reason behind every error/warning the app absorbed into a "Not available".
+  ## Session-wide analysis-record + diagnostics stores (R/provenance.R), shown by the header "Analysis records" button.
   session$userData$arthomix_provenance <- reactiveVal(list())
   session$userData$arthomix_diagnostics <- reactiveVal(list())
 
@@ -186,14 +182,16 @@ function(input, output, session) {
     arthochat_shortcut_ui(hint, compact = TRUE)
   })
 
-  mod_arthochat_server(
-    "arthochat", dataset, results,
-    methyl_dataset, methyl_results,
-    cross_dataset, cross_results,
-    multi_dataset, multi_results,
-    current_context = current_module_context,
-    run_hooks = agent_run_hooks
-  )
+  if (ARTHOMIX_CHAT_ENABLED) {
+    mod_arthochat_server(
+      "arthochat", dataset, results,
+      methyl_dataset, methyl_results,
+      cross_dataset, cross_results,
+      multi_dataset, multi_results,
+      current_context = current_module_context,
+      run_hooks = agent_run_hooks
+    )
+  }
 
   tx_server_hooks <- setNames(
     lapply(TX_MODULES, function(m) m$server(paste0("tx_", m$config$id), dataset, results)),
