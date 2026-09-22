@@ -974,6 +974,20 @@ homeUI <- function() {
       )
     ),
     div(
+      class = "home-sexdesign-band",
+      div(
+        class = "page-header",
+        h2("Sex is a design choice here, not an afterthought"),
+        p("Every comparison can be run three ways. Load a dataset and its Dataset tab shows the sample counts per sex, per group, and warns before you commit to a design if a stratum is too small.")
+      ),
+      div(
+        class = "home-features-grid",
+        home_feature_card("scale-balanced", "Sex-pooled", "All samples in one model, adjusted for sex."),
+        home_feature_card("venus-mars", "Sex-stratified", "The same comparison run separately in each sex, so you can compare the two."),
+        home_feature_card("code-compare", "Sex-specific", "Tests whether the disease effect differs between the sexes - a diagnosis-by-sex interaction model.")
+      )
+    ),
+    div(
       class = "home-features-section",
       tags$canvas(id = "home_features_canvas", class = "home-features-canvas", `aria-hidden` = "true"),
       div(

@@ -1407,6 +1407,21 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   margin: -4px 0 8px 0;
 }
 
+/* Sex-design band: a tinted callout (not just another plain section) so the three designs read as
+   a deliberate, central platform feature rather than a footnote - per reviewer feedback that this
+   was previously buried in a small hero tagline chip. */
+.home-sexdesign-band {
+  background: var(--color-surface-blue);
+  border: 1px solid #D4E2F3;
+  border-radius: var(--radius-card);
+  padding: 26px 28px 22px 28px;
+  margin-bottom: 30px;
+}
+.home-sexdesign-band .home-feature-card { background: #ffffff; }
+@media (max-width: 576px) {
+  .home-sexdesign-band { padding: 18px 20px; }
+}
+
 /* ---------- Omics modules grid (Home page only) ----------
    Transcriptomics is first in MODULE_REGISTRY's Single-/Multi-omics
    filter, so it's also the first card here - give it a lightly tinted
