@@ -55,18 +55,6 @@ home_meta_chip <- function(icn, label, value) {
   )
 }
 
-home_hero_flow_step <- function(n, icn, title, blurb) {
-  div(
-    class = "home-hero-flow-step",
-    div(class = "home-hero-flow-num", n),
-    div(
-      class = "home-hero-flow-body",
-      div(class = "home-hero-flow-title", icon(icn), title),
-      p(class = "home-hero-flow-blurb", blurb)
-    )
-  )
-}
-
 home_hero_pill <- function(label, query = label) {
   tags$a(
     label, href = "#", class = "home-hero-pill",
@@ -926,6 +914,7 @@ homeUI <- function() {
         ),
         div(
           class = "home-hero-actions",
+          actionButton("home_start_analysis", tagList(icon("play"), "Start an analysis"), class = "btn btn-primary"),
           actionButton("home_browse_modules", tagList(icon("table-cells-large"), "Explore Modules"), class = "btn btn-default"),
           if (ARTHOMIX_CHAT_ENABLED) tags$a(icon("comments"), " Ask ArthOChat", href = "#", class = "btn btn-default", onclick = ARTHOCHAT_DRAWER_OPEN_JS)
         ),
@@ -946,15 +935,11 @@ homeUI <- function() {
           home_meta_chip("file-csv", "Accepted data", "CSV, RDS file formats.")
         )
       ),
-      div(
-        class = "home-hero-flow",
-        home_hero_flow_step("1", "layer-group", "Pick a module layer",
-          "Transcriptomics, methylomics and integrated."),
-        home_hero_flow_step("2", "route", "Run the analysis",
-          "Analysis based on modules."),
-        home_hero_flow_step("3", "flask-vial", "Identify potential biomarkers",
-          "To validated potential biomarker for wet-lab follow-up.")
-      )
+      ## Seven-step "Start an analysis" tracker (R/workflow_guide.R), rendered in the hero's flow-step cards.
+      ## An html output (what uiOutput() builds) that starts with the static not-started state, so it
+      ## shows before the server's first flush; uiOutput() itself drops initial children.
+      div(id = "wf_home_tracker", class = "home-hero-flow wf-tracker shiny-html-output",
+          wf_home_tracker_ui(1L, integer(0), FALSE))
       ),
       tags$script(HTML(
         "$(function(){
@@ -1404,6 +1389,7 @@ ui <- function(request) {
                   href = paste0("dark-theme.css?v=", as.integer(file.mtime("www/dark-theme.css"))))
       ),
       app_header(),
+      uiOutput("wf_bar"),
       navbarPage(
         title = "", id = "sidebar_tabs", selected = "home",
         tabPanel(tagList(icon("house"), "Home"), value = "home", homeUI()),

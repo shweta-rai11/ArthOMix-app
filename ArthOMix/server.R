@@ -201,6 +201,19 @@ function(input, output, session) {
 
   added <- reactiveValues(ids = character(0))
 
+  ## Same steps as pressing a sub-module card's "Add" button; also used by the guided workflow.
+  tx_insert_submodule <- function(m) {
+    hid <- m$config$id
+    insertTab(
+      session = session, inputId = "tx_menu",
+      tabPanel(m$config$title, br(), m$ui(paste0("tx_", hid))),
+      target = "Sub-modules", position = "before", select = TRUE
+    )
+    added$ids <- union(added$ids, hid)
+    shinyjs::addClass(id = paste0("smcard_", hid), class = "sm-card-active")
+    shinyjs::html(id = paste0("smstate_", hid), html = "Added")
+  }
+
   lapply(TX_MODULES, function(m) {
     hid <- m$config$id
     toggle_input <- paste0("sm_toggle_", hid)
@@ -212,14 +225,7 @@ function(input, output, session) {
         shinyjs::removeClass(id = paste0("smcard_", hid), class = "sm-card-active")
         shinyjs::html(id = paste0("smstate_", hid), html = "Add")
       } else {
-        insertTab(
-          session = session, inputId = "tx_menu",
-          tabPanel(m$config$title, br(), m$ui(paste0("tx_", hid))),
-          target = "Sub-modules", position = "before", select = TRUE
-        )
-        added$ids <- union(added$ids, hid)
-        shinyjs::addClass(id = paste0("smcard_", hid), class = "sm-card-active")
-        shinyjs::html(id = paste0("smstate_", hid), html = "Added")
+        tx_insert_submodule(m)
       }
     }, ignoreInit = TRUE)
   })
@@ -243,6 +249,19 @@ function(input, output, session) {
 
   mx_added <- reactiveValues(ids = character(0))
 
+  ## Same steps as pressing a sub-module card's "Add" button; also used by the guided workflow.
+  mx_insert_submodule <- function(m) {
+    hid <- m$config$id
+    insertTab(
+      session = session, inputId = "mx_menu",
+      tabPanel(m$config$title, br(), m$ui(paste0("mx_", hid))),
+      target = "Sub-modules", position = "before", select = TRUE
+    )
+    mx_added$ids <- union(mx_added$ids, hid)
+    shinyjs::addClass(id = paste0("mx_smcard_", hid), class = "sm-card-active")
+    shinyjs::html(id = paste0("mx_smstate_", hid), html = "Added")
+  }
+
   lapply(MX_MODULES, function(m) {
     hid <- m$config$id
     toggle_input <- paste0("mx_sm_toggle_", hid)
@@ -254,14 +273,7 @@ function(input, output, session) {
         shinyjs::removeClass(id = paste0("mx_smcard_", hid), class = "sm-card-active")
         shinyjs::html(id = paste0("mx_smstate_", hid), html = "Add")
       } else {
-        insertTab(
-          session = session, inputId = "mx_menu",
-          tabPanel(m$config$title, br(), m$ui(paste0("mx_", hid))),
-          target = "Sub-modules", position = "before", select = TRUE
-        )
-        mx_added$ids <- union(mx_added$ids, hid)
-        shinyjs::addClass(id = paste0("mx_smcard_", hid), class = "sm-card-active")
-        shinyjs::html(id = paste0("mx_smstate_", hid), html = "Added")
+        mx_insert_submodule(m)
       }
     }, ignoreInit = TRUE)
   })
@@ -588,6 +600,28 @@ function(input, output, session) {
     }))
   })
   outputOptions(output, "mo_sidebar_dynamic_nav", suspendWhenHidden = FALSE)
+
+  ## Guided "Start an analysis" workflow (R/workflow_guide.R): opens existing tabs the same way their
+  ## sub-module "Add" cards and sidebar links do.
+  workflow_guide_server(
+    input, output, session, dataset, results, methyl_dataset, methyl_results,
+    nav = list(
+      dataset = function(layer) {
+        updateTabsetPanel(session, "sidebar_tabs", selected = layer)
+        updateTabsetPanel(session, if (identical(layer, "transcriptomics")) "tx_menu" else "mx_menu", selected = "Dataset")
+      },
+      open = function(layer, hid) {
+        updateTabsetPanel(session, "sidebar_tabs", selected = layer)
+        if (identical(layer, "transcriptomics")) {
+          m <- TX_MODULES_BY_ID[[hid]]
+          if (hid %in% added$ids) updateTabsetPanel(session, "tx_menu", selected = m$config$title) else tx_insert_submodule(m)
+        } else {
+          m <- MX_MODULES_BY_ID[[hid]]
+          if (hid %in% mx_added$ids) updateTabsetPanel(session, "mx_menu", selected = m$config$title) else mx_insert_submodule(m)
+        }
+      }
+    )
+  )
 
   observeEvent(input$header_search_submit, {
     q <- tolower(trimws(input$header_search_submit %||% ""))

@@ -1690,3 +1690,27 @@ table.dataTable thead th { border-bottom: 2px solid var(--color-border) !importa
   line-height: 18px;
   text-align: center;
 }
+
+/* ---------- Guided "Start an analysis" workflow (R/workflow_guide.R).
+   Reuses the hero flow-step cards (home tracker) and the pipeline-summary
+   dots and state colours (guide bar); only layout and state tweaks here. ---------- */
+.home-hero-flow.wf-tracker { gap: 6px; }
+.home-hero-flow.wf-tracker .home-hero-flow-step { padding: 8px 14px; }
+.home-hero-flow.wf-tracker .home-hero-flow-step:not(:last-child)::after { bottom: -7px; height: 7px; }
+.wf-tracker .wf-state-future .home-hero-flow-num { background: #EEF1F4; color: var(--color-ink-secondary); }
+.wf-tracker .wf-state-future .home-hero-flow-title { color: var(--color-ink-secondary); font-weight: 600; }
+.wf-tracker .wf-state-done .home-hero-flow-num { background: var(--color-success); }
+.wf-tracker .wf-state-current { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+.wf-clickable { cursor: pointer; }
+
+.wf-bar { margin: 12px 16px 4px 16px; }
+.wf-bar-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.wf-bar-exit { font-size: 13px; }
+.wf-bar-steps { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 12px 0; }
+.wf-bar-steps .pipeline-summary-step { padding-bottom: 0; align-items: center; gap: 6px; }
+.wf-bar-steps .pipeline-summary-step::before { display: none; }
+.wf-bar-steps .pipeline-summary-title { font-size: 12.5px; }
+.wf-mode-list { margin: 4px 0 8px 0; padding-left: 18px; font-size: 13px; color: var(--color-ink-secondary); }
+.wf-bar-links { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.wf-bar-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.wf-note-error { color: var(--color-danger, #DC2626); }
