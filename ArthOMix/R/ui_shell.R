@@ -107,7 +107,7 @@ omics_sidebar_step_header <- function(n, label, status) {
 pipeline_summary_ui <- function(steps) {
   tags$div(
     class = "card",
-    tags$div(class = "card-title", icon("list-check"), "Pipeline summary"),
+    tags$div(class = "card-title", icon("list-check"), "Summary"),
     tags$ul(
       class = "pipeline-summary-list",
       lapply(steps, function(s) {

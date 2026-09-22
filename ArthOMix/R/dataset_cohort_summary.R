@@ -120,8 +120,16 @@ cohort_summary_server <- function(id, meta_reactive) {
 
       g <- as.character(meta[[gcol]])
       scol <- cohort_col(meta, c("sex", "Sex", "SEX", "gender", "Gender"))
-      has_sex <- !is.null(scol) && scol %in% colnames(meta)
+      ## An uploaded dataset's sex column exists but is entirely NA whenever the user leaves the
+      ## "Sex column" mapping on "(none)" - the column being present is not enough to prove there
+      ## is anything usable in it (table(g, s) on all-NA silently produces zero columns).
+      has_sex <- !is.null(scol) && scol %in% colnames(meta) &&
+        any(!is.na(meta[[scol]]) & nzchar(as.character(meta[[scol]])))
 
+      ## Total always comes from every row, sex-mapped or not - an upload with only some rows'
+      ## sex mapped (or the sex column only partly filled in) must not silently drop the rest of
+      ## a group out of its own count just because table(g, s) drops NAs from the cross-tab.
+      group_totals <- table(g)
       if (has_sex) {
         raw <- as.character(meta[[scol]])
         s <- ifelse(grepl("^f(emale)?$", raw, ignore.case = TRUE), "Female",
@@ -129,11 +137,12 @@ cohort_summary_server <- function(id, meta_reactive) {
         tbl <- as.data.frame.matrix(table(g, s))
         ordered <- intersect(c("Female", "Male"), colnames(tbl))
         tbl <- tbl[, c(ordered, setdiff(colnames(tbl), ordered)), drop = FALSE]
-        tbl$Total <- rowSums(tbl)
+        n_unmapped <- as.integer(group_totals[rownames(tbl)]) - rowSums(tbl)
+        if (any(n_unmapped > 0)) tbl$"Sex unknown" <- pmax(n_unmapped, 0L)
+        tbl$Total <- as.integer(group_totals[rownames(tbl)])
       } else {
-        counts <- table(g)
-        tbl <- data.frame(Total = as.integer(counts))
-        rownames(tbl) <- names(counts)
+        tbl <- data.frame(Total = as.integer(group_totals))
+        rownames(tbl) <- names(group_totals)
       }
       tbl <- cbind(Cohort = rownames(tbl), tbl)
       rownames(tbl) <- NULL
